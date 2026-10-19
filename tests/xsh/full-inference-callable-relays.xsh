@@ -1,12 +1,16 @@
 proc full_inference_callable_relay_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-callable-relays")?
-  fp"{modules}/relays.xsh".write(
-    r"""##! Generic callable relays for full inference tests.
+  fp"{modules}/procs.xsh".write(
+    r"""##! Generic proc relay for full inference tests.
 
 ## Returns its input through the proc result envelope.
 export proc wrap(value) {
   value
 }
+""",
+  )?
+  fp"{modules}/streams.xsh".write(
+    r"""##! Generic stream relay for full inference tests.
 
 ## Yields each value lazily and records the pull order.
 export stream replay(value, count) {
@@ -20,14 +24,30 @@ export stream replay(value, count) {
   modules
 }
 
-test test_full_inference_imported_generic_proc_and_stream_aliases_retain_schemes { |ctx|
+test test_full_inference_imported_generic_proc_alias_retains_its_scheme { |ctx|
   let modules = full_inference_callable_relay_modules(ctx)?
   let output = test.run_xsh(
     ctx,
-    r"""use relays as flow
+    r"""use procs as flow
 let wrap = flow.wrap
 let integer = wrap(42)?
 let text = wrap("demo")?
+assert integer == 42
+assert text == "demo"
+print $integer
+print $text
+""",
+    env: {XSH_MODULE_PATH: modules},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\ndemo\n"
+}
+
+test test_full_inference_imported_generic_stream_alias_retains_its_scheme_and_lazy_order { |ctx|
+  let modules = full_inference_callable_relay_modules(ctx)?
+  let output = test.run_xsh(
+    ctx,
+    r"""use streams as flow
 let replay = flow.replay
 let integer_producer = replay(7, 2)
 print "integer producer created"
@@ -35,19 +55,15 @@ let integers = integer_producer |> collect()
 let text_producer = replay("row", 1)
 print "text producer created"
 let rows = text_producer |> collect()
-assert integer == 42
-assert text == "demo"
 assert integers == [7, 7]
 assert rows == ["row"]
-print $integer
-print $text
 print $integers
 print $rows
 """,
     env: {XSH_MODULE_PATH: modules},
   )?
   assert output.success, output.stderr
-  assert output.stdout == "integer producer created\npull:7\npull:7\ntext producer created\npull:row\n42\ndemo\n[7, 7]\n[row]\n"
+  assert output.stdout == "integer producer created\npull:7\npull:7\ntext producer created\npull:row\n[7, 7]\n[row]\n"
 }
 
 test test_full_inference_compatible_generic_callable_selection_instantiates_per_call { |ctx|
