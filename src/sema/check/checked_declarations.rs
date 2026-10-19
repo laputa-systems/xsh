@@ -74,6 +74,7 @@ pub struct CheckedFunctionDeclaration {
     pub signature: Option<CompactFunctionSig>,
     pub(crate) scheme: Option<std::sync::Arc<TypeScheme>>,
     pub(super) symbol_owner: crate::symbol::SymbolOwner,
+    pub(super) schema_identities: std::sync::Arc<BTreeMap<TypeDefId, super::callable_contract::SchemaIdentity>>,
     pub(crate) scheme_body_facts: Option<SchemeBodyFacts>,
     pub body: Span,
     pub parameter_spans: Vec<Span>,
@@ -138,6 +139,7 @@ impl CheckedDeclarations {
                 signature,
                 scheme,
                 symbol_owner: _,
+                schema_identities: _,
                 scheme_body_facts,
                 body,
                 parameter_spans,
@@ -294,6 +296,7 @@ impl Checker {
         if self.collecting_effects { return; }
         let def = program.arena.function_def(id);
         let scheme = signature.map(|sig| std::sync::Arc::clone(sig.scheme()));
+        let schema_identities = scheme.as_ref().map(|scheme| self.callable_schema_identities(program, scheme)).unwrap_or_default();
         let signature = signature.and_then(|sig| {
             let params = sig.scheme().params().iter().map(|param| {
                 Some(CallableParamType {
@@ -317,7 +320,7 @@ impl Checker {
             name: def.name, namespace: self.current_namespace,
             internal: self.current_namespace.is_some_and(|owner| program.is_internal_namespace(owner)),
             exported,
-            kind, signature, scheme, symbol_owner: program.symbol_owner().clone(), scheme_body_facts,
+            kind, signature, scheme, symbol_owner: program.symbol_owner().clone(), schema_identities, scheme_body_facts,
             body: program.arena.span(program.arena.block(def.body).span),
             parameter_spans: program.arena.params(def.params).iter().map(|param| program.arena.span(param.span)).collect(),
         });
@@ -643,6 +646,7 @@ mod tests {
                 signature: None,
                 scheme: Some(std::sync::Arc::clone(&scheme)),
                 symbol_owner: crate::symbol::SymbolOwner::current().unwrap(),
+                schema_identities: Default::default(),
                 scheme_body_facts,
                 body: Span::at(SourceId::new(0), index),
                 parameter_spans: Vec::new(),

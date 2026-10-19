@@ -817,6 +817,7 @@ mod tests {
                     signature: None,
                     scheme: None,
                     symbol_owner: crate::symbol::SymbolOwner::current().unwrap(),
+                    schema_identities: Default::default(),
                     scheme_body_facts: None,
                     body: contract,
                     parameter_spans: Vec::new(),

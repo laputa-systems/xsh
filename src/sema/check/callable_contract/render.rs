@@ -1,4 +1,5 @@
-use super::CheckedCallableContract;
+use super::{CheckedCallableContract, SchemaIdentity};
+use crate::syntax::arena::TypeDefId;
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
     CallableMonotype, SchemeCallableKind, SchemeParameter, SchemeRowParameterId, SchemeType,
@@ -118,12 +119,12 @@ impl fmt::Display for CheckedCallableContract {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.symbol_owner.with_current(|| {
             let names = BinderNames::from_scheme(&self.scheme);
-            f.write_str(&render_scheme(&self.scheme, &names))
+            f.write_str(&render_scheme(&self.scheme, &names, &self.schema_identities))
         })
     }
 }
 
-fn render_scheme(scheme: &TypeScheme, names: &BinderNames) -> String {
+fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
     let mut parts = Vec::new();
     let quantifiers = names.quantifiers(scheme);
     if !quantifiers.is_empty() {
@@ -135,37 +136,37 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames) -> String {
         scheme
             .params()
             .iter()
-            .map(|parameter| render_parameter(parameter, names))
+            .map(|parameter| render_parameter(parameter, names, identities))
             .collect::<Vec<_>>()
             .join(", "),
-        render_scheme_type(scheme.return_type(), names)
+        render_scheme_type(scheme.return_type(), names, identities)
     ));
     if let Some(schema) = scheme.return_schema() {
-        parts.push(format!("return-schema={}", render_schema(schema)));
+        parts.push(format!("return-schema={}", render_schema(schema, identities)));
     }
     parts.push(format!("effects={}", render_effects(scheme.effects())));
     parts.join(" ")
 }
 
-fn render_parameter(parameter: &SchemeParameter, names: &BinderNames) -> String {
+fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
     let mut rendered = String::new();
     if parameter.rest {
         rendered.push_str("...");
     }
     rendered.push_str(&parameter.name.to_string());
     rendered.push_str(": ");
-    rendered.push_str(&render_scheme_type(&parameter.ty, names));
+    rendered.push_str(&render_scheme_type(&parameter.ty, names, identities));
     if parameter.defaulted {
         rendered.push_str(" = default");
     }
     if let Some(schema) = &parameter.schema_expectation {
         rendered.push_str(" schema=");
-        rendered.push_str(&render_schema(schema));
+        rendered.push_str(&render_schema(schema, identities));
     }
     rendered
 }
 
-fn render_scheme_type(ty: &SchemeType, names: &BinderNames) -> String {
+fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
     match ty {
         SchemeType::Ground(ty) => render_type(ty),
         SchemeType::Parameter(id) => names.type_name(*id),
@@ -180,40 +181,40 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames) -> String {
                 monotype
                     .params()
                     .iter()
-                    .map(|parameter| render_parameter(parameter, names))
+                    .map(|parameter| render_parameter(parameter, names, identities))
                     .collect::<Vec<_>>()
                     .join(", "),
-                render_scheme_type(monotype.return_type(), names)
+                render_scheme_type(monotype.return_type(), names, identities)
             );
             if let Some(schema) = monotype.return_schema() {
                 rendered.push_str(" return-schema=");
-                rendered.push_str(&render_schema(schema));
+                rendered.push_str(&render_schema(schema, identities));
             }
             rendered.push_str(" effects=");
             rendered.push_str(&render_effects(effects.as_deref()));
             rendered
         }
-        SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names)),
+        SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities)),
         SchemeType::Map(key, value) if matches!(key.as_ref(), SchemeType::Ground(Type::Str)) => {
-            format!("Map[{}]", render_scheme_type(value, names))
+            format!("Map[{}]", render_scheme_type(value, names, identities))
         }
         SchemeType::Map(key, value) => format!(
             "Map[{}, {}]",
-            render_scheme_type(key, names),
-            render_scheme_type(value, names)
+            render_scheme_type(key, names, identities),
+            render_scheme_type(value, names, identities)
         ),
-        SchemeType::Stream(item) => format!("Stream[{}]", render_scheme_type(item, names)),
-        SchemeType::Set(item) => format!("Set[{}]", render_scheme_type(item, names)),
+        SchemeType::Stream(item) => format!("Stream[{}]", render_scheme_type(item, names, identities)),
+        SchemeType::Set(item) => format!("Set[{}]", render_scheme_type(item, names, identities)),
         SchemeType::Result(ok, error) => format!(
             "Result[{}, {}]",
-            render_scheme_type(ok, names),
-            render_scheme_type(error, names)
+            render_scheme_type(ok, names, identities),
+            render_scheme_type(error, names, identities)
         ),
-        SchemeType::Optional(item) => format!("{}?", render_scheme_type(item, names)),
+        SchemeType::Optional(item) => format!("{}?", render_scheme_type(item, names, identities)),
         SchemeType::Record { fields, tail } => {
             let mut entries = fields
                 .iter()
-                .map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names)))
+                .map(|(name, ty)| format!("{name}: {}", render_scheme_type(ty, names, identities)))
                 .collect::<Vec<_>>();
             if let crate::sema::schemes::SchemeRowTail::Parameter(id) = tail {
                 entries.push(format!("..{}", names.row_name(*id)));
@@ -224,12 +225,12 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames) -> String {
             "Union[{}]",
             members
                 .iter()
-                .map(|member| render_scheme_type(member, names))
+                .map(|member| render_scheme_type(member, names, identities))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         SchemeType::Validated(validation, base) => {
-            render_validation(*validation, render_scheme_type(base, names))
+            render_validation(*validation, render_scheme_type(base, names, identities))
         }
     }
 }
@@ -345,14 +346,14 @@ fn render_validation(validation: Validation, base: String) -> String {
     }
 }
 
-fn render_schema(expectation: &SchemaExpectation) -> String {
+fn render_schema(expectation: &SchemaExpectation, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
     let mut entries = expectation
         .instances
         .iter()
         .map(|instance| {
             format!(
-                "schema#{}[{}]",
-                instance.definition.index(),
+                "schema {}[{}]",
+                render_schema_identity(&identities[&instance.definition]),
                 instance
                     .arguments
                     .iter()
@@ -363,7 +364,7 @@ fn render_schema(expectation: &SchemaExpectation) -> String {
         })
         .collect::<Vec<_>>();
     entries.extend(expectation.children.iter().map(|(component, child)| {
-        format!("{}: {}", render_schema_component(*component), render_schema(child))
+        format!("{}: {}", render_schema_component(*component), render_schema(child, identities))
     }));
     format!("{{{}}}", entries.join(", "))
 }
@@ -400,5 +401,12 @@ fn callable_kind(kind: SchemeCallableKind) -> &'static str {
         SchemeCallableKind::Pure => "pure",
         SchemeCallableKind::Proc => "proc",
         SchemeCallableKind::Stream => "stream",
+    }
+}
+
+fn render_schema_identity(identity: &SchemaIdentity) -> String {
+    match &identity.module {
+        Some(module) => format!("{module}::{}", identity.name),
+        None => identity.name.to_string(),
     }
 }

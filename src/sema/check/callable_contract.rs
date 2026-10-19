@@ -1,8 +1,10 @@
-use super::{CheckedFunctionDeclaration, CheckedFunctionKind, CheckOutput};
+use super::{CheckedFunctionDeclaration, CheckedFunctionKind, Checker, CheckOutput};
+use crate::sema::constants::SchemaExpectation;
 use crate::sema::schemes::{CallableMonotype, SchemeCallableKind, SchemeRowParameterId,
     SchemeRowTail, SchemeType, SchemeTypeParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
-use std::collections::BTreeMap;
+use crate::syntax::arena::{ArenaProgram, TypeDefId};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 mod render;
@@ -13,6 +15,53 @@ mod render;
 pub struct CheckedCallableContract {
     scheme: Arc<TypeScheme>,
     symbol_owner: SymbolOwner,
+    schema_identities: Arc<BTreeMap<TypeDefId, SchemaIdentity>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SchemaIdentity {
+    pub(super) module: Option<Arc<str>>,
+    pub(super) name: crate::symbol::Name,
+}
+
+impl Checker {
+    pub(super) fn callable_schema_identities(&self, program: &ArenaProgram, scheme: &TypeScheme) -> Arc<BTreeMap<TypeDefId, SchemaIdentity>> {
+        let mut types = scheme.params().iter().map(|parameter| &parameter.ty)
+            .chain(std::iter::once(scheme.return_type())).collect::<Vec<_>>();
+        let mut schemas = scheme.params().iter().filter_map(|parameter| parameter.schema_expectation.as_ref())
+            .chain(scheme.return_schema()).collect::<Vec<_>>();
+        while let Some(ty) = types.pop() {
+            match ty {
+                SchemeType::Callable { monotype, .. } => {
+                    types.extend(monotype.params().iter().map(|parameter| &parameter.ty));
+                    types.push(monotype.return_type());
+                    schemas.extend(monotype.params().iter().filter_map(|parameter| parameter.schema_expectation.as_ref()));
+                    schemas.extend(monotype.return_schema());
+                }
+                SchemeType::List(inner) | SchemeType::Stream(inner) | SchemeType::Set(inner)
+                | SchemeType::Optional(inner) | SchemeType::Validated(_, inner) => types.push(inner),
+                SchemeType::Map(key, value) | SchemeType::Result(key, value) => { types.push(key); types.push(value); }
+                SchemeType::Record { fields, .. } => types.extend(fields.values()),
+                SchemeType::Union(members) => types.extend(members),
+                SchemeType::Ground(_) | SchemeType::Parameter(_) => {}
+            }
+        }
+        let mut definitions = BTreeSet::new();
+        while let Some(schema) = schemas.pop() {
+            definitions.extend(schema.instances.iter().map(|instance| instance.definition));
+            schemas.extend(schema.children.values());
+        }
+        Arc::new(definitions.into_iter().map(|definition| {
+            let name = program.arena.type_def(definition).name;
+            let namespace = self.record_constructors.namespace(definition);
+            assert_eq!(self.record_constructors.definition(namespace, name), Some(definition), "checked schema identity matches its declaration");
+            let module = namespace.map(|namespace| {
+                Arc::from(program.modules.iter().find(|module| module.name == namespace)
+                    .expect("checked schema belongs to a declared module").key.as_str())
+            });
+            (definition, SchemaIdentity { module, name })
+        }).collect())
+    }
 }
 
 impl CheckedCallableContract {
@@ -47,6 +96,7 @@ impl CheckedCallableContract {
             scheme: Arc::new(TypeScheme::with_callable(self.scheme.kind(), Arc::clone(self.scheme.callable()), effects,
                 self.scheme.inferred_effects() || other.scheme.inferred_effects()).ok()?),
             symbol_owner: self.symbol_owner.clone(),
+            schema_identities: Arc::clone(&self.schema_identities),
         })
     }
 
@@ -85,10 +135,13 @@ impl CheckedCallableContract {
         {
             return false;
         }
-        let mut equivalence = BoundEquivalence::default();
+        let mut equivalence = BoundEquivalence {
+            types: BTreeMap::new(), rows: BTreeMap::new(),
+            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
+        };
         if !equivalence.parameters(self.scheme.params(), other.scheme.params())
             || !equivalence.ty(self.scheme.return_type(), other.scheme.return_type())
-            || self.scheme.return_schema() != other.scheme.return_schema()
+            || !equivalence.schema(self.scheme.return_schema(), other.scheme.return_schema())
         {
             return false;
         }
@@ -105,6 +158,7 @@ impl CheckedFunctionDeclaration {
         Some(CheckedCallableContract {
             scheme: Arc::clone(self.scheme.as_ref()?),
             symbol_owner: self.symbol_owner.clone(),
+            schema_identities: Arc::clone(&self.schema_identities),
         })
     }
 }
@@ -128,10 +182,11 @@ fn same_effects(left: Option<&[crate::syntax::node::Effect]>, right: Option<&[cr
     }
 }
 
-#[derive(Default)]
-struct BoundEquivalence {
+struct BoundEquivalence<'a> {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
+    left_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
+    right_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
 }
 
 fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key) -> bool {
@@ -141,17 +196,32 @@ fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key
     true
 }
 
-impl BoundEquivalence {
+impl BoundEquivalence<'_> {
+    fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
+        match (left, right) {
+            (None, None) => true,
+            (Some(left), Some(right)) => left.instances.len() == right.instances.len()
+                && left.instances.iter().zip(&right.instances).all(|(left, right)| {
+                    self.left_schemas.get(&left.definition).is_some_and(|identity| Some(identity) == self.right_schemas.get(&right.definition))
+                        && left.arguments == right.arguments
+                })
+                && left.children.len() == right.children.len()
+                && left.children.iter().all(|(component, left)| right.children.get(component)
+                    .is_some_and(|right| self.schema(Some(left), Some(right)))),
+            _ => false,
+        }
+    }
+
     fn parameters(&mut self, left: &[crate::sema::schemes::SchemeParameter], right: &[crate::sema::schemes::SchemeParameter]) -> bool {
         left.len() == right.len() && left.iter().zip(right).all(|(left, right)| {
             left.name == right.name && left.defaulted == right.defaulted && left.rest == right.rest
-                && left.schema_expectation == right.schema_expectation && self.ty(&left.ty, &right.ty)
+                && self.schema(left.schema_expectation.as_ref(), right.schema_expectation.as_ref()) && self.ty(&left.ty, &right.ty)
         })
     }
 
     fn monotype(&mut self, left: &CallableMonotype, right: &CallableMonotype) -> bool {
         self.parameters(left.params(), right.params()) && self.ty(left.return_type(), right.return_type())
-            && left.return_schema() == right.return_schema()
+            && self.schema(left.return_schema(), right.return_schema())
     }
 
     fn ty(&mut self, left: &SchemeType, right: &SchemeType) -> bool {
@@ -211,8 +281,69 @@ mod tests {
                         schema_expectation: None, defaulted: false, rest: false }],
                     result.map_or(SchemeType::Parameter(binder), SchemeType::Ground), None, false, None, false).unwrap()),
                 symbol_owner: owner.clone(),
+                schema_identities: Default::default(),
             }
         })
+    }
+
+    fn root_schema_contract(source: &str) -> CheckedCallableContract {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str() == "describe").unwrap().callable_contract().unwrap())
+    }
+
+    #[test]
+    fn checked_callable_contract_distinguishes_independently_parsed_schema_names() {
+        let first = root_schema_contract("type First[T] = {label: Str}\npure describe(value: First[Int]) -> Str { value.label }\n");
+        let second = root_schema_contract("type Second[T] = {label: Str}\npure describe(value: Second[Int]) -> Str { value.label }\n");
+        assert!(!first.equivalent_to(&second));
+        assert_ne!(first.to_string(), second.to_string());
+    }
+
+    #[test]
+    fn checked_callable_contract_preserves_schema_identity_when_arena_indices_shift() {
+        let first = root_schema_contract("type Entry[T] = {label: Str}\npure describe(value: Entry[Int]) -> Str { value.label }\n");
+        let shifted = root_schema_contract("type Unrelated = Int\ntype Entry[T] = {label: Str}\npure describe(value: Entry[Int]) -> Str { value.label }\n");
+        assert!(first.equivalent_to(&shifted));
+        assert_eq!(first.to_string(), shifted.to_string());
+        assert!(first.join_effects(&shifted).unwrap().equivalent_to(&first));
+    }
+
+    fn imported_schema_contract(key: &str, namespace: &str) -> CheckedCallableContract {
+        use crate::syntax::arena::ArenaProgramBuilder;
+        let source = "use shared as api\n";
+        let module_source = "##! Schema module.\n## A phantom schema.\nexport type Entry[T] = {label: Str}\n## Reads its label.\nexport pure describe(value: Entry[Int]) -> Str { value.label }\n";
+        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+        let root = Parser::parse_source_into_arena_builder(SourceId::new(0), source, &mut builder);
+        let module = Parser::parse_source_into_arena_builder(SourceId::new(1), module_source, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let name = builder.symbol_owner().intern(namespace);
+        builder.push_arena_module(key.to_owned(), name, module.statements);
+        let statement = builder.statement_ids(root.statements)[0];
+        let (use_id, _, _) = builder.use_stmt_for_statement(statement).unwrap();
+        builder.set_use_resolved(use_id, Arc::from(key));
+        let program = builder.finish_with_statements(root.statements);
+        let checked = Checker::check_arena_with_options(&program, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        program.symbol_owner().with_current(|| checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str() == "describe").unwrap().callable_contract().unwrap())
+    }
+
+    #[test]
+    fn checked_callable_contract_anchors_imported_schemas_to_canonical_module_keys() {
+        let first = imported_schema_contract("/library/first.xsh", "shared");
+        let second = imported_schema_contract("/library/second.xsh", "shared");
+        let renamed = imported_schema_contract("/library/first.xsh", "renamed");
+        assert!(!first.equivalent_to(&second));
+        assert_ne!(first.to_string(), second.to_string());
+        assert!(first.equivalent_to(&renamed));
+        assert_eq!(first.to_string(), renamed.to_string());
     }
 
     #[test]
@@ -251,6 +382,7 @@ mod tests {
                             schema_expectation: None, defaulted: false, rest: false }],
                         SchemeType::Ground(Type::Int), None, false, None, false).unwrap()),
                     symbol_owner: owner.clone(),
+                    schema_identities: Default::default(),
                 }
             };
             let first = build(3, false);
@@ -310,6 +442,7 @@ mod effect_join_tests {
                         schema_expectation: None, defaulted: false, rest: false }],
                     SchemeType::Ground(return_type), None, false, effects, false).unwrap()),
                 symbol_owner: owner.clone(),
+                schema_identities: Default::default(),
             };
             let fs = build(Some(vec![Effect::Fs, Effect::Error]), Type::Str);
             let process = build(Some(vec![Effect::Process, Effect::Error]), Type::Str);
