@@ -106,7 +106,7 @@ fn build_actual(problem: &oracle::Problem) -> ActualProblem {
             let id = constraints.fresh_row_at_level(
                 span(variable.0 + 1024),
                 level,
-                lacks.iter().map(|name| Name::intern(name)),
+                lacks.iter().map(Name::intern),
             );
             (variable, id)
         })
@@ -149,11 +149,7 @@ fn constraint_type(
             type_variables,
             row_variables,
         )?)),
-        _ => Ok(ConstraintType::Ground(actual_type(
-            ty,
-            type_variables,
-            row_variables,
-        )?)),
+        _ => Ok(ConstraintType::Ground(actual_type(ty, type_variables)?)),
     }
 }
 
@@ -168,7 +164,7 @@ fn row_shape(
         .map(|(name, ty)| {
             Ok((
                 Name::intern(name),
-                actual_type(ty, type_variables, row_variables)?,
+                actual_type(ty, type_variables)?,
             ))
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
@@ -186,7 +182,6 @@ fn row_shape(
 fn actual_type(
     ty: &oracle::Type,
     type_variables: &BTreeMap<oracle::TypeVariable, TypeVariableId>,
-    row_variables: &BTreeMap<oracle::RowVariable, super::RowVariableId>,
 ) -> Result<Type, String> {
     Ok(match ty {
         oracle::Type::Variable(variable) => Type::Inference(
@@ -198,19 +193,15 @@ fn actual_type(
         oracle::Type::Atom(oracle::Atom::Str) => Type::Str,
         oracle::Type::Atom(oracle::Atom::Bool) => Type::Bool,
         oracle::Type::Atom(oracle::Atom::Unit) => Type::Unit,
-        oracle::Type::List(inner) => Type::List(Box::new(actual_type(
-            inner,
-            type_variables,
-            row_variables,
-        )?)),
-        oracle::Type::Optional(inner) => Type::Optional(Box::new(actual_type(
-            inner,
-            type_variables,
-            row_variables,
-        )?)),
+        oracle::Type::List(inner) => {
+            Type::List(Box::new(actual_type(inner, type_variables)?))
+        }
+        oracle::Type::Optional(inner) => {
+            Type::Optional(Box::new(actual_type(inner, type_variables)?))
+        }
         oracle::Type::Result(ok, err) => Type::Result(
-            Box::new(actual_type(ok, type_variables, row_variables)?),
-            Box::new(actual_type(err, type_variables, row_variables)?),
+            Box::new(actual_type(ok, type_variables)?),
+            Box::new(actual_type(err, type_variables)?),
         ),
         oracle::Type::Record(row) => {
             if row.tail != oracle::RowTail::Closed {
@@ -222,7 +213,7 @@ fn actual_type(
                 .map(|(name, ty)| {
                     Ok((
                         Name::intern(name),
-                        actual_type(ty, type_variables, row_variables)?,
+                        actual_type(ty, type_variables)?,
                     ))
                 })
                 .collect::<Result<BTreeMap<_, _>, String>>()?;

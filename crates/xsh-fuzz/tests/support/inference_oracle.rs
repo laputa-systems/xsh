@@ -76,7 +76,7 @@ struct State {
     next_row: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Problem {
     type_levels: BTreeMap<TypeVariable, u32>,
     row_cells: BTreeMap<RowVariable, RowCell>,
@@ -297,19 +297,6 @@ impl Problem {
                 }
                 Ok(())
             }
-        }
-    }
-}
-
-impl Default for Problem {
-    fn default() -> Self {
-        Self {
-            type_levels: BTreeMap::new(),
-            row_cells: BTreeMap::new(),
-            equations: Vec::new(),
-            observations: Vec::new(),
-            next_type: 0,
-            next_row: 0,
         }
     }
 }
@@ -1077,7 +1064,7 @@ pub fn generate_problem(seed: u64) -> SeededProblem {
     problem.equate(outer.clone(), outer_type.clone());
     problem.equate(inner.clone(), Type::Atom(atom));
     problem.equate(left_row.clone(), right_row.clone());
-    let satisfiable = seed % 7 != 0;
+    let satisfiable = !seed.is_multiple_of(7);
     if !satisfiable {
         problem.equate(outer.clone(), Type::Atom(conflict_atom));
     }
@@ -1158,12 +1145,12 @@ mod tests {
                     .map(|ty| solution.resolve_type(ty).unwrap())
                     .collect::<Vec<_>>();
                 assert!(types_equivalent(
-                    &[observations[0].clone()],
-                    &[generated.expected_outer.clone()]
+                    std::slice::from_ref(&observations[0]),
+                    std::slice::from_ref(&generated.expected_outer)
                 ));
                 assert!(types_equivalent(
-                    &[observations[2].clone()],
-                    &[observations[3].clone()]
+                    std::slice::from_ref(&observations[2]),
+                    std::slice::from_ref(&observations[3])
                 ));
             }
         }
@@ -1270,9 +1257,7 @@ mod tests {
         for ty in &mut renamed.types {
             rename_scheme_type(ty, type_parameter, row_parameter);
         }
-        for parameter in &mut renamed.type_parameters {
-            *parameter = type_parameter;
-        }
+        renamed.type_parameters.fill(type_parameter);
         for parameter in &mut renamed.row_parameters {
             parameter.id = row_parameter;
         }
