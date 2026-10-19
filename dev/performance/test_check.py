@@ -20,11 +20,61 @@ sys.modules[spec.name] = check
 spec.loader.exec_module(check)
 sys.path.insert(0, str(check.ADAPTER_ROOT))
 from dev.performance import workloads
+from bench.consolidation import fixtures as fixture_owner
 
 
 class CohortTests(unittest.TestCase):
     def setUp(self):
         (check.ADAPTER_ROOT / '.work/tmp').mkdir(parents=True, exist_ok=True)
+
+    def test_demanding_fixtures_preserve_row_and_tree_outputs(self):
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+            root = Path(directory) / '16384'
+            fixture_owner.generate(root, package_rows=16384)
+            self.assertEqual(len(json.loads((root / 'index.json').read_bytes())), 16385)
+            self.assertEqual(len(json.loads((root / 'expected/json').read_bytes())), 16386)
+            self.assertEqual(len((root / 'expected/directory').read_text().splitlines()),
+                             len(fixture_owner.snapshot(root / 'tree')))
+            manifest = json.loads((root / 'manifest.json').read_bytes())
+            actual = fixture_owner.snapshot(root)
+            del actual['manifest.json']
+            self.assertEqual(manifest, actual)
+
+    def test_demanding_cases_append_after_the_exact_r13_cohort(self):
+        original_names = (
+            'startup-trivial', 'startup-template',
+            'stream-count-n', 'stream-map-where-n',
+            'stream-count-2n', 'stream-map-where-2n',
+            'stream-count-4n', 'stream-map-where-4n',
+            'json-n', 'directory-n', 'json-2n', 'directory-2n',
+            'json-4n', 'directory-4n', 'spawn-128',
+        )
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+            fixtures = Path(directory)
+            for count in fixture_owner.PACKAGE_ROW_SHAPES + fixture_owner.DEMANDING_PACKAGE_ROW_SHAPES:
+                expected = fixtures / str(count) / 'expected'
+                expected.mkdir(parents=True)
+                (expected / 'json').write_bytes(b'[]\n')
+                (expected / 'directory').write_bytes(b'')
+            cases = workloads.frozen_workloads(fixtures)
+        self.assertEqual(tuple(case.name for case in cases[:15]), original_names)
+        self.assertEqual(tuple(case.name for case in cases[15:]), tuple(
+            f'{script}-package-range-{count}'
+            for count in fixture_owner.DEMANDING_PACKAGE_ROW_SHAPES
+            for script in ('json', 'directory')
+        ))
+        self.assertEqual(tuple(case.shape for case in cases[15:]), tuple(
+            f'package-range-{count}'
+            for count in fixture_owner.DEMANDING_PACKAGE_ROW_SHAPES
+            for _ in ('json', 'directory')
+        ))
+        self.assertEqual(tuple(case.family for case in cases[15:]),
+                         ('algorithms', 'filesystem-process') * 3)
+        self.assertEqual(tuple(case.arguments for case in cases[15:]), tuple(
+            (str(fixtures / str(count)),)
+            for count in fixture_owner.DEMANDING_PACKAGE_ROW_SHAPES
+            for _ in ('json', 'directory')
+        ))
 
     def test_syscall_summary_and_complete_helper_lifecycles_are_required(self):
         rows = [{'type': 'syscall.summary', 'syscall_count': 17},
@@ -889,7 +939,12 @@ class BaselineTests(unittest.TestCase):
                         if operation_fails:
                             raise RuntimeError('primary Docker failure')
                     return 0, b'', b''
-                fixture_owner = SimpleNamespace(PACKAGE_ROW_SHAPES=(2048,), generate=lambda path, **_: path.mkdir(), snapshot=lambda _: {})
+                generated_shapes = []
+                def generate_fixture(path, **kwargs):
+                    generated_shapes.append(kwargs['package_rows'])
+                    path.mkdir()
+                fixture_owner = SimpleNamespace(PACKAGE_ROW_SHAPES=(2048,), DEMANDING_PACKAGE_ROW_SHAPES=(16384,),
+                                                 generate=generate_fixture, snapshot=lambda _: {})
                 def owner(config, relative, name):
                     if relative.endswith('/fixtures.py'):
                         return fixture_owner
@@ -913,6 +968,7 @@ class BaselineTests(unittest.TestCase):
                 if operation_fails:
                     self.assertIn('post-measurement readiness failed', caught.exception.__notes__[0])
                 self.assertEqual(events, ['diagnostic', 'before', 'timed', 'after'])
+                self.assertEqual(generated_shapes, [2048, 16384])
                 report = check.read_json(output)
                 self.assertFalse(report['complete'])
                 self.assertTrue(report['timing_discarded'])

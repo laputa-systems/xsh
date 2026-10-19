@@ -41,11 +41,12 @@ The optional baseline object requires exactly `functional_close`, `profile`,
 path. Omitting the object preserves existing schema-1 configurations, but cannot
 pass baseline acceptance. `functional_close` must equal `functional.output`.
 
-The measurement fixtures directory contains the frozen `2048`, `4096`, and
-`8192` fixture roots. The output must be a fresh JSON file below `scratch`.
-Measurement regenerates references through the existing fixture maker and
-compares all bytes, modes, entries, links, and goldens before launching work.
-The default 2048 manifest retains its existing pinned validation.
+The measurement fixtures directory contains six roots: `2048`, `4096`,
+`8192`, `16384`, `32768`, and `65536`. The output must be a fresh JSON file
+below `scratch`. Measurement regenerates each reference through the existing
+fixture maker and compares all bytes, modes, entries, links, and goldens before
+launching work. The default 2048 manifest retains its existing pinned
+validation.
 
 ## Functional validation
 
@@ -183,11 +184,22 @@ zero-length phase. The report schema and callable boundaries live in
 
 ## Frozen workload selection
 
-`workloads.py` freezes fifteen cases before timing: two startup cases, six
+`workloads.py` keeps the original fifteen cases first: two startup cases, six
 streaming cases, three JSON cases, three directory cases, and one 128-child
-spawn case. It supplies scripts, arguments, exact stdout, and expected helper
-counts. `bench/consolidation/fixtures.py` owns the fixture bytes, modes, links,
-and goldens.
+spawn case. It appends six demanding data cases: JSON and directory workloads
+at package-range sizes 16,384, 32,768, and 65,536. Case names and shapes
+include the package-range size. The JSON fixture adds one duplicate input
+record, and the workload adds one new record. `completed_records` reports the
+exact output count. `bench/consolidation/fixtures.py` owns the fixture bytes,
+modes, links, and goldens.
+
+The largest directory fixture contains 34,309 entries, including 32,768
+regular files. The JSON and directory fixtures use synthetic package data and
+a warm filesystem.
+
+Only the original fifteen cases have R13 provisional observations. The six
+demanding cases require a new same-source diagnostic and timed cohort. Reports
+from the R13 run retain their original fifteen-case denominator.
 
 Every case requires status zero, empty stderr, exact stdout, and unchanged
 working-directory effects. Useful output is the first complete expected stdout

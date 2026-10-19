@@ -946,7 +946,7 @@ def measure(config, baseline_report=None):
     sampler = baseline_owner(config, 'bench/consolidation/run.py', 'comparative_bench')
     require(Path(sys.modules[sampler.snapshot.__module__].__file__).resolve() == config.source_root / 'bench/consolidation/fixtures.py', 'measurement fixture reader belongs to another source')
     with tempfile.TemporaryDirectory(prefix='fixture-reference-', dir=config.scratch) as reference:
-        for count in fixture_owner.PACKAGE_ROW_SHAPES:
+        for count in fixture_owner.PACKAGE_ROW_SHAPES + fixture_owner.DEMANDING_PACKAGE_ROW_SHAPES:
             root = Path(reference) / str(count)
             fixture_owner.generate(root, package_rows=count)
             require(fixture_owner.snapshot(root) == fixture_owner.snapshot(fixtures / str(count)), f'frozen fixture/golden mismatch: {count}')

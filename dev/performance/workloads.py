@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import statistics
 
-from bench.consolidation.fixtures import PACKAGE_ROW_SHAPES
+from bench.consolidation.fixtures import DEMANDING_PACKAGE_ROW_SHAPES, PACKAGE_ROW_SHAPES
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -53,6 +53,11 @@ def frozen_workloads(fixtures):
         for script, family in (('json', 'algorithms'), ('directory', 'filesystem-process')):
             cases.append(Workload(f'{script}-{shape}', family, shape, SOURCE_ROOT / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
     cases.append(Workload('spawn-128', 'filesystem-process', 'common', SOURCE_ROOT / 'bench/consolidation/xsh/spawn.xsh', (), b''.join(f'probe {index}\n'.encode() for index in range(128)), 128))
+    for count in DEMANDING_PACKAGE_ROW_SHAPES:
+        root = fixtures / str(count)
+        shape = f'package-range-{count}'
+        for script, family in (('json', 'algorithms'), ('directory', 'filesystem-process')):
+            cases.append(Workload(f'{script}-{shape}', family, shape, SOURCE_ROOT / f'bench/consolidation/xsh/{script}.xsh', (str(root),), (root / 'expected' / script).read_bytes(), 0))
     return tuple(cases)
 
 
