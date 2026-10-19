@@ -20,6 +20,21 @@ The deliverables are:
 
 ## Current checkpoint
 
+R11 source `f3da00668ecb14baa9e7092585aa47330b47da0e` passes bootstrap,
+then fails the deeper grammar generator. Root integration records 229 passes,
+one failure and one filtered test. Cleanup resolves. Later canonical stages and
+supplemental qualification do not run. Preserve the failed receipt in
+`.work/wt/perf-i1-combined-freeze-r11`.
+
+The reduced regression exposes command argument boundaries leaking into `spawn`
+and `wait` index bounds. The R12 repair applies the existing nested-expression
+reset to all three index and slice bound parses. The six-case regression fails
+before the repair. All 39 grammar tests pass afterward, including both generator
+depths and repository source recognition. Independent source review passes.
+Fresh qualification uses `.work/wt/perf-i1-combined-freeze-r12`. No failed
+source's gate credit transfers to this candidate. Grammar changes now require
+both generator depths before full qualification.
+
 R10 source `5da47cacc04f5bab6a69cceadf20f8aab52ee44e` passes bootstrap
 and 229 root integration tests, then fails soundness: thirteen passes and one
 failure in `mutants_get_ordinary_diagnostics`. Its cleanup resolves, and later
@@ -34,9 +49,8 @@ grammar generator pass afterward in the pinned debug build. Independent source
 review passes after correcting spaced known-option handling. Verification
 soundness passes all 1,000 fixed-seed mutants. Matching verification tools regenerate
 only the grammar reference, and documentation checks plus all three tour-project
-tests pass. The reviewed repair is integrated. Fresh R11 bootstrap, canonical and
-supplemental qualification use `.work/wt/perf-i1-combined-freeze-r11`; no failed
-source's gate credit transfers to this candidate.
+tests pass. The reviewed repair is integrated. Its fresh R11 qualification
+exposes the separate nested-expression parser defect described above.
 
 The six M1 fixture roots are generated and validated under
 `.work/wt/perf-i1-combined-freeze-r9/.work/tmp/m1-fixtures-r10`. Reuse requires
