@@ -20,6 +20,18 @@ The deliverables are:
 
 ## Current checkpoint
 
+R9 source `5454112e9f5fc10eae2faa75e5d6a5d09586bd4f` passes bootstrap,
+229 root integration tests, 14 soundness tests, 1,049 library tests, 122 XSHT
+integration tests, 82 Linux compatibility tests, ten privilege tests and the
+full native suite: 14,073 passes, zero failures and 150 skips. Repository check,
+lint and diff checks pass. Structural scanning then fails to resolve
+`host_obligations` below an external module selected by `#[path]`. Canonical
+qualification remains failed; documentation and supplemental stages do not run.
+Cleanup resolves. Preserve the failed receipt in
+`.work/wt/perf-i1-combined-freeze-r9`. The isolated scanner repair owns
+`.work/wt/perf-scanner-module-r10`; compiler module layout remains unchanged.
+Performance qualification and full source-aligned Laputa acceptance remain open.
+
 R8 at `8ebea493e757eb8c52d76823cdc11f665ce2c2f5` fails canonical
 qualification in the written tail corpus. Bootstrap, 229 root integration tests,
 14 soundness tests and 1,049 library tests pass. XSHT integration finishes with
