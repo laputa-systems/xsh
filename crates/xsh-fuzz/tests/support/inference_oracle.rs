@@ -246,6 +246,13 @@ impl Problem {
     }
 
     pub fn solve(&self) -> Result<Solution, Conflict> {
+        for equation in &self.equations {
+            self.validate_type_rows(&equation.left)?;
+            self.validate_type_rows(&equation.right)?;
+        }
+        for observation in &self.observations {
+            self.validate_type_rows(observation)?;
+        }
         let mut solver = self.solver();
         for equation in &self.equations {
             solver.unify(&equation.left, &equation.right)?;
@@ -253,6 +260,44 @@ impl Problem {
         Ok(Solution {
             state: solver.state,
         })
+    }
+
+    fn validate_type_rows(&self, ty: &Type) -> Result<(), Conflict> {
+        match ty {
+            Type::Variable(variable) => {
+                if self.type_levels.contains_key(variable) {
+                    Ok(())
+                } else {
+                    Err(Conflict::UnknownTypeVariable(*variable))
+                }
+            }
+            Type::Atom(_) => Ok(()),
+            Type::List(inner) | Type::Optional(inner) => self.validate_type_rows(inner),
+            Type::Result(ok, err) => {
+                self.validate_type_rows(ok)?;
+                self.validate_type_rows(err)
+            }
+            Type::Record(row) => {
+                if let RowTail::Variable(variable) = row.tail {
+                    let cell = self
+                        .row_cells
+                        .get(&variable)
+                        .ok_or(Conflict::UnknownRowVariable(variable))?;
+                    for field in row.fields.keys() {
+                        if !cell.lacks.contains(field) {
+                            return Err(Conflict::RowLacks {
+                                variable,
+                                field: field.clone(),
+                            });
+                        }
+                    }
+                }
+                for field in row.fields.values() {
+                    self.validate_type_rows(field)?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -294,9 +339,6 @@ impl Solver {
         self.state.resolve_type(ty)
     }
 
-    pub fn finish(self) -> Solution {
-        Solution { state: self.state }
-    }
 }
 
 impl Solution {
@@ -812,7 +854,14 @@ impl State {
 
 impl Scheme {
     pub fn canonical_form(&self) -> Result<CanonicalScheme, CanonicalizationError> {
-        let mut canonicalizer = Canonicalizer::new(self);
+        self.canonical_form_with_free_alpha(false)
+    }
+
+    fn canonical_form_with_free_alpha(
+        &self,
+        free_alpha: bool,
+    ) -> Result<CanonicalScheme, CanonicalizationError> {
+        let mut canonicalizer = Canonicalizer::new(self, free_alpha);
         let types = self
             .types
             .iter()
@@ -842,7 +891,13 @@ pub fn types_equivalent(left: &[Type], right: &[Type]) -> bool {
         type_parameters: Vec::new(),
         row_parameters: Vec::new(),
     };
-    schemes_equivalent(&to_scheme(left), &to_scheme(right))
+    matches!(
+        (
+            to_scheme(left).canonical_form_with_free_alpha(true),
+            to_scheme(right).canonical_form_with_free_alpha(true),
+        ),
+        (Ok(a), Ok(b)) if a == b
+    )
 }
 
 fn to_free_scheme_type(ty: &Type) -> SchemeType {
@@ -871,6 +926,7 @@ fn to_free_scheme_type(ty: &Type) -> SchemeType {
 
 struct Canonicalizer<'a> {
     scheme: &'a Scheme,
+    free_alpha: bool,
     type_parameters: BTreeMap<TypeParameter, TypeParameter>,
     free_types: BTreeMap<TypeVariable, TypeVariable>,
     row_parameters: BTreeMap<RowParameter, RowParameter>,
@@ -879,9 +935,10 @@ struct Canonicalizer<'a> {
 }
 
 impl<'a> Canonicalizer<'a> {
-    fn new(scheme: &'a Scheme) -> Self {
+    fn new(scheme: &'a Scheme, free_alpha: bool) -> Self {
         Self {
             scheme,
+            free_alpha,
             type_parameters: BTreeMap::new(),
             free_types: BTreeMap::new(),
             row_parameters: BTreeMap::new(),
@@ -948,7 +1005,11 @@ impl<'a> Canonicalizer<'a> {
             SchemeType::Parameter(parameter) => {
                 SchemeType::Parameter(self.type_parameter(*parameter)?)
             }
-            SchemeType::Free(variable) => SchemeType::Free(self.free_type(*variable)),
+            SchemeType::Free(variable) => SchemeType::Free(if self.free_alpha {
+                self.free_type(*variable)
+            } else {
+                *variable
+            }),
             SchemeType::List(inner) => {
                 SchemeType::List(Box::new(self.scheme_type(inner)?))
             }
@@ -969,9 +1030,11 @@ impl<'a> Canonicalizer<'a> {
                     SchemeRowTail::Parameter(parameter) => {
                         SchemeRowTail::Parameter(self.row_parameter(*parameter)?)
                     }
-                    SchemeRowTail::Free(variable) => {
-                        SchemeRowTail::Free(self.free_row(*variable))
-                    }
+                    SchemeRowTail::Free(variable) => SchemeRowTail::Free(if self.free_alpha {
+                        self.free_row(*variable)
+                    } else {
+                        *variable
+                    }),
                 },
             },
         })
@@ -992,11 +1055,11 @@ pub fn generate_problem(seed: u64) -> SeededProblem {
     let mut problem = Problem::new();
     let outer = problem.fresh_type(2);
     let inner = problem.fresh_type(3);
-    let left_tail = problem.fresh_row(2, std::iter::empty());
-    let right_tail = problem.fresh_row(2, std::iter::empty());
-    let outer_type = wrap.apply(inner.clone());
     let left_name = format!("left_{seed}");
     let right_name = format!("right_{seed}");
+    let left_tail = problem.fresh_row(2, ["common".to_owned(), left_name.clone()]);
+    let right_tail = problem.fresh_row(2, ["common".to_owned(), right_name.clone()]);
+    let outer_type = wrap.apply(inner.clone());
     let left_row = Type::Record(Row::open(
         BTreeMap::from([
             ("common".to_owned(), outer.clone()),
@@ -1107,6 +1170,25 @@ mod tests {
     }
 
     #[test]
+    fn solve_rejects_open_row_fields_missing_from_tail_lacks() {
+        let mut problem = Problem::new();
+        let tail = problem.fresh_row(1, std::iter::empty());
+        let row = Type::Record(Row::open(
+            fields([("field".to_owned(), Type::Atom(Atom::Int))]),
+            tail,
+        ));
+        problem.equate(row.clone(), row);
+
+        assert_eq!(
+            problem.solve(),
+            Err(Conflict::RowLacks {
+                variable: tail,
+                field: "field".to_owned(),
+            }),
+        );
+    }
+
+    #[test]
     fn output_comparators_accept_binder_renaming_and_reject_mutated_terms() {
         let generated = generate_problem(1);
         let solved = generated.problem.solve().unwrap();
@@ -1123,7 +1205,7 @@ mod tests {
         let mut problem = Problem::new();
         let generic = problem.fresh_type(3);
         let monomorphic = problem.fresh_type(1);
-        let row = problem.fresh_row(2, ["reserved".to_owned()]);
+        let row = problem.fresh_row(2, ["reserved".to_owned(), "value".to_owned()]);
         let generic_list = Type::List(Box::new(generic.clone()));
         let open_record = Type::Record(Row::open(
             fields([("value".to_owned(), monomorphic.clone())]),
@@ -1151,6 +1233,32 @@ mod tests {
         let mut mutated_scheme = renamed;
         mutated_scheme.types[0] = SchemeType::Ground(Atom::Str);
         assert!(!schemes_equivalent(&scheme, &mutated_scheme));
+    }
+
+    #[test]
+    fn scheme_comparison_preserves_free_environment_identities() {
+        let left = Scheme {
+            types: vec![SchemeType::Free(TypeVariable(7)), SchemeType::Record {
+                fields: BTreeMap::new(),
+                tail: SchemeRowTail::Free(RowVariable(11)),
+            }],
+            type_parameters: Vec::new(),
+            row_parameters: Vec::new(),
+        };
+        let right = Scheme {
+            types: vec![SchemeType::Free(TypeVariable(8)), SchemeType::Record {
+                fields: BTreeMap::new(),
+                tail: SchemeRowTail::Free(RowVariable(12)),
+            }],
+            type_parameters: Vec::new(),
+            row_parameters: Vec::new(),
+        };
+
+        assert!(!schemes_equivalent(&left, &right));
+        assert!(types_equivalent(
+            &[Type::Variable(TypeVariable(7))],
+            &[Type::Variable(TypeVariable(8))],
+        ));
     }
 
     fn rename_scheme(
@@ -1203,8 +1311,16 @@ mod tests {
         let generic = problem.fresh_type(4);
         let environment = problem.fresh_type(1);
         let linked = problem.fresh_type(3);
-        let row = problem.fresh_row(3, ["reserved".to_owned()]);
-        let linked_row = problem.fresh_row(3, std::iter::empty());
+        let row = problem.fresh_row(
+            3,
+            [
+                "reserved".to_owned(),
+                "generic".to_owned(),
+                "environment".to_owned(),
+                "linked".to_owned(),
+            ],
+        );
+        let linked_row = problem.fresh_row(3, ["fixed".to_owned()]);
         let environment_row = problem.fresh_row(1, std::iter::empty());
         problem.equate(linked.clone(), environment.clone());
         problem.equate(
@@ -1252,8 +1368,8 @@ mod tests {
     fn failed_trial_restores_type_bindings_row_lacks_and_fresh_tails() {
         let mut problem = Problem::new();
         let shared_type = problem.fresh_type(2);
-        let left_tail = problem.fresh_row(2, std::iter::empty());
-        let right_tail = problem.fresh_row(2, std::iter::empty());
+        let left_tail = problem.fresh_row(2, ["common".to_owned(), "left".to_owned()]);
+        let right_tail = problem.fresh_row(2, ["common".to_owned(), "right".to_owned()]);
         let first = Equation {
             left: Type::Record(Row::open(
                 fields([
@@ -1335,7 +1451,7 @@ mod tests {
     fn row_occurs_check_rejects_nested_self_reference() {
         let mut problem = Problem::new();
         let row = problem.fresh_row(1, std::iter::empty());
-        let rest = problem.fresh_row(1, std::iter::empty());
+        let rest = problem.fresh_row(1, ["nested".to_owned()]);
         let recursive = Type::Record(Row::open(
             fields([(
                 "nested".to_owned(),

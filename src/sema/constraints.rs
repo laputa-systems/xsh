@@ -3834,6 +3834,10 @@ fn module_has_inference(
 }
 
 #[cfg(test)]
+#[path = "constraints/reference_tests.rs"]
+mod reference_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::source::SourceId;
