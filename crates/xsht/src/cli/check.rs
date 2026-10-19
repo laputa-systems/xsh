@@ -634,6 +634,21 @@ fn configured_annotation_policy(
         .map_err(|message| format!("invalid xsht-config.ini check.annotate: {message}"))
 }
 
+fn annotation_source_for_fact(fact: &AnnotationFact) -> Option<String> {
+    if matches!(
+        &fact.kind,
+        AnnotationFactKind::ExportedProcReturn { .. }
+    ) && let xsh::frontend::check::Type::Result(ok, error) = &fact.ty
+    {
+        return Some(format!(
+            "Result[{}, {}]",
+            ok.annotation_source()?,
+            error.annotation_source()?
+        ));
+    }
+    fact.ty.annotation_source()
+}
+
 #[allow(clippy::single_call_fn)]
 fn annotation_edits(
     checked: &CheckOutput,
@@ -664,13 +679,13 @@ fn annotation_edits(
                 };
                 annotation
             } else {
-                let Some(annotation) = fact.ty.annotation_source() else {
+                let Some(annotation) = annotation_source_for_fact(fact) else {
                     continue;
                 };
                 annotation
             }
         } else {
-            let Some(annotation) = fact.ty.annotation_source() else {
+            let Some(annotation) = annotation_source_for_fact(fact) else {
                 continue;
             };
             annotation

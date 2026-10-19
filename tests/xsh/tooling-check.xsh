@@ -157,7 +157,7 @@ export let label: Str = "demo"
 
 proc local(input: Path = Path(".")) {}
 
-export proc entry(flag: Bool = true) -> Result[Unit] {}
+export proc entry(flag: Bool = true) -> Result[Unit, Error] {}
 """
 }
 
