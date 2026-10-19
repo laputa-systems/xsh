@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+import weakref
 from unittest import mock
 
 
@@ -639,6 +640,226 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 receipt_path.parent / "xsh",
             )
         self.assertEqual(receipt["record"]["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
+
+    def completed_child_factory(self, script, events, signal_after_exit=None):
+        real_popen = subprocess.Popen
+        child_holder = {}
+
+        class CompletedChild:
+            def __init__(self, child):
+                self.child = child
+                self.pid = child.pid
+                self.returncode = child.returncode
+
+            def poll(self):
+                self.returncode = self.child.poll()
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.returncode = self.child.wait(timeout=timeout)
+                return self.returncode
+
+        def start_process(_command, **kwargs):
+            child = real_popen(
+                [sys.executable, "-c", script],
+                cwd=kwargs["cwd"],
+                env=kwargs["env"],
+                stdin=kwargs["stdin"],
+                stdout=kwargs["stdout"],
+                stderr=kwargs["stderr"],
+                start_new_session=kwargs["start_new_session"],
+            )
+            status = child.wait(timeout=5)
+            events.append(("child-exited", status))
+            if signal_after_exit is not None:
+                signal.raise_signal(signal_after_exit)
+            process = CompletedChild(child)
+            child_holder["process"] = weakref.ref(process)
+            return process
+
+        return start_process, child_holder
+
+    def bootstrap_success_script(self):
+        records = "".join(json.dumps(record) + "\n" for record in self.build_records())
+        return (
+            "import pathlib,sys; "
+            f"sys.stdout.write({records!r}); "
+            f"artifact=pathlib.Path({str(self.bootstrap)!r}); "
+            "artifact.write_text('#!/bin/sh\\nexit 0\\n'); "
+            "artifact.chmod(0o755)"
+        )
+
+    def batch_script(self, exit_code):
+        record = json.dumps(resource_record(exit_code))
+        resource_path = self.output / "container-resources.json"
+        return (
+            "import pathlib; "
+            f"pathlib.Path({str(resource_path)!r}).write_text({record!r}); "
+            f"raise SystemExit({exit_code})"
+        )
+
+    def run_batch_with_completed_child(self, exit_code, signal_after_exit=None):
+        validated = self.validate()
+        events = []
+        start_process, child_holder = self.completed_child_factory(
+            self.batch_script(exit_code), events, signal_after_exit=signal_after_exit
+        )
+        run_text = runner.run_text
+
+        def run_host_text(command, cwd):
+            if command[:3] == ["docker", "image", "inspect"]:
+                return runner.IMAGE
+            return run_text(command, cwd)
+
+        def cleanup(*_args):
+            events.append("cleanup")
+            process = child_holder["process"]()
+            self.assertIsNotNone(process)
+            self.assertEqual(process.returncode, exit_code)
+            receipt = json.loads((self.output / "canonical-replay.json").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["status"], "running")
+            return {"resolved": True}
+
+        with (
+            mock.patch.object(runner, "source_check", return_value={"where": "before"}),
+            mock.patch.object(
+                runner,
+                "git_snapshot",
+                return_value={"head": self.head, "tree": self.tree, "clean": True, "status": ""},
+            ),
+            mock.patch.object(runner, "run_text", side_effect=run_host_text),
+            mock.patch.object(runner, "stop_container", side_effect=cleanup),
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+            mock.patch("builtins.print"),
+        ):
+            result = runner.run_batch(validated)
+
+        receipt = json.loads((self.output / "canonical-replay.json").read_text(encoding="utf-8"))
+        return result, events, receipt
+
+    def test_run_bootstrap_consumes_child_that_exited_before_first_poll(self):
+        shutil.rmtree(self.target_dir)
+        source = runner.git_snapshot(self.repo)
+        events = []
+        script = self.bootstrap_success_script()
+        start_process, child_holder = self.completed_child_factory(script, events)
+
+        def cleanup(*_args):
+            events.append("cleanup")
+            process = child_holder["process"]()
+            self.assertIsNotNone(process)
+            self.assertIsNotNone(process.returncode)
+            self.assertFalse((self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json").exists())
+            return {"resolved": True}
+
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        with (
+            self.with_mocked_tools(),
+            mock.patch.object(runner, "run_text", return_value=runner.IMAGE),
+            mock.patch.object(runner, "source_check", side_effect=[source, source]),
+            mock.patch.object(runner, "stop_container", side_effect=cleanup),
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+            mock.patch("builtins.print"),
+        ):
+            result = runner.run_bootstrap(validated)
+
+        receipt_path = self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json"
+        self.assertEqual(result, 0)
+        self.assertEqual(events, [("child-exited", 0), "cleanup"])
+        self.assertTrue(receipt_path.is_file())
+        with self.with_mocked_tools():
+            execute = self.validate(args=self.arguments(receipt=receipt_path))
+        self.assertEqual(execute["bootstrap_receipt"]["record"]["status"], "passed")
+
+    def test_run_batch_records_quick_success_after_observing_and_cleaning_child(self):
+        result, events, receipt = self.run_batch_with_completed_child(0)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(events, [("child-exited", 0), "cleanup"])
+        self.assertEqual(receipt["exit_code"], 0)
+        self.assertEqual(receipt["status"], "passed")
+        self.assertTrue(receipt["cleanup"]["resolved"])
+
+    def test_run_batch_records_quick_failure_as_terminal(self):
+        result, events, receipt = self.run_batch_with_completed_child(7)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(events, [("child-exited", 7), "cleanup"])
+        self.assertEqual(receipt["exit_code"], 7)
+        self.assertEqual(receipt["status"], "failed-or-incomplete")
+
+    def test_run_batch_records_interruption_after_quick_success_as_terminal(self):
+        result, events, receipt = self.run_batch_with_completed_child(0, signal.SIGTERM)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(events, [("child-exited", 0), "cleanup"])
+        self.assertEqual(receipt["exit_code"], 0)
+        self.assertEqual(receipt["received_signal"], "SIGTERM")
+        self.assertEqual(receipt["status"], "failed-or-incomplete")
+
+    def test_run_bootstrap_failure_blocks_dependent_execution_after_quick_exit(self):
+        shutil.rmtree(self.target_dir)
+        source = runner.git_snapshot(self.repo)
+        events = []
+        start_process, child_holder = self.completed_child_factory("import sys; sys.exit(7)", events)
+
+        def cleanup(*_args):
+            events.append("cleanup")
+            process = child_holder["process"]()
+            self.assertIsNotNone(process)
+            self.assertEqual(process.returncode, 7)
+            return {"resolved": True}
+
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        with (
+            self.with_mocked_tools(),
+            mock.patch.object(runner, "run_text", return_value=runner.IMAGE),
+            mock.patch.object(runner, "source_check", side_effect=[source, source]),
+            mock.patch.object(runner, "stop_container", side_effect=cleanup),
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(runner.ReplayError, "build exited 7"):
+                runner.run_bootstrap(validated)
+
+        receipt_path = self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json"
+        self.assertFalse(receipt_path.exists())
+        self.assertEqual(events, [("child-exited", 7), "cleanup"])
+        with self.assertRaisesRegex(runner.ReplayError, "bootstrap receipt file is missing"):
+            self.validate(args=self.arguments(receipt=receipt_path))
+
+    def test_run_bootstrap_interruption_after_quick_success_blocks_receipt(self):
+        shutil.rmtree(self.target_dir)
+        source = runner.git_snapshot(self.repo)
+        events = []
+        start_process, child_holder = self.completed_child_factory(
+            self.bootstrap_success_script(), events, signal_after_exit=signal.SIGTERM
+        )
+
+        def cleanup(*_args):
+            events.append("cleanup")
+            process = child_holder["process"]()
+            self.assertIsNotNone(process)
+            self.assertEqual(process.returncode, 0)
+            return {"resolved": True}
+
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        with (
+            self.with_mocked_tools(),
+            mock.patch.object(runner, "run_text", return_value=runner.IMAGE),
+            mock.patch.object(runner, "source_check", side_effect=[source, source]),
+            mock.patch.object(runner, "stop_container", side_effect=cleanup),
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(runner.ReplayError, "build interrupted by SIGTERM"):
+                runner.run_bootstrap(validated)
+
+        self.assertEqual(events, [("child-exited", 0), "cleanup"])
+        self.assertFalse((self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json").exists())
 
     def test_run_bootstrap_quarantines_unresolved_cleanup_after_runner_exception(self):
         with self.with_mocked_tools():
