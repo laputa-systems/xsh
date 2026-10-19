@@ -152,6 +152,9 @@ test test_instruction_schema_macro_accepts_its_eager_atom_expansion {
   let source = instruction_schema_source()
   let scan = metrics.scan_file("src/runtime/eval/indexed/full/schema.rs", source)?
   assert value(scan, "instruction_variants") == 4
+  let extended = source.replace("= 1 [0; Operands; FrameApply]", with: "= 158 [0; Operands; FrameApply]")
+  let extended_scan = metrics.scan_file("src/runtime/eval/indexed/full/schema.rs", extended)?
+  assert value(extended_scan, "instruction_variants") == 4
   assert "outside its generated source authority" in rejection_at("src/fixture.rs", source)
 }
 
@@ -161,8 +164,8 @@ test test_current_instruction_schema_preserves_retired_wire_ordinal_gaps {
   let scan = metrics.scan_file(source_path, source)?
   let rows = scan.metrics |> where .name == "instruction_variants" |> collect
   assert rows.len() == 1
-  assert rows[0].value == 152
-  assert rows[0].evidence.len() == 152
+  assert rows[0].value == 153
+  assert rows[0].evidence.len() == 153
 }
 
 test test_instruction_schema_eager_classification_and_table_shape_fail_loudly {
@@ -177,7 +180,7 @@ test test_instruction_schema_eager_classification_and_table_shape_fail_loudly {
   assert "duplicate instruction schema ordinal" in rejection_at(source_path, source.replace("= 1 [0; Operands; FrameApply]", with: "= 0 [0; Operands; FrameApply]"))
   assert "outside the u8 range" in rejection_at(source_path, source.replace("= 3 [0; Operands; FrameApply]", with: "= 256 [0; Operands; FrameApply]"))
   assert "negative instruction schema ordinal" in rejection_at(source_path, source.replace("= 3 [0; Operands; FrameApply]", with: "= -1 [0; Operands; FrameApply]"))
-  assert "not strictly increasing" in rejection_at(source_path, source.replace("= 1 [0; Operands; FrameApply]", with: "= 3 [0; Operands; FrameApply]"))
+  assert "duplicate instruction schema ordinal" in rejection_at(source_path, source.replace("= 1 [0; Operands; FrameApply]", with: "= 3 [0; Operands; FrameApply]"))
   assert "malformed instruction schema ordinal" in rejection_at(source_path, source.replace("= 3 [0; Operands; FrameApply]", with: "= unknown [0; Operands; FrameApply]"))
   assert "malformed instruction schema header" in rejection_at(source_path, source.replace("BuildBoolRow => BoolView [Bool]", with: "BuildBoolRow => OtherView [Bool]"))
   assert "incomplete instruction schema table set" in rejection_at(source_path, source.replace("  BuildStmtRow => StmtView [Stmt] { Break => StmtBreak = 3 [0; Operands; FrameApply]; }\n", with: ""))

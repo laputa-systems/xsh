@@ -713,7 +713,6 @@ proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, open
   Ok()
 }
 
-# The macro call owns the four instruction tables that generate FullTag.
 proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, strict_classification: Bool) [error] -> Result[List[Evidence]] {
   let closing = lexed.mates[opening]
   let expected_rows = ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"]
@@ -721,7 +720,6 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
   var variants: List[Evidence] = []
   var tags: Map[Bool] = {}
   var ordinals: Map[Bool] = {}
-  var previous_ordinal = -1
   var cursor = opening + 1
   while cursor < closing {
     let row = (lexed.tokens.get(cursor) ?? end_token).text
@@ -772,8 +770,6 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
         if ordinals.get(ordinal_key) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema ordinal {ordinal_key}") }
         ordinals[ordinal_key] = true
         if ordinal > 255 { invalid(source_path, variant.line, f"instruction schema ordinal {ordinal_key} is outside the u8 range") }
-        if ordinal <= previous_ordinal { invalid(source_path, variant.line, f"instruction schema ordinals are not strictly increasing at {ordinal_key}") }
-        previous_ordinal = ordinal
       } else { invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}") }
       let effects_open = ordinal_end
       if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}") }

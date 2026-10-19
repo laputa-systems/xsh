@@ -120,7 +120,7 @@ let values = [1, 2] |> batch(count: 1)
   assert report.rows.len() == 5
   assert report.rows[0].total == 2
   assert report.rows[0].unsupported == ["Command"]
-  assert instruction_tags.len() == 152
+  assert instruction_tags.len() == 153
   assert instruction_tags[0] == "IntInt"
   let nonempty_instruction_tags = instruction_tags.require(NonEmpty[Str])?
   assert nonempty_instruction_tags.last() == "StmtDefaultParameter"
