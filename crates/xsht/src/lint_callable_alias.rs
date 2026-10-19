@@ -1,5 +1,7 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{CheckBundleView, CheckOptions};
+use xsh::frontend::check::{
+    CheckBundleView, CheckOptions, CheckOutput, CheckedCallableContract,
+};
 #[cfg(test)]
 use xsh::frontend::check::Checker;
 use xsh::frontend::syntax::arena::{
@@ -98,15 +100,9 @@ fn lint_callable_aliases_with_check(
         }) {
             return Vec::new();
         }
-        if !same_signature(
-            program,
-            source,
-            &before.prepared_constants,
-            definition,
-            target,
-        ) {
+        let Some(original_contract) = same_signature(program, &before, definition, target) else {
             continue;
-        }
+        };
         let mut diagnostic = Diagnostic::warning(
             "an exact forwarding callable can preserve its signature through an immutable alias",
         )
@@ -134,6 +130,20 @@ fn lint_callable_aliases_with_check(
                 let Some(checked) = snapshot.checked.as_ref() else {
                     continue;
                 };
+                let selected_target_contract = replacement
+                    .rfind(name.as_str().as_str())
+                    .and_then(|start| {
+                        let start = outer.span.start() + start;
+                        let end = start + name.as_str().as_str().len();
+                        checked.callable_contract_at(xsh::frontend::source::Span::new(
+                            outer.span.source_id,
+                            start,
+                            end,
+                        ))
+                    });
+                let contract_preserved = selected_target_contract
+                    .as_ref()
+                    .is_some_and(|contract| original_contract.equivalent_to(contract));
                 let offset =
                     replacement.len() as isize - (outer.span.end() - outer.span.start()) as isize;
                 let equivalent = before
@@ -165,7 +175,7 @@ fn lint_callable_aliases_with_check(
                     });
                 if checked.diagnostics.iter().all(|diagnostic| {
                     diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
-                }) && equivalent {
+                }) && equivalent && contract_preserved {
                     diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                         outer.span,
                         "preserve the original callable signature",
@@ -181,44 +191,40 @@ fn lint_callable_aliases_with_check(
 
 fn same_signature(
     program: &ArenaProgram,
-    source: &str,
-    constants: &xsh::frontend::check::PreparedConstants,
+    checked: &CheckOutput,
     left: FunctionDefId,
     right: FunctionDefId,
-) -> bool {
-    let left = program.arena.function_def(left);
-    let right = program.arena.function_def(right);
-    if right.return_ty_defaulted
-        || left
-            .effects
-            .map(|range| program.arena.effects(range).collect::<Vec<_>>())
-            != right
-                .effects
-                .map(|range| program.arena.effects(range).collect::<Vec<_>>())
-    {
-        return false;
+) -> Option<CheckedCallableContract> {
+    let left_contract = checked
+        .checked_declarations
+        .functions
+        .get(&left)?
+        .callable_contract()?;
+    let right_contract = checked
+        .checked_declarations
+        .functions
+        .get(&right)?
+        .callable_contract()?;
+    if !left_contract.equivalent_to(&right_contract) {
+        return None;
     }
-    let annotation = |id| source.get(program.arena.type_expr_span(id).range());
-    if annotation(left.return_ty) != annotation(right.return_ty) {
-        return false;
-    }
-    let left = program.arena.params(left.params);
-    let right = program.arena.params(right.params);
-    left.len() == right.len()
-        && left.iter().zip(right).all(|(left, right)| {
-            left.name == right.name
-                && left.rest == right.rest
-                && left.annotation.map(annotation) == right.annotation.map(annotation)
-                && match (left.default, right.default) {
-                    (None, None) => true,
-                    (Some(left), Some(right)) => constants
-                        .analyze_expression(&program.arena, left)
-                        .is_some_and(|left| {
-                            Some(left) == constants.analyze_expression(&program.arena, right)
-                        }),
-                    _ => false,
-                }
-        })
+    let left = program.arena.params(program.arena.function_def(left).params);
+    let right = program.arena.params(program.arena.function_def(right).params);
+    let defaults_match = left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| match (left.default, right.default) {
+            (None, None) => true,
+            (Some(left), Some(right)) => checked
+                .prepared_constants
+                .analyze_expression(&program.arena, left)
+                .is_some_and(|left| {
+                    Some(left)
+                        == checked
+                            .prepared_constants
+                            .analyze_expression(&program.arena, right)
+                }),
+            _ => false,
+        });
+    defaults_match.then_some(left_contract)
 }
 
 #[cfg(test)]
@@ -252,6 +258,17 @@ mod tests {
             assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
             assert_eq!(diagnostics[0].fix_hints.len(), 1, "{source}: {diagnostics:?}");
         }
+    }
+
+    #[test]
+    fn callable_aliases_compare_resolved_contracts_and_preserve_default_values() {
+        let equivalent = "type Quantity = Int\npure target(value: Quantity) -> Quantity { value }\npure wrapper(value: Int) -> Int { target(value) }\n";
+        let diagnostics = lint(equivalent, true);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
+
+        let different_defaults = "pure target(value: Int = 1) -> Int { value }\npure wrapper(value: Int = 2) -> Int { target(value) }\n";
+        assert!(lint(different_defaults, true).is_empty());
     }
 
     #[test]

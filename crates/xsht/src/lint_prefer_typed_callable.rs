@@ -3,16 +3,14 @@
 //! that signature as a callable type, so the call through it is checked.
 
 use rustc_hash::FxHashSet;
-use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label};
-use xsh::frontend::check::{FunctionEffectFact, Type};
+use xsh::frontend::check::{CheckOutput, CheckedCallableContract, CheckedFunctionKind};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaRange, ArenaTypeExprTag, AstArena, ExprId, FunctionDefId,
-    TypeExprId,
+    ArenaCallArgKind, ArenaExprKind, ArenaRange, ArenaTypeExprTag, AstArena, ExprId,
+    FunctionDefId, TypeExprId,
 };
-use xsh::frontend::syntax::node::Effect;
 
 /// What the linter's traversal saw of the linted module's top-level
 /// functions: their definitions, the calls that name them, and every other
@@ -49,19 +47,9 @@ struct Function {
 
 struct Call {
     callee: Name,
-    /// Each argument entry: its label, if named, and the function it names,
-    /// if it is a bare name no local hides.
-    arguments: Vec<(Option<Name>, Option<Name>)>,
+    arguments: Vec<(Option<Name>, Span)>,
     /// A splice or spread decides the arguments at run time.
     indirect: bool,
-}
-
-/// The parts of a function's signature a callable type states.
-#[derive(Eq, PartialEq)]
-struct Signature {
-    pure: bool,
-    parameters: Vec<(Name, String)>,
-    return_type: String,
 }
 
 impl CallableParameters {
@@ -108,11 +96,7 @@ impl CallableParameters {
                     continue;
                 }
             };
-            let function = match arena.expr(value).kind {
-                ArenaExprKind::Ident(function) if !hidden(function) => Some(function),
-                _ => None,
-            };
-            arguments.push((label, function));
+            arguments.push((label, arena.expr(value).span));
         }
         self.calls.push(Call {
             callee: name,
@@ -140,10 +124,11 @@ impl CallableParameters {
     pub(super) fn finish(
         self,
         arena: &AstArena,
-        source: &str,
-        checked_returns: &BTreeMap<Span, Type>,
-        effects_of: &dyn Fn(Span) -> Option<FunctionEffectFact>,
+        checked: Option<&CheckOutput>,
     ) -> Vec<Diagnostic> {
+        let Some(checked) = checked else {
+            return Vec::new();
+        };
         let mut diagnostics = Vec::new();
         for function in &self.functions {
             if !function.enumerable || self.values.contains(&function.name) {
@@ -168,11 +153,8 @@ impl CallableParameters {
                 if parameter.default.is_some() || parameter.rest {
                     continue;
                 }
-                let Some(spelled) = self.one_signature(
-                    arena,
-                    source,
-                    checked_returns,
-                    effects_of,
+                let Some(spelled) = Self::one_signature(
+                    checked,
                     &calls,
                     index,
                     parameter.name,
@@ -201,26 +183,21 @@ impl CallableParameters {
         diagnostics
     }
 
-    /// The callable type every call passes for parameter `index`, when each
-    /// passes a top-level function and their signatures agree. The effect
-    /// clause is the union of what those functions need; without a known set
-    /// for each, the type has no clause.
-    #[allow(clippy::too_many_arguments)]
     fn one_signature(
-        &self,
-        arena: &AstArena,
-        source: &str,
-        checked_returns: &BTreeMap<Span, Type>,
-        effects_of: &dyn Fn(Span) -> Option<FunctionEffectFact>,
+        checked: &CheckOutput,
         calls: &[&Call],
         index: usize,
         parameter: Name,
         pure: bool,
     ) -> Option<String> {
-        let mut signature: Option<Signature> = None;
-        let mut effects = Some(Vec::<Effect>::new());
+        let expected_kind = if pure {
+            CheckedFunctionKind::Pure
+        } else {
+            CheckedFunctionKind::Proc
+        };
+        let mut contract: Option<CheckedCallableContract> = None;
         for call in calls {
-            let passed = call
+            let span = call
                 .arguments
                 .iter()
                 .enumerate()
@@ -229,75 +206,17 @@ impl CallableParameters {
                     None => *position == index,
                 })?
                 .1
-                .1?;
-            let function = self
-                .functions
-                .iter()
-                .find(|function| function.name == passed)?;
-            let definition = arena.function_def(function.definition);
-            let body = arena.span(arena.block(definition.body).span);
-            let found = Signature {
-                pure: function.pure,
-                parameters: arena
-                    .params(definition.params)
-                    .iter()
-                    .map(|param| {
-                        if param.rest {
-                            return None;
-                        }
-                        let annotation = param.annotation?;
-                        source
-                            .get(arena.type_expr_span(annotation).range())
-                            .map(|ty| (param.name, ty.to_string()))
-                    })
-                    .collect::<Option<Vec<_>>>()?,
-                return_type: if definition.return_ty_defaulted {
-                    checked_returns.get(&body)?.annotation_source()?
-                } else {
-                    source
-                        .get(arena.type_expr_span(definition.return_ty).range())?
-                        .to_string()
-                },
-            };
-            if found.pure != pure || signature.as_ref().is_some_and(|first| *first != found) {
+                .1;
+            let found = checked.callable_contract_at(span)?;
+            if found.kind() != expected_kind {
                 return None;
             }
-            signature = Some(found);
-            if !pure {
-                match effects_of(body).and_then(|fact| fact.effective) {
-                    Some(required) => {
-                        if let Some(effects) = &mut effects {
-                            effects.extend(required);
-                        }
-                    }
-                    None => effects = None,
-                }
-            }
+            contract = Some(match contract {
+                Some(previous) => previous.join_effects(&found)?,
+                None => found,
+            });
         }
-        let signature = signature?;
-        let parameters = signature
-            .parameters
-            .iter()
-            .map(|(name, ty)| format!("{name}: {ty}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let clause = match effects {
-            Some(effects) if !pure => format!(
-                " [{}]",
-                Effect::ALL
-                    .iter()
-                    .filter(|effect| effects.contains(effect))
-                    .map(Effect::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            _ => String::new(),
-        };
-        Some(format!(
-            "{}({parameters}){clause} -> {}",
-            if pure { "pure" } else { "proc" },
-            signature.return_type
-        ))
+        contract?.source_annotation()
     }
 }
 

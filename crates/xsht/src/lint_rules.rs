@@ -567,9 +567,7 @@ fn run_typed_callable_finalizer(
     let parameters = std::mem::take(&mut linter.callable_parameters);
     let findings = parameters.finish(
         linter.arena,
-        linter.source,
-        &linter.checked_function_returns,
-        &|body| linter.checked_effect_fact(body).cloned(),
+        linter.checked_output.as_deref(),
     );
     linter.diagnostics.extend(findings);
 }

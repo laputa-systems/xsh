@@ -10,10 +10,12 @@ fn lint(source: &str) -> Vec<Diagnostic> {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked = std::sync::Arc::new(checked);
     let options = LintOptions {
-        expr_types: checked.expr_types,
-        function_return_types: checked.function_return_types,
-        function_effect_facts: checked.function_effect_facts,
+        checked_output: Some(checked.clone()),
+        expr_types: checked.expr_types.clone(),
+        function_return_types: checked.function_return_types.clone(),
+        function_effect_facts: checked.function_effect_facts.clone(),
         function_effect_facts_checked: true,
         ..LintOptions::default()
     };
@@ -63,6 +65,23 @@ fn pure_parameter_passed_one_signature_names_its_callable_type() {
         diagnostics[0].labels[0].message.as_deref(),
         Some("the callable type is `pure(n: Int) -> Int`")
     );
+}
+
+#[test]
+fn equivalent_checked_contracts_ignore_transparent_type_alias_spelling() {
+    let source = "type Quantity = Int\npure quantity(value: Quantity) -> Quantity { value }\npure integer(value: Int) -> Int { value }\npure apply(callback: Pure, value: Int) -> Result[Int] { callback.call(value).require(Int) }\nprint ${apply(quantity, 1)? + apply(integer, 2)?}\n";
+    let diagnostics = lint(source);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        diagnostics[0].labels[0].message.as_deref(),
+        Some("the callable type is `pure(value: Int) -> Int`")
+    );
+}
+
+#[test]
+fn callable_annotation_is_omitted_when_the_source_type_cannot_express_defaults() {
+    let source = "pure first(value: Int = 1) -> Int { value }\npure second(value: Int = 1) -> Int { value + 1 }\npure apply(callback: Pure, value: Int) -> Result[Int] { callback.call(value).require(Int) }\nprint ${apply(first, 1)? + apply(second, 2)?}\n";
+    assert!(lint(source).is_empty());
 }
 
 #[test]
