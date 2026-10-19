@@ -777,6 +777,10 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - Combined source `7851fd22e` passed singleton bootstrap, then failed canonical root integration: 221 passes and four failures before the full native stage. The failures are map/record per-read allocation budgets, signal-hook registration snapshot semantics and pure-parameter grammar correspondence. Source stayed clean and cleanup resolved. Preserve that failed receipt under `.work/wt/perf-i1-combined-freeze`; focused repairs use `.work/wt/perf-i1-combined-fixes`, with the original freeze and prior qualified products unchanged. No canonical, G1 or I1 combined acceptance follows from this attempt.
 
+- Laputa's isolated world build, store verification, rooted functionality and unchanged rebuild had passed before an accidental `make verify` deleted its derived outputs. Its driver implicitly called `make clean`. Ordinary Laputa and persistent input caches were untouched. Fix `294e848` removes that implicit clean and is integrated into the acceptance checkout. A real-driver regression first reproduced deletion, then passed with exact sentinel bytes preserved and no Docker cleanup. All 18 seed tests passed, followed by the exact regression on the integrated checkout. Recovery uses the supported package publisher and remote importer for matching cached artifacts. Current world, root, reuse and Asterinas acceptance remain pending.
+
+- The measurement selection now appends six demanding JSON and directory cases at package ranges 16,384, 32,768 and 65,536. The original fifteen cases and their provisional observations remain unchanged. Three focused generator, selection and measurement-failure controls pass on the integrated source. The new cases have no timing or acceptance credit yet.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
