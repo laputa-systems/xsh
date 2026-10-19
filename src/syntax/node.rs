@@ -51,6 +51,10 @@ impl Effect {
             "fs" | "archive" | "compression" | "fat" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
                 &[Self::Fs]
             }
+            "bytes" => match function {
+                "resize" | "read_at" | "write_at" | "zero_at" | "copy" | "copy_file" => &[Self::Fs],
+                _ => &[],
+            },
             "io" => &[Self::Io],
             "tui" => match function {
                 "read_secret" => &[Self::Io],

@@ -1129,6 +1129,47 @@ fn duration_arithmetic_compact_and_full_checked_types_agree() {
 }
 
 #[test]
+fn file_backed_byte_operations_require_and_infer_filesystem_effects() {
+    use xsh::frontend::syntax::node::Effect;
+
+    for operation in [
+        "bytes.resize(file, 1)",
+        "bytes.read_at(file, 0, 1)",
+        "bytes.write_at(file, 0, b\"x\")",
+        "bytes.zero_at(file, 0, 1)",
+        "bytes.copy(file, file)",
+        "bytes.copy_file(file, file)",
+    ] {
+        let source = format!("proc inferred(file: Path) {{ let _ = {operation} }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{operation}: {:?}", checked.diagnostics);
+        assert_eq!(checked.callable_effects["inferred"], Some(vec![Effect::Fs]), "{operation}");
+        let compact = compact_check(&parsed.arena, &source);
+        parsed.arena.symbol_owner().with_current(|| {
+            assert_eq!(compact.procs[&xsh::frontend::symbols::Name::intern("inferred")].effects,
+                Some(vec![Effect::Fs]), "{operation}");
+        });
+        for body in [operation.to_string(), "inferred(file)".to_string()] {
+            let restricted = format!("{source}proc restricted(file: Path) [] {{ let _ = {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &restricted);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &restricted);
+            assert!(!checked.diagnostics.is_empty(), "{body}: missing effect violation");
+            assert!(checked.diagnostics.iter().all(|diagnostic|
+                diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)),
+                "{body}: {:?}", checked.diagnostics);
+        }
+    }
+    let source = "proc memory() [] { let _ = bytes.zero(1); let _ = bytes.from_ints([120]) }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn private_proc_effects_publish_matching_full_and_compact_facts() {
     let source = "proc caller() [time] -> Int { forwarding() }\nproc forwarding() -> Int { clock() }\nproc clock() -> Int { let _ = time.now(); 42 }\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

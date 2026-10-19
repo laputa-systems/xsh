@@ -4082,6 +4082,10 @@ must stay within it, or the checker reports `check.effect-violation` with the
 call chain. `print` and `eprint` need no effect. Pure functions satisfy any
 bound.
 
+The file-backed operations `bytes.resize`, `bytes.read_at`, `bytes.write_at`,
+`bytes.zero_at`, `bytes.copy`, and `bytes.copy_file` require `fs`. Operations
+on in-memory bytes require no host effect.
+
 These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
 `dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `set_ipv4_address`,
