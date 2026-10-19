@@ -791,6 +791,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - Combined source `6957e88f4` passed 228 root integration tests, 1,042 debug-library tests with three existing ignores, and all 122 XSHT integration tests with five existing exclusions. Soundness then failed its unchanged minimum probe-count guard: five scalar receiver families were omitted after their registry types became explicit. The exact probe test passes with the adapter repair, but the full soundness run exposed a separate checker panic on an unknown entry-parameter type. Both repairs remain under focused verification. Preserve the failed r4 receipt; native and supplemental stages did not run. Commit `4105a3823` moves soundness ahead of the debug and XSHT corpus targets without changing commands or exclusions. The ordering regression failed before the change and both focused workflow tests pass afterward.
 
+- Laputa fix `5b016b43` is reviewed and integrated into the isolated acceptance checkout. Remote retrieval now distinguishes archives from metadata-only packages; existing index and plan wire versions remain unchanged. Import validates metadata before creating the canonical metapackage marker. All 229 package-manager tests pass with unchanged seed products. The run also corrected an incomplete response mock and a scratch login shell that discarded the configured runner path. Full-world recovery, rooted functionality, rebuild reuse and guest acceptance remain pending.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
