@@ -176,7 +176,7 @@ impl CheckedDeclarations {
                     CheckedFunctionKind::CliMain => unreachable!("CLI entries do not publish ordinary signatures"),
                 }
             }
-            if internal { continue; }
+            if internal || namespace.is_some() { continue; }
             match kind {
                 CheckedFunctionKind::Proc => { output.procs.insert(name, signature); }
                 CheckedFunctionKind::Pure => { output.pures.insert(name, signature); }
