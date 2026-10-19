@@ -88,6 +88,37 @@ reconstruction and AST validation were reproduced for this audit: 1,040 removals
 recorded original and reduced digests above. No checker or runtime execution
 was performed in this follow-up.
 
+The frozen paired adapter accepts an explicit compiler product pair:
+
+```sh
+bash dev/performance/corpus/check_views.sh --frozen \
+  "$COMPILER_ROOT" "$COMPILER_REV" \
+  "$XSH_ROOT" ddc17d3d53c819c343f9ecaa738ac67d59e9033a \
+  "$LAPUTA_ROOT" ca658ce1da9d89c55209c25268dfdf687ff4fdc6 \
+  "$XSH_PRODUCT" "$XSHT_PRODUCT" "$XSH_SHA256" "$XSHT_SHA256" \
+  "$RETAINED" "$VIEWS" \
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes'
+```
+
+All source roots must be clean checkouts at their specified revisions. Products
+must reside under the compiler checkout's `.work/`. The retained table and views
+must reside under the invoking checkout's `.work/tmp/`. `VIEWS` contains
+`original/{xsh,laputa}` and `reduced/{xsh,laputa}`.
+
+The adapter reconstructs the accepted views with the witness-fixture correction
+and validates their frozen digests through `frozen_witnesses.py`. It reconstructs
+the candidate from the supplied retained table and compares both complete trees.
+The candidate may erase selected Proc parameter and return contracts from the
+accepted retained table. Every other retained row, including its reason, stays
+unchanged. All 202 effect clauses remain retained in this tranche.
+
+The adapter checks ten XSH roots and Laputa `pm/plan_json.xsh` in both views.
+Repeat `--selector PROJECT SELECTOR` for each affected behavior, where `PROJECT`
+is `xsh` or `laputa`. Each selector must pass exactly once with zero skips in
+each view. Source and product checks run before and after execution. The single
+selector above illustrates invocation; it does not qualify the whole cohort.
+Adapter tests use controlled products and earn no compiler or removal credit.
+
 The practical current-source extension has two paths. `check.sh` remains a
 behavior-only check for the XSH utility roots, `wc`, `sort`, `awk`, and Laputa
 plan and generation modules. `inventory.sh`, `prepare_views.sh`, and

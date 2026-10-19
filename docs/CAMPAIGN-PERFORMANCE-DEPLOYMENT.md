@@ -136,6 +136,15 @@ with `check.call-target` at both indexed calls. The target generalizes the
 immutable list's outer type relationship; it requires no per-element forall.
 Matching candidate replay remains pending.
 
+F4 adapter source `d5f7b6267` adds the documented `check_views.sh --frozen`
+invocation. Six focused controls pass before integration and on the merged source,
+including source, product, view, retained-class, retained-reason and no-skip
+rejection. These controlled-product tests earn no compiler or
+annotation-removal credit. The next proposed candidate erases 758 Proc contracts
+from the frozen retained table: 549 parameters and 209 returns. Together with the
+accepted 1,040 edits, that would be 1,798 removals. No such candidate has passed;
+all 202 effects and other retained classes stay outside this tranche.
+
 The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
 pass, covering shared binders, component resolution, rollback, rest parameters,
 unresolved origins, schema guards, and independently verified prepared metadata.
