@@ -20300,6 +20300,65 @@ run true
     }
 
     #[test]
+    fn generic_constructed_branch_prefixes_are_lazy_and_scoped() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-lazy-branch-prefixes.xsh", concat!(
+                "pure explode(divisor: Int) -> Int { 1 / divisor }\n",
+                "pure copy(value: Int) -> Int { value }\n",
+                "pure select(flag, value) {\n",
+                " if flag { let observed: Int = copy(1); value }",
+                " else { let observed: Int = explode(0); value }\n",
+                "}\n",
+                "pure alternate(flag, value) {\n",
+                " if flag { let observed: Int = copy(1); value }",
+                " else { let observed: Int = copy(2); value }\n",
+                "}\n",
+                "assert select(true, \"safe\") == \"safe\"\n",
+                "assert alternate(true, \"first\") == \"first\"\n",
+                "assert alternate(false, \"second\") == \"second\"\n",
+                "let number: Int = select(true, alternate(false, 42))\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let function = scheme_fixture_root_function(&program, "select");
+            let decoder = function_view_decoder(&program.store, function);
+            let mut branch_slots = Vec::new();
+            for instruction in program.store.function_instruction_range(function).unwrap() {
+                if program.store.tags[instruction] != FullTag::ExprValueBlock { continue; }
+                let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(instruction).unwrap() else { panic!("value block") };
+                let mut writer = None;
+                let mut tail = None;
+                for statement in &mut body {
+                    match decoder.statement_view(statement.unwrap().raw() as usize).unwrap() {
+                        schema::StmtView::Let { slot, annotation: Some(_), .. } => writer = Some(slot),
+                        schema::StmtView::Value { value } => tail = Some(value.raw() as usize),
+                        _ => {}
+                    }
+                }
+                if let (Some(writer), Some(tail)) = (writer, tail) { branch_slots.push((writer, tail)); }
+            }
+            assert_eq!(branch_slots.len(), 2);
+            let mut wrong_scope = program.clone();
+            let read = branch_slots[1].1;
+            assert_eq!(wrong_scope.store.tags[read], FullTag::ExprParam);
+            let payload = wrong_scope.store.data[read].range().bounds(wrong_scope.store.extra.len()).unwrap();
+            wrong_scope.store.extra[payload.start] = branch_slots[0].0 as u32;
+            let error = FullVerifier::verify(&wrong_scope).unwrap_err();
+            assert!(error.message.contains("generic body reads an uninitialized slot"), "{}", error.message);
+            let program = Arc::new(program);
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                assert_eq!(evaluator.lookup(Name::intern("number")).unwrap().value, Value::Int(42));
+            }
+        });
+    }
+
+    #[test]
     fn generic_constructed_values_execute_after_frontend_disposal() {
         run_with_large_stack(|| {
             let program = fixture("generic-constructed-values.xsh", concat!(

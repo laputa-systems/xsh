@@ -945,18 +945,19 @@ fn verify_scheme_body_facts(
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
         let statements = store.payload(block.instructions)?;
         let mut visited = BTreeSet::new();
+        let mut writers = slots.clone();
         let mut returned = false;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
         for (position, &raw) in statements.iter().skip(1).enumerate() {
             let instruction = raw as usize;
             match decoder.statement_view(instruction)? {
                 schema::StmtView::Let { slot, value, annotation } if !returned => {
-                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut visited, &mut registered_coverage, &mut budget)?;
+                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut writers, &mut visited, &mut registered_coverage, &mut budget)?;
                     let stored = scheme_stored_type(ty, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
-                    if slot >= function.slot_count as usize || slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic body slot has multiple writers or is out of bounds")); }
+                    if slot >= function.slot_count as usize || writers.insert(slot, stored.clone()).is_some() || slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic body slot has multiple writers or is out of bounds")); }
                 }
                 schema::StmtView::Return { value } if !returned && position + 2 == statements.len() => {
-                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut visited, &mut registered_coverage, &mut budget)?;
+                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut writers, &mut visited, &mut registered_coverage, &mut budget)?;
                     if !ty.matches_body_return(&expected_return) { return Err(IrVerifyError::new("generic body return does not match its scheme return")); }
                     if tails.remove(&instruction).is_some_and(|tail| !tail.matches_body_return(&expected_return)) { return Err(IrVerifyError::new("generic body tail does not match its scheme return")); }
                     returned = true;
@@ -968,7 +969,7 @@ fn verify_scheme_body_facts(
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
             let ground = store.semantic.to_type_with_budget(ty, &mut budget.semantic_types)?;
-            let actual = slots.get(&slot).ok_or_else(|| IrVerifyError::new("generic slot type fact has no initialized writer"))?;
+            let actual = writers.get(&slot).ok_or_else(|| IrVerifyError::new("generic slot type fact has no initialized writer"))?;
             let equal = match actual {
                 SchemeType::Ground(actual) => actual == &ground,
                 actual => actual.closed_ground_type().is_some_and(|actual| actual == ground),
@@ -1009,6 +1010,7 @@ fn verify_body_expression(
     instruction: usize,
     types: &BTreeMap<usize, SchemeType>,
     slots: &BTreeMap<usize, SchemeType>,
+    writers: &mut BTreeMap<usize, SchemeType>,
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
     budget: &mut SchemeInstantiationBudget,
@@ -1016,7 +1018,7 @@ fn verify_body_expression(
     budget.charge(1)?;
     if !visited.insert(instruction) { return Err(IrVerifyError::new("generic body expression is shared or cyclic")); }
     let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic expression has no checked body fact"))?;
-    let mut child = |value: super::decode::ExprInstructionId<'_>| verify_body_expression(store, decoder, value.raw() as usize, types, slots, visited, registered_coverage, budget);
+    let mut child = |value: super::decode::ExprInstructionId<'_>| verify_body_expression(store, decoder, value.raw() as usize, types, slots, writers, visited, registered_coverage, budget);
     let expected = match decoder.expression_view(instruction)? {
         schema::ExprView::Param(slot) => slots.get(&slot).cloned().ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?,
         schema::ExprView::Null => SchemeType::Ground(Type::Null),
@@ -1072,12 +1074,12 @@ fn verify_body_expression(
             for (index, statement) in body.enumerate() {
                 match decoder.statement_view(statement?.raw() as usize)? {
                     schema::StmtView::Let { slot, value, annotation } if result.is_none() => {
-                        let actual = verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, visited, registered_coverage, budget)?;
+                        let actual = verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, writers, visited, registered_coverage, budget)?;
                         let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
-                        if local_slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic value block rewrites an initialized slot")); }
+                        if writers.insert(slot, stored.clone()).is_some() || local_slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic value block rewrites an initialized slot")); }
                     }
                     schema::StmtView::Value { value } if index + 1 == count && result.is_none() => {
-                        result = Some(verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, visited, registered_coverage, budget)?);
+                        result = Some(verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, writers, visited, registered_coverage, budget)?);
                     }
                     _ => return Err(IrVerifyError::new("generic value block requires immutable bindings and a terminal value")),
                 }
