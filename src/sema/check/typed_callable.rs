@@ -104,7 +104,7 @@ impl Checker {
         if matches!(fitted, Type::Callable(_))
             && let Some(signature) = selected_signature.as_ref()
         {
-            self.record_selected_function_call(span, signature);
+            self.record_selected_function_value(span, signature);
         }
         Some(fitted)
     }

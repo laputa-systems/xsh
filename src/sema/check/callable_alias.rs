@@ -57,7 +57,7 @@ impl Checker {
         if !matches!(exports.get(&name), Some(ModuleExportType::GenericPure { optional: false })) {
             return None;
         }
-        self.record_selected_function_call(program.arena.expr(expression).span, &alias.signature);
+        self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
         self.expr_types.insert(program.arena.expr(expression).span, Type::Pure);
         Some(alias)
     }
@@ -136,7 +136,7 @@ impl Checker {
         })
     }
 
-    fn resolve_module_callable_alias(
+    pub(super) fn resolve_module_callable_alias(
         &self,
         program: &ArenaProgram,
         receiver: ExprId,
@@ -233,6 +233,7 @@ impl Checker {
     }
 
     pub(super) fn record_callable_alias(&mut self, span: Span, alias: &CallableAlias) {
+        self.record_selected_function_value(span, &alias.signature);
         if let Some(alias) = alias.checked() {
             self.static_callable_aliases.insert(span, alias);
         }

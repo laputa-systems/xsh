@@ -639,6 +639,7 @@ pub struct CheckOutput {
     /// Checker-selected declarations for static calls and function values,
     /// keyed by expression or statement span.
     pub(crate) selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
+    pub(crate) selected_function_value_references: BTreeSet<Span>,
     pub(crate) call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
@@ -713,6 +714,8 @@ impl CheckOutput {
             .append(&mut module.static_callable_aliases);
         self.selected_function_calls
             .append(&mut module.selected_function_calls);
+        self.selected_function_value_references
+            .append(&mut module.selected_function_value_references);
         self.call_instantiations
             .append(&mut module.call_instantiations);
         self.local_binding_types
@@ -1693,6 +1696,7 @@ pub struct Checker {
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
+    selected_function_value_references: BTreeSet<Span>,
     pending_call_instantiations: BTreeMap<Span, PendingCallInstantiation>,
     call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
     prepared_function_call_contracts: BTreeMap<Span, FunctionCallContract>,
@@ -1996,6 +2000,7 @@ impl Checker {
             static_callable_aliases: self.static_callable_aliases,
             typed_callable_calls: self.typed_callable_calls,
             selected_function_calls: self.selected_function_calls,
+            selected_function_value_references: self.selected_function_value_references,
             call_instantiations: self.call_instantiations,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
@@ -2088,6 +2093,7 @@ impl Checker {
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
             selected_function_calls: BTreeMap::new(),
+            selected_function_value_references: BTreeSet::new(),
             pending_call_instantiations: BTreeMap::new(),
             call_instantiations: BTreeMap::new(),
             prepared_function_call_contracts: BTreeMap::new(),

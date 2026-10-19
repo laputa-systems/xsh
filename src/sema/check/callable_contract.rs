@@ -164,13 +164,20 @@ impl CheckedFunctionDeclaration {
 }
 
 impl CheckOutput {
-    /// Returns the declaration contract selected for this exact callable
-    /// expression or call span, before per-call generic instantiation.
+    /// Returns the selected declaration contract before per-call generic
+    /// instantiation. An invocation span selects its callee's contract.
     pub fn callable_contract_at(&self, span: crate::source::Span) -> Option<CheckedCallableContract> {
         let target = self.selected_function_calls.get(&span)?;
         self.checked_declarations.functions.get(&target.definition)
             .filter(|declaration| declaration.name == target.name && declaration.namespace == target.namespace)?
             .callable_contract()
+    }
+
+    /// Returns the declaration contract of a checked function value reference.
+    /// Invocation spans have no function value reference contract.
+    pub fn callable_value_contract_at(&self, span: crate::source::Span) -> Option<CheckedCallableContract> {
+        self.selected_function_value_references.contains(&span)
+            .then(|| self.callable_contract_at(span)).flatten()
     }
 }
 
@@ -294,6 +301,55 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         parsed.arena.symbol_owner().with_current(|| checked.checked_declarations.functions.values()
             .find(|declaration| declaration.name.as_str() == "describe").unwrap().callable_contract().unwrap())
+    }
+
+    #[test]
+    fn checked_callable_value_contract_distinguishes_calls_from_references() {
+        let source = "pure integer(value: Int) -> Int { value }\nlet action = integer\nlet number = integer(1)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let reference = source.find("= integer\n").unwrap() + 2;
+        let reference = crate::source::Span::new(SourceId::new(0), reference, reference + "integer".len());
+        let invocation = source.find("integer(1)").unwrap();
+        let invocation = crate::source::Span::new(SourceId::new(0), invocation, invocation + "integer(1)".len());
+        assert!(checked.callable_value_contract_at(reference).is_some());
+        assert!(checked.callable_value_contract_at(invocation).is_none());
+        assert!(checked.callable_contract_at(invocation).is_some());
+    }
+
+    #[test]
+    fn checked_callable_value_contract_does_not_replace_factory_result_with_callee() {
+        let source = "type Callback = pure(value: Int) -> Int\npure integer(value: Int) -> Int { value }\npure factory() -> Callback { integer }\nlet action = factory()\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let invocation = source.rfind("factory()").unwrap();
+        let invocation = crate::source::Span::new(SourceId::new(0), invocation, invocation + "factory()".len());
+        assert!(matches!(checked.expr_types.get(&invocation), Some(Type::Callable(_))));
+        assert!(checked.callable_value_contract_at(invocation).is_none());
+        assert!(checked.callable_contract_at(invocation).is_some());
+    }
+
+    #[test]
+    fn checked_callable_value_contract_preserves_generic_references_without_tagging_results() {
+        let source = "pure identity(value) { value }\nlet action = identity\nlet number = identity(1)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let reference = source.find("= identity\n").unwrap() + 2;
+        let reference = crate::source::Span::new(SourceId::new(0), reference, reference + "identity".len());
+        let invocation = source.find("identity(1)").unwrap();
+        let invocation = crate::source::Span::new(SourceId::new(0), invocation, invocation + "identity(1)".len());
+        assert!(checked.callable_value_contract_at(reference).unwrap().is_generic());
+        assert!(checked.callable_value_contract_at(invocation).is_none());
+        assert!(checked.callable_contract_at(invocation).unwrap().is_generic());
     }
 
     #[test]

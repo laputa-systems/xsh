@@ -13,6 +13,11 @@ use crate::syntax::arena::{
 use crate::syntax::node::Effect;
 use std::sync::Arc;
 
+enum FunctionSelectionRole {
+    Invocation,
+    ValueReference,
+}
+
 fn call_instantiation_error_message(
     error: crate::sema::constraints::SchemeOperationError,
 ) -> String {
@@ -1347,8 +1352,8 @@ impl Checker {
         result
     }
 
-    pub(super) fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
-        self.record_function_call_target(span, signature.definition_target());
+    pub(super) fn record_selected_function_value(&mut self, span: Span, signature: &super::FunctionSig) {
+        self.record_function_value_target(span, signature.definition_target());
     }
 
     pub(super) fn record_function_call_target(
@@ -1356,11 +1361,33 @@ impl Checker {
         span: Span,
         target: Option<super::CheckedFunctionTarget>,
     ) {
+        self.record_function_target(span, target, FunctionSelectionRole::Invocation);
+    }
+
+    pub(super) fn record_function_value_target(
+        &mut self,
+        span: Span,
+        target: Option<super::CheckedFunctionTarget>,
+    ) {
+        self.record_function_target(span, target, FunctionSelectionRole::ValueReference);
+    }
+
+    fn record_function_target(
+        &mut self,
+        span: Span,
+        target: Option<super::CheckedFunctionTarget>,
+        role: FunctionSelectionRole,
+    ) {
         let Some(target) = target else {
             return;
         };
         if let Some(previous) = self.selected_function_calls.insert(span, target) {
-            assert_eq!(previous, target, "a call resolved to conflicting function definitions");
+            assert_eq!(previous, target, "an expression resolved to conflicting function definitions");
+            assert_eq!(self.selected_function_value_references.contains(&span), matches!(role, FunctionSelectionRole::ValueReference),
+                "an expression resolved to conflicting function selection roles");
+        }
+        if matches!(role, FunctionSelectionRole::ValueReference) {
+            self.selected_function_value_references.insert(span);
         }
     }
 

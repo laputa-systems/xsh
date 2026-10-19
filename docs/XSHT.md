@@ -49,6 +49,10 @@ The frontend facade exposes `CheckedCallableContract` through
 `CheckedFunctionDeclaration::callable_contract()` and
 `CheckOutput::callable_contract_at(span)`. These immutable views share the
 checker-selected signature and retain its symbols after source disposal.
+At an invocation span, `callable_contract_at` returns the callee's declaration
+contract. `CheckOutput::callable_value_contract_at(span)` returns a contract
+only for a checked function value reference. Annotation consumers use this
+query for initializer and argument values.
 `is_generic()` and `kind()` describe the checked declaration; `Display` uses
 stable bound parameter names, and `equivalent_to` compares structure modulo
 bound type and row parameter names. `join_effects` combines finite effect

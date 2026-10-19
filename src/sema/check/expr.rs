@@ -307,12 +307,12 @@ impl Checker {
         }
         if let Some(declaration) = self.procs.get(&name).copied() {
             let target = self.local_function_target(declaration);
-            self.record_function_call_target(span, target);
+            self.record_function_value_target(span, target);
             return Type::Proc;
         }
         if let Some(declaration) = self.pures.get(&name).copied() {
             let target = self.local_function_target(declaration);
-            self.record_function_call_target(span, target);
+            self.record_function_value_target(span, target);
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
@@ -3524,7 +3524,12 @@ impl Checker {
                 }
             },
             Type::Module(exports) => match exports.get(&name) {
-                Some(export) => self.module_export_value_type(export, span),
+                Some(export) => {
+                    if let Some(alias) = self.resolve_module_callable_alias(arena, base, name, export) {
+                        self.record_selected_function_value(span, &alias.signature);
+                    }
+                    self.module_export_value_type(export, span)
+                }
                 None => {
                     self.error(
                         span,
