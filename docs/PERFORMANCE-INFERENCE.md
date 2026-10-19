@@ -21,8 +21,17 @@ confirms 499 local and 541 internal removals with all 48 loaded sources protecte
 The explicit retained table is the accepted `15243e97` version. Both whole-view
 digests and the candidate products stay unchanged across the checks. Logs are
 under `.work/tmp/i2-1040-check-r7-646832600`. These focused results earn no
-runtime or G1 acceptance credit. The paired runtime replay and full combined
-qualification remain pending.
+runtime or G1 acceptance credit. Full combined qualification remains pending.
+
+R9 source `5454112e9f5fc10eae2faa75e5d6a5d09586bd4f` passes the fifteen
+selected runtime witnesses in each frozen view: thirty passes, zero failures
+and zero skips. The selection includes both historical `meminfo_issue` witnesses
+and Laputa plan JSON behavior. Whole-view digests and product hashes stay
+unchanged, and both owned containers are removed. Evidence is under
+`.work/tmp/i2-1040-witnesses-r9-5454112e9-r2`. An earlier attempt rejects stale
+bootstrap product hashes before execution; the successful run binds the final
+products recorded by R9's canonical owner. This finite replay adds no removals
+and does not qualify G1 or the separate four-site practical cohort.
 
 The frozen cohort contains 9,194 AST sites across 48 loaded files, from eleven
 roots: ten XSH roots and Laputa `pm/plan_json.xsh`. It has 693 eligible local
