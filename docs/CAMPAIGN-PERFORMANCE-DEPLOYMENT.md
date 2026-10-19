@@ -803,6 +803,23 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Combined source `c24ce1759` passed bootstrap, 228 root integration tests, all 14 soundness tests, 1,043 debug-library tests and all 122 XSHT integration tests. Existing ignores and exclusions remained unchanged. Full native execution finished with 14,017 passes, 32 failures and 150 skips. Preserve its failed receipt in `.work/wt/perf-i1-combined-freeze-r5`. Reviewed repairs restore root signature isolation, driver temporary metadata, optional producer derivation and default inference from solved returns. Fixture repairs preserve unique wire ordinals, update the 153-tag inventory, relocate support programs into existing fixture data and accept generalized required pure parameters. Candidate `621513b7a` builds. Its 38 focused invocations have 35 passes and three residual IR failures, covering guard record sources and ProcessError metadata. All 24 btop source tests pass. Repair work continues in `.work/wt/perf-control-flow-r5`. Both new scalar mutation controls and eleven existing corruption controls pass. The optional-producer mutation fixture still stops at the guard failure before reaching its checks. No combined acceptance follows from these partial results.
 - Candidate `9c20697b7` passes 39 of 40 focused native invocations and all 18 selected verifier controls. Previously failing R5 selectors now pass. The added compound guard regression exposes a prior record payload decoded under the current call's owner. Reviewed fix `83b88901c` uses the source step's decoder, retains strict ownership checks and adds a minimal record-to-generic-call regression. Its pinned library typecheck passes; rebuilt behavior checks and full acceptance remain pending. The unexecuted R6 checkout is `.work/wt/perf-i1-combined-freeze-r6` on `campaign/performance-i1-freeze-r6`. Laputa's offline guest build publishes bundle `1b8af701198629cabf74c3c9b48c1e225ff5a501131d51d9dae0fb61118ad7c3` with resolved cleanup and unchanged qualified seed. Full guest XSH execution remains pending and still uses the R13 seed.
 
+
+- Combined R6 source `0f2cbe61b` passes singleton bootstrap but fails the root
+  integration boundary: 226 pass and two byte-entry argument-domain failures.
+  Cleanup resolves. Later canonical stages did not run. Preserve the failed R6
+  receipt and checkout. Repair `f7978b07f` selects the entry domain from checked
+  parameters independently of pending return inference. Its strengthened checker
+  regression fails before the fix. All three selected checker controls and all
+  four byte-entry process tests pass afterward. Full combined qualification
+  remains required on a fresh freeze.
+- The R13-seed Asterinas guest boots through XSH initialization and starts the
+  full suite. Execution stops at 159 passes, one failure and four skips. The
+  failing AWK timestamp case requires `systime() > 1000000000`. The harness
+  reports a stdout mismatch without the observed timestamp. RTC device failures
+  and the pinned kernel's epoch fallback motivate a focused clock diagnostic.
+  They do not yet prove the observed timestamp. Cleanup resolves and the
+  qualified seed remains unchanged. No full guest acceptance is claimed.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
