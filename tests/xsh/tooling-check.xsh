@@ -185,7 +185,9 @@ test test_check_annotate_preserves_imported_generic_aliases { |ctx|
   let root = project(
     ctx,
     {
-      "identity.xsh": r"""export pure identity(value) {
+      "identity.xsh": r"""##! Generic identity module.
+## Returns its input unchanged.
+export pure identity(value) {
   value
 }
 """,
