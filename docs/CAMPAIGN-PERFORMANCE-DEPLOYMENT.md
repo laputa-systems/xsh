@@ -34,15 +34,15 @@ finite-effect Proc interfaces and strict Result producer checking. Both grammar
 generators, the parser/grammar omission matrix and thirteen lint consumer tests
 pass. Matching native products pass immutable prefixes, value branches,
 mutable-capture rejection and exported inference. Private/imported scalar and
-nested Ok probes pass; nested Err arguments remain blocked by a missing closed
-type fact. Frontend-disposal tests reject forged Result payloads and owner
+nested Ok probes pass. Repair `e704557d6` passes nested Err disposal tests;
+matching native replay remains pending. Frontend-disposal tests reject forged Result payloads and owner
 effect ceilings while preserving contextual collections and Any callable values.
 
-The full library boundary is red: 1,076 pass, eighteen fail and three remain
-ignored. Strict constructor proof exposed missing lowering contexts for pipeline
-and method producers, unsupported producer forms and shared work-budget exhaustion.
-An export-corruption test also uses a stale payload/word layout after the new
-kind encoding. Repair these focused classes before repeating the library gate.
+The earlier `139868db6` full library boundary has 1,076 passes, eighteen failures
+and three ignores. The focused repairs above resolve eleven failures, including
+the stale export-corruption payload. Private bridge validation now reaches a
+missing producer operand contract after its Pure signature representation was
+corrected. Repair the remaining classes before repeating the library gate.
 No whole-source qualification follows from the focused passes.
 
 The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
