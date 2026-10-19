@@ -143,13 +143,15 @@ run_negative_control() {
   else
     status=$?
   fi
-  if [[ $status != 2 ]] || ! grep -Eq '^err\[check\.[^]]+\]' "$error" || ! grep -q 'core/wc.xsh' "$error"; then
+  local expected_codes=check.ambiguous-overload,check.result-fallback
+  local codes
+  codes=$(sed -nE 's/^err\[([^]]+)\].*/\1/p' "$error" | sort -u | paste -sd, -)
+  if [[ $status != 2 ]] || ! grep -q 'core/wc.xsh' "$error" || [[ $codes != "$expected_codes" ]]; then
     cat "$output" "$error" >&2
-    printf '%s did not produce a checker diagnostic in core/wc.xsh\n' "$name" >&2
+    printf '%s emitted diagnostic codes %s; expected %s in core/wc.xsh\n' \
+      "$name" "${codes:-none}" "$expected_codes" >&2
     return 1
   fi
-  local codes
-  codes=$(sed -nE 's/^err\[(check\.[^]]+)\].*/\1/p' "$error" | sort -u | paste -sd, -)
   printf '%s: %s\n' "$name" "$codes"
 }
 

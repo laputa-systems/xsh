@@ -362,10 +362,12 @@ signatures. It also checks each of the three `wc` diagnostic controls after
 removing only that parameter annotation, and restores temporary probe lines
 before returning. Tree comparisons include symlink targets without following
 them, so the source archives are compared safely when they contain cyclic
-links. For this run, the inventory helper was built in the pinned container
-with its bundled `rust-lld` linker and an isolated `.work` target because the
-image's mold wrapper could not find `libgcc`; this did not rebuild or change
-the qualified candidate products.
+links. The inventory helper was rebuilt in the pinned image with the I1 kache
+wrapper, Linux musl mold adapter, static-CRT target flags, and a lane-local
+target. It reproduced the same 724 spans byte-for-byte. The lane-local kache
+cache mount was not writable, so caching was disabled for that build; this
+result establishes inventory equivalence, not build performance. The matched
+candidate products remained unchanged.
 `SITE_IDS` is a comma-separated list of exact
 `project|path|kind|line|owner` selectors from the generated inventory. The
 paired runner rejects numeric row ids and reserves the three diagnostic
