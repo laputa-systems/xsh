@@ -53,7 +53,7 @@ use crate::syntax::node::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use std::rc::Rc;
@@ -1742,7 +1742,7 @@ impl FullProgram {
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+            binding_identity_stack: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(function_signature_index.clone()),
             return_analysis: RefCell::default(),
@@ -5240,7 +5240,7 @@ impl<'p> FullExecution<'p> {
             slot_count: self.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+            binding_identity_stack: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
@@ -5541,7 +5541,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
     local_immutable_let_initializers: RefCell<Option<FxHashMap<usize, LocalImmutableLetWriter>>>,
-    binding_identity_stack: Rc<RefCell<BTreeSet<u32>>>,
+    binding_identity_stack: OnceCell<Rc<RefCell<BTreeSet<u32>>>>,
     /// Slots for which `verify_callable_slot_initializers` compared a writer's
     /// checked type against the slot's callable type fact. This is the only
     /// evidence a temporary driver slot has been written with its own type;
@@ -6370,6 +6370,11 @@ impl<'a> FullDecoder<'a> {
         Ok(Some(actual_type))
     }
 
+    fn binding_identity_stack(&self) -> &Rc<RefCell<BTreeSet<u32>>> {
+        self.binding_identity_stack
+            .get_or_init(|| Rc::new(RefCell::new(BTreeSet::new())))
+    }
+
     fn checked_binding_identity_type(
         &self,
         binding_identity: u32,
@@ -6389,7 +6394,7 @@ impl<'a> FullDecoder<'a> {
                 "binding identity owner differs from its capture origin",
             ));
         }
-        if !self.binding_identity_stack.borrow_mut().insert(binding_identity) {
+        if !self.binding_identity_stack().borrow_mut().insert(binding_identity) {
             return Err(IrVerifyError::new(
                 "binding writer type proof contains a cycle",
             ));
@@ -6399,7 +6404,7 @@ impl<'a> FullDecoder<'a> {
             owner,
             expected_type_id,
         );
-        self.binding_identity_stack
+        self.binding_identity_stack()
             .borrow_mut()
             .remove(&binding_identity);
         result
@@ -6483,7 +6488,7 @@ impl<'a> FullDecoder<'a> {
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: self.binding_identity_stack.clone(),
+            binding_identity_stack: OnceCell::from(Rc::clone(self.binding_identity_stack())),
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
@@ -7489,7 +7494,7 @@ impl<'a> FullDecoder<'a> {
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+            binding_identity_stack: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
@@ -16328,7 +16333,7 @@ impl FullVerifier {
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
-                binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+                binding_identity_stack: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: Some(function_signature_index.clone()),
                 return_analysis: RefCell::default(),
@@ -18751,7 +18756,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         slot_count: 1,
         pattern_ceiling: Cell::new(usize::MAX),
         local_immutable_let_initializers: RefCell::default(),
-        binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+        binding_identity_stack: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
@@ -25552,7 +25557,7 @@ assert results == [4]
             slot_count: function.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+            binding_identity_stack: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(Arc::new(program.symbol_owner().with_current(|| {
                 FunctionSignatureIndex::build(&program.store)
@@ -29034,7 +29039,7 @@ pure selected() -> Str {
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
-                binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+                binding_identity_stack: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
@@ -29097,7 +29102,7 @@ pure selected() -> Str {
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
                 local_immutable_let_initializers: RefCell::default(),
-                binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+                binding_identity_stack: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
@@ -35943,6 +35948,142 @@ pure apply() -> Int {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn signal_hook_errors_restore_live_bindings_and_root_slots() {
+        for failure in ["let _ = 1 / divisor", "exit 23"] {
+            let source = r#"var label = "before"
+    var divisor = 0
+    pure current() -> Str { label }
+    on USR1 [] { label = "hook"; let _ = 1 / divisor }
+    label = "after"
+    "#.replace("let _ = 1 / divisor", failure);
+            let program = Arc::new(fixture("signal-hook-restore.xsh", &source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let span = Span::new(program.store.source_id, 0, 0);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
+            }
+            let registered = evaluator.signal_hooks.get("USR1").unwrap().clone();
+            for invalid_view in [false, true] {
+                let mut hook = registered.clone();
+                if invalid_view {
+                    hook.indexed_body.driver_step = usize::MAX;
+                }
+                evaluator.indexed_root_slots = Some(crate::runtime::eval::IndexedRootSlots {
+                    address: 123,
+                    scope_revision: 456,
+                    bindings: Vec::new(),
+                });
+                let error = evaluator.execute_signal_hook(&hook).unwrap_err();
+                if invalid_view {
+                    assert_eq!(error.kind, "indexed-ir");
+                } else if failure == "exit 23" {
+                    assert_eq!(error.abort.unwrap().status, 23);
+                } else {
+                    assert_eq!(error.kind, "division-by-zero");
+                }
+                let root = evaluator.indexed_root_slots.as_ref().unwrap();
+                assert_eq!((root.address, root.scope_revision), (123, 456));
+                assert_eq!(evaluator.lookup("label").unwrap().value, Value::Str("after".into()));
+                assert_eq!(
+                    evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "current")),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        span,
+                    ).unwrap().unwrap(),
+                    Value::Str("after".into()),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn signal_hook_publication_preserves_nested_errors_and_abort_status() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let nested = |kind| {
+            Value::Error(Box::new(crate::runtime::value::RuntimeError::new(kind, kind)))
+                .with_error_cause(Value::Error(Box::new(
+                    crate::runtime::value::RuntimeError::new(format!("{kind}-cause"), "nested"),
+                )))
+                .unwrap()
+        };
+        let Value::Error(primary) = nested("primary") else { panic!() };
+        let Value::Error(secondary) = nested("publication") else { panic!() };
+        let span = Span::new(SourceId::new(0), 0, 0);
+        let error = evaluator.finish_signal_hook_publication(
+            Err(*primary), Err(*secondary), span,
+        ).unwrap_err();
+        assert_eq!(error.kind, "primary");
+        assert_eq!(error.contexts.last().unwrap().kind, "publication");
+        let mut value = Value::Error(Box::new(error));
+        let mut kinds = Vec::new();
+        loop {
+            kinds.push(value.error_kind().unwrap().to_string());
+            let Some(cause) = value.error_cause() else { break };
+            value = cause.as_value().clone();
+        }
+        assert_eq!(kinds, ["primary", "primary-cause", "publication", "publication-cause"]);
+        let primary = nested("propagated");
+        let traceback = evaluator.traceback_for_value(span, "signal.hook", &primary);
+        let flow = evaluator.finish_signal_hook_publication(
+            Ok(crate::runtime::eval::Flow::Propagate(crate::runtime::eval::Propagation {
+                error: primary, traceback,
+            })),
+            Err(crate::runtime::value::RuntimeError::new("publication", "failed")),
+            span,
+        ).unwrap();
+        let crate::runtime::eval::Flow::Propagate(propagation) = flow else { panic!() };
+        assert_eq!(propagation.error.error_kind(), Some("propagated"));
+        assert_eq!(propagation.traceback.error.kind, "propagated");
+        assert_eq!(
+            propagation.traceback.error.causes.iter()
+                .map(|cause| cause.kind.as_str()).collect::<Vec<_>>(),
+            ["propagated-cause", "publication"],
+        );
+        let cause = propagation.error.error_cause().unwrap().as_value();
+        assert_eq!(cause.error_kind(), Some("propagated-cause"));
+        assert_eq!(cause.error_cause().unwrap().as_value().error_kind(), Some("publication"));
+        let error = evaluator.finish_signal_hook_publication(
+            Err(crate::runtime::value::RuntimeError::abort(23, true)),
+            Err(crate::runtime::value::RuntimeError::new("publication", "failed")),
+            span,
+        ).unwrap_err();
+        let abort = error.abort.unwrap();
+        assert_eq!((abort.status, abort.force), (23, true));
+        assert!(error.cause.is_none());
+        assert!(std::str::from_utf8(&evaluator.stderr).unwrap().contains("publication"));
+    }
+
+    #[test]
+    fn binding_writer_type_proof_rejects_cross_writer_cycles() {
+        let mut program = fixture(
+            "binding-writer-cycle.xsh",
+            "let first = args\nlet second = first\npure read() -> List[Str] { second }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let second = program.store.binding_identities.iter()
+            .position(|identity| program.store.string(identity.name).unwrap() == "second")
+            .unwrap() as u32;
+        let type_id = program.store.captures.iter()
+            .find(|capture| capture.binding_identity == second)
+            .unwrap().type_id;
+        let args = program.store.binding_identities.iter()
+            .position(|identity| identity.flags & 1 != 0)
+            .unwrap() as u32;
+        let first_read = program.store.driver_slots.iter_mut()
+            .find(|slot| slot.binding_identity == args)
+            .unwrap();
+        first_read.binding_identity = second;
+        let decoder = unverified_return_analysis_decoder(&program, "read");
+        let error = decoder.checked_binding_identity_type(second, IR_NONE, type_id)
+            .unwrap_err();
+        assert_eq!(error.message, "binding writer type proof contains a cycle");
     }
 
     #[test]

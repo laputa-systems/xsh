@@ -1083,7 +1083,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Pure),
                 ident(),
-                signature(),
+                seq([t(T::LParen), r("pure_parameters"), t(T::RParen)]),
                 opt(returns()),
                 block(),
             ]),
@@ -1128,6 +1128,18 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("statements"),
                 t(T::RBrace),
             ]),
+        ),
+        rule(
+            Declarations,
+            "pure_parameters",
+            list(alt([
+                r("parameter"),
+                seq([
+                    opt(ellipsis()),
+                    ident(),
+                    Item::Peek([T::Comma, T::RParen].map(|tag| vec![tag_term(tag)]).to_vec()),
+                ]),
+            ])),
         ),
         rule(Declarations, "parameters", list(r("parameter"))),
         rule(

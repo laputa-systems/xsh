@@ -4115,7 +4115,8 @@ An entry script may declare one hook per signal at its top level:
   imported or loaded modules, cannot be exported, and are unsupported in
   `xshi`.
 - A hook is armed when its statement executes. It sees procs, pure functions,
-  and top-level values evaluated before it. A signal that arrived before
+  and top-level values evaluated before it, with binding values captured when
+  it is armed. Helper calls share that snapshot. A signal that arrived before
   arming is treated as having no hook.
 - The first handled signal starts shutdown and runs its hook at most once,
   with its own defers. A second handled signal escalates: no hook re-entry,

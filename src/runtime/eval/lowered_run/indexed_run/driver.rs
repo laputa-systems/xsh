@@ -508,7 +508,7 @@ impl Evaluator {
         }
     }
 
-    pub(super) fn share_indexed_root_value(value: LoweredValue) -> LoweredValue {
+    pub(in crate::runtime::eval) fn share_indexed_root_value(value: LoweredValue) -> LoweredValue {
         match value {
             LoweredValue::List(values) => LoweredValue::SharedList(Arc::new(values)),
             value => value,
@@ -542,7 +542,7 @@ impl Evaluator {
         })
     }
 
-    pub(super) fn sync_indexed_root_slots(
+    pub(in crate::runtime::eval) fn sync_indexed_root_slots(
         &mut self,
         slots: &mut [LoweredValue],
         span: Span,

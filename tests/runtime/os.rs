@@ -138,6 +138,20 @@ fn os_signal_hook_scope_snapshot_uses_registration_bindings() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
+fn os_signal_hook_helpers_and_args_use_registration_bindings() {
+    let marker = temp_path("os-signal-helper-snapshot");
+    let _ = std::fs::remove_file(&marker);
+    let output = run_os_fixture(
+        "signal-scope-helper-snapshot.xsh",
+        &[marker.to_str().unwrap(), test_helper(), "registered"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "before before registered\nhook hook\nhelper helper");
+    let _ = std::fs::remove_file(marker);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
 fn os_child_signal_disposition_is_reset_before_exec() {
     let marker = temp_path("os-child-signal-reset");
     let _ = std::fs::remove_file(&marker);
