@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import csv
 import hashlib
 import os
 from pathlib import Path
@@ -52,6 +53,25 @@ class FrozenViewAdapterTests(unittest.TestCase):
             )
         cls.views = cls.scratch / "views"
         cls.prepare_views()
+        witness_output = subprocess.check_output(
+            [
+                "python3", "-B", str(ROOT / "dev/performance/corpus/frozen_witnesses.py"),
+                str(cls.scratch / "prepared"),
+            ],
+            text=True,
+        )
+        witness_rows = csv.DictReader(witness_output.splitlines(), delimiter="\t")
+        proc_sites = {
+            int(row["site"])
+            for row in witness_rows
+            if row["classification"] in {"proc-parameter-contract", "proc-return-contract"}
+        }
+        with cls.retained.open(newline="") as source:
+            retained_sites = {
+                int(row["site"])
+                for row in csv.DictReader(source, delimiter="\t")
+            }
+        cls.nonproc_retained_site = min(retained_sites - proc_sites)
         cls.calls = cls.scratch / "xsht-calls"
 
     @classmethod
@@ -175,7 +195,23 @@ class FrozenViewAdapterTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            timeout=120,
         )
+
+    def write_retained_variant(self, path, *, omit=None, change_reason=None):
+        with self.retained.open(newline="") as source:
+            reader = csv.DictReader(source, delimiter="\t")
+            fieldnames = reader.fieldnames
+            rows = [row for row in reader if int(row["site"]) != omit]
+        if change_reason is not None:
+            for row in rows:
+                if int(row["site"]) == change_reason:
+                    row["reason"] += " changed"
+                    break
+        with path.open("w", newline="") as destination:
+            writer = csv.DictWriter(destination, fieldnames=fieldnames, delimiter="\t", lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
 
     def test_reconstructs_the_accepted_1040_pair_and_requires_one_exact_pass(self):
         result = self.command()
@@ -207,6 +243,19 @@ class FrozenViewAdapterTests(unittest.TestCase):
     def test_rejects_a_wrong_source_revision_before_running_xsht(self):
         result = self.command(xsh_revision="HEAD")
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.calls.exists())
+
+    def test_rejects_nonproc_erasure_and_retained_reason_change(self):
+        erased = self.scratch / "retained-nonproc-erasure.tsv"
+        self.write_retained_variant(erased, omit=self.nonproc_retained_site)
+        result = self.command(retained=erased)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.calls.exists())
+
+        changed = self.scratch / "retained-reason-change.tsv"
+        self.write_retained_variant(changed, change_reason=self.nonproc_retained_site)
+        result = self.command(retained=changed)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.calls.exists())
 
     def test_rejects_skipped_exact_test(self):

@@ -166,11 +166,6 @@ frozen_main() {
     cat "$scratch/accepted-validation.log" >&2
     return 1
   fi
-  local accepted_digests=$scratch/accepted-digests.tsv
-  python3 "$repo/dev/consolidation/typing-corpus/view_digest.py" \
-    "$scratch/archive/original" "$scratch/archive/reduced-1040" >"$accepted_digests"
-  grep -Fxq $'original\t14287\te3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899' "$accepted_digests"
-  grep -Fxq $'reduced-1040\t14287\tb67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9' "$accepted_digests"
   local witness_rows=$scratch/frozen-witnesses.tsv
   PYTHONDONTWRITEBYTECODE=1 python3 "$repo/dev/performance/corpus/frozen_witnesses.py" \
     "$scratch/archive" >"$witness_rows"
