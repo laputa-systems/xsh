@@ -974,11 +974,14 @@ is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
 `Set[K]` (`lint.prefer-set`), and on request notes every other
 `Map[K, Bool]`, where a stored `false` may mean something.
 
-The `set` module has the two constructors. `set.empty()` takes its element
-type from where it is written, so it needs an expected `Set[T]`: an annotated
-binding, a parameter, a field, or a return type (`check.local-inference`
-anywhere else). `set.from(items)` holds the elements of a list once each; its
-element type is the expected set's, or the list's when none is expected. The
+The `set` module has two constructors. `set.empty()` takes its element type
+from an expected `Set[T]`, such as an annotated binding, parameter, field, or
+return type. It can also infer the element type from writes and other concrete
+constraints when it initializes a mutable local inside a function. Immutable
+locals, top-level bindings, and mutable locals with no concrete contributions
+still need an expected type (`check.local-inference`).
+`set.from(items)` holds the elements of a list once each; its element type is
+the expected set's, or the list's when none is expected. The
 functions `set.add(set, item)` and `set.remove(set, item)`, which updated a
 `Map[Str, Bool]` before there were sets, are gone: a call of either is
 `check.removed-set-function`, and where the first argument is a set the
@@ -1509,8 +1512,7 @@ print ${count == 1}
 A value fits a union only when it fits a member (5.2). A union gives its value
 no expected type: the value is typed on its own and then must fit a member, so
 a string literal in a `Union[Str, Path]` slot is a `Str`. Inference never
-produces a union; branches of different types stay the error they are without
-an annotation, and an annotated union accepts them.
+produces a union.
 
 Without narrowing, a union value may only:
 
@@ -1770,17 +1772,25 @@ print $absolute $escaping $text $glued $above $plain $widened
 Inference is local and predictable. A `let` or `var` without an annotation
 takes its initializer's type. An annotation supplies the expected type, and the
 initializer must fit it. Annotations never convert or validate data: they only
-state what the checker must prove. Callers never supply types to a function's
-body, and a function's body never supplies types to its callers' arguments.
+state what the checker must prove. A pure function may infer required parameter
+types from its own body. The checker fixes its signature at the declaration;
+each direct call instantiates a quantified signature independently. One call
+never changes the declaration or another call's instance.
 
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
-including writes in branches and loops. It must be resolved before a concrete
-operation uses it; otherwise annotate it. A `var` initialized to `null`
-becomes `T?` once a non-null assignment determines `T`; `let x = null` stays
-`Null`. An unannotated `{}` is an empty record, or an empty map where a `Map`
-is expected. Incompatible contributions are errors; inference never widens to
-`Any` or invents a union.
+including writes in branches and loops. An unannotated mutable local initialized
+to `set.empty()` follows the same rule for its element type. Resolve these
+types before a concrete operation uses them; otherwise add an annotation. A
+`var` initialized to `null` becomes `T?` once a non-null assignment determines
+`T`; `let x = null` stays `Null`. If all non-null contributions to that `var`
+have one validated type, it keeps that validation in `T?`. If another
+non-null contribution supplies a concrete type that accepts the validated
+type's base, inference uses that contributed type for `T?`. Two distinct
+validated types do not select a common base by themselves. An unannotated `{}`
+is an empty record, or an empty map where a `Map` is expected.
+Incompatible contributions are errors; inference never widens to `Any` or
+invents a union.
 
 ### 5.2 Assignability
 
@@ -2210,6 +2220,14 @@ parameter's default). Unknown names and parameters supplied twice are errors.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
+An omitted pure parameter's receiver type can be constrained by relationships
+inside its body. Requiring `Str` from `value.trim()` distinguishes the
+registered `Str` and `Bytes` receiver domains. Within a receiver domain, return
+types never choose an overload. If several registered domains fit, checking
+reports `check.ambiguous-overload`. A domain without a unique inferable type
+still needs an annotation (`check.local-inference`). Callers never supply the
+missing receiver type.
+
 ### 6.4 List, record, map, and set literals
 
 ```xsh
@@ -2225,6 +2243,9 @@ let merged = {...defaults, ...overrides}
   Elements evaluate once in order, and a failure stops construction.
 - **Records.** Fields may be labeled, quoted (a quoted key containing a dot is
   one key), punned (`{name}`), or spread from a statically known record.
+  Later spreads replace earlier fields, and explicit fields after a spread
+  replace earlier fields. Every entry evaluates once in source order. An
+  explicit field repeated before any spread is an error.
 - **Maps.** A computed key `[expr]: value` makes a brace literal a map, as does
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
@@ -2356,11 +2377,16 @@ Group the run form to say which is meant.
 needs an `else`; a value `match` must be exhaustive without relying on guards
 or on text patterns (6.10).
 Branches may contain statements followed by a tail value, and all reachable
-branch values must have one type. A branch that returns, breaks, or fails
-contributes no value. An `if` statement none of whose branches ends in a value
-(each ends in a control transfer, a binding, or nothing) is a statement even
-as the last statement of a block: it needs no `else` and gives the block no
-value, so `if done { return x }` may end a block.
+branch values must fit one selected type. A branch that returns, breaks, or
+fails contributes no value. An `if` statement none of whose branches ends in a
+value (each ends in a control transfer, a binding, or nothing) is a statement
+even as the last statement of a block: it needs no `else` and gives the block
+no value, so `if done { return x }` may end a block.
+
+Without an expected type, an `if` expression may use an `Optional[T]` already
+provided by one reachable branch when every other branch value fits it,
+regardless of branch order. A plain `null` branch and plain `T` branch do not
+infer `T?`. Add an `Optional[T]` context or annotate the result.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }
@@ -3759,16 +3785,77 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
+A required parameter in a `pure` declaration may omit its type annotation. The
+checker infers that type from the declaration body. An explicit `Any` remains a
+dynamic type and is never treated as a type variable; it may appear beside
+quantified parameters. Required parameters in `proc` and `stream` declarations,
+callable types, and module contracts still need annotations.
+
+When a checked pure signature retains quantified type or row variables, its
+executable body may contain immutable `let` bindings followed by one value
+tail or explicit `return`. Values may be scalar literals, parameter or local
+reads, ground immutable runtime captures, required `.field` projections, or statically
+selected pure calls. User function calls must supply every fixed required
+parameter, by position or name. Registered calls must have a selected pure
+signature with no host effects; their receiver domain and argument layout are
+fixed while checking the declaration. A caller never supplies type evidence
+for choosing that declaration's operations. Unsigned argument and map-key
+contracts keep the ordinary checked conversions and failure propagation.
+
+This body subset excludes mutation, destructuring, operators, branches, loops,
+optional field access, indexing, constructed collections and records,
+interpolated text, dynamically selected calls, expression statements before
+the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
+quantified body subset. Registered calls
+with specialized argument rules, script implementations, or resource receiver
+domains are outside this subset. A registered method may omit only trailing
+defaulted parameters. Calls to user functions with defaulted or rest
+parameters remain outside this body subset. The checker reports
+`check.local-inference` for unsupported quantified body shapes. A fully
+concrete inferred signature has no such body restriction.
+
+Ordinary ground pure helpers called from a quantified body keep their usual
+syntax, including branches, loops, mutation, patterns, defaults, rest arguments,
+and collection callbacks. The compiler verifies their actual producers against
+the selected operation contracts. These helpers do not acquire quantified body
+restrictions.
+
+A checked value return keeps an explicit `Bool` value, including `false`.
+Closed ground `Result` returns preserve an existing result envelope or wrap a
+plain success value under the ordinary return rules. A `Result` whose success
+kind is itself a bare quantified parameter still blocks lowering. Statement
+assertion or discard elaboration is outside this quantified body subset;
+annotated `Unit` returns are supported when their terminal checked value is
+already `Unit`.
+
+At a direct call to an inferred quantified pure declaration, supply all fixed
+required parameters first. Zero or more trailing rest items or list splices may
+then fill only the final rest parameter, whose annotation is `List[T]`. Each
+rest item must match the annotated list element type. A splice must be a list
+whose element type matches it. The fixed required arguments provide type
+evidence for instantiating quantified parameters. This call form also works
+through a direct immutable alias. Ordinary monomorphic calls keep their
+existing behavior. A positional splice that could expand into a fixed parameter before
+the final rest parameter currently blocks lowering. The body restriction above
+still applies to quantified declarations that have rest parameters.
+
+Even after `xsht check` succeeds, a well-typed quantified pure declaration with
+any defaulted parameter currently blocks lowering for the whole function.
+
 ### 9.3 Return types
 
 A function body's tail is its result: the final expression, or a final
 command statement's value. A final `Result[Unit]` call in a `Unit` or
 `Result[Unit]` body propagates as a statement.
 
-Return types may be omitted only on private functions:
+Pure functions can omit their return annotation when the checker infers one
+closed type or rank-1 scheme from explicit returns and reachable tails. This
+rule also allows exported pure functions to omit return annotations. Recursive
+pure functions still need an explicit return annotation.
+The checker infers mutually recursive pure parameters together before checking
+callers. Those parameters remain monomorphic. A parameter that the recursive
+bodies leave undetermined needs an annotation.
 
-- A private `pure` function infers its return type from its explicit returns
-  and reachable tails. All paths must agree on one concrete type.
 - A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is
   Unit-like (no tail value, an `if` without `else`, a bare `return`, or a
@@ -3777,9 +3864,9 @@ Return types may be omitted only on private functions:
   Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
   `?` propagations join into the error type: variants of one family join to
   the family, anything else to `Error`.
-- Exported functions, `proc main`, and functions in a recursive group need
-  explicit return types (`check.required-return`). Empty collections, error-only
-  bodies, and dynamic shapes cannot be inferred (`check.infer-return`).
+- An exported `proc` with value returns and `proc main` need explicit return
+  types (`check.required-return`). Empty collections, error-only bodies, and
+  dynamic shapes cannot be inferred (`check.infer-return`).
 
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
@@ -3853,6 +3940,10 @@ that function's full signature (labels, defaults, return type, and effects):
 let build = toolchain.build
 build(root, jobs: 4)
 ```
+
+An alias to a quantified pure function can be a direct call target; each call
+instantiates the function's scheme independently. It cannot be stored where a
+first-class callable type is required (`check.callable-mismatch`).
 
 A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
 a dynamic callable instead. An exported alias must still state its own return
@@ -5862,7 +5953,9 @@ These are deliberately absent:
 - truthiness and implicit conversions between strings, numbers, and Booleans;
 - exceptions and `try`/`catch` (failures are `Result` data);
 - futures, `await`, asynchronous callbacks, and event loops;
-- generic functions and expression-level type arguments;
+- first-class polymorphic function values, and expression-level type
+  arguments. Inferred quantified pure declarations are available through
+  direct calls, including calls through immutable aliases (9.2, 9.4);
 - first-class command blocks and script-level job control;
 - tagged JSON.
 

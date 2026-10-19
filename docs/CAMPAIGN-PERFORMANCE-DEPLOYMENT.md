@@ -215,7 +215,8 @@ was performed during planning.
 ### Resource and ownership limits
 
 Ordinary iteration allows at most two compiler builds, each at two jobs and
-8 GiB. Inherited release-profile builds keep their 12 jobs, 12 CPUs, and 24 GiB
+8 GiB. The isolated Laputa Deno link may use 12 GiB with two CPUs and no extra
+swap: its 8-GiB container OOM was reproduced, and the 12-GiB node build passed. Inherited release-profile builds keep their 12 jobs, 12 CPUs, and 24 GiB
 and run alone. A full native observer keeps its existing 12-CPU, 24-GiB allocation.
 Each inherited scheduler pair keeps 32 CPUs and 40 GiB and runs alone. Do not
 reduce those allocations to obtain incomparable timing. Park the affected gate
@@ -769,6 +770,10 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Focused scheduler-failure repairs are integrated locally. `a758be15e` isolates the TTY test's stale-descriptor assertions in a child, preventing legal descriptor reuse in another test from turning a second close into a foreign close. `2b6fcfc66` moves the `ls` socket fixture into writable temporary storage and preserves its short relative address. `2515907c8` replaces three tail fixtures' startup sleeps with output and diagnostic barriers, and starts tee's byte deadline after application readiness. Controlled old fixtures fail and repaired fixtures pass. The parent replay passed seven exact selectors on the integrated source using unchanged R13 products; source and product qualification remain distinct. Long scratch-path and withheld-output controls preserve the socket limit and original tee deadline. One mistyped short-read filter selected no test; its corrected invocation passed. UDP passes alone and with its 22-test file, while bounded system-report groups also pass. Their full-corpus failures remain unexplained. Preserve R13 and failed R4; no new freeze, scheduler acceptance or private/resource close follows from these focused results.
 
 - Owner accelerated parallel I1/M1 launch on 2026-10-18 after the documentation refresh. Compiler integration owns `.work/wt/perf-inference-integration`; corpus work owns `.work/wt/perf-inference-corpus`; measurement work owns `.work/wt/perf-measurement-launch`. Independent compiler review and G1 failure diagnosis run alongside the existing isolated Laputa lane. The Deno diagnostic retries only its failed node under the same 2-CPU, 8-GiB, offline limits. This subset supplies no full-world acceptance. Timing remains exclusive and no synthetic close report supplies measurement credit.
+
+- Inference compiler candidate `4233e34ee` was reviewed and merged locally at `ed7077a9c`. Its focused boundary passed 126 root controls, 14 tooling controls and 226 native tests with zero failures or skips; one unchanged autofix test was excluded. Both prior audit defects and a ground `with` binding producer-proof defect have red/green controls. Generated SPEC rendering, snippet diagnostics and all three tour-project tests passed after integration. Formal inventory maintenance and the combined regression boundary remain required.
+- The R13 performance cohort completed all 1,530 timed samples and 30 parity checks with both readiness checks passing and cleanup resolved. These are provisional pre-inference observations, not an accepted baseline or speedup claim. Candidate corpus checking reproduces the frozen 1,040-removal result; removing all additional 730 checker-restored rows fails. Four practical pure-return removals pass paired behavior and signature checks. All 202 effect clauses remain retained.
+- The isolated Deno node built successfully offline under the 12-GiB exception. Its prerequisite artifacts and the full-world plan are retained. Full-world completion, rooted functionality, unchanged rebuild reuse and actual Asterinas acceptance remain required; the deployment lane resumes that full remainder.
 
 ## For the owner afterwards
 
