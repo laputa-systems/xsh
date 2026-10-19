@@ -43,6 +43,32 @@ print $text_choice
   assert output.stdout == "right-int\nleft-int\nright-text\nleft-text\n42\ndemo\n7\nready\n11\nkept\n42\nright\n"
 }
 
+test test_full_inference_generic_branch_local_prefix_is_lazy { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure ground_copy(value: Int) -> Int { value }
+pure explode(divisor: Int) -> Int { 1 / divisor }
+pure select(flag, value) {
+  if flag {
+    let observed: Int = ground_copy(1)
+    if observed == 1 { value } else { value }
+  } else {
+    let observed: Int = explode(0)
+    if observed == 1 { value } else { value }
+  }
+}
+let integer = select(true, 42)
+let text = select(true, "safe")
+assert integer == 42
+assert text == "safe"
+print $integer
+print $text
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\nsafe\n"
+}
+
 test test_full_inference_box_rejects_a_conflicting_element_context { |ctx|
   test.expect(
     ctx,
