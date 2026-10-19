@@ -299,8 +299,8 @@ fn run_option(option: RunOption) -> Item {
     seq([
         t(TokenTag::Minus),
         g(TokenTag::Minus),
-        gw(option.name()),
-        g(TokenTag::Equals),
+        w(option.name()),
+        t(TokenTag::Equals),
         r("run_option_value"),
     ])
 }
@@ -2689,11 +2689,17 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     vec![
                         tag_term(T::Minus),
                         glued_tag_term(T::Minus),
-                        word_term(option.name(), true),
+                        word_term(option.name(), false),
                     ]
                 })),
-                // The parser reads a bare `--` as a malformed option, not a target.
-                not([vec![tag_term(T::Minus), glued_tag_term(T::Minus)]]),
+                alt([
+                    not([vec![tag_term(T::Minus), glued_tag_term(T::Minus)]]),
+                    Item::Peek(vec![vec![
+                        tag_term(T::Minus),
+                        glued_tag_term(T::Minus),
+                        tag_term(super::BINDING_NAME),
+                    ]]),
+                ]),
                 star(r("env_assignment")),
                 alt([
                     seq([

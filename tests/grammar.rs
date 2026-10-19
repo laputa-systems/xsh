@@ -629,6 +629,31 @@ fn bare_minus_command_arguments_preserve_source_adjacency() {
 }
 
 #[test]
+fn unknown_run_option_names_are_command_targets() {
+    for source in [
+        "run --text\n",
+        "let stable = run.text --text \"xsht\" fmt --check $candidate\n",
+        "run --timeout=1s --unknown argument\n",
+        "run -- unknown argument\n",
+        "run -- timeout=1s cmd\n",
+        "run --timeout = 1s cmd\n",
+        "run -- timeout = 1s cmd\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "run --\n",
+        "run -- ?\n",
+        "run --1\n",
+        "run --timeout=1s --timeout=2s cmd\n",
+        "run -- timeout cmd\n",
+        "run -- timeout=1s -- timeout=2s cmd\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
 fn run_option_values_leave_following_words_as_command_arguments() {
     assert_parser_and_grammar_agree("run --accept= spawn - ! value? (\n@y ) ;\n", true);
     assert_parser_and_grammar_agree(

@@ -43,6 +43,12 @@ default. It disables LTO and uses 64 codegen units. Release tests are for final
 verification and performance measurements; `dist` is for packaging. Unit tests
 that spawn no binaries may use debug builds. Build only the packages needed.
 
+Rust files such as `tests/grammar.rs` are modules of the `integration` target,
+not standalone Cargo test targets. For a pure grammar check, select
+`-p xsh --test integration grammar::bare_minus_command_arguments_preserve_source_adjacency -- --exact`
+with the default debug profile. XSHT uses the same aggregate target under
+`-p xsht`. Confirm target and module names before composing a filtered command.
+
 Cargo process tests resolve `xsh`, `xsht`, `xshi`, `xsh-fuzz`, and
 `xsh-test-helper` through `test_bin!`, which rejects unsupported profiles.
 Build products from the same target and profile before running filtered tests.

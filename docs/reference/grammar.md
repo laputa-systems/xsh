@@ -515,7 +515,7 @@ dollar_name = DOLLAR_NAME dollar_suffix* ;
 dollar_suffix = ~"." ~LABEL | ~"(" call_arguments ")" ;
 run_form = run_segment ( "|" run_segment )* ;
 run_end = &( NEWLINE | ";" | "}" | "?" | "{" | "|>" | GROUP_END ) ;
-run_segment = "run" ( ~"." run_member | !~"." ) run_options? !( "-" ~"-" ~"timeout" | "-" ~"-" ~"cpumax" | "-" ~"-" ~"accept" ) !( "-" ~"-" ) env_assignment* ( "(" NEWLINE command_argument ( NEWLINE | redirection | !")" run_argument )* ")" | run_argument ( redirection | run_argument )* ) ;
+run_segment = "run" ( ~"." run_member | !~"." ) run_options? !( "-" ~"-" "timeout" | "-" ~"-" "cpumax" | "-" ~"-" "accept" ) ( !( "-" ~"-" ) | &( "-" ~"-" IDENT ) ) env_assignment* ( "(" NEWLINE command_argument ( NEWLINE | redirection | !")" run_argument )* ")" | run_argument ( redirection | run_argument )* ) ;
 run_options = timeout_option
             | timeout_option cpumax_option
             | timeout_option cpumax_option accept_option
@@ -531,9 +531,9 @@ run_options = timeout_option
             | accept_option timeout_option cpumax_option
             | accept_option cpumax_option
             | accept_option cpumax_option timeout_option ;
-timeout_option = "-" ~"-" ~"timeout" ~"=" run_option_value ;
-cpumax_option = "-" ~"-" ~"cpumax" ~"=" run_option_value ;
-accept_option = "-" ~"-" ~"accept" ~"=" run_option_value ;
+timeout_option = "-" ~"-" "timeout" "=" run_option_value ;
+cpumax_option = "-" ~"-" "cpumax" "=" run_option_value ;
+accept_option = "-" ~"-" "accept" "=" run_option_value ;
 run_member = ~"status"
            | ~"text"
            | ~"bytes"
