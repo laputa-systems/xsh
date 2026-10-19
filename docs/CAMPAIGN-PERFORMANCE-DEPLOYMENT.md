@@ -32,17 +32,27 @@ results do not qualify the whole source or close inference G1.
 Callable consumers now distinguish a selected invocation target from a
 callable value. CLI annotation edits validate a fresh, import-aware candidate
 before writing; lint consumers use the canonical contract. Thirteen focused
-lint tests and the imported generic-alias annotation witness pass. Concrete
-and defaulted List results annotate correctly. Generic call-result annotation
-publication still needs a checker repair. Schema anchors preserve nominal
+lint tests and the imported generic-alias annotation witness pass. Generic, concrete
+and defaulted List results annotate correctly with matching `5fcc45c48` tools;
+scalar locals remain unannotated. Deferred publication also passes the focused
+later-refined empty-list and generalized-body controls. The wider annotation
+group has eight passes and one public-return spelling failure: candidate
+validation rejects generated `Result[Unit]` on an exported proc. The renderer
+repair at `a92955568` spells `Result[Unit, Error]`; matching-product verification
+is pending. Schema anchors preserve nominal
 meaning across independent parses; semantically empty facade contexts compare
 without erasing the checker's diagnostic context.
 
 The independent finite-effect model passes eight tests but has no production
 symbolic-effect differential yet. Fixed scaling workloads cover eight families
 at sizes 64, 128, 256 and 512. Their shape and generator checks are not measured
-performance evidence. Solver counter checks and finite-effect generic procedure
-implementation are in progress. All remaining capability, joint corpus,
+performance evidence. Three solver scaling checks pass at all four sizes. Seven host-obligation
+checks pass, including actual candidate-trial counts and deduplicated dependency
+requeues. These new counters are test-only; the older `worklist_wakeups` counter
+measures solver pair work. Finite-effect generic procedure implementation
+remains in progress: imported execution passes on both indexed routes, but a
+new forged Result-payload fact is incorrectly accepted. That corruption check
+blocks acceptance of the procedure tranche. All remaining capability, joint corpus,
 performance, baseline, deployment and cleanup gates retain their requirements.
 
 The first full-inference compiler slice, `dbfea6b51`, admits unannotated
