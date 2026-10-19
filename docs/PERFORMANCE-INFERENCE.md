@@ -253,8 +253,14 @@ All 60 facts have `inferred=false`, `inference_allowed=true`,
 `redundant_clause=false`, and an empty `unknown_chain`. Each `effective` set
 matches its explicit clause, and each differs from `required`. The reported
 `required` set is a strict subset of `effective` in 58 rows. In the other two,
-`required` also includes `env`. The linter returns unless the checked fact has
-`redundant_clause=true`
+`required` also includes `env`, which neither written set spells out. Both
+clauses include `io`; SPEC 9.6 defines `io` to imply `env`, and the R6 checker
+uses that implication when checking whether a clause covers a required effect
+([`SPEC 9.6`](SPEC.md#96-effects),
+[`effects_covers`](../src/sema/check.rs:2528)). The TSV records written and
+required effect sets without expanding that coverage implication, so these
+both clauses cover their required effects. The linter returns unless the checked
+fact has `redundant_clause=true`
 ([`lint_annotations.rs`](../crates/xsht/src/lint_annotations.rs:200)). It then
 checks whether deleting the clause preserves checked output. All 60 fail the
 first proof. That explains the absent suggestions without proving that the
@@ -280,19 +286,27 @@ Keep this row out of any over-annotation classification.
 The 37 `compare_live_*` functions named in the table above all have effective
 `[fs,process,time,error,io]` and required `[error,fs,process,time]`. Their source
 calls include filesystem reads, `time.now`, and `process.run`. This proves a
-shared set mismatch, but it does not explain why the clauses include `io`.
+shared listed-set difference, but it does not explain why the clauses include
+`io`.
 The separate `compare_live_processes` row has a required set that also contains
-`env`, while its clause omits it. Its body calls `system.execution_units()` at
+`env`. Its body calls `system.execution_units()` at
 `dev/system_report_check.xsh:25474`, and the checker maps `system` calls to
-`env`.
+`env`. Its clause includes `io`, which covers the required `env` permission.
 
 The other twelve rows are recorded individually in the TSV. Ten of them have
-required effects that are strict subsets of their clauses. Two rows do not fit
-that pattern: `compare_live_processes` requires undeclared `env`, and
-`core/wc.xsh`'s `count_input` requires `env` although its source calls
-`io.stdin_read`, `io.stdin_bytes`, `Path.metadata`, and `read_file`; the latter
-is declared `[fs,error]`. The extraction does not identify the source of
-`count_input`'s `env` requirement. Treat both rows as unresolved mismatches.
+required effects that are strict subsets of their clauses. The other two have
+an additional required `env` effect: `compare_live_processes` gets it from
+`system.execution_units()`, and `core/wc.xsh`'s `count_input` gets it from
+`gnu.quote_bytes` and `gnu.quote_maybe` at lines 449 and 456 in the frozen
+original XSH archive `ddc17d3d53c819c343f9ecaa738ac67d59e9033a`. In
+`core/lib/gnu.xsh`, both callees declare `[env]`; `quote_bytes` reads locale
+variables through `utf8_locale` at lines 218–238, and `quote_maybe` can
+delegate to it at lines 278–281. `count_input`'s other listed calls—
+`io.stdin_read`, `io.stdin_bytes`, `Path.metadata`, and the `[fs,error]`
+`read_file`—do not account for `env`. Both clauses include `io`, so the
+checker allows these required effects under SPEC 9.6. This source trace
+explains the `count_input` set difference; it does not change the R6 facts or
+grant clause-removal credit.
 
 `CheckOutput.function_effect_facts` does not expose resolved call edges. The
 TSV's call-site column records written call spellings, not checker-resolved
