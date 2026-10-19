@@ -20,6 +20,32 @@ The deliverables are:
 
 ## Current checkpoint
 
+The owner launched `full-inference-campaign.md` on 2026-10-19 with bounded
+isolated edits, local commits/integration, and owned offline Docker operations.
+Pushing remains forbidden. Launch source is `9134db7e7`; its only change since
+the planning anchor is the committed completion plan. The inference checkpoints
+do not replace this campaign's baseline, deployment, or cleanup obligations.
+
+R12 source `55032a7ee2c4d340a6e5df9d4f362b0074d8a9e0` passes canonical
+correctness: 14,077 native passes, zero failures and 150 skips, alongside the
+Rust, structural and documentation boundaries. Its supplemental warning-denied
+Clippy step fails with 53 errors. Baseline qualification remains open. Preserve
+both the canonical receipt and failed supplemental attempt. Two launch probes
+pass against the unchanged code using those protected products: identity/open
+rows and the existing generic typed-storage rejection, one pass each with no
+skips. These scoped probes do not qualify a new compiler source.
+
+The full-inference integration owner is `.work/wt/full-inference-integration`
+on `campaign/full-inference-integration`. F0 warning repair owns
+`.work/wt/full-inference-warnings`; completion/loop checks own
+`.work/wt/full-inference-loop`; capability fixtures own
+`.work/wt/full-inference-fixtures`; corpus classification owns
+`.work/wt/full-inference-corpus`; the single coupled compiler owner uses
+`.work/wt/full-inference-compiler`. Their branches use the corresponding
+`campaign/full-inference-` names. All start from the launch source. Compiler
+work begins in files disjoint from the warning repair. No full suite or timing
+gate has started for the new campaign.
+
 R11 source `f3da00668ecb14baa9e7092585aa47330b47da0e` passes bootstrap,
 then fails the deeper grammar generator. Root integration records 229 passes,
 one failure and one filtered test. Cleanup resolves. Later canonical stages and

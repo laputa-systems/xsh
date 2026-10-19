@@ -3,6 +3,11 @@
 Status: execution-ready plan, reviewed on 2026-10-19 against local master
 `d489d8fcf`. Planning does not start this work or authorize its effects.
 
+Execution launched on 2026-10-19 from `9134db7e7` under the owner's explicit
+grant for bounded isolated edits, local commits/integration, and owned offline
+Docker operations. No pushing. Current results and ownership remain in
+`docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`.
+
 Deliver these results in order:
 
 1. One rank-1 type, row, and effect authority for pure, proc, and stream declarations.
