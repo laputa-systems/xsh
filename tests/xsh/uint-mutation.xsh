@@ -214,6 +214,26 @@ outer
     }
   }
 
+  for declaration in ["let", "var"] {
+    let output = test.run_script(
+      ctx,
+      f"""pure checked(n: Int) -> Result[UInt] {{
+  try {{
+    {declaration} stored: UInt = n
+    stored
+  }}
+}}
+defer {{ print "cleanup" }}
+let result = checked(-1)
+print "after"
+""",
+    )?
+    assert output.success == false
+    assert "type-error" in output.stderr
+    assert "UInt" in output.stderr
+    assert output.stdout == "cleanup\n"
+  }
+
   let checked = test.run_script(
     ctx,
     r"""let checked: Result[UInt] = try { (-1).require(UInt)? }
