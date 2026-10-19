@@ -793,6 +793,10 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - Laputa fix `5b016b43` is reviewed and integrated into the isolated acceptance checkout. Remote retrieval now distinguishes archives from metadata-only packages; existing index and plan wire versions remain unchanged. Import validates metadata before creating the canonical metapackage marker. All 229 package-manager tests pass with unchanged seed products. The run also corrected an incomplete response mock and a scratch login shell that discarded the configured runner path. Full-world recovery, rooted functionality, rebuild reuse and guest acceptance remain pending.
 
+- Laputa acceptance is clean at `17211df05ee51a8e9698d5179b4c044f2908ea3b`. Firecracker installation now checks the pinned binary hash before executing it. The host regression first observed premature execution, then passed both rejected-hash and accepted-installation cases after the fix. The integrated host test passes. Offline full-world reuse verifies all 85 artifacts without starting a package build. The current profile plan composes eight runtime roots, and XSH executes inside that root. Root validation checks 1,482 files, 58 ELF files and 20 dynamic ELF files with zero loader failures. Pinned Asterinas Cargo inputs and Firecracker are fetched. Kernel build and actual guest acceptance remain pending. These results use the unchanged R13 seed, not the combined inference candidate.
+
+- Combined source `c24ce1759` passes bootstrap, 228 root integration tests, all 14 soundness tests, 1,043 debug-library tests and all 122 XSHT integration tests. Existing ignores and exclusions remain unchanged. Full native execution found a file-check failure in `core/tests/test-btop-sources.xsh`. A standalone check reproduces `compact.indexed-build` on the `process_stat` call that supplies a named defaulted argument. Repair work owns `.work/wt/perf-call-default-r5`. The full suite continues to collect remaining results. No combined acceptance follows from this attempt.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
