@@ -3363,7 +3363,7 @@ fn decoder_for_instruction(
     Err(IrVerifyError::new("generic call instruction has no executable owner"))
 }
 
-fn decoder_for_driver_step(
+pub(super) fn decoder_for_driver_step(
     store: &FullStore,
     index: usize,
 ) -> Result<FullDecoder<'_>, IrVerifyError> {

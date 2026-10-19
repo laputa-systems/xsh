@@ -6780,20 +6780,21 @@ impl<'a> FullDecoder<'a> {
                 .driver_steps
                 .get(step_index)
                 .ok_or_else(|| IrVerifyError::new("driver local step is out of bounds"))?;
+            let decoder = verify_schemes::decoder_for_driver_step(self.store, step_index)?;
             match step.tag {
                 FullDriverTag::Let => {
                     let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-                    let target = Name::decode(self, &mut payload)?;
-                    let context = DecodeContext::from_decoder(self);
+                    let target = Name::decode(&decoder, &mut payload)?;
+                    let context = DecodeContext::from_decoder(&decoder);
                     let runtime_type =
                         Option::<LoweredType>::borrow(context, &mut payload)?.map(|ty| ty.id);
                     let validation_type = Option::<LoweredTypeCheck>::borrow(context, &mut payload)?
                         .map(|check| check.ty.id);
                     let annotation = Option::<Type>::borrow(context, &mut payload)?
                         .map(|ty| ty.id);
-                    let mutable = bool::decode(self, &mut payload)?;
+                    let mutable = bool::decode(&decoder, &mut payload)?;
                     let initializer = payload.raw()? as usize;
-                    Span::decode(self, &mut payload)?;
+                    Span::decode(&decoder, &mut payload)?;
                     payload.finish()?;
                     if target.as_str() == target_name {
                         return Ok((!mutable).then_some(DriverLocalLetSource {
@@ -6808,7 +6809,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 FullDriverTag::Assign => {
                     let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-                    let target = Name::decode(self, &mut payload)?;
+                    let target = Name::decode(&decoder, &mut payload)?;
                     if target.as_str() == target_name {
                         return Ok(None);
                     }
@@ -6817,9 +6818,9 @@ impl<'a> FullDecoder<'a> {
                     let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
                     let key = payload.raw()?;
                     self.store.string(key)?;
-                    let alias = Option::<Name>::decode(self, &mut payload)?;
+                    let alias = Option::<Name>::decode(&decoder, &mut payload)?;
                     payload.raw()?;
-                    let namespace = Name::decode(self, &mut payload)?;
+                    let namespace = Name::decode(&decoder, &mut payload)?;
                     if alias.unwrap_or(namespace).as_str() == target_name {
                         return Ok(None);
                     }
@@ -6827,7 +6828,7 @@ impl<'a> FullDecoder<'a> {
                 FullDriverTag::LetRecord => {
                     let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
                     payload.raw()?;
-                    let context = DecodeContext::from_decoder(self);
+                    let context = DecodeContext::from_decoder(&decoder);
                     let mut fields = Vec::<(Name, usize)>::borrow(context, &mut payload)?;
                     while let Some(field) = fields.next() {
                         charge(1)?;

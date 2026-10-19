@@ -1,3 +1,16 @@
+test test_top_level_record_bindings_feed_generic_calls { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure identity(value) { value }
+let {text} = {text: "ready"}
+assert identity(text) == "ready"
+print $text
+""",
+    status: 0,
+  )?
+  assert output.stdout == "ready\n"
+}
+
 test test_top_level_guard_bindings_authenticate_scalar_optional_and_record_values { |ctx|
   let output = test.expect(
     ctx,
