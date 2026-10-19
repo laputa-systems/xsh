@@ -42,11 +42,31 @@ F1's source-only frozen-corpus validator passes eight tests and reproduces all
 1,040 edits. This adds no annotation removals. All 202 effects stay in one
 conservative joint group until resolved dependencies are available.
 
-The next canonical graph slice has three minimal failing tests for nested
-callable generalization, component resolution, and structural unification.
-The standalone independent type/row oracle passes its own checks but remains
-unwired to production; its differential adapter and environment-identity
-comparison are still under review. No symbolic-effect correspondence is claimed.
+The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
+pass, covering shared binders, component resolution, rollback, rest parameters,
+unresolved origins, schema guards, and independently verified prepared metadata.
+The prepared test rejects forged binder, layout, effect and substitution data.
+It executes after frontend disposal on both indexed routes. Independent source
+review finds no remaining P1/P2 issue in this slice. Symbolic effects, callable
+kind inference, stream materialization and ordinary generic bodies remain open.
+This graph checkpoint does not complete inference G1 or qualify a baseline.
+
+The independent type/row oracle now compares 128 fixed-seed problems with the
+production solver. All ten focused tests pass, including rollback, generalized
+schemes and deliberate comparison mutations. Bound IDs may be renamed. Free
+environment identities remain anchored. The generator now satisfies the existing
+row-tail lacks invariant. Its initial disagreement was malformed input, not a
+confirmed production defect. Focused warning-denied Clippy passes after the
+oracle fixes integrated at `52bbb4967`. Symbolic-effect correspondence remains
+pending.
+
+Thirteen annotated and erased corpus probes ran against the combined-55032
+canonical products. Recursive parameter omission, null/concrete return joins
+and empty-list accumulation pass. Recursive return omission, interpolation and
+the nested SourceRead parameter expose remaining checker limits. The exact
+results are in `PERFORMANCE-INFERENCE.md`. They add no annotation-removal credit.
+The metamorphic fixtures are integrated at `916d31d7a`; their generic proc and
+stream targets remain mandatory open capabilities.
 
 Full-inference F0 integrates the warning repair at `2ed638691`. The pinned
 offline xsh Clippy check passes with all targets and features under the ordinary
@@ -62,8 +82,7 @@ success, failure and interruption when a child exits before observation. All
 or job registry is added. The compiler's imported-alias regression fails before
 the change with `check.module-member`, then passes alongside a frontend-disposal
 test on both indexed routes. Native verification and independent review of that
-first behavior change remain pending. Broader callable/effect inference remains
-open.
+first behavior change pass. Broader callable and effect inference remains open.
 
 The owner launched `full-inference-campaign.md` on 2026-10-19 with bounded
 isolated edits, local commits/integration, and owned offline Docker operations.
