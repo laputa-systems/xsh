@@ -127,9 +127,10 @@ README at `15243e97:dev/consolidation/typing-corpus/README.md` gives the source
 context.
 
 Source review gives specific context for 19 retained sites. Of these, 17
-remain pending cause review; sites 3599 and 3665 are semantic restrictions
-described below. Site 2850 is classified separately as unavailable
-information. Site 2483 is `cgroup_maximum`'s `SourceRead` parameter.
+remain pending cause review; sites 3599 and 3665 are `replace` negative
+controls described below. Site 2850 is classified separately as an
+interpolation-only source observation pending contract review. Site 2483 is
+`cgroup_maximum`'s `SourceRead` parameter.
 Its body reads `source.observation.state` and `.value`, then passes `source` to
 `collectors.bounded_number`. The frozen retained reason says the inferred field
 shape disagrees with the original `SourceRead` schema. These facts identify a
@@ -148,8 +149,10 @@ that the annotations are semantically unnecessary. Keep these 17 sites pending
 with those source facts attached. Sites 3599 and 3665 need a Str anchor for
 `replace`, which also accepts Regex; the accepted negative-control contract
 requires this call to remain ambiguous without local evidence, so these two are
-semantic restrictions. Site 2850 is an unavailable-information case: its
-parameter is used only in interpolation, which does not constrain its type.
+negative controls. Site 2850's parameter is used only in interpolation in the
+observed body. That source fact does not establish that the parameter needs a
+ground type; a safe generalized variable with a sealed display relationship
+may satisfy the contract. Keep the site pending until that contract is tested.
 
 The 730 checker-restored rows split into 17 with source facts but unresolved
 causes and 713 with diagnostic-family evidence only. Removing 150 Map-selection
@@ -456,13 +459,72 @@ establishes none. The exact list of the 142 historical lint findings is at
 `15243e97` in
 `dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv`.
 
-The accounting is 910 semantic restrictions/selections (758 Proc contracts,
-149 empty Maps, site 3598, and the two ambiguous `replace` receivers), one
-unavailable-information site, 730 checker-restored rows pending cause review,
-and 202 pending effects: 1,843 retained eligible sites. This classifies 911
-sites from direct source evidence; the other 932 remain pending. Of the 730
-checker-restored rows, 17 have the source facts above but unresolved causes; the
-other 713 have diagnostic-family evidence recorded in the retained table.
+The accounting is 910 source contract and selection records (758 Proc
+contracts, 149 empty Maps, site 3598, and the two `replace` negative
+controls), one interpolation-only source observation pending contract review,
+730 checker-restored rows pending cause review, and 202 pending effects: 1,843
+retained eligible sites. The 17 source-context records and 713
+diagnostic-family records remain pending; none is excluded from future
+capability rechecks.
+
+### Build source witness records
+
+`dev/performance/corpus/frozen_witnesses.py` reads the eligibility, retained,
+inventory, and 142-site effect tables from commit `15243e97`. It joins those
+tables to the R6 facts for the other 60 effect clauses. It fails if the frozen
+counts, site identities, or effect partition change.
+
+Pass the root containing the supplied `original` and `reduced-1040` views. The
+tool first runs the existing `view_digest.py` helper and requires the accepted
+14,287-entry view digests recorded above. It then compares every path and byte
+in both trees against the accepted 1,040 edits in memory. This rejects changed
+views, including matching edits to both trees. The tool then checks every
+retained annotation and its owner bytes at the shifted offset in each view.
+Source paths stay inside `xsh` or `laputa`. The tool rejects symlinks in
+selected source paths. It writes one minimal source record per retained site
+and does not edit either view.
+
+```sh
+VIEWS=/path/to/perf-effect-facts-r6/.work/tmp/effect-facts-r6
+PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/frozen_witnesses.py \
+  "$VIEWS" > "$PWD/.work/tmp/f1-retained-witnesses.tsv"
+```
+
+The output selects 549 Proc parameter contracts and 209 explicit Proc returns
+by exact source site. It selects all 202 private effect clauses in one joint
+group. The group contains 142 historical individual lint findings and 60 R6
+source-fact rows. Neither evidence kind proves a joint effect removal. The
+remaining records split into 149 empty-Map literal selectors, one nonempty Map
+selector at site 3598, two `replace` negative controls, one interpolation-only
+parameter at site 2850 pending contract review, 17 source-context rows, and 713
+rows with historical diagnostic evidence only. The R6 call-site field records
+written call spellings; resolved call edges and joint effect components remain
+unknown.
+
+These are source observations and witness selections. The 758 Proc rows still
+need capability-specific rechecks. The 17 source-context rows still need cause
+review, and the 713 diagnostic-only rows remain unclassified by cause. A
+historical diagnostic family does not establish why an annotation stays. The
+site records earn no removal or behavior-equivalence credit.
+
+Run the focused Python tests with:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/test_frozen_witnesses.py
+```
+
+The tests check the accepted denominator and effect partition, source review
+classification boundaries, exact span shifting, overlap rejection, path
+containment, and rejection of lockstep source-view mutation. They do not run a
+compiler or native test.
+
+The foundation receipt remains the planning evidence in
+`full-inference-campaign.md`. It records one pass with no failures or skips for
+`tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection`
+and for
+`tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable`.
+The second test preserves the old rejection as a frontier control. F1 did not
+rerun either probe and did not build or execute compiler products.
 
 The frozen local target cannot be reached while preserving the 149 required
 empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
@@ -493,6 +555,25 @@ matched candidate products were `xsh`
 `xsht` `6504330399712ed25a4d5eb2a8fa55e5a1af73cc715e6a4b297bb89862cb94ca`.
 This focused I1 candidate is not a G1 baseline or full performance
 acceptance.
+
+The practical source boundary is `core/wc.xsh`, `core/sort.xsh`,
+`core/awk.xsh`, and isolated Laputa `pm/generation.xsh`. `check_views.sh`
+checks 12 XSH roots and three Laputa roots so their imports resolve. It runs
+these exact behavior selectors in both original and reduced views:
+
+```text
+core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes
+core/tests/test-sort.xsh::test_sort_general_numeric_orders_past_double_precision
+core/tests/test-awk.xsh::test_awk_arrays_functions_and_loops
+tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
+tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
+```
+
+`inventory.sh`, `prepare_views.sh`, and `check_views.sh` take explicit source
+revisions and reject dirty or mismatched checkouts. The adapter test's isolated
+Laputa revision `639184e65a712b9d33fa5033e045f8913cd04a5a` is a separate test
+input; it is not the practical generation corpus. F1 added no practical
+erasures and claims no new removal credit.
 
 The selected reduced view removes only four private pure-function return
 annotations for which `lint.prefer-inferred-pure-return` provided individual
