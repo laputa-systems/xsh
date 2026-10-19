@@ -127,15 +127,33 @@ impl Checker {
         for (span, ty) in &mut self.function_return_types {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         }
-        for fact in &mut self.annotation_facts {
+        let mut annotation_facts = Vec::with_capacity(self.annotation_facts.len());
+        for mut fact in std::mem::take(&mut self.annotation_facts) {
             let span = match fact.kind {
                 super::AnnotationFactKind::Binding { span, .. }
                 | super::AnnotationFactKind::DefaultedParam { span, .. } => span,
                 super::AnnotationFactKind::InferredPureReturn { body }
                 | super::AnnotationFactKind::ExportedProcReturn { body } => body,
             };
-            finalize_type(constraints, &mut fact.ty, span, &mut reported, diagnostics);
+            if let super::AnnotationFactKind::Binding { exported, .. } = &fact.kind
+                && fact.ty.contains_inference()
+            {
+                match constraints.resolve(&fact.ty) {
+                    Ok(resolved) if !resolved.contains_inference() => fact.ty = resolved,
+                    _ => continue,
+                }
+                if matches!(fact.ty, Type::Unit)
+                    || fact.ty.annotation_source().is_none()
+                    || (!*exported && !super::stmt::annotation_type_is_nontrivial(&fact.ty))
+                {
+                    continue;
+                }
+            } else {
+                finalize_type(constraints, &mut fact.ty, span, &mut reported, diagnostics);
+            }
+            annotation_facts.push(fact);
         }
+        self.annotation_facts = annotation_facts;
         for (span, ty) in &mut self.local_inference.checked_bindings {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         }
@@ -767,8 +785,60 @@ pub(super) fn finalize_projection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::SourceId;
+    use crate::source::{SourceId, SourceMap};
     use crate::syntax::arena::BlockId;
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    #[test]
+    fn generic_call_result_annotation_fact_is_finalized() {
+        let source = concat!(
+            "pure identity(value) { value }\n",
+            "let generic_result = identity([42])\n",
+            "pure collect() -> List[Int] {\n",
+            "  var values = []\n",
+            "  values = values.push(7)\n",
+            "  values\n",
+            "}\n",
+            "pure wrap(value) {\n",
+            "  let values = [value]\n",
+            "  values\n",
+            "}\n",
+        );
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("main.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let arena = Arc::new(parsed.arena);
+        let sources = Arc::new(sources);
+        let _symbols = arena.symbol_owner().enter();
+        let session = super::super::CheckSession::new(
+            Arc::clone(&arena),
+            Arc::clone(&sources),
+        );
+        let view = session.view_for_root(arena.statements, source_id);
+        let output = session.check_view(&view, super::super::CheckOptions::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+        let call_start = source.find("identity([42])").expect("generic call source");
+        let call_span = Span::new(source_id, call_start, call_start + "identity([42])".len());
+        let empty_list_start = source.find("[]").expect("empty list initializer");
+        let empty_list_span = Span::new(source_id, empty_list_start, empty_list_start + 2);
+        for initializer in [call_span, empty_list_span] {
+            let fact = output
+                .annotation_facts
+                .iter()
+                .find(|fact| match &fact.kind {
+                    super::super::AnnotationFactKind::Binding {
+                        initializer: fact_initializer,
+                        ..
+                    } => *fact_initializer == initializer,
+                    _ => false,
+                })
+                .expect("resolved collection binding annotation fact");
+            assert_eq!(fact.ty, Type::List(Box::new(Type::Int)));
+        }
+    }
 
     #[test]
     fn local_constraint_probe_does_not_copy_completed_body_binding_history() {

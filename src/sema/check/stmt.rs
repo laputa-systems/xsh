@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 pub(super) use super::proof::{ConditionNarrowings, Narrowing};
 
-fn annotation_type_is_nontrivial(ty: &Type) -> bool {
+pub(super) fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     matches!(
         ty,
         Type::List(_)
@@ -7023,10 +7023,13 @@ fn should_record_binding_annotation_arena(
     let Some(name) = simple_name else {
         return false;
     };
-    if name == "_" || matches!(ty, Type::Unit) || ty.annotation_source().is_none() {
+    if name == "_"
+        || matches!(ty, Type::Unit)
+        || (!ty.contains_inference() && ty.annotation_source().is_none())
+    {
         return false;
     }
-    exported || annotation_type_is_nontrivial(ty)
+    exported || ty.contains_inference() || annotation_type_is_nontrivial(ty)
 }
 
 // Explicit Result tails consume the complete annotation through branch and

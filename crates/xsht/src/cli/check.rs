@@ -784,7 +784,7 @@ mod tests {
         )
         .expect_err("reject mismatched candidate annotation");
 
-        assert!(diagnostic.contains("type mismatch"), "{diagnostic}");
+        assert!(diagnostic.contains("err[check.type-mismatch]"), "{diagnostic}");
         assert!(diagnostic.contains("expected Str, found Int"), "{diagnostic}");
         assert_eq!(
             fs::read_to_string(&entry_path).expect("read original entry source"),

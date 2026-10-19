@@ -234,9 +234,11 @@ pure defaulted(value: Int = 1) -> List[Int] {
   [value]
 }
 let generic_result = identity([42])
+let scalar_result = identity(7)
 let direct_result = singleton(41)
 let defaulted_result = defaulted()
 print ${generic_result[0]}
+print $scalar_result
 print ${direct_result[0]}
 print ${defaulted_result[0]}
 """,
@@ -250,11 +252,12 @@ print ${defaulted_result[0]}
 
     let source = p"main.xsh".read_text()?
     assert "let generic_result: List[Int] = identity([42])" in source, source
+    assert "let scalar_result:" not in source, source
     assert "let direct_result: List[Int] = singleton(41)" in source, source
     assert "let defaulted_result: List[Int] = defaulted()" in source, source
     let output = run.capture --text "xsh" main.xsh
     assert output.status.exited_with(0), output.stderr
-    assert output.stdout == "42\n41\n1\n"
+    assert output.stdout == "42\n7\n41\n1\n"
   }
 }
 
