@@ -4035,7 +4035,6 @@ impl FullBuilder {
                     .slot_type_facts
                     .get(slot)
                     .and_then(Option::as_ref)
-                    .filter(|ty| checked_type_contains_typed_callable(ty))
                 else {
                     continue;
                 };
@@ -6195,6 +6194,18 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_slot_type(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
+        let fact = self.slot_type_fact(slot)?;
+        if driver_owner_index(self.owner).is_some()
+            && self.is_temporary_slot(slot, &mut |_| Ok(()))?
+            && let Some(fact) = fact
+            && !checked_type_contains_typed_callable(&self.store.semantic.to_type(fact)?)
+        {
+            return Ok(None);
+        }
+        Ok(fact)
+    }
+
+    fn slot_type_fact(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
         if driver_owner_index(self.owner).is_none()
             && let Some(function) = IrFunctionId::from_raw(self.owner)
         {
@@ -7681,6 +7692,9 @@ impl<'a> FullDecoder<'a> {
         {
             let writes = writers.get(&(slot.slot as usize));
             let expected = self.store.semantic.to_type(slot.type_id)?;
+            if !checked_type_contains_typed_callable(&expected) {
+                continue;
+            }
             let initializers = writes.map_or(&[][..], |writes| &writes.initializers[..]);
             let has_other_writer = writes.is_some_and(|writes| writes.other);
             if initializers.is_empty() && !matches!(expected, Type::Module(_)) {
@@ -8111,24 +8125,25 @@ impl<'a> FullDecoder<'a> {
         mut statements: ListView<'a, BuildStmtId>,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let value = self.checked_block_tail_expression(&mut statements)?;
+        let value = self.checked_block_tail_expression(&mut statements)?
+            .ok_or_else(|| IrVerifyError::new("checked value block has no value tail"))?;
         self.checked_expression_matches_type(value, expected)
     }
 
     fn checked_block_tail_expression(
         &self,
         statements: &mut ListView<'a, BuildStmtId>,
-    ) -> Result<usize, IrVerifyError> {
+    ) -> Result<Option<usize>, IrVerifyError> {
         let mut tail = None;
         for statement in statements {
             tail = Some(statement?.raw() as usize);
         }
         let Some(instruction) = tail else {
-            return Err(IrVerifyError::new("checked value block has no value tail"));
+            return Ok(None);
         };
         match self.statement_view(instruction)? {
-            schema::StmtView::Value { value } => Ok(value.raw() as usize),
-            _ => Err(IrVerifyError::new("checked value block has no value tail")),
+            schema::StmtView::Value { value } => Ok(Some(value.raw() as usize)),
+            _ => Ok(None),
         }
     }
 
@@ -9148,6 +9163,12 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn registered_api_operation_return_type(op: RuntimeOp) -> Result<Type, IrVerifyError> {
+        Self::derive_registered_api_operation_return_type(op)?.ok_or_else(|| {
+            IrVerifyError::new("checked API operation has ambiguous return types")
+        })
+    }
+
+    fn derive_registered_api_operation_return_type(op: RuntimeOp) -> Result<Option<Type>, IrVerifyError> {
         static RETURN_TYPES:
             std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
             std::sync::OnceLock::new();
@@ -9186,10 +9207,8 @@ impl<'a> FullDecoder<'a> {
             return_types
         });
         match return_types.get(&op) {
-            Some(Ok(return_type)) => Ok(return_type.clone()),
-            Some(Err(())) => Err(IrVerifyError::new(
-                "checked API operation has ambiguous return types",
-            )),
+            Some(Ok(return_type)) => Ok(Some(return_type.clone())),
+            Some(Err(())) => Ok(None),
             None => Err(IrVerifyError::new(
                 "checked API operation has no registry signature",
             )),
@@ -9615,7 +9634,10 @@ impl<'a> FullDecoder<'a> {
                         .ok_or_else(|| IrVerifyError::new("driver local slot range is invalid"))?;
                     if self.store.driver_slots[slots]
                         .iter()
-                        .any(|binding| binding.slot as usize == slot)
+                        .any(|binding| {
+                            binding.slot as usize == slot
+                                && binding.flags & DRIVER_SLOT_TEMPORARY == 0
+                        })
                     {
                         return Ok(None);
                     }
@@ -9666,8 +9688,10 @@ impl<'a> FullDecoder<'a> {
                 Box::new(Type::Error),
             ))),
             schema::ExprView::ValueBlock { mut body, .. } => {
-                let value = self.checked_block_tail_expression(&mut body)?;
-                self.derive_checked_expression_type(value)
+                match self.checked_block_tail_expression(&mut body)? {
+                    Some(value) => self.derive_checked_expression_type(value),
+                    None => Ok(None),
+                }
             }
             schema::ExprView::Method {
                 receiver,
@@ -9688,7 +9712,7 @@ impl<'a> FullDecoder<'a> {
                 self.checked_method_return_type(&receiver_type, name, &args)
             }
             schema::ExprView::ModuleCall { op, .. } => {
-                Self::registered_api_operation_return_type(op).map(Some)
+                Self::derive_registered_api_operation_return_type(op)
             }
             schema::ExprView::FsFiles {
                 result_wrapped, ..
@@ -11025,7 +11049,7 @@ impl<'a> FullDecoder<'a> {
             return Ok(());
         };
         let annotation_type = self.store.semantic.to_type(annotation.id)?;
-        let Some(slot_type) = self.checked_slot_type(slot)? else {
+        let Some(slot_type) = self.slot_type_fact(slot)? else {
             if annotation_type == Type::Any {
                 return Ok(());
             }
@@ -23659,6 +23683,51 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
     }
 
     #[test]
+    fn full_verifier_authenticates_driver_scalar_temporary_generic_arguments() {
+        let program = fixture(
+            "generic-driver-scalar-temporary.xsh",
+            "pure identity(value) { value }\n\
+             if true { let text = \"wrong\"; assert identity(text) == \"wrong\" }\n",
+        );
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_calls(&program, "identity")[0];
+        let row = program.store.driver_slots.iter().position(|row| {
+            row.flags & DRIVER_SLOT_TEMPORARY != 0
+                && program.store.semantic.to_type(row.type_id).unwrap() == Type::Str
+        }).unwrap();
+        let mut forged = program.clone();
+        let int_type = SemanticPoolBuilder::default()
+            .intern_type(&mut forged.store.semantic, &Type::Int)
+            .unwrap();
+        forged.store.driver_slots[row].type_id = int_type;
+        replace_scheme_fixture_call_type(&mut forged, call, int_type);
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_checks_driver_scalar_temporary_annotations() {
+        let program = fixture(
+            "annotated-driver-scalar-temporary.xsh",
+            "if true { let text: Str = \"text\"; print $text }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.driver_slots.iter().position(|row| {
+            row.flags & DRIVER_SLOT_TEMPORARY != 0
+                && program.store.semantic.to_type(row.type_id).unwrap() == Type::Str
+        }).unwrap();
+        let mut forged = program.clone();
+        let int_type = SemanticPoolBuilder::default()
+            .intern_type(&mut forged.store.semantic, &Type::Int)
+            .unwrap();
+        forged.store.driver_slots[row].type_id = int_type;
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "local slot type fact disagrees with its declaration annotation",
+        );
+    }
+
+    #[test]
     fn full_verifier_rejects_forged_local_initializer_annotations() {
         let source = "pure identity(value) { value }\n\
                       pure use_scalar() -> Bool {\n\
@@ -33820,6 +33889,51 @@ test test_typed_callable_record_field_is_called_like_a_method {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn optional_producer_derivation_keeps_callable_contracts_strict() {
+        let program = fixture("optional-producer-contracts.xsh", r#"use hash
+pure digest(data: Bytes) -> Digest { hash.md5(data) }
+guard let value = Ok(1) else { exit 3 }
+print $value
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let block = (0..program.store.driver_steps.len()).find_map(|step| {
+            program.store.driver_instruction_range(step).unwrap()
+                .find(|instruction| program.store.tags[*instruction] == FullTag::ExprValueBlock)
+        }).unwrap();
+        let calls = function_instruction_indices(&program, "digest", FullTag::ExprModuleCall);
+        assert_eq!(calls.len(), 1);
+        let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+            pure: true,
+            sig: crate::sema::types::CallableType {
+                params: Vec::new(),
+                return_ty: Box::new(Type::Int),
+                effects: None,
+            },
+        }));
+        for (instruction, message) in [
+            (block, "checked value block has no value tail"),
+            (calls[0], "checked API operation has ambiguous return types"),
+        ] {
+            let mut forged = program.clone();
+            let type_id = SemanticPoolBuilder::default()
+                .intern_type(&mut forged.store.semantic, &callable).unwrap();
+            let fact = FullCheckedExprType {
+                instruction: instruction as u32,
+                type_id,
+                purpose: FullCheckedExprPurpose::CheckedContract {
+                    function_ref: None,
+                    with_error_source: false,
+                },
+            };
+            let insert = forged.store.checked_expr_types
+                .partition_point(|existing| existing.instruction < fact.instruction);
+            forged.store.checked_expr_types.insert(insert, fact);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains(message), "{}", error.message);
+        }
     }
 
     #[test]

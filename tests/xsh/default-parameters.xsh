@@ -466,3 +466,33 @@ test test_default_parameters_inference_needs_own_default_anchor_and_never_body_o
     test.expect(ctx, source, status: 2, stderr: ["[check.infer-param]"])?
   }
 }
+
+test test_default_parameters_keep_root_signatures_separate_from_imported_private_names { |ctx|
+  let root = test.temp_dir(ctx, name: "default-name-collision")?
+  fp"{root}/helpers.xsh".write_atomic(r"""##! Helpers with private callable names.
+proc choose(value: Int) -> Int { value }
+pure select(value: Int) -> Int { value }
+stream entries(value: Int) -> Stream[Int] { yield value }
+## Read the private helpers.
+export proc read() -> Int { choose(select((entries(7) |> first()) ?? 0)) }
+""")
+  let output = test.expect(
+    ctx,
+    r"""use helpers
+proc choose(value: Int, label = "default") -> Str { f"{value} {label}" }
+pure select(value: Int, label = "default") -> Str { f"{value} {label}" }
+stream entries(value: Int, label = "default") -> Stream[Str] { yield f"{value} {label}" }
+print ${helpers.read()}
+print ${choose(1, label: "proc")} ${choose(2)}
+print ${select(3, label: "pure")} ${select(4)}
+print ${(entries(5, label: "stream") |> first()) ?? "missing"} ${(entries(6) |> first()) ?? "missing"}
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == """7
+1 proc 2 default
+3 pure 4 default
+5 stream 6 default
+"""
+}
