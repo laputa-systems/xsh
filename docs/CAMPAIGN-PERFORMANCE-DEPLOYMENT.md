@@ -43,7 +43,8 @@ gates select both current metric modules for changes to their shared contract.
 The first focused launch lacks its required `mold` mount. The corrected launch
 passes with unchanged tests and products. Both attempts remain recorded.
 Use the clean `laputa-firecracker-verification` checkout for the supplemental
-corpus. The active Laputa world checkout contains a temporary clock diagnostic.
+corpus. The temporary clock diagnostic has been removed from the active world
+checkout.
 
 The byte-entry fix and filesystem effects for six file-backed byte operations
 are integrated. The latter has a failing-before/passing-after regression and
@@ -66,8 +67,21 @@ Cleanup resolves. Logs remain under
 The original failed console and Firecracker logs remain preserved. The separate
 `asterinas-clock-adapter/run-clock` permits only the exact AWK shard and the
 reviewed six-line boot-proof patch. Nine build/package and eight metadata
-argument controls pass. The diagnostic supplies no guest acceptance. Kernel
-wall-clock repair and final source-aligned guest acceptance remain pending.
+argument controls pass. The diagnostic supplies no guest acceptance.
+
+The reviewed clock repair is committed locally in the pinned Asterinas fork at
+`995610cdfe462a38f617abb7e0a7d8f56f29d097`. It adds a BSP-only KVM clock reader
+after CMOS and retains fractional epoch offsets in vDSO realtime data. Five pure
+clock tests pass. The actual vDSO encoding regression fails before the fix and
+passes afterward in an extracted host check. The mixed syscall/libc C regression
+compiles and passes on Linux. The actual kernel compiles without the one new
+warning found and fixed during its first build. Existing toolchain warnings
+remain. No dependencies or toolchain pins change.
+
+Isolated Laputa source `88be9729efb6738e9bffd040c0d1f3033c2eee43` pins that
+kernel and its gitlink together. Its real offline kernel build owner is active.
+Actual kernel-test execution, KVM smoke, focused guest regression and final
+source-aligned acceptance remain pending.
 
 ## Charter
 
