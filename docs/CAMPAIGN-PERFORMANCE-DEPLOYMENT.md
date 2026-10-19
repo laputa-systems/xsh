@@ -20,6 +20,12 @@ The deliverables are:
 
 ## Current checkpoint
 
+Fresh R8 is frozen at `8ebea493e757eb8c52d76823cdc11f665ce2c2f5` in
+`.work/wt/perf-i1-combined-freeze-r8`. Bootstrap passes and canonical execution
+is active. R7 remains failed. An isolated kernel lane owns the observed clock
+defect in `.work/wt/asterinas-wall-clock-r1`. No current-source G1 or guest
+acceptance is claimed.
+
 On October 19, frozen R7 source `6468326009b62cfd8ed682b0dc7007b371d3cb4d`
 passes bootstrap, 229 root integration tests, 14 soundness tests, 1,049
 library tests, 122 XSHT integration tests, 82 Linux compatibility tests and ten
