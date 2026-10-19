@@ -524,7 +524,39 @@ The foundation receipt remains the planning evidence in
 and for
 `tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable`.
 The second test preserves the old rejection as a frontier control. F1 did not
-rerun either probe and did not build or execute compiler products.
+rerun either foundation probe or build compiler products. The reference probes
+below use existing R12 verification products.
+
+### R12 reference baseline probes
+
+`dev/performance/corpus/witnesses/` keeps annotated and one-annotation-erased
+forms with the same bodies and calls. The paired source fixtures are diagnostic
+controls; they add no corpus rows or removal credit. Each annotated form passed
+`xsht check` and normal `xsh` execution. The erased results were:
+
+| Retained source class | Erased baseline result | Annotated output |
+|---|---|---|
+| Null/concrete return join | Check and execution passed; output matched the annotated form. | `7`, then `-1` |
+| Site 2850 interpolation-only parameter | `parse.expected-param-type`: the parser requires an explicit parameter type. The source fact does not show that a concrete type is required. | `meminfo.MemTotal` |
+| Recursive pure parameter | `parse.expected-param-type`: required parameters still need a type before body checking. | `4` |
+| Recursive pure return | `check.required-return`: recursive pure `recursive_return` requires an explicit return annotation. | `4` |
+| Empty-List accumulator | Check and execution passed; output matched the annotated form. | `3 3 5 8` |
+| `SourceRead` parameter | `parse.expected-param-type` prevents testing inferred row shape in an erased parameter. An explicit structural-row alias passed and matched the `SourceRead` form. | `8` |
+
+The `SourceRead` structural-row case preserves the field reads and call to the
+typed `bounded_number` helper. It shows that this explicit row shape composes
+with the helper in this probe; it does not resolve the historical source site's
+cause. Keep the interpolation, parameter, recursive-return, and `SourceRead`
+classes pending the full inference contract.
+
+These runs used the existing R12 functional-close source and verification
+products: source commit `44de8d71c04f155034a7c1e8cb8e7edddd9da15f`, tree
+`4a4f49eba8892f663a27f9cb54c1f4ce21935be0`, `xsh`
+`a6e0c338a27c8b950e2a42cb04839b4f7829ac8c3b3ab8b6fea0ee982a7c6f86`, and
+`xsht` `942a395ee697c2d7fdceee82bb49c94606dd90efc91bd92400603d738128ef72`.
+The clean source and product hashes matched before and after. Each process was
+limited to two CPUs, 4 GiB address space, 25 CPU seconds, and a 30-second wall
+timeout. These are R12 reference-baseline results, not integration acceptance.
 
 The frozen local target cannot be reached while preserving the 149 required
 empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
