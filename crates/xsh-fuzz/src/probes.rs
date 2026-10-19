@@ -65,10 +65,15 @@ fn receiver_text(
     inst: &Inst,
 ) -> Option<String> {
     if let Some(ty) = receiver_ty {
-        return match ty {
-            Type::List(_) | Type::Map(..) => sample(ty, inst),
-            _ => None,
-        };
+        match (receiver, ty) {
+            (_, Type::List(_) | Type::Map(..)) => return sample(ty, inst),
+            (MethodReceiver::Str, Type::Str)
+            | (MethodReceiver::Float, Type::Float)
+            | (MethodReceiver::Bytes, Type::Bytes)
+            | (MethodReceiver::Path, Type::Path)
+            | (MethodReceiver::Regex, Type::Regex) => {}
+            _ => return None,
+        }
     }
     Some(match receiver {
         MethodReceiver::Str => "\"a,b c\\nd\"".into(),
@@ -359,4 +364,29 @@ fn run_group(group: &[&Probe], sandbox: &Sandbox) -> Vec<(Probe, String)> {
         }
     }
     failures
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn scalar_receiver_contracts_preserve_probe_calls() {
+        let probes = super::corpus();
+        for (method, expected) in [
+            ("Str.trim#", vec!["\"a,b c\\nd\".trim()"]),
+            ("Float.floor#", vec!["2.5.floor()"]),
+            ("Bytes.len#", vec!["b\"ab\\x0acd\".len()"]),
+            ("Path.name#", vec!["p\"dir/name.txt\".name()"]),
+            ("Regex.matches#", vec![
+                "rx\"a+\".matches(\"a,b c\")",
+                "rx\"a+\".matches(text: \"a,b c\")",
+                "rx\"a+\".matches(...{text: \"a,b c\"})",
+            ]),
+        ] {
+            let actual = probes.iter()
+                .filter(|probe| probe.label.starts_with(method))
+                .map(|probe| probe.call.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "{method}");
+        }
+    }
 }
