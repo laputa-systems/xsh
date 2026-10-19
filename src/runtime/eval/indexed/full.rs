@@ -6655,10 +6655,10 @@ impl<'a> FullDecoder<'a> {
         Self::checked_target_slot_types(target, &success_type)
     }
 
-    fn driver_guard_source(
-        &self,
+    fn driver_guard_source<'e>(
+        &'e self,
         source: usize,
-    ) -> Result<(decode::CompTargetView<'a>, usize, bool), IrVerifyError> {
+    ) -> Result<(decode::CompTargetView<'e>, usize, bool), IrVerifyError> {
         let schema::ExprView::ValueBlock { mut body, .. } = self.expression_view(source)? else {
             return Err(IrVerifyError::new("driver guard source is not a value block"));
         };
