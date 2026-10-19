@@ -3794,16 +3794,20 @@ callable types, and module contracts still need annotations.
 When a checked pure signature retains quantified type or row variables, its
 executable body may contain immutable `let` bindings followed by one value
 tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, ground immutable runtime captures, required `.field` projections, or statically
-selected pure calls. User function calls must supply every fixed required
-parameter, by position or name. Registered calls must have a selected pure
+reads, ground immutable runtime captures, required `.field` projections,
+list literals without splices, records with named fields, `Ok` and `Err`
+constructors, value blocks, value-producing `if` branches, or statically
+selected pure calls. Conditions constrain unannotated parameters to `Bool`;
+branch results share constraints from the declaration body. Branches evaluate
+only the selected value, in ordinary source order. User function calls must
+supply every fixed required parameter, by position or name. Registered calls must have a selected pure
 signature with no host effects; their receiver domain and argument layout are
 fixed while checking the declaration. A caller never supplies type evidence
 for choosing that declaration's operations. Unsigned argument and map-key
 contracts keep the ordinary checked conversions and failure propagation.
 
-This body subset excludes mutation, destructuring, operators, branches, loops,
-optional field access, indexing, constructed collections and records,
+This body subset excludes mutation, destructuring, operators, loops,
+optional field access, indexing, map and set literals, record spreads,
 interpolated text, dynamically selected calls, expression statements before
 the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
 quantified body subset. Registered calls
@@ -3820,10 +3824,27 @@ and collection callbacks. The compiler verifies their actual producers against
 the selected operation contracts. These helpers do not acquire quantified body
 restrictions.
 
+```xsh
+pure boxed(value) { [value] }
+pure successful(value) { Ok(value) }
+pure named(value) { {value: value} }
+pure choose(flag, first, second) {
+  if flag { first } else { second }
+}
+assert boxed(42) == [42]
+assert boxed("demo") == ["demo"]
+assert successful(42) == Ok(42)
+assert successful("demo") == Ok("demo")
+assert named(false).value == false
+assert choose(true, 42, 0) == 42
+assert choose(false, "first", "second") == "second"
+```
+
 A checked value return keeps an explicit `Bool` value, including `false`.
 Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
-kind is itself a bare quantified parameter still blocks lowering. Statement
+kind is itself a bare quantified parameter retains the constructor's checked
+`Ok` or `Err` envelope without a runtime payload type guess. Statement
 assertion or discard elaboration is outside this quantified body subset;
 annotated `Unit` returns are supported when their terminal checked value is
 already `Unit`.
@@ -3852,6 +3873,11 @@ Pure functions can omit their return annotation when the checker infers one
 closed type or rank-1 scheme from explicit returns and reachable tails. This
 rule also allows exported pure functions to omit return annotations. Recursive
 pure functions still need an explicit return annotation.
+Checked tooling contracts retain quantified parameter relationships and open
+record rows. Their diagnostic display can use `forall` notation; that notation
+is not source syntax. Tooling compares checked contracts by bound parameter
+renaming while preserving nominal types, labels, schemas, and effects.
+
 The checker infers mutually recursive pure parameters together before checking
 callers. Those parameters remain monomorphic. A parameter that the recursive
 bodies leave undetermined needs an annotation.
