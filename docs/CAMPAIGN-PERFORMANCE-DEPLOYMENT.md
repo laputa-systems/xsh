@@ -174,6 +174,14 @@ validation confirm that proposed count: 499 local and 1,299 internal annotations
 across 250 Proc declarations. Compiler and runtime qualification remain pending.
 All 202 effects and other retained classes stay outside this tranche.
 
+Canonical interface comparison remains required before corpus qualification.
+`CheckedCallableContract::equivalent_to` checks exact scheme equivalence.
+It cannot establish that an old concrete private signature is an instance of
+a newly inferred scheme. That comparison must use the existing constraint
+solver with one shared instantiation, canonical schema identities and exact
+callable layout. The corpus adapter must consume that result. Symbolic effect
+substitution remains a separate compiler requirement.
+
 The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
 pass, covering shared binders, component resolution, rollback, rest parameters,
 unresolved origins, schema guards, and independently verified prepared metadata.
