@@ -9308,13 +9308,24 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn native_module_operation_signatures(op: RuntimeOp) -> &'static [&'static crate::modules::signature::ModuleFnSig] {
+    fn native_static_operation_signatures(op: RuntimeOp) -> &'static [&'static crate::modules::signature::ModuleFnSig] {
         static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>> = std::sync::OnceLock::new();
         let signatures = SIGNATURES.get_or_init(|| {
             let mut signatures = FxHashMap::<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>::default();
             for (_, module) in crate::modules::api_spec().module_entries() {
                 for function in &module.functions {
                     for signature in &function.overloads {
+                        if signature.binding == crate::modules::signature::ImplBinding::Native {
+                            signatures.entry(signature.op).or_default().push(signature);
+                        }
+                    }
+                }
+            }
+            for (receiver, methods) in crate::modules::api_spec().method_entries() {
+                if receiver != crate::modules::MethodReceiver::PathConstructor { continue; }
+                for method in methods {
+                    for overload in &method.overloads {
+                        let signature = &overload.sig;
                         if signature.binding == crate::modules::signature::ImplBinding::Native {
                             signatures.entry(signature.op).or_default().push(signature);
                         }
@@ -9343,7 +9354,7 @@ impl<'a> FullDecoder<'a> {
         if let Some(result) = Self::derive_registered_api_operation_return_type(op)? {
             return Ok(Some(result));
         }
-        let signatures = Self::native_module_operation_signatures(op);
+        let signatures = Self::native_static_operation_signatures(op);
         let mut result = None;
         for signature in signatures {
             if arguments.len() > signature.params.len() { continue; }
@@ -32492,14 +32503,10 @@ pure selected() -> Str {
         });
     }
 
-    /// A conversion lowers to the operation the checker selected, under a
-    /// propagation, and to nothing else: no instruction is specific to it.
-    /// Lowering reads the selection and never works it out, so a conversion
-    /// with no selection is refused instead of being given a default.
     #[test]
     fn a_conversion_lowers_to_the_operation_the_checker_selected() {
         run_with_large_stack(|| {
-            let source = "pure width(field: Str) -> Result[Int] {\n  Ok(field as Int)\n}\npure size(count: Int) -> Result[UInt] {\n  Ok(count as UInt)\n}\npure place(name: Str) -> Result[Path] {\n  Ok(name as Path)\n}\n";
+            let source = "pure width(field: Str) -> Result[Int] {\n  Ok(field as Int)\n}\npure size(count: Int) -> Result[UInt] {\n  Ok(count as UInt)\n}\npure place(name: Str) -> Result[Path] {\n  Ok(name as Path)\n}\npure raw(data: Bytes, wrong: Str) -> Result[Path] {\n  let ignored = wrong\n  Ok(data as Path)\n}\n";
             let program = Arc::new(fixture("conversion.xsh", source));
             FullVerifier::verify(&program).unwrap();
             let count = |tag| {
@@ -32510,10 +32517,10 @@ pure selected() -> Str {
                     .filter(|found| **found == tag)
                     .count()
             };
-            assert_eq!(count(FullTag::ExprTry), 3);
+            assert_eq!(count(FullTag::ExprTry), 4);
             assert_eq!(count(FullTag::ExprMethod), 1);
             assert_eq!(count(FullTag::ExprRequire), 1);
-            assert_eq!(count(FullTag::ExprModuleCall), 2);
+            assert_eq!(count(FullTag::ExprModuleCall), 3);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             let mut call = |name: &str, argument: Value| {
@@ -32540,8 +32547,6 @@ pure selected() -> Str {
                 Value::Result(ResultValue::Err(_))
             ));
 
-            // The propagation's operand is the operation: a program whose
-            // propagation points nowhere is rejected before it runs.
             let mut dangling = (*program).clone();
             let propagation = dangling
                 .store
@@ -32553,7 +32558,16 @@ pure selected() -> Str {
             dangling.store.data[propagation].rhs = u32::MAX;
             assert!(FullVerifier::verify(&dangling).is_err());
 
-            // Without the checker's selection there is nothing to lower.
+            let owner = scheme_fixture_root_function(&program, "raw");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let argument = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut invalid_argument = (*program).clone();
+            invalid_argument.store.data[argument] = program.store.data[wrong];
+            assert_eq!(FullVerifier::verify(&invalid_argument).unwrap_err().message,
+                "ground native operation arguments have no matching contract");
+
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
                 "conversion.xsh",
                 crate::loader::entry_source_from_text("conversion.xsh", source.to_string()),
@@ -32564,7 +32578,7 @@ pure selected() -> Str {
                 .map(crate::source::SourceFile::id)
                 .expect("entry source is present");
             let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
-            assert_eq!(declarations.bodies.conversions.len(), 3);
+            assert_eq!(declarations.bodies.conversions.len(), 4);
             declarations.bodies.conversions.clear();
             assert!(
                 FullBuilder::build_compact(
