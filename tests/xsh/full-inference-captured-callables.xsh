@@ -42,15 +42,20 @@ test test_full_inference_returned_mutable_capture_ground_control { |ctx|
   let output = test.run_xsh(
     ctx,
     r"""var shared = {items: [0]}
+pure item_count() -> Int { shared.items.len() }
 type IntRemember = proc(value: Int) -> Result[Int]
 proc remember(value: Int) -> Result[Int] {
   shared.items = shared.items.push(value)
   Ok(value)
 }
 proc factory() -> Result[IntRemember] { Ok(remember) }
+let before = item_count()
 let captured = factory()?
 let integer = captured(42)?
+let after = item_count()
 assert integer == 42
+assert before == 1
+assert after == 2
 assert shared.items == [0, 42]
 print $integer
 """,
