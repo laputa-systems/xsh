@@ -20,6 +20,29 @@ The deliverables are:
 
 ## Current checkpoint
 
+R10 source `5da47cacc04f5bab6a69cceadf20f8aab52ee44e` passes bootstrap
+and 229 root integration tests, then fails soundness: thirteen passes and one
+failure in `mutants_get_ordinary_diagnostics`. Its cleanup resolves, and later
+canonical stages and supplemental qualification do not run. Preserve the failed
+receipt in `.work/wt/perf-i1-combined-freeze-r10`. The scanner test file crossed
+the existing 12,000-byte corpus cutoff, changing fixed-seed selection and exposing
+a latent parser/grammar disagreement. The isolated repair in
+`.work/wt/perf-grammar-mutant-r11` retains the seed set, corpus and cutoff. Its
+minimal unknown command-target and option-spacing regressions fail before the
+repair. The thirteen-case regression, two adjacent boundary controls and shallow
+grammar generator pass afterward in the pinned debug build. Independent source
+review passes after correcting spaced known-option handling. Verification
+soundness passes all 1,000 fixed-seed mutants. Matching verification tools regenerate
+only the grammar reference, and documentation checks plus all three tour-project
+tests pass. The reviewed repair is integrated. Fresh R11 bootstrap, canonical and
+supplemental qualification use `.work/wt/perf-i1-combined-freeze-r11`; no failed
+source's gate credit transfers to this candidate.
+
+The six M1 fixture roots are generated and validated under
+`.work/wt/perf-i1-combined-freeze-r9/.work/tmp/m1-fixtures-r10`. Reuse requires
+all existing snapshot comparisons against the qualified source's generator.
+This preparation supplies no timings or acceptance credit.
+
 R9 source `5454112e9f5fc10eae2faa75e5d6a5d09586bd4f` passes bootstrap,
 229 root integration tests, 14 soundness tests, 1,049 library tests, 122 XSHT
 integration tests, 82 Linux compatibility tests, ten privilege tests and the
