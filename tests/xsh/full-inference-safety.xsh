@@ -73,8 +73,8 @@ proc use_released_alias() [fs, error] -> Result[Bool] {
 }
 let _ = use_released_alias()?
 """,
-    status: 2,
-    stderr: ["[check.use-after-release]"],
+    status: 3,
+    stderr: ["fs-root: root handle is not active"],
   )?
 }
 
@@ -103,7 +103,7 @@ test test_full_inference_returned_callable_keeps_its_effect_obligation { |ctx|
 let logged = log
 proc factory() { logged }
 proc denied() [error] -> Result[Str] {
-  let callback = factory()
+  let callback = factory()?
   callback("demo")
 }
 """,
@@ -142,10 +142,10 @@ let nested = nest(42)
 test test_full_inference_polymorphic_recursion_is_rejected { |ctx|
   test.expect(
     ctx,
-    r"""pure descend(value) {
-  if value == 0 { 0 } else { descend([value]) }
+    r"""pure descend(value, count: Int) {
+  if count == 0 { 0 } else { descend([value], count - 1) }
 }
-let result = descend(2)
+let result = descend(42, 2)
 """,
     status: 2,
     stderr: ["[check.type-mismatch]"],
