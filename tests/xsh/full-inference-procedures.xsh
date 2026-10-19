@@ -87,3 +87,104 @@ let text = remember("demo")?
     stderr: ["[check.type-mismatch]"],
   )?
 }
+
+test test_full_inference_proc_immutable_prefix_preserves_the_tail_type { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc copy(value) [] {
+  let copied = value
+  copied
+}
+proc copy_integer(value: Int) [] -> Result[Int] {
+  let copied = value
+  copied
+}
+let inferred_integer = copy(42)?
+let grounded_integer = copy_integer(42)?
+let inferred_text = copy("demo")?
+assert inferred_integer == 42
+assert grounded_integer == 42
+assert inferred_text == "demo"
+print $inferred_integer
+print $grounded_integer
+print $inferred_text
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\n42\ndemo\n"
+}
+
+test test_full_inference_proc_branches_keep_one_int_or_str_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc mark(label: Str) [io] -> Bool {
+  print $label
+  return true
+}
+proc choose(flag, left, right) [io] {
+  if flag {
+    let selected = mark("left branch")
+    left
+  } else {
+    let selected = mark("right branch")
+    right
+  }
+}
+proc choose_integer(flag: Bool, left: Int, right: Int) [io] -> Result[Int] {
+  if flag {
+    let selected = mark("left branch")
+    left
+  } else {
+    let selected = mark("right branch")
+    right
+  }
+}
+proc choose_text(flag: Bool, left: Str, right: Str) [io] -> Result[Str] {
+  if flag {
+    let selected = mark("left branch")
+    left
+  } else {
+    let selected = mark("right branch")
+    right
+  }
+}
+let inferred_integer = choose(true, 42, 7)?
+let grounded_integer = choose_integer(true, 42, 7)?
+let inferred_text = choose(false, "left", "right")?
+let grounded_text = choose_text(false, "left", "right")?
+assert inferred_integer == 42
+assert grounded_integer == 42
+assert inferred_text == "right"
+assert grounded_text == "right"
+print $inferred_integer
+print $grounded_integer
+print $inferred_text
+print $grounded_text
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "left branch\nleft branch\nright branch\nright branch\n42\n42\nright\nright\n"
+}
+
+test test_full_inference_generic_statement_only_proc_returns_unit { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc announce(value) [io] {
+  print $value
+}
+proc announce_integer(value: Int) [io] -> Result[Unit] {
+  print $value
+}
+proc announce_text(value: Str) [io] -> Result[Unit] {
+  print $value
+}
+let _ = announce(42)?
+let _ = announce("demo")?
+let _ = announce_integer(42)?
+let _ = announce_text("demo")?
+print "complete"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\ndemo\n42\ndemo\ncomplete\n"
+}
