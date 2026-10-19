@@ -575,7 +575,12 @@ below use the combined-55032 canonical verification products.
 `dev/performance/corpus/witnesses/` keeps annotated and one-annotation-erased
 forms with the same bodies and calls. These paired probes add no corpus rows or
 removal credit. Each annotated form passed `xsht check` and normal `xsh`
-execution. The erased results on the combined-55032 canonical products were:
+execution. The membership element and list erasures share one annotated
+control. `constructor-unique` and `constructor-shared-invalid` each have
+annotated and erased forms; `membership-element.annotated.xsh` is paired with
+each single-parameter membership erasure. `constructor-unique-qualified.xsh`
+is an explicit-family control. The erased results on the combined-55032
+canonical products were:
 
 | Retained source class | Erased check result | Successful output |
 |---|---|---|
@@ -586,6 +591,10 @@ execution. The erased results on the combined-55032 canonical products were:
 | Empty-List accumulator | Passed; output matched the annotated form. | `3 3 5 8` |
 | `SourceRead` parameter | Exit 2: `check.type-mismatch` at the `cgroup_maximum(source)` call. | `8` |
 | `SourceRead` structural-row alias | Passed and matched the `SourceRead` output. | `8` |
+| Site 973, unique `.InvalidCpuList` | Exit 2: `check.inferred-variant`: `.InvalidCpuList` has no expected enum or error-family type to select from. Cascades include `check.infer-return` and `check.field-access`. | Annotated stdout `b'invalid CPU list\n'`; erased form not run. |
+| Site 3914, reused `.Invalid` | Exit 2 with the same `check.inferred-variant` message as the unique label, plus `check.infer-return` and `check.field-access`. No separate ambiguity diagnostic. | Annotated stdout `b'invalid input\n'`; erased form not run. |
+| Site 9111, membership element | Passed after erasing `kind: DependencyKind`, with `kinds: List[DependencyKind]` retained; output matched. | `b'selected\n'` |
+| Site 9112, membership list | Exit 2: `check.membership-type` (“membership requires List, Set, Map, Record, Str, Bytes, Path, or env.PATH”) and `check.local-inference` after erasing `kinds: List[DependencyKind]`. | Not run after check failure. |
 
 The `SourceRead` structural-row case preserves the field reads and call to the
 typed `bounded_number` helper. It shows that this explicit row shape composes
@@ -595,6 +604,24 @@ is required. A later inference contract may generalize that parameter. These
 probes report compiler behavior and do not establish why historical source
 sites retain annotations. Keep the source classifications diagnostic-only;
 they establish no removal or behavior-equivalence credit.
+
+The two nominal probes use one family with a single `InvalidCpuList` label and
+two families that both declare `Invalid`. The erased forms fail with the same
+primary diagnostic: a target-typed variant has no expected enum or error-family
+type. A separate no-return-annotation control using the explicit
+`ProbeError.InvalidCpuList` constructor passes and prints the same
+`b'invalid CPU list\n'` bytes as the annotated form. This distinguishes the
+current unqualified-constructor behavior from source-level label uniqueness;
+it does not decide whether future inference should select a unique visible
+variant or generalize its nominal type.
+
+The membership element erasure shows that this baseline relates an unannotated
+element to an explicitly typed list in `kind in kinds`. The list erasure shows
+that the current checker does not select the collection shape from the
+annotated element alone. Neither result establishes a permanent annotation
+requirement or full-inference contract. The command stdout bytes above were
+captured unchanged between the adapter's readiness line and its final timing
+line. A source that failed `xsht check` was not executed.
 
 The probes used source checkout
 `.work/wt/perf-i1-combined-freeze-r12` at commit
@@ -608,7 +635,9 @@ products were
 canonical replay receipt at
 `.work/tmp/i1-combined-r12-55032a7ee/canonical-replay.json` records a passed
 canonical gate batch replay with no acceptance credit. It is not a
-functional-close receipt. Each probe ran through the pinned offline adapter
+functional-close receipt; its SHA-256 is
+`5495bc3fc2560295596529d893c2702d0d5853a9f0ef6b4a67b257b084ca8d87`. Each
+probe ran through the pinned offline adapter
 with two CPUs and 4 GiB of memory. No build or suite ran for these probes.
 
 The frozen local target cannot be reached while preserving the 149 required

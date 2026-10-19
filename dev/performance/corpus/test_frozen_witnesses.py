@@ -81,6 +81,20 @@ class FrozenWitnessTests(unittest.TestCase):
             ("interpolation-contract-pending", "source-observation-contract-recheck"),
         )
 
+    def test_nominal_and_membership_probe_pairs_only_erase_the_target_annotation(self):
+        root = corpus.ROOT / "dev/performance/corpus/witnesses"
+        pairs = (
+            ("constructor-unique.annotated.xsh", "constructor-unique.erased.xsh", b" -> ProbeError"),
+            ("constructor-shared-invalid.annotated.xsh", "constructor-shared-invalid.erased.xsh", b" -> FirstError"),
+            ("membership-element.annotated.xsh", "membership-element.erased.xsh", b": DependencyKind"),
+            ("membership-element.annotated.xsh", "membership-list.erased.xsh", b": List[DependencyKind]"),
+        )
+        for annotated_name, erased_name, annotation in pairs:
+            annotated = (root / annotated_name).read_bytes()
+            erased = (root / erased_name).read_bytes()
+            self.assertEqual(annotated.count(annotation), 1)
+            self.assertEqual(annotated.replace(annotation, b""), erased)
+
     def test_source_context_shapes_keep_the_seventeen_site_partition(self):
         counts = corpus.Counter(corpus.SOURCE_CONTEXT_CLASSES.values())
         self.assertEqual(counts, corpus.EXPECTED_SOURCE_CONTEXT_SHAPES)
