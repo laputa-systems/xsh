@@ -2341,27 +2341,20 @@ impl Checker {
             && statements.iter().any(|&stmt| defines_proc_main(program, stmt))
             && (!statements.last().is_some_and(|&stmt| calls_main(program, stmt))
                 || calls_main_with_implicit_spread_args(program, statements, &self.resolved_bindings));
-        if self.options.interactive_commands.is_none() && proc_main_auto_dispatch {
-            let (span, has_unbindable_required_param) = {
-                let declaration = *self
-                    .procs
-                    .get(&Name::intern("main"))
-                    .expect("root proc main signature is collected before entry checking");
-                let signature = self
-                    .local_function_signature(declaration)
-                    .expect("the entry proc main has a ground signature");
-                let span = signature
-                    .definition()
-                    .expect("root proc main signature has a source definition");
-                let callable = decl::callable_type_from_function_signature(&signature)
-                    .expect("the entry proc main has a ground signature");
-                let has_unbindable_required_param = callable.params.iter().any(|parameter| {
-                    !parameter.rest
-                        && !parameter.defaulted
-                        && !matches!(&parameter.ty, Type::Str | Type::Path)
-                });
-                (span, has_unbindable_required_param)
-            };
+        if self.options.interactive_commands.is_none()
+            && proc_main_auto_dispatch
+            && let Some(declaration) = self.procs.get(&Name::intern("main")).copied()
+            && let Some(signature) = self.local_function_signature(declaration)
+            && let Some(callable) = decl::callable_type_from_function_signature(&signature)
+        {
+            let span = signature
+                .definition()
+                .expect("root proc main signature has a source definition");
+            let has_unbindable_required_param = callable.params.iter().any(|parameter| {
+                !parameter.rest
+                    && !parameter.defaulted
+                    && !matches!(&parameter.ty, Type::Str | Type::Path)
+            });
             if has_unbindable_required_param {
                 self.error(
                     span,
@@ -2373,12 +2366,9 @@ impl Checker {
         if self.options.interactive_commands.is_none()
             && main_runs_after
             && let Some(declaration) = self.procs.get(&Name::intern("main")).copied()
+            && let Some(signature) = self.local_function_signature(declaration)
+            && let Some(callable) = decl::callable_type_from_function_signature(&signature)
         {
-            let signature = self
-                .local_function_signature(declaration)
-                .expect("the entry proc main has a ground signature");
-            let callable = decl::callable_type_from_function_signature(&signature)
-                .expect("the entry proc main has a ground signature");
             let has_bytes = callable.params.iter().any(|parameter| {
                 parameter.ty == Type::Bytes || matches!(&parameter.ty,
                     Type::List(item) if item.as_ref() == &Type::Bytes)

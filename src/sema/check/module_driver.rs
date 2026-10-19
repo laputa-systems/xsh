@@ -2305,6 +2305,35 @@ mod tests {
     }
 
     #[test]
+    fn invalid_main_parameter_types_produce_ordinary_diagnostics() {
+        use crate::diagnostic::DiagnosticCode;
+        for (source, expected) in [
+            ("proc main(...argv: item[Str]) {}\n", vec![DiagnosticCode::CheckTypeApplication, DiagnosticCode::CheckRestType]),
+            ("proc main(value: Missing) {}\n", vec![DiagnosticCode::CheckUnknownType]),
+            ("proc main(...argv: List[Missing]) {}\n", vec![DiagnosticCode::CheckUnknownType]),
+            ("proc main() -> Missing {}\n", vec![DiagnosticCode::CheckUnknownType, DiagnosticCode::CheckMissingReturn]),
+            ("proc main(...argv: item[Str]) {}\nmain(...args)\n", vec![DiagnosticCode::CheckTypeApplication, DiagnosticCode::CheckRestType, DiagnosticCode::CheckNamedSpread]),
+            ("proc main(value: Int) {}\n", vec![DiagnosticCode::CompactMainMissingSpread]),
+            ("proc main(value: Bytes = b\"x\") {}\n", vec![DiagnosticCode::CompactMainArgs]),
+            ("proc main(...argv: List[Bytes]) {}\n", vec![]),
+            ("proc main(value: Str) {}\n", vec![]),
+        ] {
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("entry.xsh", source);
+            let mut builder = ArenaProgramBuilder::with_token_capacity(32);
+            let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let program = Arc::new(builder.finish_with_statements(parsed.statements));
+            let session = CheckSession::new(program, Arc::new(sources));
+            for options in [CheckOptions::default(), CheckOptions::for_execution(), CheckOptions::for_check_cli()] {
+                let output = session.check(parsed.statements, source_id, options);
+                let actual = output.diagnostics.iter().filter_map(|diagnostic| diagnostic.code.map(|code| code.name())).collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(actual, expected.iter().map(|code| code.name()).collect(), "{source}: {:?}", output.diagnostics);
+            }
+        }
+    }
+
+    #[test]
     fn cached_module_facts_match_fresh_checks_for_every_option_order() {
         let mut sources = SourceMap::new();
         let root_text = "use shared\nproc main(value: Int) {}\n";
