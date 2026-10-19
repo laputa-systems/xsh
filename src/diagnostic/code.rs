@@ -735,8 +735,12 @@ mod tests {
                     .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
                     .unwrap_or(rest.len());
                 let name = text[start..start + prefix.len() + len].trim_end_matches('-');
+                let is_field_access = rest[len..].strip_prefix('.').is_some_and(|member| {
+                    member.starts_with(|character: char| character.is_alphabetic() || character == '_')
+                });
                 if at_word_start
                     && len > 0
+                    && !is_field_access
                     && DiagnosticCode::from_name(name).is_none()
                     && !path_basenames.contains(name)
                 {
@@ -837,14 +841,17 @@ mod tests {
             concat!(
                 "The source path `dev/performance/corpus/check.sh` is `check.sh`; ",
                 "the adjacent code `check.arity` is valid, but `check.arry` and ",
-                "`check.no-such-code` are not. `missing/check.arry` is not a source path."
+                "`check.no-such-code` are not. `missing/check.arry` is not a source path. ",
+                "Fields `source.observation.state` and `source.observation.value` are valid. ",
+                "Unknown codes remain errors at sentence endings: source.unknown-code. check.arry."
             ),
         );
         assert_eq!(
             unknown,
             BTreeSet::from([
                 "check.arry".to_string(),
-                "check.no-such-code".to_string()
+                "check.no-such-code".to_string(),
+                "source.unknown-code".to_string()
             ])
         );
     }
