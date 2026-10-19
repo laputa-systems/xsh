@@ -4035,7 +4035,6 @@ impl FullBuilder {
                     .slot_type_facts
                     .get(slot)
                     .and_then(Option::as_ref)
-                    .filter(|ty| checked_type_contains_typed_callable(ty))
                 else {
                     continue;
                 };
@@ -6195,6 +6194,18 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_slot_type(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
+        let fact = self.slot_type_fact(slot)?;
+        if driver_owner_index(self.owner).is_some()
+            && self.is_temporary_slot(slot, &mut |_| Ok(()))?
+            && let Some(fact) = fact
+            && !checked_type_contains_typed_callable(&self.store.semantic.to_type(fact)?)
+        {
+            return Ok(None);
+        }
+        Ok(fact)
+    }
+
+    fn slot_type_fact(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
         if driver_owner_index(self.owner).is_none()
             && let Some(function) = IrFunctionId::from_raw(self.owner)
         {
@@ -7681,6 +7692,9 @@ impl<'a> FullDecoder<'a> {
         {
             let writes = writers.get(&(slot.slot as usize));
             let expected = self.store.semantic.to_type(slot.type_id)?;
+            if !checked_type_contains_typed_callable(&expected) {
+                continue;
+            }
             let initializers = writes.map_or(&[][..], |writes| &writes.initializers[..]);
             let has_other_writer = writes.is_some_and(|writes| writes.other);
             if initializers.is_empty() && !matches!(expected, Type::Module(_)) {
@@ -9615,7 +9629,10 @@ impl<'a> FullDecoder<'a> {
                         .ok_or_else(|| IrVerifyError::new("driver local slot range is invalid"))?;
                     if self.store.driver_slots[slots]
                         .iter()
-                        .any(|binding| binding.slot as usize == slot)
+                        .any(|binding| {
+                            binding.slot as usize == slot
+                                && binding.flags & DRIVER_SLOT_TEMPORARY == 0
+                        })
                     {
                         return Ok(None);
                     }
@@ -11025,7 +11042,7 @@ impl<'a> FullDecoder<'a> {
             return Ok(());
         };
         let annotation_type = self.store.semantic.to_type(annotation.id)?;
-        let Some(slot_type) = self.checked_slot_type(slot)? else {
+        let Some(slot_type) = self.slot_type_fact(slot)? else {
             if annotation_type == Type::Any {
                 return Ok(());
             }
@@ -23655,6 +23672,51 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             error.message.contains("local initializer disagrees with its declaration annotation"),
             "{}",
             error.message
+        );
+    }
+
+    #[test]
+    fn full_verifier_authenticates_driver_scalar_temporary_generic_arguments() {
+        let program = fixture(
+            "generic-driver-scalar-temporary.xsh",
+            "pure identity(value) { value }\n\
+             if true { let text = \"wrong\"; assert identity(text) == \"wrong\" }\n",
+        );
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_calls(&program, "identity")[0];
+        let row = program.store.driver_slots.iter().position(|row| {
+            row.flags & DRIVER_SLOT_TEMPORARY != 0
+                && program.store.semantic.to_type(row.type_id).unwrap() == Type::Str
+        }).unwrap();
+        let mut forged = program.clone();
+        let int_type = SemanticPoolBuilder::default()
+            .intern_type(&mut forged.store.semantic, &Type::Int)
+            .unwrap();
+        forged.store.driver_slots[row].type_id = int_type;
+        replace_scheme_fixture_call_type(&mut forged, call, int_type);
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn full_verifier_checks_driver_scalar_temporary_annotations() {
+        let program = fixture(
+            "annotated-driver-scalar-temporary.xsh",
+            "if true { let text: Str = \"text\"; print $text }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.driver_slots.iter().position(|row| {
+            row.flags & DRIVER_SLOT_TEMPORARY != 0
+                && program.store.semantic.to_type(row.type_id).unwrap() == Type::Str
+        }).unwrap();
+        let mut forged = program.clone();
+        let int_type = SemanticPoolBuilder::default()
+            .intern_type(&mut forged.store.semantic, &Type::Int)
+            .unwrap();
+        forged.store.driver_slots[row].type_id = int_type;
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "local slot type fact disagrees with its declaration annotation",
         );
     }
 

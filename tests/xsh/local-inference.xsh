@@ -1,3 +1,25 @@
+test top_level_blocks_retain_annotated_local_types { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure identity(value) { value }
+if true {
+  let text: Str = "nested"
+  let result: Result[Str] = Ok(identity(text))
+  print ${result?}
+}
+for raw in ["first", "last"] {
+  let selected: Str = raw
+  print $selected
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """nested
+first
+last
+"""
+}
+
 test nullable_local_has_one_fixed_optional_type { |ctx|
   let output = test.expect(
     ctx,

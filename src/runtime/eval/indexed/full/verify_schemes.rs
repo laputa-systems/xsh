@@ -2194,16 +2194,12 @@ fn checked_argument_type(
                 store, current, use_instruction, instruction, materialization, depth,
             )?;
         };
-        if super::driver_owner_index(current.owner).is_some() {
-            let source = current.driver_local_let_source(
+        if super::driver_owner_index(current.owner).is_some()
+            && let Some(source) = current.driver_local_let_source(
                 slot,
                 |amount| materialization.charge(amount),
-            )?;
-            let Some(source) = source else {
-                break checked_argument_type_inner(
-                    store, current, use_instruction, instruction, materialization, depth,
-                )?;
-            };
+            )?
+        {
             let next = decoder_for_driver_step(store, source.step)?;
             if !next.instruction_range.contains(&source.initializer) {
                 return Err(IrVerifyError::new(
@@ -2232,37 +2228,37 @@ fn checked_argument_type(
             instruction = source.initializer;
             use_instruction = source.initializer;
             owned_decoder = Some(next);
-        } else {
-            let (has_local_write, initializer) = current.local_immutable_let_initializer(slot)?;
-            let Some(initializer) = initializer.filter(|_| has_local_write) else {
-                break checked_argument_type_inner(
-                    store, current, use_instruction, instruction, materialization, depth,
-                )?;
-            };
-            let annotation = current.local_immutable_let_annotation(slot)?;
-            let slot_type = current.checked_slot_type(slot)?;
-            if let Some(annotation) = annotation {
-                let annotated = store.semantic.to_type_with_budget(
-                    annotation, &mut materialization.semantic_types,
-                )?;
-                if let Some(slot_type) = slot_type {
-                    let checked = store.semantic.to_type_with_budget(
-                        slot_type, &mut materialization.semantic_types,
-                    )?;
-                    if checked != annotated {
-                        return Err(IrVerifyError::new(
-                            "local slot type fact disagrees with its declaration annotation",
-                        ));
-                    }
-                } else if annotated != Type::Any {
-                    return Err(IrVerifyError::new("annotated local has no checked slot type"));
-                }
-                checks.push(ArgumentAliasCheck::Annotation(annotation));
-            } else if let Some(slot_type) = slot_type {
-                checks.push(ArgumentAliasCheck::Declared(slot_type));
-            }
-            instruction = initializer;
+            continue;
         }
+        let (has_local_write, initializer) = current.local_immutable_let_initializer(slot)?;
+        let Some(initializer) = initializer.filter(|_| has_local_write) else {
+            break checked_argument_type_inner(
+                store, current, use_instruction, instruction, materialization, depth,
+            )?;
+        };
+        let annotation = current.local_immutable_let_annotation(slot)?;
+        let slot_type = current.slot_type_fact(slot)?;
+        if let Some(annotation) = annotation {
+            let annotated = store.semantic.to_type_with_budget(
+                annotation, &mut materialization.semantic_types,
+            )?;
+            if let Some(slot_type) = slot_type {
+                let checked = store.semantic.to_type_with_budget(
+                    slot_type, &mut materialization.semantic_types,
+                )?;
+                if checked != annotated {
+                    return Err(IrVerifyError::new(
+                        "local slot type fact disagrees with its declaration annotation",
+                    ));
+                }
+            } else if annotated != Type::Any {
+                return Err(IrVerifyError::new("annotated local has no checked slot type"));
+            }
+            checks.push(ArgumentAliasCheck::Annotation(annotation));
+        } else if let Some(slot_type) = slot_type {
+            checks.push(ArgumentAliasCheck::Declared(slot_type));
+        }
+        instruction = initializer;
     };
     let Some(mut actual) = actual else {
         return Ok(None);
