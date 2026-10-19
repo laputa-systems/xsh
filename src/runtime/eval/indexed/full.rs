@@ -9261,6 +9261,9 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn derive_registered_api_operation_return_type(op: RuntimeOp) -> Result<Option<Type>, IrVerifyError> {
+        if let Some(contract) = crate::stdlib::bridge_contract(op) {
+            return Ok(Some(*contract.sig.return_ty));
+        }
         static RETURN_TYPES:
             std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
             std::sync::OnceLock::new();
@@ -9301,10 +9304,70 @@ impl<'a> FullDecoder<'a> {
         match return_types.get(&op) {
             Some(Ok(return_type)) => Ok(Some(return_type.clone())),
             Some(Err(())) => Ok(None),
-            None => Err(IrVerifyError::new(
-                "checked API operation has no registry signature",
-            )),
+            None => Err(IrVerifyError::new("checked API operation has no registry signature")),
         }
+    }
+
+    fn native_module_operation_signatures(op: RuntimeOp) -> &'static [&'static crate::modules::signature::ModuleFnSig] {
+        static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>> = std::sync::OnceLock::new();
+        let signatures = SIGNATURES.get_or_init(|| {
+            let mut signatures = FxHashMap::<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>::default();
+            for (_, module) in crate::modules::api_spec().module_entries() {
+                for function in &module.functions {
+                    for signature in &function.overloads {
+                        if signature.binding == crate::modules::signature::ImplBinding::Native {
+                            signatures.entry(signature.op).or_default().push(signature);
+                        }
+                    }
+                }
+            }
+            signatures
+        });
+        signatures.get(&op).map_or(&[], Vec::as_slice)
+    }
+
+    fn checked_module_call_return_type(
+        op: RuntimeOp,
+        call_plan: Option<&crate::runtime::eval::ModuleCallPlan>,
+        arguments: &[Option<usize>],
+        mut argument_type: impl FnMut(usize) -> Result<Option<Type>, IrVerifyError>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        if let Some(plan) = call_plan {
+            let supplied = arguments.iter().map(Option::is_some).collect::<Vec<_>>();
+            plan.verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
+            return Ok(Some(match plan {
+                crate::runtime::eval::ModuleCallPlan::SignatureCli(descriptor) => descriptor.return_type(op == RuntimeOp::CliParseFull),
+                crate::runtime::eval::ModuleCallPlan::CommandArguments(command) => command.signature.return_ty.clone(),
+            }));
+        }
+        if let Some(result) = Self::derive_registered_api_operation_return_type(op)? {
+            return Ok(Some(result));
+        }
+        let signatures = Self::native_module_operation_signatures(op);
+        let mut result = None;
+        for signature in signatures {
+            if arguments.len() > signature.params.len() { continue; }
+            let mut fits = true;
+            for (index, parameter) in signature.params.iter().enumerate() {
+                match arguments.get(index).copied().flatten() {
+                    Some(argument) => {
+                        if !argument_type(argument)?.is_some_and(|ty| ty.matches_expected(&parameter.ty)) {
+                            fits = false;
+                            break;
+                        }
+                    }
+                    None if parameter.defaulted => {}
+                    None => { fits = false; break; }
+                }
+            }
+            if !fits { continue; }
+            match &result {
+                Some(previous) if previous != &signature.return_ty => return Ok(None),
+                Some(_) => {}
+                None => result = Some(signature.return_ty.clone()),
+            }
+        }
+        Ok(result)
     }
 
     fn registered_path_method_return_type(
@@ -9803,8 +9866,10 @@ impl<'a> FullDecoder<'a> {
                 };
                 self.checked_method_return_type(&receiver_type, name, &args)
             }
-            schema::ExprView::ModuleCall { op, .. } => {
-                Self::derive_registered_api_operation_return_type(op)
+            schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
+                let arguments = args.map(|argument| argument.map(|value| value.map(|value| value.raw() as usize))).collect::<Result<Vec<_>, _>>()?;
+                Self::checked_module_call_return_type(op, call_plan.map(AsRef::as_ref), &arguments,
+                    |argument| self.derive_checked_expression_type(argument))
             }
             schema::ExprView::FsFiles {
                 result_wrapped, ..
@@ -10045,16 +10110,35 @@ impl<'a> FullDecoder<'a> {
         Ok(found)
     }
 
+    fn checked_branch_value_instruction(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        if let schema::ExprView::ValueBlock { mut body, .. } = self.expression_view(instruction)? {
+            let block = body.block_identity();
+            if self.derive_checked_block_tail_expression(&mut body)?.is_none()
+                && indexed_block_can_return_with_decoder(self.store, block, Some(self))?
+            {
+                return Ok(None);
+            }
+        }
+        Ok(Some(instruction))
+    }
+
     fn checked_branch_result_type(
         &self,
         instructions: impl Iterator<Item = Result<usize, IrVerifyError>>,
     ) -> Result<Option<Type>, IrVerifyError> {
-        let mut result = None;
+        Self::checked_branch_result_type_with(instructions, |instruction| self.derive_checked_expression_type(instruction))
+    }
+
+    fn checked_branch_result_type_with<T: std::borrow::Borrow<Type>>(
+        instructions: impl Iterator<Item = Result<usize, IrVerifyError>>,
+        mut derive: impl FnMut(usize) -> Result<Option<T>, IrVerifyError>,
+    ) -> Result<Option<T>, IrVerifyError> {
+        let mut result: Option<T> = None;
         for instruction in instructions {
-            let Some(ty) = self.derive_checked_expression_type(instruction?)? else { return Ok(None) };
+            let Some(ty) = derive(instruction?)? else { return Ok(None) };
             match &result {
-                Some(previous) if !ty.matches_expected(previous) => {
-                    if !previous.matches_expected(&ty) { return Ok(None); }
+                Some(previous) if !ty.borrow().matches_expected(previous.borrow()) => {
+                    if !previous.borrow().matches_expected(ty.borrow()) { return Ok(None); }
                     result = Some(ty);
                 }
                 None => result = Some(ty),
@@ -15988,7 +16072,7 @@ impl FullVerifier {
     /// no bridge call can be legitimate.
     fn verify_bridge_ownership(store: &FullStore) -> Result<(), IrVerifyError> {
         let mut covered = 0usize;
-        for (index, _function) in store.functions.iter().enumerate() {
+        for (index, function) in store.functions.iter().enumerate() {
             let instructions = store.function_instruction_range(index)?;
             covered = covered.max(instructions.end);
             let owner = store.function_metadata[index].owner;
@@ -15997,6 +16081,19 @@ impl FullVerifier {
             } else {
                 crate::stdlib::find_by_namespace(store.string(owner)?)
             };
+            if let Some(module) = module
+                && let Some(bridge) = module.bridges.iter().find(|bridge| store.string(function.name).ok() == Some(bridge.function))
+            {
+                let contract = (bridge.contract)();
+                let FullCallableContract::Ground(signature) = function.contract else {
+                    return Err(IrVerifyError::new("private bridge declaration has no ground contract"));
+                };
+                if store.function_metadata[index].flags & 1 != u8::from(!contract.pure)
+                    || !store.semantic.signature_matches_callable(signature, &contract.sig)?
+                {
+                    return Err(IrVerifyError::new("private bridge declaration differs from its native contract"));
+                }
+            }
             Self::verify_bridge_instructions(store, instructions.start, instructions.end, module)?;
         }
         Self::verify_bridge_instructions(store, covered, store.tags.len(), None)
@@ -20501,6 +20598,196 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
             }
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_accept_open_callable_parameter_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("strict-result-open-callback.xsh", r#"
+type Scale = pure(n: Int) -> Int
+proc from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
+    with mapped = callbacks.get("double") {
+        return Ok(mapped(1))
+    } else { |failure| return Err(failure) }
+}
+let alternate = false
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let integer = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                (*tag == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [1, 0]).then_some(instruction)
+            }).unwrap();
+            let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+            let mut bad_argument = program.clone();
+            bad_argument.store.tags[integer] = FullTag::ExprBool;
+            bad_argument.store.data[integer] = program.store.data[boolean];
+            FullVerifier::verify(&bad_argument).expect_err("open callable arguments must match the authenticated parameter contract");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_reject_native_argument_corruption_without_context_rows() {
+        run_with_large_stack(|| {
+            let program = fixture("strict-result-native-argument.xsh", concat!(
+                "proc digest(value: Path) [fs, error] -> Result[Digest] { Ok(hash.digest_file(value, \"md5\")?) }\n",
+                "let alternate = false\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "digest");
+            let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                program.store.tags[instruction] == FullTag::ExprModuleCall
+            }).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(call).unwrap() else { panic!("native call") };
+            let argument = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(program.store.checked_expr_types.binary_search_by_key(&(argument as u32), |fact| fact.instruction).is_err());
+            let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags[argument] = FullTag::ExprBool;
+            forged.store.data[argument] = program.store.data[boolean];
+            FullVerifier::verify(&forged).expect_err("typed native arguments must retain their operation contract without optional context rows");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_guarded_optional_fallbacks() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-result-guarded-optional.xsh", r#"
+var hits: Int = 0
+proc fallback() [] -> Int { hits += 1; 99 }
+proc guarded(value: Int?) [error] -> Result[Int, Str] {
+    if value == null { return Err("missing") }
+    let selected = value ?? fallback()
+    Ok(selected)
+}
+proc ordinary(value: Int?) [] -> Int { value ?? fallback() }
+pure nested(value: Result[Int]?) -> Result[Int] { value ?? Ok(9) }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                for (argument, expected) in [
+                    (Value::Int(7), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))))),
+                    (Value::Null, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("missing".into()))))),
+                ] {
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("guarded")), LoweredFunctionKind::Proc,
+                        &[argument], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    assert_eq!(result, expected);
+                }
+                assert_eq!(evaluator.lookup(Name::intern("hits")).unwrap().value, Value::Int(0));
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("ordinary")), LoweredFunctionKind::Proc,
+                    &[Value::Null], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(result, Value::Int(99));
+                assert_eq!(evaluator.lookup(Name::intern("hits")).unwrap().value, Value::Int(1));
+                for (argument, expected) in [
+                    (Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))), 7),
+                    (Value::Null, 9),
+                ] {
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("nested")), LoweredFunctionKind::Pure,
+                        &[argument], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(expected)))));
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "guarded");
+            let fallback = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprMatch).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(fallback).unwrap() else { panic!("Optional fallback") };
+            let present = arms.nth(1).unwrap().unwrap().2.raw() as usize;
+            assert_eq!(program.store.tags[present], FullTag::ExprParam);
+            assert_eq!(program.store.tags[value.raw() as usize], FullTag::ExprParam);
+            let mut erased = (*program).clone();
+            erased.store.data[present] = program.store.data[value.raw() as usize];
+            assert_eq!(FullVerifier::verify(&erased).unwrap_err().message,
+                "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_derive_conditional_local_writers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-result-conditional-local.xsh", r#"
+type Token = {kind: Str, text: Str}
+pure selected(tokens: List[Token]) -> Result[Bool] {
+    let keyword = if tokens[0].kind == "ident" { tokens[0].text } else { "" }
+    Ok(keyword != "")
+}
+assert selected([{kind: "ident", text: "name"}])? == true
+assert selected([{kind: "other", text: "name"}])? == false
+pure selected_or_error(tokens: List[Token]) -> Result[Bool, Str] {
+    let keyword = if tokens[0].kind == "ident" { tokens[0].text } else { return Err("missing") }
+    let result: Result[Bool, Str] = Ok(keyword != "")
+    result
+}
+let found: Result[Bool, Str] = Ok(true)
+let missing: Result[Bool, Str] = Err("missing")
+assert selected_or_error([{kind: "ident", text: "name"}]) == found
+assert selected_or_error([{kind: "other", text: "name"}]) == missing
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "selected_or_error");
+            let decoder = function_view_decoder(&program.store, owner);
+            let error = program.store.function_instruction_range(owner).unwrap().find(|&instruction|
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("missing")))).unwrap();
+            let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.tags[error] = FullTag::ExprInt;
+            forged.store.data[error] = program.store.data[integer];
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_derive_loop_item_writers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-result-loop-item.xsh", r#"
+type Row = {key: Str, text: Str}
+pure first(fields: List[Str], alternate: List[Int]) -> Result[Row] {
+    let ignored = alternate
+    for key in fields { return Ok({key: key, text: f"field {key}"}) }
+    Ok({key: "", text: "empty"})
+}
+assert first(["name"], [7])? == {key: "name", text: "field name"}
+assert first([], [7])? == {key: "", text: "empty"}
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "first");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let alternate = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let iteration = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::For { iter, .. }) => Some(iter.raw() as usize),
+                _ => None,
+            }).unwrap();
+            assert_eq!(program.store.tags[iteration], FullTag::ExprParam);
+            let mut forged = (*program).clone();
+            forged.store.data[iteration] = program.store.data[alternate];
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract");
         });
     }
 
@@ -25312,7 +25599,6 @@ proc main() {
 
     #[test]
     fn checked_json_type_name_uses_its_verified_bridge_operation() {
-        // Its checked declaration is represented by a private operation inside JSON.
         let source = "proc main() { let _ = json.encode_lines([1]) }\n";
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
             "checked-json-bridge.xsh",
@@ -25397,6 +25683,20 @@ proc main() {
             program.store.string(owner).unwrap(),
             "<xsh-stdlib:json>"
         );
+        let declaration = program.store.functions.iter().enumerate().find_map(|(index, function)| {
+            (program.store.function_metadata[index].owner == owner && program.store.string(function.name).unwrap() == "type_name")
+                .then_some(index)
+        }).unwrap();
+        let FullCallableContract::Ground(signature) = program.store.functions[declaration].contract else { panic!("ground bridge declaration") };
+        let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
+            &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+        signature.return_ty = Box::new(Type::Int);
+        let mut forged = program.clone();
+        let signature = SemanticPoolBuilder::default().intern_signature(&mut forged.store.semantic, &signature).unwrap();
+        forged.store.functions[declaration].contract = FullCallableContract::Ground(signature);
+        forged.store.functions[declaration].checked_return_type = forged.store.semantic.signature_return_type(signature).unwrap().raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("private bridge declaration differs from its native contract"), "{error:?}");
     }
 
     #[test]
@@ -28669,6 +28969,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let decoder = return_analysis_decoder(&program, "helper");
                 let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
                 index.record(&decoder).unwrap();
+                let (visits, instructions) = index.census_instruction_work();
+                assert!(visits <= instructions * 3);
                 let work = index.binding_work();
                 assert!(work.0 >= locals);
                 assert!(work.1 <= work.0 * 4);

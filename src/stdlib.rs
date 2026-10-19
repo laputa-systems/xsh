@@ -35,6 +35,7 @@ pub(crate) struct StdlibBridge {
     pub(crate) function: &'static str,
     /// The private runtime operation the function lowers to.
     pub(crate) op: RuntimeOp,
+    pub(crate) contract: fn() -> crate::sema::types::TypedCallable,
 }
 
 /// One embedded implementation module.
@@ -63,6 +64,19 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         bridges: &[StdlibBridge {
             function: "type_name",
             op: RuntimeOp::BridgeTypeName,
+            contract: || crate::sema::types::TypedCallable {
+                pure: true,
+                sig: crate::sema::types::CallableType {
+                    params: vec![crate::sema::types::CallableParamType {
+                        name: Name::intern("value"),
+                        ty: crate::sema::types::Type::Any,
+                        defaulted: false,
+                        rest: false,
+                    }],
+                    return_ty: Box::new(crate::sema::types::Type::Str),
+                    effects: None,
+                },
+            },
         }],
     },
     StdlibModule {
@@ -113,7 +127,12 @@ pub(crate) fn find_by_namespace(namespace: &str) -> Option<&'static StdlibModule
 /// These operations are not bound to any public entry; a program reaches one
 /// only through the lowering rewrite inside the module that declares it.
 pub(crate) fn is_private_bridge_op(op: RuntimeOp) -> bool {
-    matches!(op, RuntimeOp::BridgeTypeName)
+    CATALOG.iter().any(|module| module.bridges.iter().any(|bridge| bridge.op == op))
+}
+
+pub(crate) fn bridge_contract(op: RuntimeOp) -> Option<crate::sema::types::TypedCallable> {
+    CATALOG.iter().flat_map(|module| module.bridges).find(|bridge| bridge.op == op)
+        .map(|bridge| (bridge.contract)())
 }
 
 /// Whether `module` declares a bridge that lowers to `op`.

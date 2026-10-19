@@ -4386,14 +4386,15 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| match error.span {
-            Some(span) => format!(
-                "{} at bytes {}..{}",
-                error.construct,
-                span.start(),
-                span.end()
-            ),
-            None => error.construct.to_string(),
+        .map_err(|error| {
+            let message = match error.span {
+                Some(span) => format!("{} at bytes {}..{}", error.construct, span.start(), span.end()),
+                None => error.construct.to_string(),
+            };
+            match error.detail {
+                Some(detail) => format!("{message}: {detail}"),
+                None => message,
+            }
         })
     }
 

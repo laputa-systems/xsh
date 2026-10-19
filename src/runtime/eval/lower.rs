@@ -6446,13 +6446,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 left,
                 right,
             } => {
-                if self
+                let proven_nonnull = self
                     .bodies
                     .proven_nonnull_fallback_receivers
-                    .contains(&left)
-                {
-                    return self.lower_expr(left, slots, current_function, item_slot);
-                }
+                    .contains(&left);
                 if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
                     // A handler without `|name|` reads the error as its item `.`.
                     let parameter = match self
@@ -6543,7 +6540,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .or_else(|| self.concrete_checked_type(left));
                 let left = self.lower_expr(left, slots, current_function, item_slot)?;
                 let right = self.lower_expr(right, slots, current_function, item_slot)?;
-                if matches!(left_ty, Some(Type::Optional(_))) {
+                if matches!(left_ty, Some(Type::Optional(_))) || proven_nonnull {
                     let slot = slots.reserve("optional fallback");
                     let null_pattern = push_build_row!(
                         self,

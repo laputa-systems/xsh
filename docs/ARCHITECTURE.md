@@ -70,6 +70,16 @@ Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.
 
+Private embedded-module bridges carry their native callable contract in the
+stdlib catalog. Prepared bridge declarations must match that contract and remain
+inside their declared module. The decoder derives bridge results from this
+trusted host contract. Public native overloads use registry contracts, including
+argument types when one operation serves overloads with different results.
+Prepared CLI descriptor plans supply the shape the same executable plan returns.
+Repeated calls share the plan's derived values and full-result shapes, retaining
+that shape's symbol owner for later materialization. Open typed callable parameters retain their declared contract; their argument and
+result proofs do not require a caller to supply a concrete function identity.
+
 Closed Result constructor contracts use the existing ground producer proof for
 payloads, including contextual collections and lexical writers. Verification
 derives producer demand once from selected operations and constructor facts;
