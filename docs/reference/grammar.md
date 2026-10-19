@@ -205,10 +205,11 @@ enum_declaration = "enum" IDENT ( "{" list1(IDENT ( "(" list(type_expr) ")" )?) 
 error_declaration = "error" IDENT ( "=" NEWLINE* ( "|" NEWLINE* )? error_variant ( "|" NEWLINE* error_variant )* | "{" NEWLINE* error_variant ( NEWLINE error_variant )* NEWLINE* "}" ) ;
 error_variant = NAME ( "(" list(LABEL ":" type_expr) ")" )? ( ":" IDENT ( "," IDENT )* )? ;
 proc_declaration = "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? block ;
-pure_declaration = "pure" IDENT "(" parameters ")" ( "->" type_expr )? block ;
+pure_declaration = "pure" IDENT "(" pure_parameters ")" ( "->" type_expr )? block ;
 stream_declaration = "stream" IDENT "(" parameters ")" effects? "->" type_expr block ;
 cli_entry = "cli" ( "main" IDENT* | IDENT ) "(" parameters ")" effects? ( "->" type_expr )? block ;
 test_declaration = "test" IDENT effects? "{" separator* ( "|" ( IDENT ","? )? "|" )? statements "}" ;
+pure_parameters = list(parameter | ( "." ~"." ~"." )? IDENT &( "," | ")" )) ;
 parameters = list(parameter) ;
 parameter = IDENT ":" type_expr ( "=" expression )? | IDENT "=" expression | "." ~"." ~"." IDENT ":" type_expr ;
 effects = "[" list("fs" | "net" | "process" | "env" | "time" | "error" | "io") "]" ;

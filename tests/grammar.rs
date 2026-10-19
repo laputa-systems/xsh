@@ -431,6 +431,74 @@ fn assert_parser_and_grammar_agree(source: &str, accepted: bool) {
 }
 
 #[test]
+fn pure_parameters_allow_inferred_annotations() {
+    for source in [
+        "pure identity(value) { value }\n",
+        "export pure identity(value) { value }\n",
+        "pure defaulted(value = 1) { value }\n",
+        "pure mixed(first: Int, value, fallback: Str = \"x\") { value }\n",
+        "pure choose(value, fallback: Int = 1, ... rest: Int) { value }\n",
+        "pure rest(... values) { values }\n",
+        "pure nonfinal(... values, last: Int) { last }\n",
+        "pure defaults_then_required(first = 1, second) { second }\n",
+        "proc defaulted(value = 1) { value }\n",
+        "stream defaulted(value = 1) -> Stream[Int] { yield value }\n",
+        "type Plugin = module { export pure render(value: Str) -> Str }\n",
+        "type Plugin = module { export pure render(value = \"x\") -> Str }\n",
+        "type Render = pure(value: Str) -> Str\n",
+        "type Render = pure(value = 1) -> Int\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "pure rest(... values = 1) { values }\n",
+        "pure rest(... values: List[Int] = []) { values }\n",
+        "proc identity(value) { value }\n",
+        "proc rest(... values) { values }\n",
+        "stream identity(value) -> Stream[Int] { yield value }\n",
+        "stream rest(... values) -> Stream[Int] { yield 1 }\n",
+        "type Plugin = module { export pure render(value) -> Str }\n",
+        "type Plugin = module { export pure render(... values) -> Str }\n",
+        "type Render = pure(value) -> Str\n",
+        "type Render = pure(... values) -> Str\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn unannotated_pure_parameters_require_an_immediate_delimiter() {
+    for source in [
+        "pure immediate(value,\nother) { value }\n",
+        "pure immediate(... values,\nlast: Int) { last }\n",
+        "pure annotated(value: Int\n) { value }\n",
+        "pure defaulted(value = 1\n) { value }\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "pure identity(value\n) { value }\n",
+        "pure identity(value\n, other) { value }\n",
+        "pure rest(... values\n) { values }\n",
+        "pure rest(... values\n, last: Int) { last }\n",
+        r#"pure items ( items = $? not in y or $? & $? < $? , ... items
+) { | c | } loop { | items , | } exit b or items - - b as c >= - Thing
+"#,
+        r#"pure c ( y
+) -> a . Thing [ proc ( ) [ ] -> y . y [ ] ? ] ? { ; error x { Thing (
+) } }
+"#,
+        r#"cli Thing ( ) -> x . x ? { | items , | } test items [ ] { b /= $? not in $? not in value / $? ? ; pure items ( y
+) -> b . Thing [ proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> Thing ] ? { } } within 10ms { ; type c = exact module { } }
+"#,
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert_eq!(parsed.diagnostics[0].code, Some(DiagnosticCode::ParseExpectedParamType));
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
 fn list_rest_bindings_use_binding_names() {
     for source in ["while let [.. tail] = xs { }\n", "while let [.. _] = xs { }\n", "while let [..] = xs { }\n"] {
         assert_parser_and_grammar_agree(source, true);

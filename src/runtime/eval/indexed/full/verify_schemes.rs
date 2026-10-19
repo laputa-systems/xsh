@@ -16,7 +16,7 @@ use crate::sema::types::{Type, merge_list_literal_item_ty};
 use crate::sema::schemes::{SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
 use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -3385,7 +3385,7 @@ fn decoder_for_driver_step(
         slot_count: step.slot_count,
         pattern_ceiling: Cell::new(usize::MAX),
         local_immutable_let_initializers: RefCell::default(),
-        binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+        binding_identity_stack: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
@@ -3411,7 +3411,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
         slot_count: function.slot_count,
         pattern_ceiling: Cell::new(usize::MAX),
         local_immutable_let_initializers: RefCell::default(),
-        binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+        binding_identity_stack: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),

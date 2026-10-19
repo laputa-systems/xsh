@@ -1926,7 +1926,7 @@ pub(crate) fn with_cleanup_error(mut primary: RunError, cleanup: RunError) -> Ru
     *primary
 }
 
-fn append_error_cause(mut value: Value, suffix: Value) -> Value {
+pub(crate) fn append_error_cause(mut value: Value, suffix: Value) -> Value {
     let mut chain = Vec::new();
     loop {
         let cause = match &mut value {

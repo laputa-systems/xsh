@@ -10,7 +10,7 @@ use super::{
 
 use super::{
     Arc, AssignOp, BinaryOp, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, BuildStmtId,
-    Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder, RefCell,
+    Cell, OnceCell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder, RefCell,
     FullExecution, FullStore, FunctionName, HashAlgorithm, IrBlockId, IrFunctionId,
     IrVerifyError, LoweredFunctionKey, LoweredModuleExport,
     LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredValue, Name,
@@ -18,9 +18,7 @@ use super::{
     ReduceByOp, RunKind, RuntimeOp, Span, Type, TypeId,
 };
 use super::schema::InstructionKind;
-use std::collections::BTreeSet;
 use std::marker::PhantomData;
-use std::rc::Rc;
 
 /// The verified store and owner of a borrowed field. No verifier traversal
 /// state is retained or rebuilt while execution reads its operands.
@@ -68,7 +66,7 @@ impl<'a> DecodeContext<'a> {
             slot_count: self.slots,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
-            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
+            binding_identity_stack: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),

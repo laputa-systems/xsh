@@ -660,6 +660,7 @@ struct RegisteredSignalHook {
     indexed_body: RegisteredIndexedSignalBody,
     lowered_slots: Vec<LoweredTopLevelSlot>,
     scope: FxHashMap<Name, Binding>,
+    binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
     span: Span,
     ignore_pending_primary: bool,
 }
@@ -3435,6 +3436,7 @@ impl Evaluator {
                 },
                 lowered_slots: hook_slots,
                 scope: self.scopes.first().cloned().unwrap_or_default(),
+                binding_values: Arc::clone(&self.binding_values),
                 span,
                 ignore_pending_primary,
             },
@@ -3925,12 +3927,22 @@ impl Evaluator {
 
     fn execute_signal_hook(&mut self, hook: &RegisteredSignalHook) -> Result<Flow, RuntimeError> {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![hook.scope.clone()]);
+        let saved_root_slots = self.indexed_root_slots.take();
+        let saved_binding_values =
+            std::mem::replace(&mut self.binding_values, Arc::clone(&hook.binding_values));
+        let result = self.execute_signal_hook_body(hook);
+        self.binding_values = saved_binding_values;
+        self.indexed_root_slots = saved_root_slots;
+        self.scopes = saved_scopes;
+        result
+    }
+
+    fn execute_signal_hook_body(&mut self, hook: &RegisteredSignalHook) -> Result<Flow, RuntimeError> {
         let call_span = hook.span;
         let slot_count = hook.indexed_body.slot_count;
         let mut slots = vec![LoweredValue::Unit; slot_count];
         for slot_info in &hook.lowered_slots {
             let Some(identity) = slot_info.runtime_identity.as_ref() else {
-                self.scopes = saved_scopes;
                 return Err(RuntimeError::new(
                     "indexed-ir",
                     "signal hook slot has no lexical binding identity",
@@ -3938,7 +3950,6 @@ impl Evaluator {
                 .with_span(call_span));
             };
             let Some(binding) = self.binding_by_identity(identity) else {
-                self.scopes = saved_scopes;
                 return Err(RuntimeError::new(
                     "unknown-name",
                     format!("unknown captured binding `{}`", slot_info.name),
@@ -3950,7 +3961,6 @@ impl Evaluator {
                     !value_matches_static_type(ValueView::Runtime(&binding.value), ty)
                 })
             {
-                self.scopes = saved_scopes;
                 return Err(RuntimeError::new(
                     "type-error",
                     "script arguments do not match their checked type",
@@ -3958,24 +3968,92 @@ impl Evaluator {
                 .with_span(call_span));
             }
             let Some(value) = lowered_value_from_runtime(&binding.value, slot_info.kind) else {
-                self.scopes = saved_scopes;
                 return Err(RuntimeError::new(
                     "type-error",
                     format!("signal hook binding `{}` no longer matches its checked type", slot_info.name),
                 )
                 .with_span(call_span));
             };
-            slots[slot_info.slot] = value;
+            slots[slot_info.slot] = Self::share_indexed_root_value(value);
         }
         let indexed_body = &hook.indexed_body;
         let program = Arc::clone(&indexed_body.program);
         let view = program
             .driver_step_view_absolute(indexed_body.driver_step)
             .map_err(|error| RuntimeError::new("indexed-ir", error.message).with_span(call_span))?;
-        let result =
-            self.eval_indexed_body_as_signal_hook(view, indexed_body.body, &mut slots, call_span);
-        self.scopes = saved_scopes;
-        result
+        self.indexed_root_slots = Some(IndexedRootSlots {
+            address: slots.as_ptr() as usize,
+            scope_revision: self.scope_write_revision,
+            bindings: hook.lowered_slots
+                .iter()
+                .filter(|slot| slot.mutable)
+                .map(|slot| (slot.clone(), slots[slot.slot].clone()))
+                .collect(),
+        });
+        let result = self.eval_indexed_body_as_signal_hook(
+            view, indexed_body.body, &mut slots, call_span,
+        );
+        let publication = self.sync_indexed_root_slots(&mut slots, call_span);
+        self.finish_signal_hook_publication(result, publication, call_span)
+    }
+
+    fn finish_signal_hook_publication(
+        &mut self,
+        result: Result<Flow, RuntimeError>,
+        publication: Result<(), RuntimeError>,
+        span: Span,
+    ) -> Result<Flow, RuntimeError> {
+        match (result, publication) {
+            (Err(mut primary), Err(secondary)) => {
+                if primary.abort.is_some() || secondary.abort.is_some() {
+                    self.report_cleanup_error(&secondary, span);
+                    return Err(primary);
+                }
+                primary.contexts.push(ErrorContext {
+                    kind: secondary.kind.clone(),
+                    message: Some(secondary.message.clone()),
+                    span: secondary.span,
+                });
+                let previous = primary.cause.take();
+                let secondary = Value::Error(Box::new(secondary));
+                let cause = previous.map_or(secondary.clone(), |previous| {
+                    crate::runtime::process::append_error_cause(
+                        previous.as_value().clone(), secondary,
+                    )
+                });
+                let Value::Error(primary) = Value::Error(Box::new(primary))
+                    .with_error_cause(cause)
+                    .expect("non-aborting hook failures accept error causes")
+                else {
+                    unreachable!("attaching a cause preserves the hook error")
+                };
+                Err(*primary)
+            }
+            (Ok(Flow::Propagate(mut propagation)), Err(secondary)) => {
+                if secondary.abort.is_some() {
+                    self.report_cleanup_error(&secondary, span);
+                } else {
+                    propagation.error = crate::runtime::process::append_error_cause(
+                        propagation.error, Value::Error(Box::new(secondary)),
+                    );
+                    propagation.traceback.error = TraceError::from_propagated_value(&propagation.error);
+                }
+                Ok(Flow::Propagate(propagation))
+            }
+            (Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))), Err(secondary)) => {
+                let error = if secondary.abort.is_some() {
+                    self.report_cleanup_error(&secondary, span);
+                    *error
+                } else {
+                    crate::runtime::process::append_error_cause(
+                        *error, Value::Error(Box::new(secondary)),
+                    )
+                };
+                Ok(Flow::Continue(Value::Result(ResultValue::Err(Box::new(error)))))
+            }
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        }
     }
 
     fn track_process_group(&mut self, group: ProcessGroup) {
