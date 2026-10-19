@@ -339,3 +339,35 @@ test test_checker_computed_map_literals_locate_key_errors_without_weakening_valu
     assert "[check." in rejected.stderr, f"{source}: {rejected.stderr}"
   }
 }
+
+test test_checker_record_spreads_use_the_final_field_type { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type First = {value: Int}
+type Last = {value: Bool}
+proc first() [io] -> First { print "first"; {value: 1} }
+proc last() [io] -> Last { print "last"; {value: false} }
+let merged = {...first(), ...last()}
+let boolean: Bool = merged.value
+assert boolean == false
+let explicit = {...merged, value: 7}
+assert explicit.value == 7
+let nested = {inner: {...merged, value: 9}}
+assert nested.inner.value == 9
+""",
+    status: 0,
+  )?
+  assert output.stdout == """first
+last
+"""
+  expect_rejected(
+    ctx,
+    "type Item = {value: Int}\npure invalid() -> Item { {value: 1, ...{value: false}} }\n",
+    ["check.type-mismatch"],
+  )
+  expect_rejected(
+    ctx,
+    "let invalid = {value: 1, value: 2}\n",
+    ["check.duplicate-record-field"],
+  )
+}

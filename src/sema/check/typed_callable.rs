@@ -75,7 +75,9 @@ impl Checker {
                 return None;
             }
             (binding.callable_alias.clone(), actual, None)
-        } else if let Some(signature) = self.procs.get(&name).cloned() {
+        } else if let Some(declaration) = self.procs.get(&name).copied()
+            && let Some(signature) = self.local_function_signature(declaration)
+        {
             (
                 Some(CallableAlias {
                     name,
@@ -86,7 +88,8 @@ impl Checker {
                 Some(signature),
             )
         } else {
-            let signature = self.pures.get(&name)?.clone();
+            let declaration = *self.pures.get(&name)?;
+            let signature = self.local_function_signature(declaration)?;
             (
                 Some(CallableAlias {
                     name,
@@ -124,7 +127,15 @@ impl Checker {
             );
             return Type::Invalid;
         };
-        let signature = super::decl::callable_type_from_function_signature(&named.signature);
+        let Some(signature) = super::decl::callable_type_from_function_signature(&named.signature)
+        else {
+            self.error(
+                span,
+                "a quantified function cannot be stored as a callable value",
+                DiagnosticCode::CheckCallableMismatch,
+            );
+            return Type::Invalid;
+        };
         // Effect summaries are not solved while they are being collected, and
         // assigning a callable requires no effect by itself.
         if let Some(reason) = target.mismatch(named.pure, &signature, !self.collecting_effects) {
@@ -225,14 +236,17 @@ impl Checker {
             ArenaExprKind::Ident(name) | ArenaExprKind::Field { name, .. } => name.to_string(),
             _ => "callable value".to_string(),
         };
-        let signature = FunctionSig {
-            effect_declaration: None,
-            inferred_effects: false,
-            explicit_return: true,
-            is_alias: false,
-            definition: None,
-            definition_target: None,
-            params: callable
+        let signature = FunctionSig::ground(
+            if callable.pure {
+                super::super::schemes::SchemeCallableKind::Pure
+            } else {
+                super::super::schemes::SchemeCallableKind::Proc
+            },
+            None,
+            false,
+            None,
+            None,
+            callable
                 .sig
                 .params
                 .iter()
@@ -244,10 +258,14 @@ impl Checker {
                     rest: false,
                 })
                 .collect(),
-            return_ty: return_ty.clone(),
-            return_schema: None,
-            effects: callable.sig.effects.clone(),
-        };
+            return_ty.clone(),
+            None,
+            callable.sig.effects.clone(),
+            false,
+            true,
+        )
+        .expect("a typed callable has a closed contract");
+        let contract = self.function_call_contract(&signature, span);
         if !callable.pure {
             if self.boundary.in_pure {
                 self.error(
@@ -266,7 +284,7 @@ impl Checker {
             arena,
             source,
             args,
-            &signature.params,
+            &contract.params,
             span,
             checked_argument,
         );
@@ -274,7 +292,7 @@ impl Checker {
             // A procedure may change mutable lexical captures before the next statement.
             self.invalidate_mutable_narrowings();
         }
-        self.record_callee_propagation(&signature.effects, &return_ty, span);
+        self.record_callee_propagation(&contract.effects, &return_ty, span);
         self.typed_callable_calls.insert(span, callable.clone());
         return_ty
     }

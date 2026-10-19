@@ -29,6 +29,10 @@ pub struct CompactDeclOutput {
     /// Full checker signatures are keyed by body span, whose source ID keeps
     /// independently parsed module arenas distinct when their local IDs match.
     pub function_signatures: BTreeMap<Span, CompactFunctionSig>,
+    pub(crate) function_schemes:
+        BTreeMap<QualifiedName, std::sync::Arc<crate::sema::schemes::TypeScheme>>,
+    pub(crate) scheme_bodies:
+        BTreeMap<Span, crate::sema::schemes::SchemeBodyFacts>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     pub parameter_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
@@ -95,6 +99,8 @@ pub struct CompactBodyFacts {
     /// Checker-selected user declarations for calls and function values.
     pub(crate) selected_function_calls:
         FxHashMap<ExprId, super::CheckedFunctionTarget>,
+    pub(crate) call_instantiations:
+        FxHashMap<ExprId, crate::sema::schemes::CallInstantiation>,
     pub(crate) selected_function_references:
         BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
     pub(crate) statically_resolved_calls: FxHashSet<ExprId>,
@@ -225,6 +231,11 @@ impl CompactBodyFacts {
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
                 facts.resolved_type_expressions.instantiations.insert(id, instance.clone());
+            }
+            if matches!(expression.kind, ArenaExprKind::Call { .. })
+                && let Some(instantiation) = checked.call_instantiations.get(&span)
+            {
+                facts.call_instantiations.insert(id, instantiation.clone());
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(callable) = checked.typed_callable_calls.get(&span)

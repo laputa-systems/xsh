@@ -1436,9 +1436,9 @@ impl<'a> Writer<'a> {
             output.push_str("...");
         }
         output.push_str(param.name.as_str().as_str());
-        if !param.ty_defaulted {
+        if let Some(annotation) = param.annotation {
             output.push_str(": ");
-            self.write_type(param.ty, output);
+            self.write_type(annotation, output);
         }
         if let Some(default) = param.default {
             output.push_str(" = ");

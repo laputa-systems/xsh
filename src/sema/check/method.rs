@@ -9,9 +9,28 @@ use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
 use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
+mod host_obligations;
+pub(super) use host_obligations::HostObligations;
+
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
 impl Checker {
+    pub(super) fn reject_host_inference_resolution(
+        &mut self,
+        error: crate::sema::constraints::ConstraintResolutionError,
+        span: Span,
+    ) -> Type {
+        match error {
+            crate::sema::constraints::ConstraintResolutionError::ForeignVariable => {
+                panic!("host inference belongs to another checker")
+            }
+            crate::sema::constraints::ConstraintResolutionError::TypeDepth => {
+                self.error(span, "host inference exceeds the type depth limit", DiagnosticCode::CheckLocalInference);
+                Type::Invalid
+            }
+        }
+    }
+
     pub(super) fn check_method_dispatch_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -23,6 +42,13 @@ impl Checker {
         span: Span,
         expected: Option<&Type>,
     ) -> Type {
+        let base_ty = match self.type_constraints.resolve(&base_ty) {
+            Ok(receiver) => receiver,
+            Err(error) => return self.reject_host_inference_resolution(error, span),
+        };
+        if matches!(base_ty, Type::Inference(_)) {
+            return self.check_inferred_host_method(arena, source, base, base_ty, name, args, span, expected);
+        }
         if (name == "contains" && matches!(base_ty, Type::Str | Type::Bytes | Type::List(_)))
             || (name == "has"
                 && match &base_ty {
@@ -227,6 +253,16 @@ impl Checker {
             base_ty,
             Type::ErasedRecord | Type::Record(_) | Type::Module(_)
         ) {
+            let generic_export = if name == "get" {
+                crate::sema::projection::generic_pure_export_for_get(
+                    &arena.arena,
+                    &self.prepared_constants,
+                    &base_ty,
+                    args,
+                )
+            } else {
+                None
+            };
             let projection = api_spec()
                 .method_overloads(MethodReceiver::Record, name)
                 .filter(|methods| {
@@ -260,6 +296,9 @@ impl Checker {
                 if projection.is_some() { None } else { expected },
                 self.schema_expectation_for_expr(arena, base),
             );
+            if generic_export.is_some() {
+                return self.reject_generic_pure_module_value(span);
+            }
             if let Type::Result(_, error) = &result
                 && let Some(projection) = projection
             {

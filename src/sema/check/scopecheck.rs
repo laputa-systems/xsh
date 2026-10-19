@@ -436,6 +436,10 @@ impl ScopeChecker<'_> {
     }
 
     fn stmt(&mut self, statement: StmtId) {
+        self.stmt_with_exported(statement, false);
+    }
+
+    fn stmt_with_exported(&mut self, statement: StmtId, exported: bool) {
         let previous_capture = self.assignment_capture;
         if self.assignment_raw_statements.contains(&statement) {
             self.assignment_capture = true;
@@ -468,7 +472,13 @@ impl ScopeChecker<'_> {
             }
             ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
                 self.excluded_stmt_children(statement);
-                self.target(target, node.span, BindingKind::Runtime, self.scopes.len() == 1, false);
+                self.target(
+                    target,
+                    node.span,
+                    BindingKind::Runtime,
+                    self.scopes.len() == 1,
+                    exported,
+                );
             }
             ArenaStmtKind::Guard { target, .. } => {
                 self.stmt_children(statement);
@@ -524,8 +534,8 @@ impl ScopeChecker<'_> {
                     self.facts.value_sites.insert((node.span, name), id);
                 }
             }
-            ArenaStmtKind::Export(_)
-            | ArenaStmtKind::SignalHook(_)
+            ArenaStmtKind::Export(inner) => self.stmt_with_exported(inner, true),
+            ArenaStmtKind::SignalHook(_)
             | ArenaStmtKind::Loop { .. } => self.stmt_children(statement),
             ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)

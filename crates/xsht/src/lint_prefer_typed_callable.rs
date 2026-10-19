@@ -159,10 +159,13 @@ impl CallableParameters {
             }
             let parameters = arena.params(arena.function_def(function.definition).params);
             for (index, parameter) in parameters.iter().enumerate() {
-                let Some(pure) = dynamic_callable_kind(arena, parameter.ty) else {
+                let Some(annotation) = parameter.annotation else {
                     continue;
                 };
-                if parameter.ty_defaulted || parameter.default.is_some() || parameter.rest {
+                let Some(pure) = dynamic_callable_kind(arena, annotation) else {
+                    continue;
+                };
+                if parameter.default.is_some() || parameter.rest {
                     continue;
                 }
                 let Some(spelled) = self.one_signature(
@@ -184,7 +187,7 @@ impl CallableParameters {
                     ))
                     .with_code(DiagnosticCode::LintPreferTypedCallable)
                     .with_label(Label::primary(
-                        arena.type_expr_span(parameter.ty),
+                        arena.type_expr_span(annotation),
                         format!("the callable type is `{spelled}`"),
                     ))
                     .with_note(
@@ -239,11 +242,13 @@ impl CallableParameters {
                     .params(definition.params)
                     .iter()
                     .map(|param| {
-                        (!param.ty_defaulted && !param.rest).then(|| {
-                            source
-                                .get(arena.type_expr_span(param.ty).range())
-                                .map(|ty| (param.name, ty.to_string()))
-                        })?
+                        if param.rest {
+                            return None;
+                        }
+                        let annotation = param.annotation?;
+                        source
+                            .get(arena.type_expr_span(annotation).range())
+                            .map(|ty| (param.name, ty.to_string()))
                     })
                     .collect::<Option<Vec<_>>>()?,
                 return_type: if definition.return_ty_defaulted {

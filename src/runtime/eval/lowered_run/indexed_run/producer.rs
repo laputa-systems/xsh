@@ -15,7 +15,7 @@ use super::explicit_run::{
     CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, StatementCursor,
 };
 use super::{
-    Arc, Evaluator, FunctionHeader, LoweredFunctionKey, LoweredFunctionKind, LoweredValue,
+    Arc, BindingNamespaceLease, Evaluator, FunctionHeader, LoweredFunctionKey, LoweredFunctionKind, LoweredValue,
     RuntimeError, Span, StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
 };
 use crate::runtime::value::{ScriptStreamState, ScriptStreamStep};
@@ -62,6 +62,7 @@ pub(super) struct ScriptProducer {
     /// The prepared program the body's code identity belongs to. Holding it
     /// keeps the identity valid for the producer's whole life.
     program: Arc<super::FullProgram>,
+    binding_namespace_lease: Option<BindingNamespaceLease>,
     function: LoweredFunctionKey,
     kind: LoweredFunctionKind,
     header: Arc<FunctionHeader>,
@@ -286,8 +287,11 @@ impl Evaluator {
                     schema: None,
                 })
         });
+        let binding_namespace_lease =
+            self.retain_binding_namespace(program.binding_namespace());
         let state = ScriptStreamState::new(ScriptProducer {
             program,
+            binding_namespace_lease: Some(binding_namespace_lease),
             function,
             kind,
             header,
@@ -443,6 +447,8 @@ impl Evaluator {
                 ProducerStep::Finished(result) => {
                     // `finish_call` closed the scope on the way out.
                     producer.finished = true;
+                    producer.binding_namespace_lease.take();
+                    self.prune_binding_values();
                     match result {
                         // A body that returns a stream hands the rest of its output
                         // to that stream.
@@ -487,49 +493,51 @@ impl Evaluator {
             None
         };
         producer.finished = true;
-        if !producer.started {
-            // The body never started, so it registered no defers and the call
-            // opened no scope. Drop the bound slots too: they can retain this
-            // stream, which would otherwise keep its own producer frame alive.
+        let result = if !producer.started {
             producer.frame.take();
-            return Ok(());
-        }
-        let scopes = producer
-            .frame
-            .as_ref()
-            .expect("a started producer owns its frame")
-            .open_scopes();
-        self.reattach_owned_host_scopes(&scopes);
-        producer
-            .frame
-            .as_mut()
-            .expect("a started producer owns its frame")
-            .hydrate_captures(self, &producer.header, span)?;
-        let program = Arc::clone(&producer.program);
-        {
-            let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
-            let call = CallFrame::from_state(
-                Arc::clone(&program),
-                producer.function,
-                producer.kind,
-                producer.call_span,
-                producer.definition_span,
+            Ok(())
+        } else {
+            (|| {
+                let scopes = producer
+                    .frame
+                    .as_ref()
+                    .expect("a started producer owns its frame")
+                    .open_scopes();
+                self.reattach_owned_host_scopes(&scopes);
                 producer
                     .frame
-                    .take()
-                    .expect("a started producer owns its frame"),
-            )
-            .map_err(|error| super::indexed_error(error, span))?
-            .ok_or_else(|| {
-                RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
+                    .as_mut()
+                    .expect("a started producer owns its frame")
+                    .hydrate_captures(self, &producer.header, span)?;
+                let program = Arc::clone(&producer.program);
+                let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
+                let call = CallFrame::from_state(
+                    Arc::clone(&program),
+                    producer.function,
+                    producer.kind,
+                    producer.call_span,
+                    producer.definition_span,
+                    producer
+                        .frame
+                        .take()
+                        .expect("a started producer owns its frame"),
+                )
+                .map_err(|error| super::indexed_error(error, span))?
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "unresolved-lowered-call",
+                        "a suspended producer's function",
+                    )
                     .with_span(span)
-            })?;
-            evaluator.push_producer_traceback_frame(producer);
-            let mut frames = ExplicitFrames::new(&mut evaluator, program.as_ref());
-            // The cancelled body's `finish_call` closes the scope and pops the
-            // traceback frame.
-            frames.run_cancelled_producer(call, span)
-        }
+                })?;
+                evaluator.push_producer_traceback_frame(producer);
+                let mut frames = ExplicitFrames::new(&mut evaluator, program.as_ref());
+                frames.run_cancelled_producer(call, span)
+            })()
+        };
+        producer.binding_namespace_lease.take();
+        self.prune_binding_values();
+        result
     }
 
     fn push_producer_traceback_frame(&mut self, producer: &ScriptProducer) {

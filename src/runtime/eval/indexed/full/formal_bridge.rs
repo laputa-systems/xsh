@@ -101,6 +101,7 @@ struct BinderProjection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LiteralTag {
     Int,
+    UInt,
     Float,
     Duration,
 }
@@ -109,6 +110,7 @@ impl LiteralTag {
     fn from_full_tag(tag: FullTag) -> Option<Self> {
         match tag {
             FullTag::ExprInt => Some(Self::Int),
+            FullTag::ExprUInt => Some(Self::UInt),
             FullTag::ExprFloat => Some(Self::Float),
             FullTag::ExprDuration => Some(Self::Duration),
             _ => None,
@@ -118,6 +120,7 @@ impl LiteralTag {
     fn from_name(name: &str) -> Result<Self, String> {
         match name {
             "ExprInt" => Ok(Self::Int),
+            "ExprUInt" => Ok(Self::UInt),
             "ExprFloat" => Ok(Self::Float),
             "ExprDuration" => Ok(Self::Duration),
             _ => Err(format!("unknown raw-IR literal tag {name:?}")),
@@ -127,6 +130,7 @@ impl LiteralTag {
     fn name(self) -> &'static str {
         match self {
             Self::Int => "ExprInt",
+            Self::UInt => "ExprUInt",
             Self::Float => "ExprFloat",
             Self::Duration => "ExprDuration",
         }
@@ -135,6 +139,7 @@ impl LiteralTag {
     fn ordinal(self) -> u32 {
         match self {
             Self::Int => FullTag::ExprInt as u32,
+            Self::UInt => FullTag::ExprUInt as u32,
             Self::Float => FullTag::ExprFloat as u32,
             Self::Duration => FullTag::ExprDuration as u32,
         }

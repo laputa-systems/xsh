@@ -1325,7 +1325,9 @@ impl<'a> Linter<'a> {
                 || params.iter().any(|param| {
                     param.rest
                         || param.default.is_some()
-                        || !self.arena.type_expr_named(param.ty, "TestContext")
+                        || !param
+                            .annotation
+                            .is_some_and(|ty| self.arena.type_expr_named(ty, "TestContext"))
                 })
             {
                 continue;

@@ -60,9 +60,12 @@ fn signature_cli_migration_inner(
         let [argv] = arena.params(function.params) else {
             continue;
         };
+        let Some(argv_type) = argv.annotation else {
+            continue;
+        };
         if function.name != "main"
             || !argv.rest
-            || Type::from_arena(arena, argv.ty) != Type::List(Box::new(Type::Str))
+            || Type::from_arena(arena, argv_type) != Type::List(Box::new(Type::Str))
         {
             continue;
         }

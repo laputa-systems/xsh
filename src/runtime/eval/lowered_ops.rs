@@ -994,6 +994,7 @@ pub(super) fn lowered_return_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
+        (LoweredReturnKind::Erased, value) => Ok(value),
         (LoweredReturnKind::OptionalResult, value) => Ok(value),
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
             let mut error = super::runtime_error_from_value(*error, span);
@@ -1270,6 +1271,73 @@ pub(super) fn push_lowered_display(
     span: Span,
 ) -> Result<(), RuntimeError> {
     ValueView::Lowered(value).push_display(output, span)
+}
+
+pub(super) fn lowered_registered_method_value(
+    plan: &crate::sema::schemes::RegisteredCallPlan,
+    receiver: LoweredValue,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    use crate::modules::MethodReceiver as Domain;
+    let name = plan.name.as_ref();
+    match plan.receiver.expect("verified registered method has a receiver domain") {
+        Domain::Str => lowered_str_method_value(&receiver, name, args, span),
+        Domain::Bytes => lowered_bytes_method_value(&receiver, name, args, span),
+        Domain::Int => {
+            let LoweredValue::Int(value) = receiver else { unreachable!("verified integer method receiver") };
+            lowered_int_method_value(value, name, args, span)
+        }
+        Domain::Float => {
+            let LoweredValue::Float(value) = receiver else { unreachable!("verified float method receiver") };
+            lowered_float_method_value(value, name, args, span)
+        }
+        Domain::Path | Domain::RelPath => {
+            let LoweredValue::Path(value) = receiver else { unreachable!("verified path method receiver") };
+            lowered_path_method_value(value, name, args, span)
+        }
+        Domain::Digest => {
+            let LoweredValue::Digest(value) = receiver else { unreachable!("verified digest method receiver") };
+            lowered_digest_method_value(value, name, args, span)
+        }
+        Domain::Regex => {
+            let LoweredValue::Regex(value) = receiver else { unreachable!("verified regex method receiver") };
+            lowered_regex_method_value(*value, name, args, span)
+        }
+        Domain::Status => {
+            let LoweredValue::Status(value) = receiver else { unreachable!("verified status method receiver") };
+            lowered_status_method_value(*value, name, args, span)
+        }
+        Domain::List | Domain::NonEmpty => {
+            let items = match receiver {
+                LoweredValue::List(items) => items,
+                LoweredValue::SharedList(items) => {
+                    if let Some(value) = lowered_list_method_ref(&items, name, args.clone(), span)? { return Ok(value); }
+                    take_shared(items)
+                }
+                _ => unreachable!("verified list method receiver"),
+            };
+            lowered_list_method_value(items, name, args, span)
+        }
+        Domain::Map => {
+            let LoweredValue::Map(map) = receiver else { unreachable!("verified map method receiver") };
+            if let Some(value) = lowered_map_method_ref(&map, name, &args, span)? { return Ok(value); }
+            lowered_map_method_value(take_shared(map), name, args, span)
+        }
+        Domain::Set => {
+            let LoweredValue::Set(items) = receiver else { unreachable!("verified set method receiver") };
+            super::set::lowered_set_method_value(items, name, args, span)
+        }
+        Domain::Result => lowered_result_method_value(receiver, name, args, span),
+        Domain::Record => match receiver {
+            LoweredValue::Record(record) | LoweredValue::Module(record) => lowered_record_method_value(&record, name, args, span),
+            LoweredValue::RecordVec(record) => lowered_record_vec_method_value(&record, name, args, span),
+            LoweredValue::Stats { blanks, code, comments } => lowered_inline_stats_method_value(blanks, code, comments, name, args, span),
+            LoweredValue::StatsBlob(stats) => lowered_stats_method_value(&stats, name, args, span),
+            _ => unreachable!("verified record method receiver"),
+        },
+        _ => unreachable!("verified registered method has executable pure receiver domain"),
+    }
 }
 
 pub(super) fn lowered_method_value(

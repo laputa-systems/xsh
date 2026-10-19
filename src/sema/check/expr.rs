@@ -5,6 +5,7 @@ use super::{
     api_spec, collection_item_ty,
 };
 use crate::diagnostic::{DiagnosticCode, FixHint};
+use crate::sema::types::merge_list_literal_item_ty;
 use crate::syntax::arena::{
     ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange,
     ArenaRecordFieldKind, ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId,
@@ -29,22 +30,6 @@ pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun
         ArenaExprOrRun::Expr(id) => arena.arena.expr(id).span,
         ArenaExprOrRun::Run(run_id) => arena.arena.span(arena.arena.run_form(run_id).span),
     }
-}
-
-pub(super) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
-    if next.matches_expected(current) {
-        return Some(current.clone());
-    }
-    if current.matches_expected(next) {
-        return Some(next.clone());
-    }
-    if matches!(
-        (current, next),
-        (Type::Str, Type::Path) | (Type::Path, Type::Str)
-    ) {
-        return Some(Type::Any);
-    }
-    None
 }
 
 #[allow(dead_code)]
@@ -114,13 +99,14 @@ impl Checker {
                 Some(result)
             }
             ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
-                ArenaExprKind::Ident(name) => self
-                    .procs
-                    .get(&name)
-                    .or_else(|| self.pures.get(&name))
-                    .or_else(|| self.streams.get(&name))?
-                    .return_schema
-                    .clone(),
+                ArenaExprKind::Ident(name) => {
+                    let declaration = self
+                        .procs
+                        .get(&name)
+                        .or_else(|| self.pures.get(&name))
+                        .or_else(|| self.streams.get(&name))?;
+                    self.local_function_return_schema(*declaration)
+                }
                 ArenaExprKind::Field { base, name } => {
                     let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
                         return None;
@@ -130,8 +116,9 @@ impl Checker {
                         .get(&qualified)
                         .or_else(|| self.qualified_pures.get(&qualified))
                         .or_else(|| self.qualified_streams.get(&qualified))?
-                        .return_schema
-                        .clone()
+                        .scheme()
+                        .return_schema()
+                        .cloned()
                 }
                 ArenaExprKind::Null
                 | ArenaExprKind::Bool(_)
@@ -318,12 +305,14 @@ impl Checker {
         {
             return Type::Tag(info.type_name);
         }
-        if let Some(signature) = self.procs.get(&name).cloned() {
-            self.record_selected_function_call(span, &signature);
+        if let Some(declaration) = self.procs.get(&name).copied() {
+            let target = self.local_function_target(declaration);
+            self.record_function_call_target(span, target);
             return Type::Proc;
         }
-        if let Some(signature) = self.pures.get(&name).cloned() {
-            self.record_selected_function_call(span, &signature);
+        if let Some(declaration) = self.pures.get(&name).copied() {
+            let target = self.local_function_target(declaration);
+            self.record_function_call_target(span, target);
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
@@ -487,8 +476,25 @@ impl Checker {
         value: ArenaExprOrRun,
         expected: Option<&Type>,
     ) -> Type {
+        self.check_expr_or_run_with_expectation_arena(
+            arena,
+            source,
+            value,
+            expected.map(super::types::TypeExpectation::Required),
+        )
+    }
+
+    pub(super) fn check_expr_or_run_with_expectation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        value: ArenaExprOrRun,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+    ) -> Type {
         match value {
-            ArenaExprOrRun::Expr(id) => self.check_expr_arena(arena, source, id, expected),
+            ArenaExprOrRun::Expr(id) => {
+                self.check_expr_with_expectation_arena(arena, source, id, expectation)
+            }
             ArenaExprOrRun::Run(run_id) => {
                 let ty = self.check_run_expr_arena(arena, source, run_id);
                 let span = arena.arena.span(arena.arena.run_form(run_id).span);
@@ -506,8 +512,25 @@ impl Checker {
         expected: Option<&Type>,
         schema: Option<crate::sema::constants::SchemaExpectation>,
     ) -> Type {
+        self.check_expr_with_expectation_and_schema_arena(
+            arena,
+            source,
+            value,
+            expected.map(super::types::TypeExpectation::Required),
+            schema,
+        )
+    }
+
+    pub(super) fn check_expr_with_expectation_and_schema_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        value: ArenaExprOrRun,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+        schema: Option<crate::sema::constants::SchemaExpectation>,
+    ) -> Type {
         let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
-        let actual = self.check_expr_or_run_arena(arena, source, value, expected);
+        let actual = self.check_expr_or_run_with_expectation_arena(arena, source, value, expectation);
         self.boundary.expected_schema = previous;
         actual
     }
@@ -519,6 +542,22 @@ impl Checker {
         id: ExprId,
         expected: Option<&Type>,
     ) -> Type {
+        self.check_expr_with_expectation_arena(
+            arena,
+            source,
+            id,
+            expected.map(super::types::TypeExpectation::Required),
+        )
+    }
+
+    pub(super) fn check_expr_with_expectation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        id: ExprId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+    ) -> Type {
+        let expected = expectation.map(super::types::TypeExpectation::context);
         let previous = self.boundary.expected_schema.clone();
         if expected.is_none() {
             self.boundary.expected_schema = None;
@@ -526,8 +565,12 @@ impl Checker {
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
         let control = std::mem::take(&mut self.boundary.control_condition);
         let outer_control = std::mem::replace(&mut self.boundary.in_control_position, control);
-        let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
-        let actual = self.name_typed_callable(arena, id, actual, resolved.as_ref().or(expected));
+        let expected = resolved.as_ref().or(expected);
+        let expectation = expectation.map(|expectation| {
+            expectation.with_context(expected.expect("an expectation has a context type"))
+        });
+        let actual = self.check_expr_arena_inner(arena, source, id, expectation);
+        let actual = self.name_typed_callable(arena, id, actual, expected);
         self.boundary.in_control_position = outer_control;
         let actual = self.propagate_condition_arena(arena, id, control, actual);
         self.boundary.expected_schema = previous;
@@ -615,8 +658,9 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         id: ExprId,
-        expected: Option<&Type>,
+        expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
+        let expected = expectation.map(super::types::TypeExpectation::context);
         if let Some(record) = self.argument_projection_sources.remove(&id) {
             let actual = if let Some((expected, schema)) =
                 self.argument_projection_contexts.remove(&record)
@@ -806,7 +850,12 @@ impl Checker {
                 );
                 self.expect_type(&Type::Str, &ty, arena.arena.expr(*message).span);
                 self.push_scope();
-                let ty = self.check_tail_block_arena(arena, source, *block, expected);
+                let ty = self.check_tail_block_with_expectation_arena(
+                    arena,
+                    source,
+                    *block,
+                    expectation,
+                );
                 self.pop_scope();
                 ty
             }
@@ -1055,14 +1104,19 @@ impl Checker {
                     );
                 }
                 self.push_scope();
-                let ty = self.check_tail_block_arena(arena, source, *block, expected);
+                let ty = self.check_tail_block_with_expectation_arena(
+                    arena,
+                    source,
+                    *block,
+                    expectation,
+                );
                 self.pop_scope();
                 ty
             }
             ArenaExprKind::If {
                 branches,
                 else_value,
-            } => self.check_if_expr_arena(arena, source, *branches, *else_value, expected),
+            } => self.check_if_expr_arena(arena, source, *branches, *else_value, expectation),
             ArenaExprKind::Unary { op, expr: inner } => {
                 let operand = self.check_unary_arena(arena, source, *op, *inner);
                 // `-5` where a bounded integer is wanted is a literal with
@@ -1963,15 +2017,13 @@ impl Checker {
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     has_spread = true;
                     last_span = arena.arena.span(*span);
-                    // A spread copies fields, so a validated record spreads
-                    // as the record it is and the result is structural.
                     let ty = self
                         .check_expr_arena(arena, source, *expr, None)
                         .into_unvalidated();
                     match ty {
                         Type::Record(spread_fields) => {
                             for (k, v) in spread_fields.iter() {
-                                record.entry(*k).or_insert_with(|| v.clone());
+                                record.insert(*k, v.clone());
                             }
                         }
                         Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
@@ -2082,11 +2134,9 @@ impl Checker {
         source: &str,
         branches: ArenaRange,
         else_value: ExprId,
-        expected: Option<&Type>,
+        expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
         let mut inferred = None;
-        // What every earlier condition proved by failing holds in each later
-        // condition and branch, and in the final `else`.
         let mut previous_failure = Vec::new();
         for branch in arena.arena.if_expr_branches(branches) {
             self.push_scope();
@@ -2100,17 +2150,36 @@ impl Checker {
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
-            let infer_branches = self.inferred_returns.is_some() && expected.is_none();
-            let branch_expected = if infer_branches {
+            let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
+            let branch_expectation = if infer_branches {
                 None
             } else {
-                expected.or(inferred.as_ref())
+                super::types::next_branch_expectation(expectation, inferred.as_ref())
             };
-            let actual = self.check_expr_arena(arena, source, branch.value, branch_expected);
-            if let Some(branch_expected) = branch_expected {
-                let value_span = arena.arena.expr(branch.value).span;
-                self.expect_type(branch_expected, &actual, value_span);
-            }
+            let diagnostics_before = self.diagnostics.len();
+            let actual = self.check_expr_with_expectation_arena(
+                arena,
+                source,
+                branch.value,
+                branch_expectation,
+            );
+            let contextual_error = self.diagnostics.len() != diagnostics_before;
+            let value_span = arena.arena.expr(branch.value).span;
+            let merged = if actual != Type::Unknown && !contextual_error && !infer_branches {
+                inferred.as_ref().and_then(|previous| {
+                    super::types::merge_branch_candidate(
+                        branch_expectation,
+                        previous,
+                        &actual,
+                    )
+                })
+            } else {
+                None
+            };
+            let candidate_seed = inferred.is_none()
+                && !contextual_error
+                && branch_expectation
+                    .is_some_and(|expectation| expectation.accepts_optional_branch(&actual));
             if actual != Type::Unknown {
                 inferred = Some(if infer_branches {
                     inferred.map_or(actual.clone(), |previous| {
@@ -2120,9 +2189,18 @@ impl Checker {
                             arena.arena.expr(branch.value).span,
                         )
                     })
+                } else if let Some(merged) = merged {
+                    merged
+                } else if candidate_seed {
+                    actual
                 } else {
+                    if let Some(branch_expectation) = branch_expectation {
+                        self.expect_type(branch_expectation.context(), &actual, value_span);
+                    }
                     inferred.unwrap_or(actual)
                 });
+            } else if let Some(branch_expectation) = branch_expectation {
+                self.expect_type(branch_expectation.context(), &actual, value_span);
             }
             self.pop_scope();
             previous_failure.extend(narrowings.when_false);
@@ -2130,24 +2208,51 @@ impl Checker {
         }
         self.push_scope();
         self.apply_narrowings(&previous_failure);
-        let infer_branches = self.inferred_returns.is_some() && expected.is_none();
-        let else_expected = if infer_branches {
+        let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
+        let else_expectation = if infer_branches {
             None
         } else {
-            expected.or(inferred.as_ref())
+            super::types::next_branch_expectation(expectation, inferred.as_ref())
         };
-        let else_ty = self.check_expr_arena(arena, source, else_value, else_expected);
-        if let Some(else_expected) = else_expected {
-            let else_span = arena.arena.expr(else_value).span;
-            self.expect_type(else_expected, &else_ty, else_span);
-        }
+        let diagnostics_before = self.diagnostics.len();
+        let else_ty = self.check_expr_with_expectation_arena(
+            arena,
+            source,
+            else_value,
+            else_expectation,
+        );
+        let contextual_error = self.diagnostics.len() != diagnostics_before;
+        let else_span = arena.arena.expr(else_value).span;
         self.pop_scope();
+        let merged = if else_ty != Type::Unknown && !contextual_error && !infer_branches {
+            inferred.as_ref().and_then(|previous| {
+                super::types::merge_branch_candidate(else_expectation, previous, &else_ty)
+            })
+        } else {
+            None
+        };
+        let candidate_seed = inferred.is_none()
+            && !contextual_error
+            && else_expectation
+                .is_some_and(|expectation| expectation.accepts_optional_branch(&else_ty));
         if infer_branches {
             inferred.map_or(else_ty.clone(), |previous| {
                 self.unify_inferred_returns(previous, else_ty, arena.arena.expr(else_value).span)
             })
+        } else if let Some(merged) = merged {
+            merged
+        } else if candidate_seed {
+            else_ty
         } else {
-            expected.cloned().or(inferred).unwrap_or(else_ty)
+            if let Some(else_expectation) = else_expectation {
+                self.expect_type(else_expectation.context(), &else_ty, else_span);
+            }
+            match expectation {
+                Some(super::types::TypeExpectation::Required(expected)) => expected.clone(),
+                Some(super::types::TypeExpectation::BranchCandidate(_)) | None => {
+                    inferred.unwrap_or(else_ty)
+                }
+            }
         }
     }
 
@@ -3376,10 +3481,39 @@ impl Checker {
             return Type::Unknown;
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        let base_ty = if matches!(base_ty, Type::Inference(_)) {
+            match self.type_constraints.resolve(&base_ty) {
+                Ok(resolved) => resolved,
+                Err(crate::sema::constraints::ConstraintResolutionError::TypeDepth) => {
+                    self.expect_type(&base_ty, &base_ty, span);
+                    return Type::Invalid;
+                }
+                Err(crate::sema::constraints::ConstraintResolutionError::ForeignVariable) => {
+                    panic!("field receiver inference belongs to another checker")
+                }
+            }
+        } else {
+            base_ty
+        };
         if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
         }
-        // A field is read from the value, which is a value of the base.
+        if matches!(base_ty, Type::Inference(_)) {
+            return match self
+                .type_constraints
+                .project_record_field(&base_ty, name, 1, span)
+            {
+                Ok(field_type) => field_type,
+                Err(conflict) => {
+                    self.expect_type(
+                        &conflict.expected,
+                        &conflict.actual,
+                        conflict.contribution,
+                    );
+                    Type::Unknown
+                }
+            };
+        }
         match base_ty.into_unvalidated() {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
@@ -3390,7 +3524,7 @@ impl Checker {
                 }
             },
             Type::Module(exports) => match exports.get(&name) {
-                Some(export) => export.field_type(),
+                Some(export) => self.module_export_value_type(export, span),
                 None => {
                     self.error(
                         span,
@@ -3428,6 +3562,26 @@ impl Checker {
                     span,
                     format!("use `?.{name}` or test for null before reading a {inner} field"),
                 )),
+        );
+        Type::Unknown
+    }
+
+    pub(super) fn module_export_value_type(
+        &mut self,
+        export: &crate::sema::types::ModuleExportType,
+        span: Span,
+    ) -> Type {
+        match export.field_value_type() {
+            Some(ty) => ty,
+            None => self.reject_generic_pure_module_value(span),
+        }
+    }
+
+    pub(super) fn reject_generic_pure_module_value(&mut self, span: Span) -> Type {
+        self.error(
+            span,
+            "generic pure module exports must be called directly",
+            DiagnosticCode::CheckModuleMember,
         );
         Type::Unknown
     }
@@ -3577,7 +3731,7 @@ impl Checker {
                 self.checked_fixed_field(receiver, name, span)
             }
             Type::Module(exports) => match exports.get(&name) {
-                Some(export) => export.field_type(),
+                Some(export) => self.module_export_value_type(export, span),
                 None => {
                     self.error(
                         span,
@@ -3765,7 +3919,20 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&Type::Str, &index_ty, index_span);
-                if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(
+                let generic_export = crate::sema::projection::generic_pure_export_for_key(
+                    &arena.arena,
+                    &self.prepared_constants,
+                    &receiver,
+                    index,
+                );
+                if generic_export.is_some() {
+                    self.error(
+                        span,
+                        "generic pure module exports must be called directly",
+                        DiagnosticCode::CheckModuleMember,
+                    );
+                    Type::Unknown
+                } else if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(
                     &arena.arena,
                     &self.prepared_constants,
                     base,
@@ -4121,6 +4288,119 @@ mod arena_tests {
         assert_arena_matches_raised("let x = [1, 2, 3][0:1]");
         assert_arena_matches_raised("let x = env.PATH");
         assert_arena_matches_raised("let x = env.Str.HOME");
+    }
+
+    #[test]
+    fn inferred_receiver_field_projection_uses_an_open_row() {
+        use crate::sema::types::Type;
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+
+        let source = "pure select(value) { value.name }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = parsed.arena;
+        let (field, base, name) = program
+            .arena
+            .source_rows()
+            .expr_ids(SourceId::new(0))
+            .find_map(|id| match program.arena.expr(id).kind {
+                crate::syntax::arena::ArenaExprKind::Field { base, name } => {
+                    Some((id, base, name))
+                }
+                _ => None,
+            })
+            .expect("field projection in function body");
+        let span = program.arena.expr(base).span;
+
+        program.symbol_owner().with_current(|| {
+            let resolved_bindings = std::sync::Arc::new(ResolvedBindings::collect(&program));
+            let binding_id = resolved_bindings
+                .expressions
+                .get(&base)
+                .copied()
+                .expect("function parameter binding");
+            let binding_name = crate::symbol::Name::intern("value");
+            let mut checker = Checker::new(CheckOptions::default());
+            checker.resolved_bindings = std::sync::Arc::clone(&resolved_bindings);
+            let receiver = checker.type_constraints.fresh_at_level(span, 1);
+            let mut binding = super::super::Binding::new(receiver.clone(), false);
+            binding.id = Some(binding_id);
+            checker.scopes[0].insert(binding_name, binding);
+
+            let projected = checker.check_expr_arena(&program, source, field, None);
+            assert!(matches!(projected, Type::Inference(_)), "{projected}");
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+
+            let actual = Type::Record(Arc::new(BTreeMap::from([
+                (name, Type::Int),
+                (crate::symbol::Name::intern("extra"), Type::Str),
+            ])));
+            checker
+                .type_constraints
+                .constrain(&receiver, &actual, span)
+                .unwrap();
+            assert_eq!(
+                checker.type_constraints.resolve(&projected).unwrap(),
+                Type::Int
+            );
+
+            let missing = Type::Record(Arc::new(BTreeMap::from([(
+                crate::symbol::Name::intern("extra"),
+                Type::Str,
+            )])));
+            checker.expect_type(&receiver, &missing, span);
+            assert_eq!(
+                checker.diagnostics.last().and_then(|diagnostic| diagnostic.code),
+                Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+            );
+            assert!(checker.diagnostics.last().is_some_and(|diagnostic| {
+                diagnostic.labels.iter().any(|label| {
+                    label.style == crate::diagnostic::LabelStyle::Primary
+                        && label.message.as_deref().is_some_and(|message| {
+                            message.contains("expected") && message.contains("found")
+                        })
+                })
+            }));
+
+            let mut dynamic_checker = Checker::new(CheckOptions::default());
+            dynamic_checker.resolved_bindings = std::sync::Arc::clone(&resolved_bindings);
+            let dynamic_receiver = dynamic_checker.type_constraints.fresh_at_level(span, 1);
+            dynamic_checker
+                .type_constraints
+                .constrain_annotation(&dynamic_receiver, &Type::Any, span)
+                .unwrap();
+            let mut dynamic_binding =
+                super::super::Binding::new(dynamic_receiver, false);
+            dynamic_binding.id = Some(binding_id);
+            dynamic_checker
+                .scopes[0]
+                .insert(binding_name, dynamic_binding);
+            assert_eq!(
+                dynamic_checker.check_expr_arena(&program, source, field, None),
+                Type::Unknown
+            );
+            assert!(dynamic_checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckDynamicBoundary)
+            }));
+        });
+    }
+
+    #[test]
+    fn pure_name_of_projects_different_record_shapes() {
+        let source = r#"
+pure name_of(value) { value.name }
+let package_name: Str = name_of({name: "package", version: "1.0"})
+let enabled: Bool = name_of({name: true, version: 2})
+"#;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = parsed.arena;
+
+        program.symbol_owner().with_current(|| {
+            let checked = Checker::check_arena(&program, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        });
     }
 
     #[test]

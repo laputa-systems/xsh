@@ -1,7 +1,7 @@
 use super::{
     Arc, ArenaStmtKind, BindingId, BuildExprId, BuildExprRow, CompactFunctionIndex,
     CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
-    SlotScope, Span, StmtId, Type, lower_command_word_reference, lower_literal_constant,
+    SlotScope, Span, StmtId, Type, lower_command_word_reference, lower_prepared_literal,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
@@ -185,11 +185,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = if let Some(value) = cached {
                     value
                 } else {
-                    let value = lower_literal_constant(prepared.values.get(initializer)?, Some(&self.declarations.wire_enums))?;
+                    let value = lower_prepared_literal(prepared.values.get(initializer)?, Some(&self.declarations.wire_enums))?;
                     self.scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
                     value
                 };
-                return Some(push_build_row!(self, expr, BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value))));
+                return self.lower_prepared_constant(value, prepared.types.get(initializer));
             }
             return Some(push_build_row!(self, expr, BuildExprRow::Param(slots.resolve_binding(binding)?)));
         }
@@ -339,6 +339,7 @@ mod tests {
             program: &parsed.arena,
             scope: Rc::new(super::super::CompactRootScope::whole_program(&parsed.arena)),
             declarations,
+            qualified_schemes: &declarations.function_schemes,
             bodies: &declarations.bodies,
             source,
             sources: Some(sources),

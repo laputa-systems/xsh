@@ -714,9 +714,73 @@ impl Checker {
         name: &str,
         span: Span,
     ) {
+        let unknown_chain = sig
+            .effect_declaration
+            .and_then(|declaration| self.effect_summaries.get(&declaration))
+            .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
+        self.check_resolved_callable_effect_contract(
+            sig.effect_declaration,
+            sig.scheme.effects().map(<[_]>::to_vec),
+            sig.scheme.inferred_effects(),
+            unknown_chain,
+            name,
+            span,
+        );
+    }
+
+    pub(super) fn check_resolved_declaration_effects(
+        &mut self,
+        declaration: Option<EffectDeclarationId>,
+        name: &str,
+        span: Span,
+    ) {
+        let (effects, inferred) = declaration
+            .and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node)))
+            .map_or((None, false), |(id, node)| {
+                let effects = node.declared.clone().or_else(|| {
+                    node.inferred
+                        .then(|| self.effect_summaries.get(&id).and_then(EffectSummary::effects))
+                        .flatten()
+                });
+                (effects, node.inferred)
+            });
+        let unknown_chain = declaration
+            .and_then(|id| self.effect_summaries.get(&id))
+            .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
+        self.check_resolved_callable_effect_contract(
+            declaration,
+            effects,
+            inferred,
+            unknown_chain,
+            name,
+            span,
+        );
+    }
+
+    pub(super) fn declaration_effects(
+        &self,
+        declaration: Option<EffectDeclarationId>,
+    ) -> Option<Vec<Effect>> {
+        let (id, node) = declaration.and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node)))?;
+        node.declared.clone().or_else(|| {
+            node.inferred
+                .then(|| self.effect_summaries.get(&id).and_then(EffectSummary::effects))
+                .flatten()
+        })
+    }
+
+    fn check_resolved_callable_effect_contract(
+        &mut self,
+        declaration: Option<EffectDeclarationId>,
+        effects: Option<Vec<Effect>>,
+        inferred: bool,
+        unknown_chain: Vec<String>,
+        name: &str,
+        span: Span,
+    ) {
         if self.record_effects || self.collecting_effects {
-            if let Some(declaration) = sig.effect_declaration
-                && (sig.inferred_effects || sig.effects.is_some())
+            if let Some(declaration) = declaration
+                && (inferred || effects.is_some())
                 && self.effect_graph.contains(declaration)
             {
                 self.effect_graph.call(
@@ -725,18 +789,14 @@ impl Checker {
                     self.boundary.retry_attempt_depth > 0,
                 );
             } else {
-                self.record_effect_contract(&sig.effects, name);
+                self.record_effect_contract(&effects, name);
             }
         }
         if self.defer_effect_diagnostics {
-            let unknown_chain = sig
-                .effect_declaration
-                .and_then(|declaration| self.effect_summaries.get(&declaration))
-                .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
             self.defer_callable_effects(
-                sig.effect_declaration,
-                sig.effects.clone(),
-                sig.inferred_effects,
+                declaration,
+                effects.clone(),
+                inferred,
                 unknown_chain,
                 name,
                 span,
@@ -744,32 +804,22 @@ impl Checker {
             return;
         }
         if let Some(caller) = self.boundary.current_effects.clone() {
-            if sig.effects.is_none() && sig.inferred_effects {
+            if effects.is_none() && inferred {
                 let mut chain = vec![name.to_string()];
-                if let Some(summary) = sig
-                    .effect_declaration
-                    .and_then(|declaration| self.effect_summaries.get(&declaration))
-                {
-                    chain.extend(summary.unknown_chain.clone());
-                }
+                chain.extend(unknown_chain.iter().cloned());
                 self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
             } else {
-                self.check_callee_effects(&caller, &sig.effects, name, span);
+                self.check_callee_effects(&caller, &effects, name, span);
             }
         }
-        let unknown_chain = if sig.effects.is_none() && sig.inferred_effects {
+        let unknown_chain = if effects.is_none() && inferred {
             let mut chain = vec![name.to_string()];
-            if let Some(summary) = sig
-                .effect_declaration
-                .and_then(|declaration| self.effect_summaries.get(&declaration))
-            {
-                chain.extend(summary.unknown_chain.clone());
-            }
+            chain.extend(unknown_chain.iter().cloned());
             chain
         } else {
             Vec::new()
         };
-        self.check_callee_not_excluded(&sig.effects, &unknown_chain, name, span);
+        self.check_callee_not_excluded(&effects, &unknown_chain, name, span);
     }
 
     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {

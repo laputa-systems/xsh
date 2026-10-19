@@ -765,7 +765,9 @@ fn native_test_signature_uses_ctx(
         [param]
             if !param.rest
                 && param.default.is_none()
-                && program.arena.type_expr_named(param.ty, "TestContext") =>
+                && param
+                    .annotation
+                    .is_some_and(|ty| program.arena.type_expr_named(ty, "TestContext")) =>
         {
             Ok(true)
         }

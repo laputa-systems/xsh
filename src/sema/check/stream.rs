@@ -1276,18 +1276,20 @@ mod static_namespace_identity_tests {
             .static_namespace = true;
         Arc::make_mut(&mut checker.qualified_pures).insert(
             QualifiedName::new(namespace, Name::intern("stage")),
-            super::super::FunctionSig {
-                effect_declaration: None,
-                inferred_effects: false,
-                explicit_return: true,
-                is_alias: false,
-                definition: None,
-                definition_target: None,
-                params: Vec::new(),
-                return_ty: Type::Int,
-                return_schema: None,
-                effects: Some(Vec::new()),
-            },
+            super::super::FunctionSig::ground(
+                crate::sema::schemes::SchemeCallableKind::Pure,
+                None,
+                false,
+                None,
+                None,
+                Vec::new(),
+                Type::Int,
+                None,
+                Some(Vec::new()),
+                false,
+                true,
+            )
+            .expect("a static stage has a ground signature"),
         );
     }
 

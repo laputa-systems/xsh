@@ -3,10 +3,46 @@ use super::{
     CallArgument, CallableParamType, CompactLowerConstructProbe, DurationValue, ExprId, FxHashMap,
     LoweredArgumentValues, LoweredCallArg, LoweredFunctionKey, LoweredRecordEntry, Name,
     PathValue, SlotScope, Span, Type, api_spec,
-    compact_checked_type_is_concrete, compact_error_family_info, lower_literal_constant,
+    compact_checked_type_is_concrete, compact_error_family_info,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn validate_generic_rest_splices(
+        &mut self,
+        call: ExprId,
+        args: &[CallArgument],
+        rest_slot: usize,
+    ) -> Option<()> {
+        if !args.iter().any(|argument| argument.splice) {
+            return Some(());
+        }
+        let argument_slots = if args.iter().any(|argument| argument.name.is_some()) {
+            let Some(argument_slots) = self.call_argument_slots(call) else {
+                let span = args
+                    .iter()
+                    .find(|argument| argument.splice)
+                    .map_or(self.program.arena.expr(call).span, |argument| argument.span);
+                self.last_blocker_detail = Some((
+                    span,
+                    "generic rest call has no checked argument slots".to_string(),
+                ));
+                return None;
+            };
+            Some(argument_slots)
+        } else {
+            None
+        };
+        let invalid = first_invalid_generic_rest_splice(args, rest_slot, argument_slots);
+        if let Some(index) = invalid {
+            self.last_blocker_detail = Some((
+                args[index].span,
+                "generic positional splice must target the final rest parameter".to_string(),
+            ));
+            return None;
+        }
+        Some(())
+    }
+
     pub(super) fn source_call_arguments(&self, args: &[ArenaCallArg]) -> Option<Vec<CallArgument>> {
         args.iter()
             .map(|arg| {
@@ -465,13 +501,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         {
             return self.lower_call_args(args, slots, current_function, item_slot);
         }
-        let (params, argument_slots) = (params?, argument_slots?);
-        let mut by_slot = vec![Vec::new(); argument_slots.iter().copied().max()? + 1];
+        let argument_slots = argument_slots?;
+        if argument_slots.len() != args.len()
+            || params.is_some_and(|params| {
+                argument_slots.iter().any(|&slot| slot >= params.len())
+            })
+        {
+            return None;
+        }
+        let max_slot = argument_slots.iter().copied().max()?;
+        if params.is_none() && max_slot >= args.len() {
+            return None;
+        }
+        let slot_count = max_slot.checked_add(1)?;
+        let mut by_slot = vec![Vec::new(); slot_count];
         for (arg, &slot) in args.iter().zip(argument_slots) { by_slot[slot].push(arg); }
         let mut values = Vec::new();
         for (slot, entries) in by_slot.into_iter().enumerate() {
             if entries.is_empty() {
-                if params[slot].rest {
+                let signature_parameter = params?.get(slot)?;
+                if signature_parameter.rest {
                     continue;
                 }
                 let definitions = self.function_index();
@@ -494,7 +543,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     default,
                     &FxHashMap::default(),
                 ) {
-                    self.lower_record_default(&constant.in_type(&params[slot].ty))?
+                    self.lower_record_default(&constant.in_type(&signature_parameter.ty))?
                 } else {
                     self.lower_expr(default, slots, current_function, item_slot)?
                 };
@@ -519,9 +568,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         use crate::sema::constants::LiteralConstant as C;
         let row = match value {
             C::Regex(_) | C::Tag { .. } => {
-                BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(
-                    lower_literal_constant(value, Some(&self.declarations.wire_enums))?,
-                ))
+                BuildExprRow::PreparedConstant(super::lower_prepared_literal(value, Some(&self.declarations.wire_enums))?)
             }
             C::Null => BuildExprRow::Null,
             C::Bool(value) => BuildExprRow::Bool(*value),
@@ -534,9 +581,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
-            C::Map(_) | C::Set(_) => BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(
-                lower_literal_constant(value, Some(&self.declarations.wire_enums))?,
-            )),
+            C::Map(_) | C::Set(_) => BuildExprRow::PreparedConstant(super::lower_prepared_literal(value, Some(&self.declarations.wire_enums))?),
             C::List(values) => BuildExprRow::List(
                 values
                     .iter()
@@ -559,12 +604,34 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 }
 
+fn first_invalid_generic_rest_splice(
+    args: &[CallArgument],
+    rest_slot: usize,
+    argument_slots: Option<&[usize]>,
+) -> Option<usize> {
+    let has_named = args.iter().any(|argument| argument.name.is_some());
+    if has_named && argument_slots.is_none_or(|slots| slots.len() != args.len()) {
+        return args.iter().position(|argument| argument.splice);
+    }
+    args.iter().enumerate().find_map(|(index, argument)| {
+        if !argument.splice {
+            return None;
+        }
+        let targets_rest = if has_named {
+            argument_slots.and_then(|slots| slots.get(index)) == Some(&rest_slot)
+        } else {
+            index >= rest_slot
+        };
+        (!targets_rest).then_some(index)
+    })
+}
+
 #[cfg(test)]
 mod named_spread_lowering_tests {
     use super::*;
 
     #[test]
-    fn named_spread_lowering_does_not_clone_program_or_body_facts() {
+    fn named_spread_lowering_reuses_inputs_and_checked_slots() {
         let mut source = String::new();
         for index in 0..2_048 {
             source.push_str(&format!("let unrelated_{index} = {index}\n"));
@@ -649,6 +716,7 @@ mod named_spread_lowering_tests {
                 &parsed.arena,
             )),
             declarations: &declarations,
+            qualified_schemes: &declarations.function_schemes,
             bodies: &declarations.bodies,
             source: &source,
             sources: Some(&sources),
@@ -698,6 +766,49 @@ mod named_spread_lowering_tests {
         assert_eq!(lowered.arguments.len(), 3);
         assert_eq!(lowered.bindings.len(), 2);
         assert_eq!(lowered.arguments[0].span, named_span.1);
+        let reversed_slots = [2, 1, 0];
+        let reordered = probe
+            .lower_function_call_args(
+                &lowered.arguments,
+                None,
+                Some(&reversed_slots),
+                None,
+                &mut SlotScope::default(),
+                None,
+                None,
+            )
+            .expect("fully supplied named arguments do not need a ground signature");
+        for (actual, expected) in reordered.iter().zip(
+            lowered
+                .arguments
+                .iter()
+                .rev()
+                .map(|argument| argument.lowered.expect("argument is pre-lowered")),
+        ) {
+            assert!(matches!(actual, LoweredCallArg::Single(value) if *value == expected));
+        }
+        assert!(probe
+            .lower_function_call_args(
+                &lowered.arguments,
+                None,
+                Some(&[0]),
+                None,
+                &mut SlotScope::default(),
+                None,
+                None,
+            )
+            .is_none());
+        assert!(probe
+            .lower_function_call_args(
+                &lowered.arguments,
+                None,
+                Some(&[usize::MAX, 0, 1]),
+                None,
+                &mut SlotScope::default(),
+                None,
+                None,
+            )
+            .is_none());
         let spread_arguments = lowered.arguments.iter().skip(1).collect::<Vec<_>>();
         assert!(spread_arguments.iter().all(|argument| argument.span == spread_span));
         assert!(spread_arguments.iter().all(|argument| matches!(
@@ -721,5 +832,55 @@ mod named_spread_lowering_tests {
             &scratch.expressions[field_bases[0].index()],
             BuildExprRow::Param { .. }
         ));
+    }
+
+    #[test]
+    fn generic_rest_splice_validation_uses_checked_named_slots() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let argument = |name: Option<&str>, splice: bool| CallArgument {
+                name: name.map(Name::intern),
+                splice,
+                source: if splice {
+                    crate::sema::arguments::ArgumentValueSource::PositionalSplice(
+                        ExprId::from_index(0),
+                    )
+                } else {
+                    crate::sema::arguments::ArgumentValueSource::Expression(ExprId::from_index(0))
+                },
+                ty: Type::Int,
+                span: Span::at(crate::source::SourceId::new(0), 0),
+                lowered: None,
+            };
+            let prepended = [argument(None, true), argument(None, false)];
+            assert_eq!(first_invalid_generic_rest_splice(&prepended, 1, None), Some(0));
+
+            let positional_tail = [
+                argument(None, false),
+                argument(None, true),
+                argument(None, true),
+            ];
+            assert_eq!(
+                first_invalid_generic_rest_splice(&positional_tail, 1, None),
+                None
+            );
+
+            let reordered = [
+                argument(Some("marker"), false),
+                argument(Some("prefix"), false),
+                argument(None, true),
+            ];
+            assert_eq!(
+                first_invalid_generic_rest_splice(&reordered, 2, Some(&[1, 0, 2])),
+                None
+            );
+            assert_eq!(
+                first_invalid_generic_rest_splice(&reordered, 2, Some(&[1, 0, 1])),
+                Some(2)
+            );
+            assert_eq!(
+                first_invalid_generic_rest_splice(&reordered, 2, Some(&[1, 0])),
+                Some(2)
+            );
+        });
     }
 }

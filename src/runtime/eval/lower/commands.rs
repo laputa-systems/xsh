@@ -6,7 +6,7 @@ use super::{
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunOption, LoweredRunOperands, LoweredRunRedirection, LoweredRunTailOperand,
     LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp, SlotScope, Span,
-    StmtId, build_expr, lower_literal_constant,
+    StmtId, build_expr,
     parse_command_word_reference, print_flush_arg,
 };
 
@@ -32,7 +32,7 @@ pub(super) fn lower_command_word_reference(
             value
         } else {
             let value =
-                lower_literal_constant(constants.values.get(initializer)?, Some(wire_enums))?;
+                super::lower_prepared_literal(constants.values.get(initializer)?, Some(wire_enums))?;
             scratch
                 .borrow_mut()
                 .prepared_constants
@@ -41,7 +41,7 @@ pub(super) fn lower_command_word_reference(
         };
         build_expr(
             scratch,
-            BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value)),
+            BuildExprRow::PreparedConstant(value),
         )
     } else if let Some(binding) = binding {
         build_expr(scratch, BuildExprRow::Param(slots.resolve_binding(binding)?))

@@ -109,6 +109,40 @@ impl Checker {
         self.check_function_arg_list_arena(arena, source, args, params, span);
     }
 
+    pub(super) fn check_function_contract_arguments_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        contract: &super::FunctionCallContract,
+        span: Span,
+        checked_argument: Option<CheckedCallArgument<'_>>,
+    ) {
+        let diagnostics_before_arguments = self.diagnostics.len();
+        self.check_function_call_arguments_arena(
+            arena,
+            source,
+            args,
+            &contract.params,
+            span,
+            checked_argument,
+        );
+        let argument_error = self.diagnostics[diagnostics_before_arguments..]
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == crate::diagnostic::LabelStyle::Primary
+                            && label.span.source_id == span.source_id
+                            && span.start() <= label.span.start()
+                            && label.span.end() <= span.end()
+                    })
+            });
+        if !argument_error && let Some(instantiation) = &contract.instantiation {
+            self.record_pending_call_instantiation(span, instantiation.clone());
+        }
+    }
+
     pub(super) fn check_api_arg_arena(
         &mut self,
         arena: &ArenaProgram,

@@ -14,6 +14,14 @@ pure inferred_bool(value: Int) {
   value > 0
 }
 
+export pure public_identity(value) {
+  value
+}
+
+test test_exported_pure_inference_publishes_rank_one_scheme {
+  assert public_identity(7) == 7
+}
+
 pure inferred_returns(value: Int) {
   guard value >= 0 else {
     return -1
@@ -90,8 +98,6 @@ pure second(value: Int) { first(value) }
 """,
     """error Failure = Bad(message: Str)
 pure failed() { Err(Failure.Bad("bad")) }
-""",
-    """export pure public_value() { 1 }
 """,
   ] {
     let result = test.run_script(ctx, source, [], {}, b"", "inferred-rejected.xsh")?
@@ -221,10 +227,6 @@ test test_private_pure_inference_requires_annotations_for_recursive_and_contextu
   for {source, code} in [
     {
       source: "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
-      code: "check.required-return",
-    },
-    {
-      source: "export pure value() { 1 }\n",
       code: "check.required-return",
     },
     {

@@ -14,6 +14,12 @@ use crate::syntax::arena::{
 use crate::syntax::grammar::{self, StatementForm};
 use std::str::FromStr;
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum ParameterAnnotationContext {
+    Required,
+    PureDeclaration,
+}
+
 impl<'a> Parser<'a> {
     pub(super) fn parse_statement_arena_only(
         &mut self,
@@ -732,7 +738,10 @@ impl<'a> Parser<'a> {
             if self.consume_keyword(Keyword::Proc).is_some() {
                 let name = self.expect_proc_ident("expected exported proc name")?;
                 self.expect(TokenKindMatch::LParen, "expected `(` after proc name");
-                let params = self.parse_params_arena_only(arena);
+                let params = self.parse_params_arena_only(
+                    arena,
+                    ParameterAnnotationContext::Required,
+                );
                 self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
                 let params = arena.push_params(&params);
                 let effects = self
@@ -763,7 +772,10 @@ impl<'a> Parser<'a> {
                     TokenKindMatch::LParen,
                     "expected `(` after pure function name",
                 );
-                let params = self.parse_params_arena_only(arena);
+                let params = self.parse_params_arena_only(
+                    arena,
+                    ParameterAnnotationContext::Required,
+                );
                 self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
                 let params = arena.push_params(&params);
                 self.expect(
@@ -1094,14 +1106,8 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_params_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Vec<(
-        Name,
-        TypeExprId,
-        bool,
-        Option<ExprId>,
-        bool,
-        crate::source::Span,
-    )> {
+        context: ParameterAnnotationContext,
+    ) -> Vec<(Name, Option<TypeExprId>, Option<ExprId>, bool, crate::source::Span)> {
         let mut params = Vec::new();
         let mut reported_untyped = false;
         self.skip_newlines();
@@ -1111,9 +1117,9 @@ impl<'a> Parser<'a> {
             let Some(name) = self.expect_ident("expected parameter name") else {
                 break;
             };
-            let (ty_id, ty_defaulted, default_id, end) =
+            let (annotation, default_id, end) =
                 if self.consume(TokenKindMatch::Colon).is_some() {
-                    let Some(ty_id) = self.parse_type_expr(arena) else {
+                    let Some(annotation) = self.parse_type_expr(arena) else {
                         break;
                     };
                     let (default_id, end) = if self.consume(TokenKindMatch::Equals).is_some() {
@@ -1130,7 +1136,7 @@ impl<'a> Parser<'a> {
                     } else {
                         (None, self.previous_end())
                     };
-                    (ty_id, false, default_id, end)
+                    (Some(annotation), default_id, end)
                 } else if self.consume(TokenKindMatch::Equals).is_some() {
                     if rest {
                         self.diagnostic_previous(
@@ -1138,19 +1144,13 @@ impl<'a> Parser<'a> {
                             DiagnosticCode::ParseRestDefault,
                         );
                     }
-                    let default_start = self.current_start();
                     let Some(default_id) = self.parse_expr_id_arena_only(arena) else {
                         break;
                     };
-                    let default_span = self.span(default_start, self.previous_end());
-                    let ty_id = unknown_type_expr(arena, default_span);
-                    (ty_id, true, Some(default_id), default_span.end())
+                    (None, Some(default_id), self.previous_end())
                 } else if matches!(self.current_tag(), TokenTag::Comma | TokenTag::RParen) {
-                    // An untyped parameter list (`proc add(a, b)`) is one
-                    // mistake: report its first parameter and keep parsing
-                    // the signature and body.
                     let name_span = self.previous_span();
-                    if !reported_untyped {
+                    if context == ParameterAnnotationContext::Required && !reported_untyped {
                         reported_untyped = true;
                         self.diagnostics.push(
                             Diagnostic::error("expected `:` or default value after parameter name")
@@ -1161,12 +1161,7 @@ impl<'a> Parser<'a> {
                                 )),
                         );
                     }
-                    (
-                        unknown_type_expr(arena, name_span),
-                        false,
-                        None,
-                        name_span.end(),
-                    )
+                    (None, None, name_span.end())
                 } else {
                     self.diagnostic_here(
                         "expected `:` or default value after parameter name",
@@ -1176,8 +1171,7 @@ impl<'a> Parser<'a> {
                 };
             params.push((
                 name,
-                ty_id,
-                ty_defaulted,
+                annotation,
                 default_id,
                 rest,
                 self.span(start, end),
@@ -1284,7 +1278,12 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        let params = self.parse_params_arena_only(arena);
+        let context = if proc_def {
+            ParameterAnnotationContext::Required
+        } else {
+            ParameterAnnotationContext::PureDeclaration
+        };
+        let params = self.parse_params_arena_only(arena, context);
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let effects = if proc_def {
             self.parse_effect_list()
@@ -1334,7 +1333,10 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        let params = self.parse_params_arena_only(arena);
+        let params = self.parse_params_arena_only(
+            arena,
+            ParameterAnnotationContext::Required,
+        );
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let effects = self.parse_effect_list();
         let return_ty = if self.consume(TokenKindMatch::Arrow).is_some() {

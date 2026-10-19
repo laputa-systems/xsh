@@ -1451,7 +1451,18 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                         Box::new(variable(BuiltinTypeParameter::Element)),
                         Box::new(variable(BuiltinTypeParameter::Error)),
                     )),
-                    _ => None,
+                    MethodReceiver::PathConstructor | MethodReceiver::Int | MethodReceiver::Record => None,
+                    MethodReceiver::EnvPathList => Some(Type::EnvPathList),
+                    MethodReceiver::Path => Some(Type::Path),
+                    MethodReceiver::Float => Some(Type::Float),
+                    MethodReceiver::Str => Some(Type::Str),
+                    MethodReceiver::Bytes => Some(Type::Bytes),
+                    MethodReceiver::Status => Some(Type::Status),
+                    MethodReceiver::Digest => Some(Type::Digest),
+                    MethodReceiver::Regex => Some(Type::Regex),
+                    MethodReceiver::ProcessHandle => Some(Type::ProcessHandle),
+                    MethodReceiver::NetJob => Some(Type::NetJob),
+                    MethodReceiver::FsRoot => Some(Type::FsRoot),
                 };
             }
         }

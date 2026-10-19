@@ -1,9 +1,10 @@
 //! `collect { ... }`: a block whose `yield`s append to a list that is the
 //! expression's value.
 
-use super::expr::{expr_or_run_span_arena, merge_list_literal_item_ty};
+use super::expr::expr_or_run_span_arena;
 use super::{Checker, Span, Type};
 use crate::diagnostic::DiagnosticCode;
+use crate::sema::types::merge_list_literal_item_ty;
 use crate::syntax::arena::{ArenaExprOrRun, ArenaProgram, BlockId, ExprId};
 
 /// The `collect` expression whose block is being checked. A `yield` in the

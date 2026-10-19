@@ -18,7 +18,9 @@ use super::{
     ReduceByOp, RunKind, RuntimeOp, Span, Type, TypeId,
 };
 use super::schema::InstructionKind;
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 /// The verified store and owner of a borrowed field. No verifier traversal
 /// state is retained or rebuilt while execution reads its operands.
@@ -66,9 +68,11 @@ impl<'a> DecodeContext<'a> {
             slot_count: self.slots,
             pattern_ceiling: Cell::new(usize::MAX),
             local_immutable_let_initializers: RefCell::default(),
+            binding_identity_stack: Rc::new(RefCell::new(BTreeSet::new())),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
+        prepared_constant_work: Cell::new(0),
             verified: self.verified,
         }
     }
@@ -262,7 +266,7 @@ macro_rules! pool_field {
     };
 }
 pool_field!(RegexValue, prepared_regexes, RegexValue, "prepared regex is out of bounds");
-pool_field!(PreparedConstantValue, prepared_constants, PreparedConstantValue, "prepared constant is out of bounds");
+pool_field!(PreparedConstantValue, prepared_constants, PreparedConstantValue<super::TypeId>, "prepared constant is out of bounds");
 pool_field!(Arc<crate::runtime::eval::ModuleCallPlan>, prepared_module_call_plans, Arc<crate::runtime::eval::ModuleCallPlan>, "prepared module call plan is out of bounds");
 pool_field!(Arc<crate::sema::wire_enums::WireEnumMapping>, wire_enums, Arc<crate::sema::wire_enums::WireEnumMapping>, "wire enum mapping is out of bounds");
 pool_field!(Arc<super::super::super::require::PreparedSchema>, prepared_schemas, Arc<super::super::super::require::PreparedSchema>, "prepared schema is out of bounds");
@@ -316,6 +320,8 @@ impl LoweredTopLevelSlotView<'_> {
             slot: self.slot,
             kind: self.kind.materialize_lowered()?,
             checked_type: None,
+            binding_identity: None,
+            runtime_identity: None,
             mutable: self.mutable,
         })
     }
@@ -889,7 +895,7 @@ macro_rules! enum_schema {
 // Exact checker types remain verifier metadata; the encoded row carries only these fields.
 struct_schema!(LoweredTopLevelSlot => LoweredTopLevelSlotView {
     name: Name, slot: usize, kind: LoweredType, mutable: bool,
-} with { checked_type: None });
+} with { checked_type: None, binding_identity: None, runtime_identity: None });
 
 struct_schema!(LoweredRunArg => RunArgView {
     kind: LoweredRunArgKind, span: Span,

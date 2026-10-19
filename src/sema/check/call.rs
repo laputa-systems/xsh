@@ -11,6 +11,49 @@ use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ExprId,
 };
 use crate::syntax::node::Effect;
+use std::sync::Arc;
+
+fn call_instantiation_error_message(
+    error: crate::sema::constraints::SchemeOperationError,
+) -> String {
+    use crate::sema::constraints::SchemeOperationError;
+    use crate::sema::schemes::SchemeBuildError;
+
+    match error {
+        SchemeOperationError::Resolution(error) => {
+            format!("generic call inference resolution failed: {error:?}")
+        }
+        SchemeOperationError::Build(error) => {
+            let reason = match error {
+                SchemeBuildError::RecoveryType => "argument contains a recovery type",
+                SchemeBuildError::UnresolvedType => "type argument remains unresolved",
+                SchemeBuildError::UnresolvedRow => "row argument remains unresolved",
+                #[cfg(test)]
+                SchemeBuildError::RigidVariable => "argument contains an unbound rigid variable",
+                SchemeBuildError::InvalidValidatedBase => "validated argument has an invalid base",
+                SchemeBuildError::UnboundTypeParameter => "type parameter is unbound",
+                SchemeBuildError::UnboundRowParameter => "row parameter is unbound",
+                SchemeBuildError::UnusedTypeParameter => "type parameter is unused",
+                SchemeBuildError::UnusedRowParameter => "row parameter is unused",
+                SchemeBuildError::DuplicateTypeParameter => "type parameter is duplicated",
+                SchemeBuildError::DuplicateRowParameter => "row parameter is duplicated",
+                SchemeBuildError::RowLacksMismatch => "row evidence violates its lacks set",
+                SchemeBuildError::GeneralizationNotPure => "target cannot be generalized",
+                SchemeBuildError::DynamicType => "argument contains a dynamic type",
+                SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
+            };
+            format!("generic call instantiation failed: {reason}")
+        }
+        SchemeOperationError::Constraint(conflict) => format!(
+            "generic call constraints conflict: expected {:?}, found {:?}{}",
+            conflict.expected,
+            conflict.actual,
+            conflict
+                .resolution_error
+                .map_or_else(String::new, |error| format!(" ({error:?})")),
+        ),
+    }
+}
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
     match ty {
@@ -324,6 +367,8 @@ impl Checker {
             );
         }
         if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            let contract = self.function_call_contract(&alias.signature, span);
+            self.record_function_call_target(span, contract.definition_target);
             self.record_callable_alias(arena.arena.expr(callee).span, &alias);
             if let ArenaExprKind::Field { base, name } = callee_kind
                 && name == "call"
@@ -349,18 +394,14 @@ impl Checker {
                     );
                 }
             }
-            self.check_function_call_arguments_arena(
-                arena, source, args, &alias.signature.params, span, checked_argument,
+            self.check_function_contract_arguments_arena(
+                arena, source, args, &contract, span, checked_argument,
             );
             if !alias.pure {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_callee_propagation(
-                &alias.signature.effects,
-                &alias.signature.return_ty,
-                span,
-            );
-            return alias.signature.return_ty;
+            self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+            return contract.return_ty;
         }
 
         if let Some(definition) =
@@ -408,8 +449,10 @@ impl Checker {
                 }
                 return Type::Unknown;
             }
-            if let Some(sig) = self.procs.get(&name).cloned() {
-                self.record_selected_function_call(span, &sig);
+            if let Some(declaration) = self.procs.get(&name).copied()
+                && let Some(sig) = self.local_function_call_contract(declaration, span)
+            {
+                self.record_function_call_target(span, sig.definition_target);
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -417,26 +460,34 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
+                    self.check_resolved_declaration_effects(
+                        sig.effect_declaration,
+                        &name.as_str(),
+                        span,
+                    );
                 }
-                self.check_function_call_arguments_arena(
-                    arena, source, args, &sig.params, span, checked_argument,
+                self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument,
                 );
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
-            if let Some(sig) = self.pures.get(&name).cloned() {
-                self.record_selected_function_call(span, &sig);
-                self.check_function_call_arguments_arena(
-                    arena, source, args, &sig.params, span, checked_argument,
+            if let Some(declaration) = self.pures.get(&name).copied()
+                && let Some(sig) = self.local_function_call_contract(declaration, span)
+            {
+                self.record_function_call_target(span, sig.definition_target);
+                self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument,
                 );
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
-            if let Some(sig) = self.streams.get(&name).cloned() {
-                self.record_selected_function_call(span, &sig);
+            if let Some(declaration) = self.streams.get(&name).copied()
+                && let Some(sig) = self.local_function_call_contract(declaration, span)
+            {
+                self.record_function_call_target(span, sig.definition_target);
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -444,10 +495,14 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
+                    self.check_resolved_declaration_effects(
+                        sig.effect_declaration,
+                        &name.as_str(),
+                        span,
+                    );
                 }
-                self.check_function_call_arguments_arena(
-                    arena, source, args, &sig.params, span, checked_argument,
+                self.check_function_contract_arguments_arena(
+                    arena, source, args, &sig, span, checked_argument,
                 );
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
@@ -572,17 +627,19 @@ impl Checker {
                 if static_namespace
                     && let Some(sig) = self.qualified_pures.get(&qualified).cloned()
                 {
-                    self.record_selected_function_call(span, &sig);
-                    self.check_function_call_arguments_arena(
-                        arena, source, args, &sig.params, span, checked_argument,
+                    let contract = self.function_call_contract(&sig, span);
+                    self.record_function_call_target(span, contract.definition_target);
+                    self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                    return sig.return_ty;
+                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    return contract.return_ty;
                 }
                 if static_namespace
                     && let Some(sig) = self.qualified_procs.get(&qualified).cloned()
                 {
-                    self.record_selected_function_call(span, &sig);
+                    let contract = self.function_call_contract(&sig, span);
+                    self.record_function_call_target(span, contract.definition_target);
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -592,16 +649,17 @@ impl Checker {
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
-                    self.check_function_call_arguments_arena(
-                        arena, source, args, &sig.params, span, checked_argument,
+                    self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                    return sig.return_ty;
+                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    return contract.return_ty;
                 }
                 if static_namespace
                     && let Some(sig) = self.qualified_streams.get(&qualified).cloned()
                 {
-                    self.record_selected_function_call(span, &sig);
+                    let contract = self.function_call_contract(&sig, span);
+                    self.record_function_call_target(span, contract.definition_target);
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -611,11 +669,11 @@ impl Checker {
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
-                    self.check_function_call_arguments_arena(
-                        arena, source, args, &sig.params, span, checked_argument,
+                    self.check_function_contract_arguments_arena(
+                        arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                    return sig.return_ty;
+                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    return contract.return_ty;
                 }
                 if module == "Path" {
                     return self.check_registered_method_arena(
@@ -887,6 +945,14 @@ impl Checker {
                     );
                 }
                 ModuleExportType::Value { .. } => {}
+                ModuleExportType::GenericPure { .. } => {
+                    self.error(
+                        span,
+                        "generic pure module exports must be called through their static namespace",
+                        DiagnosticCode::CheckModuleMember,
+                    );
+                    return Type::Unknown;
+                }
             }
         }
         let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
@@ -1011,21 +1077,24 @@ impl Checker {
             }
             _ => None,
         };
-        let signature = self
-            .resolve_callable_alias_call(arena, callee)
-            .map(|alias| alias.signature)
-            .or_else(|| match arena.arena.expr(callee).kind {
+        let signature = if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            Some(self.function_call_contract(&alias.signature, span))
+        } else {
+            match arena.arena.expr(callee).kind {
                 ArenaExprKind::Ident(name)
                     if matches!(
                         self.lookup_value_binding_for_expr(arena, callee),
                         super::ValueBindingLookup::NoSite
                     ) =>
                 {
-                    self.pures
+                    let declaration = self.pures
                         .get(&name)
                         .or_else(|| self.procs.get(&name))
                         .or_else(|| self.streams.get(&name))
-                        .cloned()
+                        .copied();
+                    declaration.and_then(|declaration| {
+                        self.local_function_call_contract(declaration, span)
+                    })
                 }
                 ArenaExprKind::Field { base, name } => {
                     let static_namespace = match arena.arena.expr(base).kind {
@@ -1044,21 +1113,26 @@ impl Checker {
                         && static_namespace
                     {
                         let qualified = QualifiedName::new(module, name);
-                        self.qualified_pures
+                        let signature = self.qualified_pures
                             .get(&qualified)
                             .or_else(|| self.qualified_procs.get(&qualified))
                             .or_else(|| self.qualified_streams.get(&qualified))
-                            .cloned()
+                            .cloned();
+                        signature.map(|signature| self.function_call_contract(&signature, span))
                     } else {
                         None
                     }
                 }
                 _ => None,
-            });
+            }
+        };
         if let Some(signature) = &signature {
-            self.record_selected_function_call(span, signature);
+            self.record_function_call_target(span, signature.definition_target);
         }
-        let parameters = signature.map(|signature| signature.params).or_else(|| {
+        let parameters = signature
+            .as_ref()
+            .map(|signature| signature.params.clone())
+            .or_else(|| {
             let definition = self.record_constructors.constructor_definition(
                 &arena.arena,
                 callee,
@@ -1091,7 +1165,7 @@ impl Checker {
                     })
                     .collect(),
             )
-        });
+            });
         let mut parameters_by_name = super::FxHashMap::default();
         if let Some(parameters) = &parameters {
             for parameter in parameters.iter().filter(|parameter| !parameter.rest) {
@@ -1252,6 +1326,12 @@ impl Checker {
             });
         }
         let args = temporary.arena.append_call_arguments(&inputs);
+        if let Some(signature) = signature {
+            let previous = self
+                .prepared_function_call_contracts
+                .insert(span, signature);
+            assert!(previous.is_none(), "a spread call prepares one signature");
+        }
         let result =
             self.check_call_arena(&temporary, source, callee, args, span, expected_context);
         for id in projections {
@@ -1266,11 +1346,159 @@ impl Checker {
     }
 
     pub(super) fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
-        let Some(target) = signature.definition_target else {
+        self.record_function_call_target(span, signature.definition_target());
+    }
+
+    pub(super) fn record_function_call_target(
+        &mut self,
+        span: Span,
+        target: Option<super::CheckedFunctionTarget>,
+    ) {
+        let Some(target) = target else {
             return;
         };
         if let Some(previous) = self.selected_function_calls.insert(span, target) {
             assert_eq!(previous, target, "a call resolved to conflicting function definitions");
+        }
+    }
+
+    pub(super) fn resolve_pending_call_instantiations(&mut self) {
+        for (span, (callable, instantiated)) in
+            std::mem::take(&mut self.pending_call_instantiations)
+        {
+            if self.call_instantiations.contains_key(&span) {
+                continue;
+            }
+            match self
+                .type_constraints
+                .resolve_call_instantiation(&callable, &instantiated)
+            {
+                Ok(instantiation) => {
+                    let previous = self.call_instantiations.insert(span, instantiation);
+                    assert!(previous.is_none(), "a call instantiation is published once");
+                }
+                Err(error) => {
+                    let message = call_instantiation_error_message(error);
+                    self.error(span, &message, DiagnosticCode::CheckLocalInference);
+                }
+            }
+        }
+    }
+
+    pub(super) fn record_pending_call_instantiation(
+        &mut self,
+        span: Span,
+        instantiation: super::PendingCallInstantiation,
+    ) {
+        let previous = self.pending_call_instantiations.insert(span, instantiation);
+        assert!(previous.is_none(), "a call instantiation is recorded once");
+    }
+
+    pub(super) fn without_pending_call_instantiations<T>(
+        &mut self,
+        check: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let pending = std::mem::take(&mut self.pending_call_instantiations);
+        let result = check(self);
+        self.pending_call_instantiations = pending;
+        result
+    }
+
+    pub(super) fn local_function_call_contract(
+        &mut self,
+        declaration: super::FunctionDeclarationId,
+        span: Span,
+    ) -> Option<super::FunctionCallContract> {
+        if let Some(contract) = self.prepared_function_call_contracts.remove(&span) {
+            return Some(contract);
+        }
+        if let Some(signature) = self.declaration_inference.checked(declaration).cloned() {
+            return Some(self.function_call_contract(&signature, span));
+        }
+        let signature = self.declaration_inference.pending(declaration)?.clone();
+        let (params, return_ty, instantiation) = if let Some(shape) = signature.provisional() {
+            (
+                shape
+                    .params()
+                    .iter()
+                    .map(|param| param.signature.clone())
+                    .collect(),
+                shape.return_ty().clone(),
+                None,
+            )
+        } else {
+            let callable = signature.generalized()?;
+            let instantiated = self
+                .type_constraints
+                .instantiate_callable(callable, signature.solver_level(), span)
+                .expect("a checked pending callable scheme instantiates");
+            let instantiation = (!callable.type_parameters().is_empty()
+                || !callable.row_parameters().is_empty())
+                .then(|| (Arc::clone(callable), instantiated.clone()));
+            let params = callable
+                .params()
+                .iter()
+                .zip(instantiated.params)
+                .map(|(parameter, ty)| super::FunctionParamSig {
+                    name: parameter.name,
+                    ty,
+                    schema_expectation: parameter.schema_expectation.clone(),
+                    defaulted: parameter.defaulted,
+                    rest: parameter.rest,
+                })
+                .collect();
+            (
+                params,
+                instantiated.return_type.clone(),
+                instantiation,
+            )
+        };
+        Some(super::FunctionCallContract {
+            params,
+            return_ty,
+            effects: self.declaration_effects(signature.effect_declaration()),
+            effect_declaration: signature.effect_declaration(),
+            definition_target: signature.definition_target(),
+            instantiation,
+        })
+    }
+
+    pub(super) fn function_call_contract(
+        &mut self,
+        signature: &super::FunctionSig,
+        span: Span,
+    ) -> super::FunctionCallContract {
+        if let Some(contract) = self.prepared_function_call_contracts.remove(&span) {
+            return contract;
+        }
+        let scheme = signature.scheme();
+        let callable = Arc::clone(scheme.callable());
+        let instantiated = self
+            .type_constraints
+            .instantiate_callable(&callable, 1, span)
+            .expect("a checked function scheme instantiates");
+        let call_instantiation = (!callable.type_parameters().is_empty()
+            || !callable.row_parameters().is_empty())
+            .then(|| (callable, instantiated.clone()));
+        let params = scheme
+            .params()
+            .iter()
+            .zip(instantiated.params)
+            .map(|(parameter, ty)| super::FunctionParamSig {
+                name: parameter.name,
+                ty,
+                schema_expectation: parameter.schema_expectation.clone(),
+                defaulted: parameter.defaulted,
+                rest: parameter.rest,
+            })
+            .collect();
+        super::FunctionCallContract {
+            params,
+            return_ty: instantiated.return_type,
+            effects: scheme.effects().map(<[_]>::to_vec),
+            effect_declaration: signature.effect_declaration(),
+            definition_target: signature.definition_target(),
+            instantiation: call_instantiation,
         }
     }
 
@@ -2910,5 +3138,99 @@ mod reveal_type_tests {
             }
             assert!(outputs.iter().all(|output| output.reveal_types.is_empty()));
         }
+    }
+}
+
+#[cfg(test)]
+mod generic_alias_call_tests {
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::{CheckOptions, CheckOutput, Checker};
+    use crate::sema::schemes::{CallInstantiation, SchemeType};
+    use crate::sema::types::Type;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn checked(source: &str) -> CheckOutput {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| {
+                Checker::check_arena_with_options(
+                    &parsed.arena,
+                    source,
+                    CheckOptions::for_execution(),
+                )
+            })
+    }
+
+    fn type_arguments(instantiations: impl Iterator<Item = CallInstantiation>) -> Vec<SchemeType> {
+        instantiations
+            .flat_map(|instantiation| {
+                instantiation
+                    .type_arguments()
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn immutable_generic_alias_instantiates_direct_calls_and_rejects_callable_conversion() {
+        let accepted = checked(
+            "pure identity(value) { value }\n\
+             let shared = identity\n\
+             let integer: Int = shared(42)\n\
+             let text: Str = shared(\"demo\")\n\
+             let boolean: Bool = shared(false)\n\
+             assert !boolean\n",
+        );
+        assert!(accepted.diagnostics.is_empty(), "{:?}", accepted.diagnostics);
+        assert_eq!(accepted.call_instantiations.len(), 3);
+        let arguments = type_arguments(accepted.call_instantiations.values().cloned());
+        assert_eq!(arguments.len(), 3);
+        for expected in [Type::Int, Type::Str, Type::Bool] {
+            assert_eq!(
+                arguments
+                    .iter()
+                    .filter(|ty| **ty == SchemeType::Ground(expected.clone()))
+                    .count(),
+                1
+            );
+        }
+
+        let rejected = checked(
+            "type IntIdentity = pure(value: Int) -> Int\n\
+             pure identity(value) { value }\n\
+             let shared = identity\n\
+             let converted: IntIdentity = shared\n",
+        );
+        assert!(
+            rejected
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)),
+            "{:?}",
+            rejected.diagnostics
+        );
+    }
+
+    #[test]
+    fn unresolved_generic_call_reports_its_inference_failure() {
+        let output = checked("pure identity(value) { value }\nlet result = identity([])\n");
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.message.starts_with("generic call instantiation failed:")
+            })
+            .expect("unresolved generic call reports a local inference diagnostic");
+        assert_eq!(
+            diagnostic.message,
+            "generic call instantiation failed: type argument remains unresolved"
+        );
     }
 }

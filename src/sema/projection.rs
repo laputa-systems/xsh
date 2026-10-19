@@ -31,17 +31,58 @@ pub fn resolve_constant_key_projection(
     key: ExprId,
     operation: ProjectionOperation,
 ) -> Option<CheckedProjection> {
-    let key_expr = key;
-    let LiteralConstant::Str(key) = constants.analyze_expression(arena, key)? else {
-        return None;
-    };
+    let field = constant_string_key(arena, constants, key)?;
     projection_for_visible_field(
         receiver_expr,
         receiver,
-        key_expr,
-        Name::intern(&key),
+        key,
+        field,
         operation,
     )
+}
+
+fn constant_string_key(
+    arena: &AstArena,
+    constants: &PreparedConstants,
+    key: ExprId,
+) -> Option<Name> {
+    let LiteralConstant::Str(key) = constants.analyze_expression(arena, key)? else {
+        return None;
+    };
+    Some(Name::intern(&key))
+}
+
+pub fn generic_pure_export_for_key(
+    arena: &AstArena,
+    constants: &PreparedConstants,
+    receiver: &Type,
+    key: ExprId,
+) -> Option<Name> {
+    let Some(field) = constant_string_key(arena, constants, key) else {
+        return generic_pure_export_for_dynamic_key(receiver);
+    };
+    match receiver {
+        Type::Module(exports)
+            if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { .. })) =>
+        {
+            Some(field)
+        }
+        _ => None,
+    }
+}
+
+pub fn generic_pure_export_for_dynamic_key(receiver: &Type) -> Option<Name> {
+    module_has_generic_pure_export(receiver)
+}
+
+fn module_has_generic_pure_export(receiver: &Type) -> Option<Name> {
+    let Type::Module(exports) = receiver else {
+        return None;
+    };
+    exports
+        .exports
+        .iter()
+        .find_map(|(name, export)| matches!(export, ModuleExportType::GenericPure { .. }).then_some(*name))
 }
 
 fn projection_for_visible_field(
@@ -55,13 +96,13 @@ fn projection_for_visible_field(
         Type::Record(fields) => (fields.get(&field)?.clone(), None),
         Type::Module(exports) => {
             let export = exports.get(&field)?;
-            (
-                export.field_type(),
-                match export {
-                    ModuleExportType::Value { .. } => None,
-                    _ => Some(export.clone()),
-                },
-            )
+            let value_type = export.field_value_type()?;
+            let callable = match export {
+                ModuleExportType::Value { .. } => None,
+                ModuleExportType::GenericPure { .. } => return None,
+                _ => Some(export.clone()),
+            };
+            (value_type, callable)
         }
         _ => return None,
     };
@@ -82,6 +123,41 @@ pub fn resolve_get_projection(
     receiver: &Type,
     args: &[crate::syntax::arena::ArenaCallArg],
 ) -> Option<CheckedProjection> {
+    let (key, field) = get_key(arena, constants, args)?;
+    projection_for_visible_field(
+        receiver_expr,
+        receiver,
+        key,
+        field,
+        ProjectionOperation::Get,
+    )
+}
+
+pub fn generic_pure_export_for_get(
+    arena: &AstArena,
+    constants: &PreparedConstants,
+    receiver: &Type,
+    args: &[crate::syntax::arena::ArenaCallArg],
+) -> Option<Name> {
+    match get_key(arena, constants, args) {
+        Some((_, field)) => match receiver {
+            Type::Module(exports)
+                if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { .. })) =>
+            {
+                Some(field)
+            }
+            Type::Module(_) => None,
+            _ => None,
+        },
+        None => module_has_generic_pure_export(receiver),
+    }
+}
+
+fn get_key(
+    arena: &AstArena,
+    constants: &PreparedConstants,
+    args: &[crate::syntax::arena::ArenaCallArg],
+) -> Option<(ExprId, Name)> {
     use crate::syntax::arena::ArenaCallArgKind;
     let [arg] = args else {
         return None;
@@ -104,22 +180,9 @@ pub fn resolve_get_projection(
             let LiteralConstant::Str(key) = fields.get(&Name::intern("field"))? else {
                 return None;
             };
-            return projection_for_visible_field(
-                receiver_expr,
-                receiver,
-                value,
-                Name::intern(key),
-                ProjectionOperation::Get,
-            );
+            return Some((value, Name::intern(key)));
         }
         _ => return None,
     };
-    resolve_constant_key_projection(
-        arena,
-        constants,
-        receiver_expr,
-        receiver,
-        key,
-        ProjectionOperation::Get,
-    )
+    Some((key, constant_string_key(arena, constants, key)?))
 }

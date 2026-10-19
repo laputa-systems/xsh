@@ -106,14 +106,13 @@ impl<'a> Linter<'a> {
         &mut self,
         param: &xsh::frontend::syntax::arena::ArenaParam,
     ) {
-        if param.ty_defaulted
-            || param.default.is_none()
-            || param.rest
-            || self.annotation_refs_user_type(param.ty)
-        {
+        let Some(annotation) = param.annotation else {
+            return;
+        };
+        if param.default.is_none() || param.rest || self.annotation_refs_user_type(annotation) {
             return;
         }
-        let span = self.arena.type_expr_span(param.ty);
+        let span = self.arena.type_expr_span(annotation);
         let param_span = self.arena.span(param.span);
         let Some(prefix) = self.source.get(param_span.start()..span.start()) else {
             return;

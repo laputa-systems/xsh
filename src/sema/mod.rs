@@ -6,6 +6,7 @@ pub mod constants;
 pub mod constraints;
 pub mod projection;
 pub mod records;
+pub(crate) mod schemes;
 pub mod types;
 pub mod validated;
 

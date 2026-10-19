@@ -5,7 +5,7 @@ use super::serial_pipeline::{
 };
 use super::super::LoweredRetryDelays;
 use super::{
-    Arc, AssignOp, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
+    Arc, AssignOp, BTreeMap, BinaryOp, BindingNamespaceLease, CommandPlan, ControlFlow,
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
@@ -549,13 +549,13 @@ proc parent() {
                 let parent = Name::intern("parent");
                 let span = Span::new(source_id, 0, 0);
                 let mut evaluator = Evaluator::new(Vec::new());
-                evaluator.define(
-                    checks,
-                    crate::runtime::eval::Binding {
-                        value: Value::Int(0),
-                        mutable: true,
-                    },
-                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for index in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(index, span)
+                        .expect("verified driver step has a direct executor")
+                        .expect("declared capture initializes");
+                }
                 let mut frames = ExplicitFrames::new(&mut evaluator, &program);
                 frames
                     .push_call(
@@ -3010,6 +3010,7 @@ pub(super) struct CallFrame<'p> {
     cancelled: bool,
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
+    _binding_namespace_lease: Option<BindingNamespaceLease>,
     /// Keeps a cross-program frame's interned names current through cleanup.
     _symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
     pub(super) slots: FrameSlots<'p>,
@@ -3219,6 +3220,7 @@ impl Evaluator {
             cancelled: false,
             scope_id,
             execution: execution.thread_local(),
+            _binding_namespace_lease: None,
             _symbol_owner: None,
             slots: FrameSlots::Lent(slots),
             slot_scopes,
@@ -3715,6 +3717,7 @@ impl<'p> CallFrame<'p> {
             cancelled: false,
             scope_id: state.scope_id,
             execution,
+            _binding_namespace_lease: None,
             _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(state.slots),
             slot_scopes: state.slot_scopes,
@@ -4490,6 +4493,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator.trace_lowered_utils_cache_result(*span);
             }
         }
+        self.evaluator.prune_binding_values();
     }
 
     fn resolve_active_call(
@@ -4793,7 +4797,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             let receiver =
                 take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-            self.push_method_result(index, receiver, name, values, span, next)?;
+            if let Some(plan) = self.calls[index].execution.registered_call_plan(instruction) {
+                let result = self.evaluator.eval_indexed_registered_method_dispatch(&plan, receiver, values, span)?;
+                let value = match result {
+                    ControlFlow::Continue(value) => FrameValue::Value(value),
+                    ControlFlow::Break(value) => FrameValue::Break(value),
+                };
+                self.push_value(index, value, next);
+            } else {
+                self.push_method_result(index, receiver, name, values, span, next)?;
+            }
         }
         Ok(())
     }
@@ -5070,12 +5083,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .evaluator
             .frame_scratch
             .take_slot_scopes(slots.len(), scope_id);
+        let binding_namespace_lease = self
+            .evaluator
+            .retain_binding_namespace(execution.program().binding_namespace());
         self.calls.push(CallFrame {
             owner: FrameOwner::Function(function, kind),
             producer: false,
             cancelled: false,
             scope_id,
             execution,
+            _binding_namespace_lease: Some(binding_namespace_lease),
             _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(slots),
             slot_scopes,
@@ -5682,7 +5699,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 Ok(())
             }
-            StmtView::Let { slot, value } => {
+            StmtView::Let { slot, value, .. } => {
                 self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
@@ -7370,6 +7387,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::Null |
             ExprViewKind::Unit |
             ExprViewKind::Int |
+            ExprViewKind::UInt |
             ExprViewKind::Float |
             ExprViewKind::Duration |
             ExprViewKind::Bool |
@@ -11415,12 +11433,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 Err(error)
             }
-            Ok(value) => {
-                write_back?;
-                cleanup?;
-                Ok(value)
-            }
+            Ok(value) => match write_back {
+                Err(error) => Err(error),
+                Ok(()) => cleanup.map(|()| value),
+            },
         };
+        drop(call._binding_namespace_lease.take());
+        self.evaluator.prune_binding_values();
         match (call.return_to, value) {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;

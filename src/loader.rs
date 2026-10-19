@@ -77,6 +77,8 @@ pub struct CompactModuleGraph {
     qualified_procs: BTreeMap<QualifiedName, CompactFunctionSig>,
     qualified_pures: BTreeMap<QualifiedName, CompactFunctionSig>,
     qualified_streams: BTreeMap<QualifiedName, CompactFunctionSig>,
+    qualified_schemes:
+        BTreeMap<QualifiedName, Arc<crate::sema::schemes::TypeScheme>>,
     qualified_error_families: BTreeMap<QualifiedName, ErrorFamilyInfo>,
     type_defs: BTreeMap<Name, CompactTypeDefInfo>,
     exported_top_level_bindings: BTreeSet<Name>,
@@ -214,6 +216,7 @@ impl CompactModuleGraph {
             qualified_procs: declarations.qualified_procs.clone().into_iter().collect(),
             qualified_pures: declarations.qualified_pures.clone().into_iter().collect(),
             qualified_streams: declarations.qualified_streams.clone().into_iter().collect(),
+            qualified_schemes: declarations.function_schemes.clone(),
             qualified_error_families: declarations
                 .qualified_error_families
                 .clone()
@@ -244,6 +247,12 @@ impl CompactModuleGraph {
 
     pub fn qualified_streams(&self) -> &BTreeMap<QualifiedName, CompactFunctionSig> {
         &self.qualified_streams
+    }
+
+    pub(crate) fn qualified_schemes(
+        &self,
+    ) -> &BTreeMap<QualifiedName, Arc<crate::sema::schemes::TypeScheme>> {
+        &self.qualified_schemes
     }
 
     pub fn qualified_error_families(&self) -> &BTreeMap<QualifiedName, ErrorFamilyInfo> {

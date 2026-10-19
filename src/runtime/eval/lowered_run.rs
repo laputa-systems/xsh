@@ -110,8 +110,9 @@ use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{CompTargetView, InlineList};
 use super::{
     Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
-    LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name, ReduceByOp,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredParamKind,
+    LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
+    Name, ReduceByOp,
     StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
     check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
     lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
@@ -1459,14 +1460,6 @@ fn module_load_failure(
     .with_span(span)
 }
 
-/// Process-wide prepared form of a dynamically loaded module.
-///
-/// Parsing, checking, indexed encoding, and preparing the export harvest depend
-/// only on the module's source files and module roots, so evaluators that load
-/// the same unchanged files share one preparation. Each load still executes the
-/// harvest in a fresh child evaluator, so top-level initializers keep per-load
-/// effects. Names inside the cached programs are interned under the cached
-/// arenas' own symbol owners, which the cache keeps alive.
 struct PreparedDynamicModule {
     module_roots: Arc<[PathBuf]>,
     entry_bytes: Vec<u8>,
@@ -1476,21 +1469,22 @@ struct PreparedDynamicModule {
     module_program: Arc<super::indexed::full::FullProgram>,
     exported_functions: Vec<(Name, bool)>,
     exported_let_names: Vec<Name>,
-    harvest: Option<PreparedModuleHarvest>,
+    harvest: Arc<super::LoweredSharedState>,
 }
 
-/// A loaded module's exports, valid while its prepared program still matches
-/// the files on disk.
 #[derive(Clone)]
 pub(super) struct CachedModule {
     prepared: Arc<PreparedDynamicModule>,
     record: RecordMap,
 }
 
-struct PreparedModuleHarvest {
-    plan: super::CompactIndexedRunPlan,
-    shared: Arc<super::LoweredSharedState>,
-    _arena: ArenaProgram,
+struct ModuleTopLevelValues {
+    exports: RecordMap,
+    visible_bindings: Vec<(Name, super::Binding)>,
+    lexical_bindings: Arc<FxHashMap<super::RuntimeBindingIdentity, super::Binding>>,
+    dynamic_functions: Arc<FxHashMap<QualifiedName, super::DynamicFunction>>,
+    export_signatures: Arc<FxHashMap<FunctionName, super::ModuleExportSignature>>,
+    module_cache: Arc<FxHashMap<String, CachedModule>>,
 }
 
 type PreparedDynamicModules = std::sync::Mutex<FxHashMap<String, Arc<PreparedDynamicModule>>>;
@@ -1548,11 +1542,7 @@ fn prepare_dynamic_module(
             span,
         ));
     }
-    // A dynamically loaded module never prepares standard-library source:
-    // the loading program prepared every applicable implementation before
-    // execution started, and this module links its standard calls to those
-    // already verified functions.
-    let (module_sources, mut parsed) = parse_load_entry_source_arena_only_with_linkage(
+    let (module_sources, parsed) = parse_load_entry_source_arena_only_with_linkage(
         display_path,
         entry_source,
         module_roots.to_vec(),
@@ -1569,8 +1559,11 @@ fn prepare_dynamic_module(
     }
     let owner = parsed.arena.symbol_owner().clone();
     owner.with_current(|| {
+        let mut parsed = parsed;
         parsed.arena.root_nominal_namespace = Some(Name::intern(key));
         validate_dynamic_module_top_level(&parsed.arena, display_path, span)?;
+        let exported_functions = Evaluator::module_namespace_export_functions(&parsed.arena);
+        let exported_let_names = Evaluator::module_namespace_export_let_names(&parsed.arena);
         let module_source_id = module_sources
             .files()
             .first()
@@ -1582,9 +1575,11 @@ fn prepare_dynamic_module(
             .get(module_source_id)
             .map(|source| source.text().to_string())
             .expect("loaded module source exists");
+        let file = crate::loader::CompactFileUnit::new(display_path, module_source_id, parsed);
+        let program = file.program();
 
         let doc_diagnostics =
-            crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
+            crate::sema::check::Checker::check_public_module_docs(program, &module_text);
         if let Some(diagnostic) = doc_diagnostics.first() {
             return Err(RuntimeError::new(
                 "module-load",
@@ -1597,7 +1592,7 @@ fn prepare_dynamic_module(
         }
 
         let declarations = crate::sema::check::Checker::check_compact_declarations(
-            &parsed.arena,
+            program,
             &module_sources,
             module_source_id,
         );
@@ -1610,10 +1605,13 @@ fn prepare_dynamic_module(
                 span,
             ));
         }
-        let module_program = Arc::new(
+        let module_graph = crate::loader::CompactModuleGraph::from_file_unit(&file, &declarations);
+        let binding_namespace = super::indexed::full::FullProgram::fresh_binding_namespace();
+        let mut module_program =
             super::indexed::full::FullBuilder::build_compact_external_stdlib(
-                &parsed.arena,
+                program,
                 &declarations,
+                &module_graph,
                 &module_text,
                 Arc::new(module_sources.clone()),
                 module_source_id,
@@ -1631,49 +1629,15 @@ fn prepare_dynamic_module(
                     message,
                 )
                 .with_span(span)
-            })?,
-        );
-        let exported_functions = Evaluator::module_namespace_export_functions(&parsed.arena);
-        let exported_let_names = Evaluator::module_namespace_export_let_names(&parsed.arena);
+            })?;
+        module_program.set_binding_namespace(binding_namespace);
+        let module_program = Arc::new(module_program);
 
-        let harvest_text = Evaluator::module_harvest_source(&parsed.arena, &module_text);
-        let harvest_entry = crate::loader::entry_source_from_text(display_path, harvest_text);
-        let (harvest_sources, mut harvest_parsed) =
-            crate::loader::parse_load_entry_source_arena_only(
-                display_path,
-                harvest_entry,
-                module_roots.to_vec(),
-            );
-        let harvest = if harvest_parsed.diagnostics.is_empty() {
-            let harvest_source_id = harvest_sources
-                .files()
-                .first()
-                .map(crate::source::SourceFile::id)
-                .unwrap_or(module_source_id);
-            harvest_parsed.arena.root_nominal_namespace = Some(
-                harvest_parsed
-                    .arena
-                    .symbol_owner()
-                    .with_current(|| Name::intern(key)),
-            );
-            let mut child = Evaluator::new_with_sources(Vec::new(), harvest_sources);
-            let plan = child
-                .prepare_compact_indexed_only(&harvest_parsed.arena, harvest_source_id)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "module-load",
-                        "loaded module could not encode as indexed IR",
-                    )
-                    .with_span(span)
-                })?;
-            Some(PreparedModuleHarvest {
-                plan,
-                shared: child.lowered_shared_state(),
-                _arena: harvest_parsed.arena,
-            })
-        } else {
-            None
-        };
+        let mut child = Evaluator::new_with_sources(Vec::new(), module_sources.clone());
+        child.install_compact_runtime_declarations(&declarations);
+        child.indexed_program = Some(Arc::clone(&module_program));
+        child.module_roots = Arc::clone(module_roots);
+        let harvest = child.lowered_shared_state();
 
         let imported_files = module_sources
             .files()
@@ -1689,7 +1653,7 @@ fn prepare_dynamic_module(
             module_roots: Arc::clone(module_roots),
             entry_bytes,
             imported_files,
-            arena: parsed.arena,
+            arena: file.into_parsed().arena,
             declarations,
             module_program,
             exported_functions,
@@ -3908,7 +3872,10 @@ fn checked_lowered_return_value(
     value: LoweredValue,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
-    let value = lowered_return_value(header.return_kind, value, span)?;
+    let value = match header.return_kind {
+        LoweredReturnKind::Erased => value,
+        kind => lowered_return_value(kind, value, span)?,
+    };
     if let Some(check) = &header.return_check
         && !value_matches_static_type(ValueView::Lowered(&value), &check.ty)
     {
@@ -4001,7 +3968,7 @@ fn validate_parameter_default(
 fn lowered_value_matches_param(
     lowered: &FunctionHeader,
     index: usize,
-    kind: LoweredType,
+    kind: LoweredParamKind,
     value: &LoweredValue,
 ) -> bool {
     if matches!(value, LoweredValue::OmittedArgument) {
@@ -4010,13 +3977,37 @@ fn lowered_value_matches_param(
             .get(index)
             .is_some_and(|default| matches!(default, Some(LoweredValue::OmittedArgument)));
     }
-    lowered_value_matches(kind, value)
+    let physical_type_matches = match kind {
+        LoweredParamKind::Typed(kind) => lowered_value_matches(kind, value),
+        LoweredParamKind::Erased => true,
+    };
+    physical_type_matches
         && lowered_param_check(lowered, index)
             .is_none_or(|check| value_matches_static_type(ValueView::Lowered(value), &check.ty))
 }
 
-fn lowered_param_type_name(lowered: &FunctionHeader, index: usize, kind: LoweredType) -> &str {
-    lowered_param_check(lowered, index).map_or_else(|| lowered_type_name(kind), |check| &check.name)
+fn lowered_param_type_name(
+    lowered: &FunctionHeader,
+    index: usize,
+    kind: LoweredParamKind,
+) -> &str {
+    lowered_param_check(lowered, index).map_or_else(
+        || match kind {
+            LoweredParamKind::Typed(kind) => lowered_type_name(kind),
+            LoweredParamKind::Erased => "generic value",
+        },
+        |check| &check.name,
+    )
+}
+
+fn lowered_param_value_from_runtime(
+    value: &Value,
+    kind: LoweredParamKind,
+) -> Option<LoweredValue> {
+    match kind {
+        LoweredParamKind::Typed(kind) => lowered_value_from_runtime(value, kind),
+        LoweredParamKind::Erased => lowered_value_from_runtime_any(value),
+    }
 }
 
 /// Native parameter slots retain omission independently of a supplied null.
@@ -6908,7 +6899,8 @@ impl Evaluator {
     ) -> Option<Vec<LoweredValue>> {
         let values = if let Some(rest_index) = lowered_rest_index(lowered) {
             if args.len() < lowered_required_arg_count(lowered)
-                || lowered.param_kinds[rest_index] != LoweredType::List
+                || lowered.param_kinds[rest_index]
+                    != LoweredParamKind::Typed(LoweredType::List)
             {
                 return None;
             }
@@ -6922,7 +6914,12 @@ impl Evaluator {
                             .map(lowered_value_from_runtime_any)
                             .collect::<Option<Vec<_>>>()?,
                     );
-                    if !lowered_value_matches_param(lowered, index, LoweredType::List, &value) {
+                    if !lowered_value_matches_param(
+                        lowered,
+                        index,
+                        LoweredParamKind::Typed(LoweredType::List),
+                        &value,
+                    ) {
                         return None;
                     }
                     values.push(value);
@@ -6933,7 +6930,7 @@ impl Evaluator {
                         if !lowered_runtime_arg_matches_param(lowered, index, value) {
                             return None;
                         }
-                        values.push(lowered_value_from_runtime(value, kind)?);
+                        values.push(lowered_param_value_from_runtime(value, kind)?);
                     }
                     None => values.push(lowered.param_defaults.get(index)?.clone()?),
                 }
@@ -6951,7 +6948,7 @@ impl Evaluator {
                         if !lowered_runtime_arg_matches_param(lowered, index, value) {
                             return None;
                         }
-                        values.push(lowered_value_from_runtime(value, kind)?);
+                        values.push(lowered_param_value_from_runtime(value, kind)?);
                     }
                     None => values.push(lowered.param_defaults.get(index)?.clone()?),
                 }
@@ -6976,7 +6973,8 @@ impl Evaluator {
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
         let values = if let Some(rest_index) = lowered_rest_index(lowered) {
             if args.len() < lowered_required_arg_count(lowered)
-                || lowered.param_kinds[rest_index] != LoweredType::List
+                || lowered.param_kinds[rest_index]
+                    != LoweredParamKind::Typed(LoweredType::List)
             {
                 return Err(RuntimeError::new(
                     "arity",
@@ -6988,12 +6986,21 @@ impl Evaluator {
             for (index, kind) in lowered.param_kinds.iter().copied().enumerate() {
                 if index == rest_index {
                     let value = LoweredValue::List(args.get(index..).unwrap_or(&[]).to_vec());
-                    if !lowered_value_matches_param(lowered, index, LoweredType::List, &value) {
+                    if !lowered_value_matches_param(
+                        lowered,
+                        index,
+                        LoweredParamKind::Typed(LoweredType::List),
+                        &value,
+                    ) {
                         return Err(RuntimeError::new(
                             "type-error",
                             format!(
                                 "lowered call expected {}, found List",
-                                lowered_param_type_name(lowered, index, LoweredType::List)
+                                lowered_param_type_name(
+                                    lowered,
+                                    index,
+                                    LoweredParamKind::Typed(LoweredType::List),
+                                )
                             ),
                         )
                         .with_span(span));
@@ -7168,16 +7175,20 @@ impl Evaluator {
     ) -> Result<smallvec::SmallVec<[(usize, LoweredValue); 4]>, RuntimeError> {
         let mut values = smallvec::SmallVec::new();
         for capture in &lowered.captures {
-            let Some(binding) = self.lookup(capture.name) else {
+            let identity = capture.runtime_identity.as_ref().ok_or_else(|| {
+                RuntimeError::new("indexed-ir", "capture has no lexical binding identity")
+                    .with_span(call_span)
+            })?;
+            let binding = self.binding_by_identity(identity);
+            let Some(binding) = binding else {
                 return Err(RuntimeError::new(
                     "unknown-name",
                     format!("unknown captured name `{}`", capture.name),
                 )
                 .with_span(call_span));
             };
-            let Some(value) = self
-                .lookup_lowered_capture(capture.name, capture.kind)
-                .or_else(|| lowered_value_from_runtime_any(&binding.value))
+            let value = lowered_value_from_runtime(&binding.value, capture.kind);
+            let Some(value) = value
             else {
                 let detail = if capture.kind == LoweredType::Module {
                     format!(
@@ -7201,17 +7212,20 @@ impl Evaluator {
                 )
                 .with_span(call_span));
             };
+            if identity.is_script_args()
+                && capture.checked_type.as_ref().is_some_and(|ty| {
+                    !value_matches_static_type(ValueView::Runtime(&binding.value), ty)
+                })
+            {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    "script arguments do not match their checked type",
+                )
+                .with_span(call_span));
+            }
             values.push((capture.slot, value));
         }
         Ok(values)
-    }
-
-    fn lookup_lowered_capture(&self, name: Name, kind: LoweredType) -> Option<LoweredValue> {
-        self.scopes.iter().rev().find_map(|scope| {
-            scope
-                .get(&name)
-                .and_then(|binding| lowered_value_from_runtime(&binding.value, kind))
-        })
     }
 
     fn write_back_lowered_captures(
@@ -7222,11 +7236,12 @@ impl Evaluator {
     ) -> Result<(), RuntimeError> {
         for capture in &lowered.captures {
             if capture.mutable {
-                self.assign(
-                    &capture.name.as_str(),
-                    slots[capture.slot].clone().into_value(),
-                    call_span,
-                )?;
+                let value = slots[capture.slot].clone().into_value();
+                let identity = capture.runtime_identity.as_ref().ok_or_else(|| {
+                    RuntimeError::new("indexed-ir", "capture has no lexical binding identity")
+                        .with_span(call_span)
+                })?;
+                self.assign_binding_identity(identity, value, call_span)?;
             }
         }
         Ok(())
@@ -7599,6 +7614,16 @@ impl Evaluator {
         path: PathValue,
         span: Span,
     ) -> Result<RecordMap, RuntimeError> {
+        let result = self.load_dynamic_module_inner(path, span);
+        self.prune_binding_values();
+        result
+    }
+
+    fn load_dynamic_module_inner(
+        &mut self,
+        path: PathValue,
+        span: Span,
+    ) -> Result<RecordMap, RuntimeError> {
         let module_path = self.host_path(&path);
         let key = crate::loader::module_key(&module_path);
         let display_path = module_path.to_string_lossy().into_owned();
@@ -7675,47 +7700,39 @@ impl Evaluator {
             }
         }
 
-        // Pass 2: run the module file (with top-level `export` stripped) as its
-        // own compact program in a child evaluator to materialize exported `let`
-        // values. The stripped source keeps byte offsets, so `use` imports and
-        // the module's own functions still resolve, and the `let` initializers
-        // execute as ordinary top-level statements.
-        let child_exports = if let Some(harvest) = harvest {
-            self.active_modules.push(key.clone());
-            let mut child = Evaluator::new_lowered_worker(&harvest.shared);
-            child.cwd = self.cwd.clone();
-            child.env = self.env.clone();
-            let child_output =
-                child.run_prepared_module_top_level(&harvest.plan, &exported_let_names);
-            self.active_modules.retain(|active| active != &key);
-            let (record, bindings) = child_output.map_err(|error| error.with_span(span))?;
-            // Make the module's top-level bindings resolvable so its functions
-            // (installed under the module namespace) can read the module-scope
-            // values they capture when invoked.
-            for (name, value) in bindings {
-                if self
-                    .lookup(name)
-                    .is_some_and(|binding| matches!(binding.value, Value::Module(_)))
-                {
-                    continue;
-                }
-                self.define(
-                    name,
-                    super::Binding {
-                        value,
-                        mutable: false,
-                    },
-                );
+        self.active_modules.push(key.clone());
+        let mut child = Evaluator::new_lowered_worker(harvest);
+        child.cwd = self.cwd.clone();
+        child.env = self.env.clone();
+        child.binding_values = Arc::clone(&self.binding_values);
+        child.binding_namespace_leases = self.binding_namespace_leases.clone();
+        child.indexed_dynamic_functions = Arc::clone(&self.indexed_dynamic_functions);
+        child.module_export_signatures = Arc::clone(&self.module_export_signatures);
+        child.module_value_cache = Arc::clone(&self.module_value_cache);
+        child.active_modules = self.active_modules.clone();
+        child.force_frames = self.force_frames;
+        child.route_witness_sink = self.route_witness_sink.clone();
+        child.route_witness_invocation = self.route_witness_invocation.clone();
+        let child_output = child.run_prepared_module_top_level(&exported_let_names, span);
+        self.active_modules.retain(|active| active != &key);
+        let values = child_output.map_err(|error| error.with_span(span))?;
+        self.indexed_dynamic_functions = values.dynamic_functions;
+        self.module_export_signatures = values.export_signatures;
+        self.module_value_cache = values.module_cache;
+        Arc::make_mut(&mut self.binding_values).extend(values.lexical_bindings.iter()
+            .map(|(identity, binding)| (identity.clone(), binding.clone())));
+        for (name, binding) in values.visible_bindings {
+            if self
+                .lookup(name)
+                .is_some_and(|binding| matches!(binding.value, Value::Module(_)))
+            {
+                self.publish_binding_identity(&binding);
+                continue;
             }
-            record
-        } else {
-            RecordMap::new()
-        };
+            self.define(name, binding);
+        }
+        let child_exports = values.exports;
 
-        // Build the export record: exported `let` values from the child run,
-        // plus handles for exported functions under this dynamic module's
-        // private namespace so same-named exports from other loaded files do
-        // not overwrite them.
         let mut record_fields = Vec::with_capacity(
             exported_let_names
                 .len()
@@ -7843,51 +7860,23 @@ impl Evaluator {
         functions
     }
 
-    /// Build a copy of the module source where each top-level `export ` keyword
-    /// is blanked to whitespace (preserving every byte offset, so the arena and
-    /// spans stay valid). Top-level `export let`/`export proc`/`export pure`
-    /// statements are not lowerable as script top level, so for the export-value
-    /// harvest run we strip the `export` wrapper, leaving plain top-level
-    /// statements the compact runner can execute.
-    fn module_harvest_source(arena: &ArenaProgram, text: &str) -> String {
-        const EXPORT_KEYWORD: &[u8] = b"export";
-        let mut bytes = text.as_bytes().to_vec();
-        for stmt in arena.statement_ids() {
-            let crate::syntax::arena::ArenaStmtKind::Export(_inner) = arena.arena.stmt(stmt).kind
-            else {
-                continue;
-            };
-            // The arena's `Export` node shares the inner statement's span, which
-            // starts at the `export` keyword. Blank that keyword (replacing it
-            // with spaces preserves every byte offset, so the re-parsed arena's
-            // spans stay valid) so the harvest run sees a plain top-level
-            // statement the compact runner can execute.
-            let start = arena.arena.stmt(stmt).span.range().start.min(bytes.len());
-            let end = (start + EXPORT_KEYWORD.len()).min(bytes.len());
-            if &text.as_bytes()[start..end] == EXPORT_KEYWORD {
-                for byte in &mut bytes[start..end] {
-                    *byte = b' ';
-                }
-            }
-        }
-        String::from_utf8(bytes).unwrap_or_else(|_| text.to_string())
-    }
-
-    /// Run a module file as a compact top-level program (installing + executing
-    /// its top-level statements) and return the record of its exported `let`
-    /// values. Used by `module.load`.
     fn run_prepared_module_top_level(
         &mut self,
-        plan: &super::CompactIndexedRunPlan,
         exported_let_names: &[Name],
-    ) -> Result<(RecordMap, Vec<(Name, Value)>), RuntimeError> {
+        call_span: Span,
+    ) -> Result<ModuleTopLevelValues, RuntimeError> {
+        let indexed = Arc::clone(self.indexed_program.as_ref()
+            .expect("indexed module program remains installed"));
+        let step_count = indexed.driver_step_count().map_err(|error| {
+            RuntimeError::new("module-load", error.message).with_span(call_span)
+        })?;
         let mut defers = Vec::new();
-        for (index, statement) in plan.statements.iter().enumerate() {
-            let span = statement.span;
-            let indexed = self
-                .indexed_program
-                .as_ref()
-                .expect("indexed module program remains installed");
+        for index in 0..step_count {
+            let span = indexed.driver_step_view(index)
+                .and_then(|view| view.source_span())
+                .map_err(|error| {
+                    RuntimeError::new("module-load", error.message).with_span(call_span)
+                })?;
             if indexed.driver_step_is_skip(index).unwrap_or(false) {
                 continue;
             }
@@ -7913,8 +7902,6 @@ impl Evaluator {
             }
         }
         for (index, span) in defers.into_iter().rev() {
-            // Every statement succeeded, so the module's top level is not
-            // leaving with an error and its `errdefer` actions do not run.
             let on_error = self
                 .indexed_program
                 .as_ref()
@@ -7929,26 +7916,30 @@ impl Evaluator {
                     .with_span(span)
             })??;
         }
-        // Collect exported `let` values for the export record, and the child
-        // top-level bindings so the caller can make the module's functions
-        // resolve captured module-scope values and imported namespaces.
         let mut record_fields = Vec::with_capacity(exported_let_names.len());
         for name in exported_let_names {
             if let Some(binding) = self.lookup(*name) {
                 record_fields.push((*name, binding.value.clone()));
             }
         }
-        let bindings = self
+        let visible_bindings = self
             .scopes
             .last()
             .map(|scope| {
                 scope
                     .iter()
-                    .map(|(name, binding)| (*name, binding.value.clone()))
+                    .map(|(name, binding)| (*name, binding.clone()))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        Ok((RecordMap::from_name_values(record_fields), bindings))
+        Ok(ModuleTopLevelValues {
+            exports: RecordMap::from_name_values(record_fields),
+            visible_bindings,
+            lexical_bindings: Arc::clone(&self.binding_values),
+            dynamic_functions: Arc::clone(&self.indexed_dynamic_functions),
+            export_signatures: Arc::clone(&self.module_export_signatures),
+            module_cache: Arc::clone(&self.module_value_cache),
+        })
     }
 
     /// Runs a byte pipeline whose head is `run.text`, `run.bytes`, or

@@ -258,6 +258,33 @@ impl Evaluator {
         }
     }
 
+    pub(super) fn eval_indexed_registered_method_dispatch(
+        &mut self,
+        plan: &crate::sema::schemes::RegisteredCallPlan,
+        receiver: LoweredValue,
+        values: Vec<LoweredValue>,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let value = if self.trace_enabled {
+            use crate::modules::MethodReceiver;
+            let domain = match plan.receiver.expect("verified registered method has a receiver") {
+                MethodReceiver::NonEmpty => MethodReceiver::List,
+                MethodReceiver::RelPath => MethodReceiver::Path,
+                domain => domain,
+            };
+            let trace_name = format!("{}.{}", xsh_registry::signature::receiver_name(domain), plan.name);
+            self.trace_enter(TraceKind::MethodCall, Some(span), Some(&trace_name), TracePayload::None);
+            let result = super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span);
+            self.trace_exit(TraceKind::MethodResult, Some(span), Some(&trace_name), TracePayload::None);
+            result?
+        } else {
+            super::super::super::lowered_ops::lowered_registered_method_value(plan, receiver, values, span)?
+        };
+        let mut result = ControlFlow::Continue(value);
+        self.register_returned_lowered_streams(&mut result, span)?;
+        Ok(result)
+    }
+
     /// Dispatches a method call, tracing it when a tool asked for events.
     pub(super) fn eval_indexed_method_dispatch(
         &mut self,

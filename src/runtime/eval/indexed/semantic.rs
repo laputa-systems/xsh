@@ -10,6 +10,33 @@ use std::mem::size_of;
 const PARAM_DEFAULTED: u32 = 1;
 const PARAM_REST: u32 = 1 << 1;
 const MODULE_EXPORT_OPTIONAL: u32 = 1 << 2;
+const MAX_SEMANTIC_TYPE_DEPTH: usize = 256;
+const MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK: usize = 100_000;
+
+#[derive(Default)]
+pub(super) struct TypeMaterializationBudget {
+    expanded_nodes: usize,
+}
+
+impl TypeMaterializationBudget {
+    fn enter(&mut self, depth: usize) -> Result<(), IrVerifyError> {
+        if depth > MAX_SEMANTIC_TYPE_DEPTH {
+            return Err(IrVerifyError::new("semantic type nesting is too deep"));
+        }
+        self.charge(1)
+    }
+
+    fn charge(&mut self, amount: usize) -> Result<(), IrVerifyError> {
+        self.expanded_nodes = self
+            .expanded_nodes
+            .checked_add(amount)
+            .filter(|expanded| *expanded <= MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK)
+            .ok_or_else(|| {
+                IrVerifyError::new("semantic type materialization exceeds its work limit")
+            })?;
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
@@ -167,10 +194,48 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
     }
 
+    #[cfg(test)]
+    pub(super) fn set_module_export_payload_for_test(
+        &mut self,
+        module: TypeId,
+        name: Name,
+        payload: u32,
+    ) -> Result<(), IrVerifyError> {
+        if !matches!(self.type_tag(module)?, TypeTag::Module | TypeTag::ExactModule) {
+            return Err(IrVerifyError::new("type id does not denote a module"));
+        }
+        let data = self.type_data[module.index()];
+        let shape = ShapeId::from_raw(data.lhs)
+            .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
+        let field_index = self
+            .shape_fields(shape)?
+            .iter()
+            .position(|field| *field == name)
+            .ok_or_else(|| IrVerifyError::new("module export name is absent"))?;
+        let offset = (data.rhs as usize)
+            .checked_add(
+                field_index
+                    .checked_mul(2)
+                    .and_then(|index| index.checked_add(1))
+                    .ok_or_else(|| IrVerifyError::new("module export payload offset overflows"))?,
+            )
+            .ok_or_else(|| IrVerifyError::new("module export payload offset overflows"))?;
+        let word = self
+            .type_extra
+            .get_mut(offset)
+            .ok_or_else(|| IrVerifyError::new("module export payload is out of bounds"))?;
+        *word = payload;
+        Ok(())
+    }
+
     pub(super) fn signature_return_type(&self, id: SignatureId) -> Result<TypeId, IrVerifyError> {
         let payload = self.signature_payload(id)?;
         TypeId::from_raw(payload[0])
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
+    }
+
+    pub(super) fn signature_effects_empty(&self, id: SignatureId) -> Result<bool, IrVerifyError> {
+        Ok(signature_effect_count(self.signature_payload(id)?)? == 0)
     }
 
     pub(super) fn signature_has_error_effect(
@@ -338,6 +403,7 @@ impl SemanticPools {
                                 IrVerifyError::new("module callable type id overflows")
                             })
                         }
+                        3 if export[1] == IR_NONE => Ok(None),
                         _ => Err(IrVerifyError::new("module export kind is invalid")),
                     }
                 }
@@ -359,6 +425,32 @@ impl SemanticPools {
         TypeId::from_raw(self.type_data[id.index()].lhs)
             .map(Some)
             .ok_or_else(|| IrVerifyError::new("optional payload type id is invalid"))
+    }
+
+    pub(super) fn list_item_type_id(
+        &self,
+        mut id: TypeId,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        for depth in 0..=MAX_SEMANTIC_TYPE_DEPTH {
+            match self.type_tag(id)? {
+                TypeTag::Validated | TypeTag::Nominal => {
+                    id = verify_type_raw(self, self.type_data[id.index()].lhs, Some(id.index()))?;
+                    if depth == MAX_SEMANTIC_TYPE_DEPTH {
+                        return Err(IrVerifyError::new("semantic type nesting is too deep"));
+                    }
+                }
+                TypeTag::List => {
+                    return verify_type_raw(
+                        self,
+                        self.type_data[id.index()].lhs,
+                        Some(id.index()),
+                    )
+                    .map(Some);
+                }
+                _ => return Ok(None),
+            }
+        }
+        Err(IrVerifyError::new("semantic type nesting is too deep"))
     }
 
     /// The signature of a typed callable type.
@@ -506,20 +598,26 @@ impl SemanticPools {
     }
 
     pub(super) fn to_type(&self, id: TypeId) -> Result<Type, IrVerifyError> {
-        self.to_type_inner(id, 0)
+        self.to_type_with_budget(id, &mut TypeMaterializationBudget::default())
     }
 
-    fn to_type_inner(&self, id: TypeId, depth: usize) -> Result<Type, IrVerifyError> {
-        if depth > self.type_tags.len() {
-            return Err(IrVerifyError::new("type graph contains a cycle"));
-        }
+    pub(super) fn to_type_with_budget(
+        &self,
+        id: TypeId,
+        budget: &mut TypeMaterializationBudget,
+    ) -> Result<Type, IrVerifyError> {
+        self.to_type_inner(id, 0, budget)
+    }
+
+    fn to_type_inner(
+        &self,
+        id: TypeId,
+        depth: usize,
+        budget: &mut TypeMaterializationBudget,
+    ) -> Result<Type, IrVerifyError> {
+        budget.enter(depth)?;
         let tag = self.type_tag(id)?;
         let data = self.type_data[id.index()];
-        let child = |raw: u32| {
-            TypeId::from_raw(raw)
-                .ok_or_else(|| IrVerifyError::new("type child id is invalid"))
-                .and_then(|id| self.to_type_inner(id, depth + 1))
-        };
         Ok(match tag {
             TypeTag::Any => Type::Any,
             TypeTag::ErasedRecord => Type::ErasedRecord,
@@ -535,15 +633,18 @@ impl SemanticPools {
             TypeTag::Digest => Type::Digest,
             TypeTag::Regex => Type::Regex,
             TypeTag::Path => Type::Path,
-            TypeTag::List => Type::List(Box::new(child(data.lhs)?)),
-            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
-            TypeTag::Stream => Type::Stream(Box::new(child(data.lhs)?)),
-            TypeTag::Set => Type::Set(Box::new(child(data.lhs)?)),
+            TypeTag::List => Type::List(Box::new(self.to_type_child(data.lhs, depth, budget)?)),
+            TypeTag::Map => Type::Map(
+                Box::new(self.to_type_child(data.lhs, depth, budget)?),
+                Box::new(self.to_type_child(data.rhs, depth, budget)?),
+            ),
+            TypeTag::Stream => Type::Stream(Box::new(self.to_type_child(data.lhs, depth, budget)?)),
+            TypeTag::Set => Type::Set(Box::new(self.to_type_child(data.lhs, depth, budget)?)),
             TypeTag::Record => {
                 let (names, raw_types) = self.record_fields(id)?;
                 let mut fields = BTreeMap::new();
                 for (name, raw) in names.iter().copied().zip(raw_types.iter().copied()) {
-                    fields.insert(name, child(raw)?);
+                    fields.insert(name, self.to_type_child(raw, depth, budget)?);
                 }
                 Type::Record(fields.into())
             }
@@ -565,27 +666,32 @@ impl SemanticPools {
                     let optional = export[0] & MODULE_EXPORT_OPTIONAL != 0;
                     let value = match export[0] & 0b11 {
                         0 => ModuleExportType::Value {
-                            ty: child(export[1])?,
+                            ty: self.to_type_child(export[1], depth, budget)?,
                             optional,
                         },
                         1 => ModuleExportType::Proc {
-                            sig: self.to_signature(
+                            sig: self.to_signature_with_budget(
                                 SignatureId::from_raw(export[1]).ok_or_else(|| {
                                     IrVerifyError::new("module proc signature id is invalid")
                                 })?,
                                 depth + 1,
+                                budget,
                             )?,
                             optional,
                         },
                         2 => ModuleExportType::Pure {
-                            sig: self.to_signature(
+                            sig: self.to_signature_with_budget(
                                 SignatureId::from_raw(export[1]).ok_or_else(|| {
                                     IrVerifyError::new("module pure signature id is invalid")
                                 })?,
                                 depth + 1,
+                                budget,
                             )?,
                             optional,
                         },
+                        3 if export[1] == IR_NONE => {
+                            ModuleExportType::GenericPure { optional }
+                        }
                         _ => {
                             return Err(IrVerifyError::new("module export kind is invalid"));
                         }
@@ -597,7 +703,10 @@ impl SemanticPools {
                     exact: tag == TypeTag::ExactModule,
                 }))
             }
-            TypeTag::Result => Type::Result(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
+            TypeTag::Result => Type::Result(
+                Box::new(self.to_type_child(data.lhs, depth, budget)?),
+                Box::new(self.to_type_child(data.rhs, depth, budget)?),
+            ),
             TypeTag::Status => Type::Status,
             TypeTag::EnvPathList => Type::EnvPathList,
             TypeTag::Error => Type::Error,
@@ -615,7 +724,11 @@ impl SemanticPools {
             TypeTag::TypedProc | TypeTag::TypedPure => {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
                     pure: tag == TypeTag::TypedPure,
-                    sig: self.to_signature(self.typed_callable_signature(id)?, depth + 1)?,
+                    sig: self.to_signature_with_budget(
+                        self.typed_callable_signature(id)?,
+                        depth + 1,
+                        budget,
+                    )?,
                 }))
             }
             TypeTag::Command => Type::Command,
@@ -625,12 +738,18 @@ impl SemanticPools {
             TypeTag::FsLock => Type::FsLock,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
-            TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
+            TypeTag::Optional => {
+                Type::Optional(Box::new(self.to_type_child(data.lhs, depth, budget)?))
+            }
             TypeTag::Validated => {
                 let validation = Validation::from_code(data.rhs)
                     .ok_or_else(|| IrVerifyError::new("validated type names no validation"))?;
                 Type::Validated(Box::new(
-                    ValidatedType::new(validation, child(data.lhs)?).map_err(|_| {
+                    ValidatedType::new(
+                        validation,
+                        self.to_type_child(data.lhs, depth, budget)?,
+                    )
+                    .map_err(|_| {
                         IrVerifyError::new("validated type has a base its validation rejects")
                     })?,
                 ))
@@ -638,7 +757,7 @@ impl SemanticPools {
             TypeTag::Nominal => Type::Validated(Box::new(
                 ValidatedType::new(
                     Validation::Nominal(Name::from_symbol(Symbol::from_raw(data.rhs))),
-                    child(data.lhs)?,
+                    self.to_type_child(data.lhs, depth, budget)?,
                 )
                 .map_err(|_| IrVerifyError::new("nominal type is not over a record type"))?,
             )),
@@ -646,25 +765,54 @@ impl SemanticPools {
                 let (low, high) = self.bounds(id)?;
                 let range = crate::sema::validated::IntRange::new(low, high)
                     .ok_or_else(|| IrVerifyError::new("bounded type admits no value"))?;
-                Type::bounded(range, child(data.lhs)?).map_err(|_| {
+                Type::bounded(range, self.to_type_child(data.lhs, depth, budget)?).map_err(|_| {
                     IrVerifyError::new("bounded type has a base its bounds do not fit")
                 })?
             }
-            TypeTag::Union => Type::Union(
-                self.union_members(id)?
-                    .iter()
-                    .map(|raw| child(*raw))
-                    .collect::<Result<_, _>>()?,
-            ),
+            TypeTag::Union => {
+                let mut members = Vec::new();
+                for raw in self.union_members(id)? {
+                    members.push(self.to_type_child(*raw, depth, budget)?);
+                }
+                Type::Union(members)
+            }
         })
     }
 
-    fn to_signature(&self, id: SignatureId, depth: usize) -> Result<CallableType, IrVerifyError> {
-        if depth > self.type_tags.len() + self.signature_data.len() {
-            return Err(IrVerifyError::new("semantic graph contains a cycle"));
-        }
+    fn to_type_child(
+        &self,
+        raw: u32,
+        depth: usize,
+        budget: &mut TypeMaterializationBudget,
+    ) -> Result<Type, IrVerifyError> {
+        let id = TypeId::from_raw(raw)
+            .ok_or_else(|| IrVerifyError::new("type child id is invalid"))?;
+        self.to_type_inner(id, depth + 1, budget)
+    }
+
+    fn to_signature(
+        &self,
+        id: SignatureId,
+        depth: usize,
+    ) -> Result<CallableType, IrVerifyError> {
+        self.to_signature_with_budget(id, depth, &mut TypeMaterializationBudget::default())
+    }
+
+    fn to_signature_with_budget(
+        &self,
+        id: SignatureId,
+        depth: usize,
+        budget: &mut TypeMaterializationBudget,
+    ) -> Result<CallableType, IrVerifyError> {
+        budget.enter(depth)?;
         let payload = self.signature_payload(id)?;
         let effect_count = signature_effect_count(payload)?;
+        let param_count = payload[2] as usize;
+        budget.charge(
+            effect_count
+                .checked_add(param_count)
+                .ok_or_else(|| IrVerifyError::new("semantic signature expansion overflows"))?,
+        )?;
         let effects = if payload[1] == IR_NONE {
             None
         } else {
@@ -683,7 +831,7 @@ impl SemanticPools {
             }
             Some(effects)
         };
-        let mut params = Vec::with_capacity(payload[2] as usize);
+        let mut params = Vec::with_capacity(param_count);
         for raw in payload[3 + effect_count..].as_chunks::<3>().0 {
             params.push(CallableParamType {
                 name: Name::from_symbol(Symbol::from_raw(raw[0])),
@@ -691,6 +839,7 @@ impl SemanticPools {
                     TypeId::from_raw(raw[1])
                         .ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?,
                     depth + 1,
+                    budget,
                 )?,
                 defaulted: raw[2] & PARAM_DEFAULTED != 0,
                 rest: raw[2] & PARAM_REST != 0,
@@ -703,6 +852,7 @@ impl SemanticPools {
                     TypeId::from_raw(payload[0])
                         .ok_or_else(|| IrVerifyError::new("return type id is invalid"))?,
                     depth + 1,
+                    budget,
                 )?,
             ),
             effects,
@@ -711,8 +861,8 @@ impl SemanticPools {
 
     #[cfg(test)]
     fn display_type_inner(&self, id: TypeId, depth: usize) -> Result<String, IrVerifyError> {
-        if depth > self.type_tags.len() {
-            return Err(IrVerifyError::new("type graph contains a cycle"));
+        if depth > MAX_SEMANTIC_TYPE_DEPTH {
+            return Err(IrVerifyError::new("semantic type nesting is too deep"));
         }
         let tag = self.type_tag(id)?;
         let data = self.type_data[id.index()];
@@ -796,7 +946,9 @@ impl SemanticPools {
                 Name::from_symbol(Symbol::from_raw(data.rhs))
             )),
             TypeTag::Validated | TypeTag::Nominal | TypeTag::Bounded => {
-                Ok(self.to_type_inner(id, depth)?.to_string())
+                Ok(self
+                    .to_type_inner(id, depth, &mut TypeMaterializationBudget::default())?
+                    .to_string())
             }
             TypeTag::Union => {
                 let mut members = Vec::new();
@@ -808,7 +960,9 @@ impl SemanticPools {
                 Ok(format!("Union[{}]", members.join(", ")))
             }
             TypeTag::TypedProc | TypeTag::TypedPure => {
-                Ok(self.to_type_inner(id, depth)?.to_string())
+                Ok(self
+                    .to_type_inner(id, depth, &mut TypeMaterializationBudget::default())?
+                    .to_string())
             }
             _ => Err(IrVerifyError::new("type tag has no display schema")),
         }
@@ -1042,10 +1196,16 @@ impl SemanticPools {
                         .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                     for export in exports.as_chunks::<2>().0 {
                         let kind = export[0] & 0b11;
-                        if export[0] & !(0b11 | MODULE_EXPORT_OPTIONAL) != 0 || kind > 2 {
+                        if export[0] & !(0b11 | MODULE_EXPORT_OPTIONAL) != 0 {
                             return Err(IrVerifyError::new("module export flags are invalid"));
                         }
-                        if kind == 0 {
+                        if kind == 3 {
+                            if export[1] != IR_NONE {
+                                return Err(IrVerifyError::new(
+                                    "generic pure module export has a payload",
+                                ));
+                            }
+                        } else if kind == 0 {
                             verify_type_raw(self, export[1], Some(index))?;
                         } else {
                             let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
@@ -1159,6 +1319,14 @@ struct SignatureParamKey {
     name: Name,
     ty: TypeId,
     flags: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SignatureParamParts {
+    pub(super) name: Name,
+    pub(super) ty: TypeId,
+    pub(super) defaulted: bool,
+    pub(super) rest: bool,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -1277,6 +1445,10 @@ impl SemanticPoolBuilder {
                         ModuleExportType::Pure { sig, optional } => {
                             words.push(2 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
                             words.push(self.intern_signature(pools, sig)?.raw());
+                        }
+                        ModuleExportType::GenericPure { optional } => {
+                            words.push(3 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
+                            words.push(IR_NONE);
                         }
                     }
                 }
@@ -1411,18 +1583,12 @@ impl SemanticPoolBuilder {
         let return_type = self.intern_type(pools, &signature.return_ty)?;
         let mut params = Vec::with_capacity(signature.params.len());
         for param in &signature.params {
-            let mut flags = 0;
-            if param.defaulted {
-                flags |= PARAM_DEFAULTED;
-            }
-            if param.rest {
-                flags |= PARAM_REST;
-            }
-            params.push(SignatureParamKey {
+            params.push(Self::signature_param_key(SignatureParamParts {
                 name: param.name,
                 ty: self.intern_type(pools, &param.ty)?,
-                flags,
-            });
+                defaulted: param.defaulted,
+                rest: param.rest,
+            }));
         }
         let effects = normalized_effects(signature.effects.as_deref());
         self.intern_signature_key(
@@ -1438,17 +1604,14 @@ impl SemanticPoolBuilder {
     pub(super) fn intern_signature_parts(
         &mut self,
         pools: &mut SemanticPools,
-        params: &[(Name, TypeId, u32)],
+        params: &[SignatureParamParts],
         return_type: TypeId,
         effects: Option<&[Effect]>,
     ) -> Result<SignatureId, IrBuildError> {
         let params = params
             .iter()
-            .map(|(name, ty, flags)| SignatureParamKey {
-                name: *name,
-                ty: *ty,
-                flags: *flags,
-            })
+            .copied()
+            .map(Self::signature_param_key)
             .collect::<Vec<_>>()
             .into_boxed_slice();
         let effects = normalized_effects(effects);
@@ -1460,6 +1623,16 @@ impl SemanticPoolBuilder {
                 params,
             },
         )
+    }
+
+    fn signature_param_key(param: SignatureParamParts) -> SignatureParamKey {
+        let flags = u32::from(param.defaulted) * PARAM_DEFAULTED
+            | u32::from(param.rest) * PARAM_REST;
+        SignatureParamKey {
+            name: param.name,
+            ty: param.ty,
+            flags,
+        }
     }
 
     fn unary(
@@ -1581,6 +1754,217 @@ mod tests {
     use super::*;
     use crate::sema::types::{CallableParamType, CallableType};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn to_type_rejects_semantic_type_graphs_beyond_nesting_limit() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let mut inner = TypeId::new(0).unwrap();
+        for _ in 0..=MAX_SEMANTIC_TYPE_DEPTH {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::List);
+            pools.type_data.push(IrData::new(inner.raw(), 0));
+            inner = id;
+        }
+        pools.verify().unwrap();
+        assert!(pools
+            .to_type(inner)
+            .unwrap_err()
+            .message
+            .contains("type nesting"));
+    }
+
+    #[test]
+    fn to_type_accepts_semantic_type_graph_at_nesting_limit() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let mut inner = TypeId::new(0).unwrap();
+        for _ in 0..MAX_SEMANTIC_TYPE_DEPTH {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::List);
+            pools.type_data.push(IrData::new(inner.raw(), 0));
+            inner = id;
+        }
+        pools.verify().unwrap();
+        let mut expected = Type::Int;
+        for _ in 0..MAX_SEMANTIC_TYPE_DEPTH {
+            expected = Type::List(Box::new(expected));
+        }
+        assert_eq!(pools.to_type(inner).unwrap(), expected);
+    }
+
+    #[test]
+    fn to_type_rejects_exponential_expansion_of_shared_type_graphs() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let mut inner = TypeId::new(0).unwrap();
+        let mut expanded_nodes = 1usize;
+        while expanded_nodes <= MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::Result);
+            pools
+                .type_data
+                .push(IrData::new(inner.raw(), inner.raw()));
+            inner = id;
+            expanded_nodes = 1 + 2 * expanded_nodes;
+        }
+        pools.verify().unwrap();
+        assert!(pools
+            .to_type(inner)
+            .unwrap_err()
+            .message
+            .contains("work limit"));
+    }
+
+    #[test]
+    fn list_item_type_id_reads_outer_shape_without_expanding_shared_item() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let mut item = TypeId::new(0).unwrap();
+        let mut expanded_nodes = 1usize;
+        while expanded_nodes <= MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::Result);
+            pools
+                .type_data
+                .push(IrData::new(item.raw(), item.raw()));
+            item = id;
+            expanded_nodes = 1 + 2 * expanded_nodes;
+        }
+        let list = TypeId::new(pools.type_tags.len()).unwrap();
+        pools.type_tags.push(TypeTag::List);
+        pools.type_data.push(IrData::new(item.raw(), 0));
+        pools.verify().unwrap();
+
+        assert!(pools
+            .to_type(list)
+            .unwrap_err()
+            .message
+            .contains("work limit"));
+        assert_eq!(pools.list_item_type_id(list).unwrap(), Some(item));
+    }
+
+    #[test]
+    fn list_item_type_id_unwraps_validated_lists_and_returns_none_for_other_types() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let int = TypeId::new(0).unwrap();
+        let list = TypeId::new(pools.type_tags.len()).unwrap();
+        pools.type_tags.push(TypeTag::List);
+        pools.type_data.push(IrData::new(int.raw(), 0));
+        let validated = TypeId::new(pools.type_tags.len()).unwrap();
+        pools.type_tags.push(TypeTag::Validated);
+        pools.type_data.push(IrData::new(
+            list.raw(),
+            Validation::NonEmpty.code().unwrap(),
+        ));
+        pools.verify().unwrap();
+
+        assert_eq!(pools.list_item_type_id(validated).unwrap(), Some(int));
+        assert_eq!(pools.list_item_type_id(int).unwrap(), None);
+    }
+
+    #[test]
+    fn list_item_type_id_rejects_invalid_and_cyclic_type_references() {
+        let pools = SemanticPools::default();
+        assert!(pools
+            .list_item_type_id(TypeId::new(0).unwrap())
+            .unwrap_err()
+            .message
+            .contains("out of bounds"));
+
+        let mut cyclic = SemanticPools::default();
+        let id = TypeId::new(0).unwrap();
+        cyclic.type_tags.push(TypeTag::Validated);
+        cyclic.type_data.push(IrData::new(
+            id.raw(),
+            Validation::NonEmpty.code().unwrap(),
+        ));
+        assert!(cyclic
+            .list_item_type_id(id)
+            .unwrap_err()
+            .message
+            .contains("does not precede"));
+    }
+
+    #[test]
+    fn list_item_type_id_enforces_semantic_nesting_limit() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let int = TypeId::new(0).unwrap();
+        let mut nested = TypeId::new(pools.type_tags.len()).unwrap();
+        pools.type_tags.push(TypeTag::List);
+        pools.type_data.push(IrData::new(int.raw(), 0));
+        let validation = Validation::NonEmpty.code().unwrap();
+        for _ in 0..=MAX_SEMANTIC_TYPE_DEPTH {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::Validated);
+            pools.type_data.push(IrData::new(nested.raw(), validation));
+            nested = id;
+        }
+
+        assert!(pools
+            .list_item_type_id(nested)
+            .unwrap_err()
+            .message
+            .contains("nesting is too deep"));
+    }
+
+    #[test]
+    fn to_type_shared_budget_limits_aggregate_type_materialization() {
+        let mut pools = SemanticPools::default();
+        pools.type_tags.push(TypeTag::Int);
+        pools.type_data.push(IrData::ZERO);
+        let mut inner = TypeId::new(0).unwrap();
+        let mut expanded_nodes = 1usize;
+        while expanded_nodes <= MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK / 2 {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::Result);
+            pools
+                .type_data
+                .push(IrData::new(inner.raw(), inner.raw()));
+            inner = id;
+            expanded_nodes = 1 + 2 * expanded_nodes;
+        }
+        pools.verify().unwrap();
+
+        let mut budget = TypeMaterializationBudget::default();
+        assert!(pools.to_type_with_budget(inner, &mut budget).is_ok());
+        assert!(pools.to_type(inner).is_ok());
+        assert!(pools
+            .to_type_with_budget(inner, &mut budget)
+            .unwrap_err()
+            .message
+            .contains("work limit"));
+    }
+
+    #[test]
+    fn to_type_rejects_wide_union_beyond_materialization_work_limit() {
+        let mut pools = SemanticPools::default();
+        let member_count = MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK;
+        let offset = pools.type_extra.len() as u32;
+        for index in 0..member_count {
+            let id = TypeId::new(pools.type_tags.len()).unwrap();
+            pools.type_tags.push(TypeTag::Tag);
+            pools.type_data.push(IrData::new(index as u32 + 32, 0));
+            pools.type_extra.push(id.raw());
+        }
+        let union = TypeId::new(pools.type_tags.len()).unwrap();
+        pools.type_tags.push(TypeTag::Union);
+        pools.type_data.push(IrData::new(member_count as u32, offset));
+
+        assert!(pools
+            .to_type(union)
+            .unwrap_err()
+            .message
+            .contains("work limit"));
+    }
 
     fn module_type(
         exports: BTreeMap<Name, ModuleExportType>,
@@ -1733,8 +2117,6 @@ mod tests {
         pools.verify().unwrap();
     }
 
-    // Exactness is part of a module type's identity: it survives the pool,
-    // and an exact payload is verified like an open one.
     #[test]
     fn exact_module_types_keep_their_exactness_and_are_verified() {
         use crate::sema::types::ModuleType;
@@ -1758,7 +2140,7 @@ mod tests {
 
         let mut corrupted = pools.clone();
         let payload = corrupted.type_data[exact_id.index()].rhs as usize;
-        corrupted.type_extra[payload] = 3;
+        corrupted.type_extra[payload] = 1 << 3;
         assert!(
             corrupted
                 .verify()
@@ -1766,6 +2148,32 @@ mod tests {
                 .message
                 .contains("module export flags are invalid")
         );
+    }
+
+    #[test]
+    fn generic_pure_module_exports_reject_payloads() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
+                BTreeMap::from([(
+                    Name::intern("identity"),
+                    ModuleExportType::GenericPure { optional: false },
+                )]),
+            )));
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            let id = builder.intern_type(&mut pools, &module).unwrap();
+            pools.verify().unwrap();
+            assert_eq!(pools.to_type(id).unwrap(), module);
+
+            let payload = pools.type_data[id.index()].rhs as usize + 1;
+            assert_eq!(pools.type_extra[payload], IR_NONE);
+            let mut corrupted = pools.clone();
+            corrupted.type_extra[payload] = 0;
+            assert_eq!(
+                corrupted.verify().unwrap_err().message,
+                "generic pure module export has a payload"
+            );
+        });
     }
 
     #[test]

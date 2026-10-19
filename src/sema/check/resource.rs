@@ -47,6 +47,35 @@ fn check_scopes<'a>(
     view: &CheckBundleView<'a>,
     modules: Vec<&'a ArenaUserModule>,
 ) -> ResourceCheck {
+    let scheme_body_resource_facts = checker
+        .declaration_inference
+        .pending_entries()
+        .flat_map(|(_, signature)| {
+            let expression_types = signature
+                .generalized_body_types()
+                .into_iter()
+                .flat_map(|types| {
+                    types.iter().filter_map(|(&expression, ty)| {
+                        ty.contains_parameter().then_some((
+                            view.program.arena.expr(expression).span,
+                            ty.may_hold_resource(),
+                        ))
+                    })
+                });
+            let tail_types = signature
+                .generalized_tail_types()
+                .into_iter()
+                .flat_map(|types| {
+                    types.iter().filter_map(|(&statement, ty)| {
+                        ty.contains_parameter().then_some((
+                            view.program.arena.stmt(statement).span,
+                            ty.may_hold_resource(),
+                        ))
+                    })
+                });
+            expression_types.chain(tail_types)
+        })
+        .collect();
     Analyzer {
         checker,
         program: view.program,
@@ -56,6 +85,7 @@ fn check_scopes<'a>(
         diagnostics: Vec::new(),
         transfers: FxHashMap::default(),
         suppressed_body_transfers: FxHashMap::default(),
+        scheme_body_resource_facts,
         diagnosed: FxHashSet::default(),
         cancel_calls: std::cell::OnceCell::new(),
         value_sites_by_binding: std::cell::OnceCell::new(),
@@ -73,6 +103,7 @@ struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     transfers: ResourceTransferFacts,
     suppressed_body_transfers: ResourceTransferFacts,
+    scheme_body_resource_facts: FxHashMap<Span, bool>,
     diagnosed: FxHashSet<(BindingId, Span)>,
     // The three tables below index checker facts that every statement of every
     // scope would otherwise rescan in full, which is quadratic in the program.
@@ -423,7 +454,7 @@ impl Analyzer<'_> {
                     ArenaStmtKind::TailBareIdent(_)
                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
                             *position == super::StatementPosition::Value
-                        ) => self.checker.expr_types.get(&node.span).map(Type::may_hold_resource),
+                        ) => self.expression_may_hold_resource(node.span),
                     ArenaStmtKind::Match { arms, .. }
                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
                             *position == super::StatementPosition::Value
@@ -475,12 +506,20 @@ impl Analyzer<'_> {
 
     fn expr_or_run_may_hold(&self, value: ArenaExprOrRun) -> Option<bool> {
         let span = super::expr::expr_or_run_span_arena(self.program, value);
-        self.checker.expr_types.get(&span).map(Type::may_hold_resource)
+        self.expression_may_hold_resource(span)
     }
 
     fn expr_may_hold(&self, expr: ExprId) -> Option<bool> {
         let span = self.program.arena.expr(expr).span;
-        self.checker.expr_types.get(&span).map(Type::may_hold_resource)
+        self.expression_may_hold_resource(span)
+    }
+
+    fn expression_may_hold_resource(&self, span: Span) -> Option<bool> {
+        self.checker
+            .expr_types
+            .get(&span)
+            .map(Type::may_hold_resource)
+            .or_else(|| self.scheme_body_resource_facts.get(&span).copied())
     }
 
     fn report_released_mentions(
@@ -821,7 +860,7 @@ mod tests {
         program
             .statement_ids()
             .find_map(|stmt| match program.arena.stmt(stmt).kind {
-                ArenaStmtKind::ProcDef(function)
+                ArenaStmtKind::ProcDef(function) | ArenaStmtKind::PureDef(function)
                     if program.arena.function_def(function).name.as_str() == name =>
                 {
                     Some(program.arena.function_def(function).body)
@@ -914,6 +953,47 @@ mod tests {
         assert_eq!(compact.bodies.resource_transfer(resource_return), Some(true));
         assert_eq!(compact.bodies.resource_transfer(bare_tail), Some(true));
         assert_eq!(compact.bodies.resource_transfer(scalar_return), Some(false));
+    }
+
+    #[test]
+    fn generic_body_resource_transfer_uses_its_scheme_fact() {
+        let source = "pure identity(value) { value }\n";
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        let checked = Checker::check_arena_with_options(
+            &program,
+            source,
+            super::super::CheckOptions {
+                embedded_bodies: true,
+                ..super::super::CheckOptions::default()
+            },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let body = function_body(&program, "identity");
+        let tail = program
+            .arena
+            .stmt_ids(program.arena.block(body).statements)
+            .last()
+            .expect("identity has a tail value");
+        let tail_span = program.arena.stmt(tail).span;
+        assert!(!checked.expr_types.contains_key(&tail_span));
+        assert_eq!(
+            checked.resource_transfer(ResourceTransferSite::BlockValue(body)),
+            Some(true)
+        );
+        let declaration = checked
+            .checked_declarations
+            .functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "identity")
+            .expect("checked identity declaration");
+        assert!(declaration
+            .scheme_body_facts
+            .as_ref()
+            .expect("generic identity body facts")
+            .tail_types()
+            .values()
+            .any(|ty| matches!(ty, crate::sema::schemes::SchemeType::Parameter(_))));
     }
 
     #[test]

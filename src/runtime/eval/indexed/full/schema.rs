@@ -3,19 +3,57 @@ use super::{
     BuildPatternIdSlots, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution,
+    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
     FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
-    LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredTypeCheck,
+    LoweredBindingIdentity, LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot,
+    LoweredType, LoweredTypeCheck,
     LoweredValue, Name, NameText, PathValue,
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
     Type, text_hole_kind, verify_node_metadata,
 };
 use super::decode::{ListView, TextHoleKinds, TextPatternFields, TextPatternSegments};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum FullSchemeTypeTag {
+    Ground,
+    Parameter,
+    List,
+    Map,
+    Stream,
+    Set,
+    Result,
+    Optional,
+    Record,
+    Union,
+    Validated,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum FullSchemeValidationTag {
+    NonEmpty,
+    RelPath,
+    Nominal,
+    Range,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum FullSchemeSchemaComponentTag {
+    Field,
+    Item,
+    Value,
+    Key,
+    Optional,
+    Success,
+    Error,
+}
 
 macro_rules! ignore_field {
     ($field:ident) => { _ };
@@ -25,6 +63,7 @@ macro_rules! instruction_decoder_method {
     (ExprView, $method:item) => { $method };
     (StmtView, $method:item) => { $method };
     (BoolView, $method:item) => { $method };
+    (IntView, $method:item) => { $method };
     ($view:ident, $method:item) => {};
 }
 
@@ -845,6 +884,7 @@ instruction_schema! {
         Null => ExprNull = 18 [0; Operands; FrameApply; EagerAtom];
         Unit => ExprUnit = 19 [0; Operands; FrameApply; EagerAtom];
         Int(value: i64) => ExprInt = 20 [0; Operands; FrameApply; EagerAtom];
+        UInt(value: i64) => ExprUInt = 158 [0; Operands; FrameApply; EagerAtom];
         Float(value: FloatValue) => ExprFloat = 21 [0; Operands; FrameApply; EagerAtom];
         Duration(value: DurationValue) => ExprDuration = 22 [0; Operands; FrameApply; EagerAtom];
         Bool(value: bool) => ExprBool = 23 [0; Operands; FrameApply; EagerAtom];
@@ -1236,6 +1276,7 @@ instruction_schema! {
         Let {
             slot: usize,
             value: BuildExprId,
+            annotation: Option<Type>,
         } => StmtLet = 115 [0; Scheduled; FrameControl];
         /// `guard let slot = value else { |failure| ... }`: evaluate
         /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
@@ -1580,6 +1621,7 @@ mod tests {
             ExprNull
             ExprUnit
             ExprInt
+            ExprUInt
             ExprFloat
             ExprDuration
             ExprBool
@@ -1610,7 +1652,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 49);
+        assert_eq!(names.len(), 50);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1706,6 +1748,7 @@ mod tests {
                 "ExprNull",
                 "ExprUnit",
                 "ExprInt",
+                "ExprUInt",
                 "ExprFloat",
                 "ExprDuration",
                 "ExprBool",
@@ -1825,6 +1868,7 @@ mod tests {
             FullTag::ExprNull,
             FullTag::ExprUnit,
             FullTag::ExprInt,
+            FullTag::ExprUInt,
             FullTag::ExprFloat,
             FullTag::ExprDuration,
             FullTag::ExprBool,
@@ -1916,6 +1960,9 @@ macro_rules! driver_encode_field {
             IrBuildError::format("signal_hook_slot_overflow", Some($span), 0, 0)
         })?);
     };
+    ($field:ident, $builder:ident, $output:ident, $span:ident, identity) => {
+        $output.push($builder.intern_binding_identity(*$field)?);
+    };
 }
 
 macro_rules! driver_borrow_field {
@@ -1950,6 +1997,29 @@ macro_rules! driver_verify_field {
             return Err(IrVerifyError::new(
                 "signal hook slot count does not match its driver step",
             ));
+        }
+    };
+    ($ty:ty, $decoder:ident, $payload:ident, $expected:ident, $child:ident, identity) => {
+        let binding_identity = u32::decode($decoder, $payload)?;
+        let identity = $decoder
+            .store
+            .binding_identities
+            .get(binding_identity as usize)
+            .ok_or_else(|| IrVerifyError::new("driver binding identity is out of bounds"))?;
+        if identity.flags & !0b11 != 0 || identity.reserved != [0; 3] {
+            return Err(IrVerifyError::new("driver binding identity metadata is invalid"));
+        }
+        let name = $decoder.store.string(identity.name)?;
+        if name.is_empty() {
+            return Err(IrVerifyError::new("driver binding identity name is empty"));
+        }
+        if identity.owner != IR_NONE {
+            $decoder.store.string(identity.owner)?;
+        }
+        if identity.flags & 1 != 0
+            && (identity.flags != 1 || name != "args" || identity.owner != IR_NONE)
+        {
+            return Err(IrVerifyError::new("built-in binding identity is invalid"));
         }
     };
 }
@@ -2059,6 +2129,7 @@ driver_schema! {
         target: Name => Name,
         ty: Option<LoweredType> => Option<LoweredType>,
         validation: Option<LoweredTypeCheck> => Option<LoweredTypeCheck>,
+        annotation: Option<Type> => Option<Type>,
         mutable: bool => bool,
         value: BuildExprId => BuildExprId,
         value_span: Span => Span,
@@ -2072,6 +2143,7 @@ driver_schema! {
     }
     Assign {
         target: Name => Name,
+        binding_identity: LoweredBindingIdentity => u32 [identity],
         op: AssignOp => AssignOp,
         value: BuildExprId => BuildExprId,
         span: Span => Span,
