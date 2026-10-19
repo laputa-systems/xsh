@@ -232,7 +232,7 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope { |ctx|
 """,
     """pure choose(left: Int = 1, right = left) -> Int { right }
 """,
-    """pure choose(value) -> Int { 1 }
+    """proc choose(value) -> Int { 1 }
 """,
     """pure choose(...values = [1]) -> Int { 1 }
 """,
@@ -240,6 +240,14 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope { |ctx|
     let output = test.run_script(ctx, source)?
     assert ! output.success, output.stdout
   }
+  let output = test.expect(
+    ctx,
+    r"""pure choose(value) -> Int { 1 }
+print ${choose(1)} ${choose("text")}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "1 1\n"
 }
 
 test test_default_parameters_use_outer_names_and_checked_dependency_signatures { |ctx|
