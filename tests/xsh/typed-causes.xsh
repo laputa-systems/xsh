@@ -1,10 +1,11 @@
 test test_process_error_pattern_bindings_retain_their_nominal_runtime_value { |ctx|
   let output = test.expect(
     ctx,
-    r"""let original: Result[Unit, ProcessError] = try { run sh -c "exit 7" }
+    r"""pure retain(failure: ProcessError) -> ProcessError { failure }
+let original: Result[Unit, ProcessError] = try { run sh -c "exit 7" }
 match original {
   Err(failure) => {
-    let retained: ProcessError = failure
+    let retained: ProcessError = retain(failure)
     match retained {
       ProcessError.NonzeroExit {..} => print "retained"
       _ => exit 19

@@ -3771,8 +3771,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaStmtKind::Guard { target, .. } => {
-                // The success bindings outlive the statement, so the guard is
-                // the source of a binding step that publishes its new slots.
                 let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let outer = slots.indices.clone();
                 let span = self.program.arena.stmt(id).span;
@@ -3783,7 +3781,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .filter(|(name, slot)| outer.get(*name) != Some(*slot))
                     .map(|(name, slot)| (*name, *slot))
                     .collect();
-                let binding_identities = self
+                let binding_identities: Vec<_> = self
                     .binding_identities_for_target(target)
                     .into_iter()
                     .filter_map(|identity| {
@@ -3795,6 +3793,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             .map(|slot| (identity, slot))
                     })
                     .collect();
+                let mut output_known = known.clone();
+                for (identity, _) in &binding_identities {
+                    let checked = slots.binding_type(identity.id).cloned();
+                    output_known.insert(identity.name, LoweredTopLevelBinding {
+                        kind: checked.as_ref().and_then(lowered_checked_type)
+                            .unwrap_or(LoweredType::Any),
+                        checked,
+                        binding_identity: Some(*identity),
+                        mutable: false,
+                        slot: true,
+                    });
+                }
                 let source = push_build_row!(
                     self,
                     expr,
@@ -3811,7 +3821,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         mutable: false,
                         span,
                     },
-                    known,
+                    &output_known,
                     slots,
                 ))
             }

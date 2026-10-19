@@ -4835,7 +4835,7 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::Proc => LoweredType::Proc,
         Type::Callable(callable) if callable.pure => LoweredType::Pure,
         Type::Callable(_) => LoweredType::Proc,
-        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
+        Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
         Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
@@ -4847,14 +4847,11 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
         // A validated value is stored as a value of its base.
         Type::Validated(validated) => return lowered_type_for_type(validated.base()),
-        // Policy-only and transient types are handled by their narrow caller
-        // contracts rather than by the shared mapping.
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
         | Type::EnvPathList
-        | Type::ErrorFacet(_)
-        | Type::ProcessError => return None,
+        | Type::ErrorFacet(_) => return None,
     })
 }
 
@@ -4866,15 +4863,13 @@ fn typed_callable_purity(ty: &Type) -> Option<bool> {
     }
 }
 
-/// The verifier rejects checker recovery types but accepts error facets as Error.
 fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     match ty {
         Type::ErrorFacet(_) => Ok(LoweredType::Error),
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
-        | Type::EnvPathList
-        | Type::ProcessError => {
+        | Type::EnvPathList => {
             Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ))
@@ -5012,7 +5007,6 @@ fn scheme_return_kind(
 fn driver_slot_runtime_kind(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     match ty {
         Type::EnvPathList => Ok(LoweredType::List),
-        Type::ProcessError => Ok(LoweredType::Error),
         ty => lowered_type_from_type(ty),
     }
 }
@@ -38374,6 +38368,7 @@ proc local() [env, error] -> Int {
         let variants = vec![
             (Type::Unknown, LoweredType::Any),
             (Type::UInt, LoweredType::Int),
+            (Type::ProcessError, LoweredType::Error),
             (Type::Null, LoweredType::Any),
             (Type::Optional(Box::new(Type::Int)), LoweredType::Any),
             (
@@ -38425,7 +38420,6 @@ proc local() [env, error] -> Int {
             inference,
             Type::Invalid,
             Type::EnvPathList,
-            Type::ProcessError,
         ];
         for ty in unsupported {
             assert_eq!(lowered_type_for_type(&ty), None, "{ty:?}");
