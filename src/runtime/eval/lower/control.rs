@@ -1164,6 +1164,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let saved = slots.enter();
         let result = (|| {
             let closing_slot = slots.reserve("with.closing");
+            if !slots.record_checked_slot_type(closing_slot, Type::Bool) { return None; }
             let release = |lowerer: &mut Self,
                            slot: usize,
                            kind: crate::modules::ManagedResource,
@@ -1247,6 +1248,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 item_slot,
             )?;
             let finished_slot = slots.reserve("with.finished");
+            let finished_type = self.lower_binding_checked_type(None, scope)?;
+            let finished_type = self.canonicalize_checked_type(finished_type);
+            if !slots.record_checked_slot_type(finished_slot, finished_type) { return None; }
             body.push(push_build_row!(
                 self,
                 stmt,

@@ -2731,6 +2731,14 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn native_signature(&mut self, decoder: &FullDecoder<'a>, signature: &'static crate::modules::signature::ModuleFnSig, arguments: &[Option<usize>], expected: Option<&Type>) -> Result<Option<std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        if signature.op == super::super::RuntimeOp::EnvSet {
+            let Some(Some(value)) = arguments.get(1) else { return Ok(None) };
+            let actual = self.need_context(decoder, *value)?.ok_or_else(|| IrVerifyError::new("environment assignment value has no closed conversion domain"))?;
+            self.budget.charge_clone(&actual)?;
+            if ensure_closed_type(&actual).is_err() || !actual.can_be_env_value() {
+                return Err(IrVerifyError::new("environment assignment value has no closed conversion domain"));
+            }
+        }
         if !signature.return_ty.contains_builtin_parameter() && !signature.params.iter().any(|parameter| parameter.ty.contains_builtin_parameter()) { return Ok(Some(std::borrow::Cow::Borrowed(signature))); }
         self.budget.charge_clone(&signature.return_ty)?;
         for parameter in &signature.params { self.budget.charge_clone(&parameter.ty)?; }

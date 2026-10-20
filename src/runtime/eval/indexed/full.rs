@@ -9390,6 +9390,9 @@ impl<'a> FullDecoder<'a> {
         if let Some(contract) = crate::stdlib::bridge_contract(op) {
             return Ok(Some(*contract.sig.return_ty));
         }
+        if let Some(result) = crate::modules::signature::native_internal_operation_return_type(op) {
+            return Ok(Some(result));
+        }
         static RETURN_TYPES:
             std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
             std::sync::OnceLock::new();

@@ -305,11 +305,12 @@ pub struct NamedMethodSigs {
 enum NativeOperationContract {
     Direct(&'static ModuleFnSig),
     ReceiverMethod(ModuleFnSig),
+    Internal(ModuleFnSig),
 }
 
 impl NativeOperationContract {
     fn signature(&self) -> &ModuleFnSig {
-        match self { Self::Direct(signature) => signature, Self::ReceiverMethod(signature) => signature }
+        match self { Self::Direct(signature) => signature, Self::ReceiverMethod(signature) | Self::Internal(signature) => signature }
     }
 }
 
@@ -343,6 +344,30 @@ fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContrac
                 }
             }
         }
+        let assignment = registry::sig(
+            vec![registry::param("name", xsh_registry::types::Type::Str), registry::param("value",
+                xsh_registry::types::Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Element))],
+            xsh_registry::types::Type::Unit, false, RuntimeOp::EnvSet,
+        );
+        signatures.entry(RuntimeOp::EnvSet).or_default().push(NativeOperationContract::Internal(
+            convert_module_fn_sig("env", "set", &assignment)));
+        for resource in xsh_registry::ManagedResource::ALL {
+            let Some(release) = resource.release_op() else { continue };
+            let resource_type = convert_type(&resource.resource_type());
+            let consuming = resource.rule().consuming.iter().filter_map(|consumption| match consumption {
+                xsh_registry::managed_resource::ResourceConsumption::Operation(op) => Some(*op),
+                _ => None,
+            });
+            let inherited = consuming.flat_map(|op| signatures.get(&op).into_iter().flatten())
+                .map(NativeOperationContract::signature)
+                .filter(|signature| signature.params.len() == 1 && signature.params[0].ty == resource_type)
+                .cloned().collect::<Vec<_>>();
+            assert!(!inherited.is_empty(), "scoped resource release has no canonical consuming contract");
+            for mut signature in inherited {
+                signature.op = release;
+                signatures.entry(release).or_default().push(NativeOperationContract::Internal(signature));
+            }
+        }
         signatures
     });
     signatures.get(&op).map_or(&[], Vec::as_slice)
@@ -352,8 +377,18 @@ pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> impl Iterator
     native_operation_contracts(op).iter().map(NativeOperationContract::signature)
 }
 
-pub(crate) fn native_static_operation_has_receiver(op: RuntimeOp) -> bool {
-    native_operation_contracts(op).iter().any(|contract| matches!(contract, NativeOperationContract::ReceiverMethod(_)))
+pub(crate) fn native_static_operation_requires_producer_proof(op: RuntimeOp) -> bool {
+    native_operation_contracts(op).iter().any(|contract| !matches!(contract, NativeOperationContract::Direct(_)))
+}
+
+pub(crate) fn native_internal_operation_return_type(op: RuntimeOp) -> Option<Type> {
+    let mut signatures = native_operation_contracts(op).iter().filter_map(|contract| match contract {
+        NativeOperationContract::Internal(signature) => Some(signature),
+        _ => None,
+    });
+    let signature = signatures.next()?;
+    assert!(signatures.all(|candidate| candidate.return_ty == signature.return_ty), "internal native operation has ambiguous result contracts");
+    Some(signature.return_ty.clone())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
