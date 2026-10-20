@@ -20,21 +20,31 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `596a7f161` passes 71 focused runtime and verifier controls after local
-integration. Independent review finds no material issue in this slice.
+Source `4f58546f2` passes 97 focused runtime, verifier, loader and interface
+controls after local integration. Independent reviews cover the accepted slices.
 Physical operations now authenticate callable kinds and finite effect bounds.
 Monomorphic shared reads authenticate the defining value and every writer,
 including partial writes, nominal payloads and unsigned storage checks.
 Typed Proc factories and optional erased callable fields execute on both
 indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
-Matching native products, generated documentation and broader qualification
-remain pending.
+Matching verification products build successfully. Generated documentation and
+broader qualification remain pending.
 
 Source `786080e95` integrates the reviewed context and process producer repair.
-Its four focused controls pass before integration. Context scopes authenticate
+Its four focused controls pass in the combined check. Context scopes authenticate
 their body and inputs. Process payloads use the pipeline head's checked run kind.
 The verifier also preserves driver exits followed by unreachable declarations.
-Matching native replay and the combined library check remain pending.
+All three matching native context, process and explicit-discard regressions pass.
+The nine annotation cases fail during shared module preparation, before their
+bodies run, with `ground producer form has no executable type proof`.
+That producer failure is under diagnosis. The full library check remains pending.
+
+The paired interface command at `4f58546f2` preserves original logical source
+identities while checking candidate bytes. Export, symlink and cancellation
+controls pass before integration, alongside warning-denied Clippy for xsh and
+xsht with all targets and features. The merged process replay and actual corpus
+comparison remain pending. Body selections, effects and executable validation
+need their separate canonical projection before removals earn parity credit.
 
 The separate origin fix `16d7c4f15` preserves explicit Result discards as data
 and makes annotated storage violations fatal type errors. Explicit schema
@@ -78,8 +88,8 @@ behavior tests before execution. Two minimal explicit-Result repros fail:
 `Ok(ctx "rendering" { "page" })` lacks a physical producer proof, and
 `Ok(result.stdout)` after `run.capture --text` lacks a propagation result
 contract. Their implicit Result-lifting controls pass. The repair at `786080e95`
-still needs matching native replay. The earlier annotation-test success does
-not qualify this source.
+now passes matching native replay at `4f58546f2`. The annotation group still
+cannot start because of the separate producer failure recorded above.
 CLI cleanup `401950302` removes an unused internal accessor and fixes a new
 test-only Clippy warning. Seven descriptor checks pass before integration,
 and warning-denied Clippy passes for xsh and xsht with all targets and features.
