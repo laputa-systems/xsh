@@ -3026,11 +3026,15 @@ impl<'a> ProducerProof<'a> {
             self.pipeline_outputs.insert(next, ProducerTypeDerivation::Pending);
             let item = if let Some(source) = source { self.budget.charge_clone(&source)?; source.iteration_item_type() } else { None };
             let stage = self.pipeline_stage(decoder, pipeline, position)?;
-            let output = FullDecoder::checked_pipeline_stage_output_type(&stage, item, &mut |value| {
-                let Some(ty) = self.need_context(decoder, value)? else { return Ok(None) };
-                self.budget.charge_clone(&ty)?;
-                Ok(Some((*ty).clone()))
-            })?.map(Arc::new);
+            let output = if let super::super::StageView::Fold { acc_slot, initial, .. } = &stage {
+                self.fold_accumulator_type(decoder, pipeline, position, *acc_slot, initial.raw() as usize)?
+            } else {
+                FullDecoder::checked_pipeline_stage_output_type(&stage, item, &mut |value| {
+                    let Some(ty) = self.need_context(decoder, value)? else { return Ok(None) };
+                    self.budget.charge_clone(&ty)?;
+                    Ok(Some((*ty).clone()))
+                })?.map(Arc::new)
+            };
             self.pipeline_outputs.insert(next, ProducerTypeDerivation::Resolved(output));
         }
         let ProducerTypeDerivation::Resolved(output) = &self.pipeline_outputs[&key] else { return Err(IrVerifyError::new("pipeline prefix type depends on its own callback")) };
@@ -3046,6 +3050,17 @@ impl<'a> ProducerProof<'a> {
         } else { Ok(Some(output)) }
     }
 
+    fn fold_accumulator_type(&mut self, decoder: &FullDecoder<'a>, pipeline: usize, position: usize, slot: usize, initial: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        if let Some(actual) = self.need_context(decoder, initial)? { return Ok(Some(actual)); }
+        let Some(id) = decoder.slot_type_fact(slot)? else { return Ok(None) };
+        let ty = self.contract_type(id)?;
+        self.budget.charge_clone(&ty)?;
+        ensure_substitution_type(&ty)?;
+        let anchor = self.index.owners[&decoder.owner].pipeline_groups.get(&(pipeline, position, false)).copied().ok_or_else(|| IrVerifyError::new("pipeline accumulator has no lexical callback region"))?;
+        self.slot(decoder.owner, anchor, slot, Arc::clone(&ty))?;
+        Ok(Some(ty))
+    }
+
     fn pipeline_binding_type(&mut self, decoder: &FullDecoder<'a>, source: PipelineProducer) -> Result<Option<Arc<Type>>, IrVerifyError> {
         use super::super::PipelineStageSlotRole as Role;
         match source.role {
@@ -3055,8 +3070,8 @@ impl<'a> ProducerProof<'a> {
                 Ok(output.iteration_item_type().map(Arc::new))
             }
             Role::Accumulator => {
-                let super::super::StageView::Fold { initial, .. } = self.pipeline_stage(decoder, source.pipeline, source.stage)? else { return Err(IrVerifyError::new("pipeline accumulator has no fold stage")) };
-                self.need_context(decoder, initial.raw() as usize)
+                let super::super::StageView::Fold { acc_slot, initial, .. } = self.pipeline_stage(decoder, source.pipeline, source.stage)? else { return Err(IrVerifyError::new("pipeline accumulator has no fold stage")) };
+                self.fold_accumulator_type(decoder, source.pipeline, source.stage, acc_slot, initial.raw() as usize)
             }
             Role::ReducedItem { value, flatten } => {
                 let Some(output) = self.need_context(decoder, value)? else { return Ok(None) };

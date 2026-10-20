@@ -28380,6 +28380,224 @@ assert observed(0)?.exited_with(1)
         });
     }
 
+    fn assert_contextual_fold_values(program: FullProgram, values: &[(&str, Value)]) {
+        let program = Arc::new(program);
+        let _symbols = program.symbol_owner().enter();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+            for (name, expected) in values { assert_eq!(&evaluator.lookup(Name::intern(name)).unwrap().value, expected); }
+        }
+    }
+
+    fn contextual_fold_result() -> Value {
+        let map = Value::Map([(crate::map_key::MapKey::Str(Arc::from("k")), Value::Int(1))].into_iter().collect());
+        Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(map)))
+    }
+
+    fn assert_contextual_fold_writer_contract(program: &FullProgram) {
+        let (value, key) = (0..program.store.driver_steps.len()).find_map(|step| {
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            program.store.driver_instruction_range(step).unwrap().find_map(|instruction| {
+                let Ok(schema::StmtView::AssignPath { mut path, value, .. }) = decoder.statement_view(instruction) else { return None };
+                let super::decode::AssignStepView::Index(key) = path.next().unwrap().unwrap() else { return None };
+                assert!(path.next().is_none());
+                assert!(matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(_))));
+                assert!(matches!(decoder.expression_view(key.raw() as usize), Ok(schema::ExprView::Str(_))));
+                Some((value.raw() as usize, key.raw() as usize))
+            })
+        }).unwrap();
+        let mut wrong = program.clone();
+        wrong.store.tags[value] = program.store.tags[key];
+        wrong.store.data[value] = program.store.data[key];
+        let error = FullVerifier::verify(&wrong).expect_err("fold accumulator authenticates every actual partial writer");
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+    }
+
+    #[test]
+    fn strict_fold_contracts_derive_capture_without_optional_facts() {
+        run_with_large_stack(|| {
+            let source = r#"let result = try { [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged } }"#;
+            let mut program = fixture("fold-capture-without-hints.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            assert_contextual_fold_writer_contract(&program);
+            assert_contextual_fold_values(program, &[("result", contextual_fold_result())]);
+        });
+    }
+
+    #[test]
+    fn strict_fold_contracts_project_map_methods_after_capture() {
+        run_with_large_stack(|| {
+            let source = r#"let result = try { [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged } }; let value = result?.get("k")"#;
+            let mut program = fixture("fold-capture-map-method.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(1))));
+            assert_contextual_fold_values(program, &[("result", contextual_fold_result()), ("value", value)]);
+        });
+    }
+
+    #[test]
+    fn strict_fold_contracts_derive_accumulator_without_identity_claim() {
+        run_with_large_stack(|| {
+            let source = r#"let result = try { [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged } }"#;
+            let mut program = fixture("fold-accumulator-without-claim.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            let (binding, subject) = (0..program.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                program.store.driver_instruction_range(step).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::ExprMatch).find_map(|instruction| {
+                    let subject = indexed_identity_match_subject(&decoder, instruction).unwrap()? as usize;
+                    matches!(decoder.expression_view(subject), Ok(schema::ExprView::ModuleCall { op: RuntimeOp::MapEmpty, .. })).then_some((instruction, subject))
+                })
+            }).unwrap();
+            let before = program.store.checked_expr_types.len();
+            program.store.checked_expr_types.retain(|fact| fact.instruction as usize != binding);
+            assert!(program.store.checked_expr_types.len() < before);
+            FullVerifier::verify(&program).unwrap();
+            let mut wrong = program.clone();
+            let op = u32::try_from(wrong.store.runtime_ops.len()).unwrap();
+            wrong.store.runtime_ops.push(RuntimeOp::SetEmpty);
+            wrong.store.extra[program.store.data[subject].range().start as usize] = op;
+            let error = FullVerifier::verify(&wrong).unwrap_err();
+            assert!(error.message.contains("contract"), "{error:?}");
+            assert_contextual_fold_writer_contract(&program);
+            let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&binding)).unwrap();
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(binding).unwrap() else { unreachable!() };
+            let (pattern, _, result) = arms.next().unwrap().unwrap();
+            let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw()).unwrap() else { unreachable!() };
+            let result = result.raw() as usize;
+            let mut wrong_binding = program.clone();
+            let payload = wrong_binding.store.data[result].range().bounds(wrong_binding.store.extra.len()).unwrap();
+            wrong_binding.store.extra[payload.start] = u32::try_from(slot + 1).unwrap();
+            let wrong_decoder = verify_schemes::decoder_for_driver_step(&wrong_binding.store, step).unwrap();
+            assert!(indexed_identity_match_subject(&wrong_decoder, binding).unwrap().is_none());
+            let error = FullVerifier::verify(&wrong_binding).expect_err("absent identity claims cannot waive the actual binder relationship");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let (step, slot) = (0..program.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                program.store.driver_instruction_range(step).unwrap().find_map(|instruction| {
+                    let Ok(schema::ExprView::ListPipeline { mut stages, .. }) = decoder.expression_view(instruction) else { return None };
+                    let StageView::Fold { acc_slot, .. } = stages.next().unwrap().unwrap() else { return None };
+                    Some((step, acc_slot))
+                })
+            }).unwrap();
+            let range = program.store.driver_steps[step].slots.bounds(program.store.driver_slots.len()).unwrap();
+            let removed = range.clone().find(|&index| program.store.driver_slots[index].slot as usize == slot).unwrap();
+            assert_ne!(program.store.driver_slots[removed].flags & DRIVER_SLOT_TEMPORARY, 0);
+            let mut missing = program.clone();
+            missing.store.driver_slots.remove(removed);
+            for driver in &mut missing.store.driver_steps {
+                if driver.slots.start as usize > removed { driver.slots.start -= 1; }
+                else if (driver.slots.start as usize..driver.slots.start as usize + driver.slots.len as usize).contains(&removed) { driver.slots.len -= 1; }
+            }
+            let decoder = verify_schemes::decoder_for_driver_step(&missing.store, step).unwrap();
+            assert_eq!(decoder.slot_type_fact(slot).unwrap(), None);
+            let error = FullVerifier::verify(&missing).expect_err("missing accumulator evidence cannot fabricate a collection contract");
+            assert!(error.message.contains("contract") || error.message.contains("declared collection"), "{error:?}");
+            assert_contextual_fold_values(program, &[("result", contextual_fold_result())]);
+        });
+    }
+
+    #[test]
+    fn strict_fold_contracts_verify_stream_aggregate_with_typed_relay() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-stream-typed-aggregate.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [] -> Stream[Int] {
+    let _ = value
+    let _ = other
+    yield 7
+}
+stream failing(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Stream[Int] {
+    let _ = value
+    yield other?
+}
+proc saved(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { let _ = safe(value, other); value? }
+}
+proc consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in safe(value, other) { let _ = item }; value? }
+}
+pure relay(items: Stream[Int]) -> Stream[Int] { items }
+proc relayed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in relay(safe(value, other)) { let _ = item }; value? }
+}
+proc wrapped(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Stream[Int], CaptureFailure] {
+    Ok(safe(value, other))
+}
+pure wrap_items(items: Stream[Int]) -> Result[Stream[Int], CaptureFailure] { Ok(items) }
+proc wrapped_items_consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in wrap_items(safe(value, other)) { let _ = item }; value? }
+}
+proc wrapped_consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in wrapped(value, other) { let _ = item }; value? }
+}
+type Relay = pure(items: Stream[Int]) -> Stream[Int]
+let action: Relay = relay
+proc typed_relayed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in action(safe(value, other)) { let _ = item }; value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert typed_relayed(good, bad)? == 7
+assert saved(good, bad)? == 7
+assert consumed(good, bad)? == 7
+assert wrapped_consumed(good, bad)? == 7
+assert relayed(good, bad)? == 7
+assert wrapped_items_consumed(good, bad)? == 7
+let _ = relay(failing(good, bad))
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let retarget = |name: &str| {
+                let call = scheme_fixture_call_in_function(&program, "safe", name);
+                let mut wrong = program.clone();
+                wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+                wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+                wrong
+            };
+            let saved = retarget("saved");
+            FullVerifier::verify(&saved).expect("saving a Stream does not pull its fallible body");
+            let consumed = retarget("consumed");
+            let error = FullVerifier::verify(&consumed).expect_err("pulling an Error-capable Stream must authenticate the capture error contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let typed_relayed = retarget("typed_relayed");
+            let error = FullVerifier::verify(&typed_relayed).expect_err("typed relays in an aggregate preserve actual latent Stream errors");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let relayed = retarget("relayed");
+            let error = FullVerifier::verify(&relayed).expect_err("a pure Stream relay preserves its actual input's latent errors");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let wrapped_items = retarget("wrapped_items_consumed");
+            let error = FullVerifier::verify(&wrapped_items).expect_err("a no-effect Result wrapper preserves actual Stream provenance");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let wrapped = retarget("wrapped");
+            let error = FullVerifier::verify(&wrapped).expect_err("Result iteration authenticates the independent latent Stream payload contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            for program in [program, saved] {
+                let program = Arc::new(program);
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+            }
+        });
+    }
+
     #[test]
     fn strict_result_producers_prepare_tour_documentation_module() {
         run_with_large_stack(|| {
