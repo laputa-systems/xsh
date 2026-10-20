@@ -202,7 +202,10 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
             FullTag::ExprTry | FullTag::StmtAssert => require(instruction, Some(&[Effect::Error]), true, &mut captured)?,
             FullTag::StmtExpr => {
                 let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
-                if owner.kind != CallableKind::Pure && owner.effects.as_ref().is_some_and(|effects| !crate::sema::check::Checker::effects_covers(effects, &Effect::Error)) {
+                if owner.kind != CallableKind::Pure
+                    && owner.effects.as_ref().is_some_and(|effects| !crate::sema::check::Checker::effects_covers(effects, &Effect::Error))
+                    && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. })
+                {
                     let value = value.raw() as usize;
                     let result = if let Some(ty) = decoder.expression_checked_type_id(value)? {
                         matches!(decoder.store.semantic.type_tag(ty)?, super::super::semantic::TypeTag::Result | super::super::semantic::TypeTag::Any)

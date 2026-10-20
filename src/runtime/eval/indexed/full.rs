@@ -22061,6 +22061,75 @@ assert apply(40) == 42
     }
 
     #[test]
+    fn physical_effects_preserve_noncompleting_exit_discards() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("physical-exit-discard.xsh", "proc terminate(status: Int) [process] -> Unit { exit status }\n"));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let failure = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "terminate")), LoweredFunctionKind::Proc,
+                    &[Value::Int(77)], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap_err();
+                let abort = failure.abort.unwrap();
+                assert_eq!(abort.status, 77);
+                assert!(!abort.force);
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_charge_noncompleting_exit_status_operands() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-exit-status-effects.xsh", concat!(
+                "proc status_code() [env] -> Int { let _ = env.get(\"XSH_EXIT_TEST\"); 77 }\n",
+                "proc terminate() [process, env] -> Unit { exit status_code() }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "terminate");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Process]);
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert!(failure.message.contains("requires effect env"), "{failure:?}");
+        });
+    }
+
+    #[test]
+    fn physical_effects_reject_live_discards_without_value_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-live-discard.xsh", concat!(
+                "proc terminate(status: Int) [process] -> Unit { exit status }\n",
+                "proc keep(target: Path, words: List[Str]) [] -> Unit { let descriptor = process.command_argv(target, words) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "keep");
+            let statement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtLet).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::StmtView::Let { value, .. } = decoder.statement_view(statement).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::ProcessCommandArgv(_)));
+            let exit_owner = scheme_fixture_root_function(&program, "terminate");
+            let exit = program.store.function_instruction_range(exit_owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtExpr).unwrap();
+            let location = program.store.payload(program.store.data[exit].range()).unwrap()[1];
+            let mut discarded = program.clone();
+            let start = discarded.store.extra.len() as u32;
+            discarded.store.extra.extend([value.raw(), location]);
+            discarded.store.tags[statement] = FullTag::StmtExpr;
+            discarded.store.data[statement] = IrData::from_range(IrRange::new(start, 2));
+            discarded.store.checked_expr_types.retain(|fact| fact.instruction != value.raw());
+            let decoder = function_view_decoder(&discarded.store, owner);
+            assert_eq!(decoder.derive_checked_expression_type(value.raw() as usize).unwrap(), None);
+            let failure = FullVerifier::verify(&discarded).unwrap_err();
+            assert_eq!(failure.message, "implicit discard has no executable value contract");
+        });
+    }
+
+    #[test]
     fn physical_effects_charge_implicit_result_discards() {
         run_with_large_stack(|| {
             let program = fixture("physical-discard-effects.xsh", concat!(
