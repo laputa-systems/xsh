@@ -354,6 +354,8 @@ mod collect;
 mod checked_declarations;
 mod callable_contract;
 pub use callable_contract::{CheckedCallableContract, ContractComparisonError};
+mod cli_contract;
+pub use cli_contract::{CheckedCliEntryContract, CliContractError};
 pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
     CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
 pub(crate) use checked_declarations::CheckedFunctionTarget;
