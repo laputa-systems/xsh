@@ -1119,9 +1119,14 @@ impl<'a> ProducerProof<'a> {
                 Some((**payload).clone())
             }
             schema::ExprView::ValueBlock { mut body, .. } => {
-                return match decoder.derive_checked_block_tail_expression(&mut body)? {
-                    Some(tail) => self.need_context(decoder, tail),
-                    None => Ok(None),
+                return match decoder.checked_value_block_result(&mut body)? {
+                    super::super::CheckedValueBlockResult::Tail(tail) => {
+                        self.need_context(decoder, tail)
+                    }
+                    super::super::CheckedValueBlockResult::Unit => {
+                        Ok(Some(Arc::new(Type::Unit)))
+                    }
+                    super::super::CheckedValueBlockResult::DoesNotComplete => Ok(None),
                 };
             }
             schema::ExprView::IfExpr { branches, else_value, .. } => {
@@ -1980,6 +1985,10 @@ impl<'a> ProducerProof<'a> {
             }
         } else { expected };
         if *expected == Type::Any && !super::super::verify_effects::needs_operand_proof(self.store, instruction)? { return Ok(()); }
+        if let schema::ExprView::Abort { status, .. } = decoder.expression_view(instruction)? {
+            self.expression(owner, status.raw() as usize, Arc::new(Type::Int), false);
+            return Ok(());
+        }
         if let schema::ExprView::FunctionRef { function, pure } = decoder.expression_view(instruction)?
             && let Type::Callable(callable) = expected.as_ref()
         {

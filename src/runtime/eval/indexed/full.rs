@@ -5674,6 +5674,13 @@ enum CheckedValueProjection {
     TagField { type_name: Name, name: Name, field: usize },
 }
 
+#[derive(Clone, Copy)]
+enum CheckedValueBlockResult {
+    Tail(usize),
+    Unit,
+    DoesNotComplete,
+}
+
 pub(in crate::runtime::eval) struct FullDecoder<'a> {
     store: &'a FullStore,
     owner: u32,
@@ -8346,8 +8353,33 @@ impl<'a> FullDecoder<'a> {
         mut statements: ListView<'a, BuildStmtId>,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let value = self.checked_block_tail_expression(&mut statements)?;
-        self.checked_expression_matches_type(value, expected)
+        match self.checked_value_block_result(&mut statements)? {
+            CheckedValueBlockResult::Tail(value) => {
+                self.checked_expression_matches_type(value, expected)
+            }
+            CheckedValueBlockResult::Unit if Type::Unit.matches_expected(expected) => Ok(()),
+            CheckedValueBlockResult::Unit => Err(IrVerifyError::new(
+                "checked value block without a tail has an incompatible type",
+            )),
+            CheckedValueBlockResult::DoesNotComplete => Err(IrVerifyError::new(
+                "checked value block has no value tail",
+            )),
+        }
+    }
+
+    fn checked_value_block_result(
+        &self,
+        statements: &mut ListView<'a, BuildStmtId>,
+    ) -> Result<CheckedValueBlockResult, IrVerifyError> {
+        let block = statements.block_identity();
+        if let Some(value) = self.derive_checked_block_tail_expression(statements)? {
+            return Ok(CheckedValueBlockResult::Tail(value));
+        }
+        if indexed_block_can_return_with_decoder(self.store, block, Some(self))? {
+            Ok(CheckedValueBlockResult::DoesNotComplete)
+        } else {
+            Ok(CheckedValueBlockResult::Unit)
+        }
     }
 
     fn checked_block_tail_expression(
@@ -10010,9 +10042,12 @@ impl<'a> FullDecoder<'a> {
             ))),
             schema::ExprView::CheckedValue { check, .. } => Ok(Some(check.ty.materialize()?)),
             schema::ExprView::ValueBlock { mut body, .. } => {
-                match self.derive_checked_block_tail_expression(&mut body)? {
-                    Some(value) => self.derive_checked_expression_type(value),
-                    None => Ok(None),
+                match self.checked_value_block_result(&mut body)? {
+                    CheckedValueBlockResult::Tail(value) => {
+                        self.derive_checked_expression_type(value)
+                    }
+                    CheckedValueBlockResult::Unit => Ok(Some(Type::Unit)),
+                    CheckedValueBlockResult::DoesNotComplete => Ok(None),
                 }
             }
             schema::ExprView::Method {
@@ -42993,3 +43028,6 @@ proc local() [env, error] -> Int {
 
 #[cfg(test)]
 mod formal_bridge;
+
+#[cfg(test)]
+mod noncompletion_tests;

@@ -197,6 +197,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
                 let schema::ExprView::Retry { delays, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 if delays.len() != 0 { require(instruction, Some(&[Effect::Time]), false, &mut captured)?; }
             }
+            FullTag::ExprAbort => require(instruction, Some(&[Effect::Process]), false, &mut captured)?,
             FullTag::ExprTry | FullTag::StmtAssert => require(instruction, Some(&[Effect::Error]), true, &mut captured)?,
             FullTag::StmtExpr => {
                 let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
@@ -246,7 +247,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
 
 pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store.tags[instruction];
-    if matches!(tag, FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder
+    if matches!(tag, FullTag::ExprAbort | FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder
         | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand | FullTag::ExprWait | FullTag::ExprCapture) { return Ok(true); }
     if !matches!(tag, FullTag::ExprModuleCall | FullTag::ExprMethod) { return Ok(false); }
     let data = store.data.get(instruction).ok_or_else(|| IrVerifyError::new("native operation has no instruction payload"))?;

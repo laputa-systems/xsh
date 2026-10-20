@@ -94,8 +94,9 @@ Closed Result constructor contracts use the existing ground producer proof for
 payloads, including contextual collections and lexical writers. Verification
 derives producer demand from selected operations, constructor facts, and mutable
 storage reads. Its owner indexes and loop analysis share that transient demand.
-Context proofs preserve body values, completing Unit bodies, and return
-transfers. Process capture proofs share the checker's RunKind result shapes;
+Context proofs preserve body values, completing tail-less Unit bodies, and
+return transfers; noncompleting blocks do not acquire a Unit result. Process
+capture proofs share the checker's RunKind result shapes;
 a pipeline takes its capture shape from the head segment.
 
 The same bounded producer census authenticates control predicates even when a
