@@ -23,6 +23,19 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `475f8be3a` passes the combined immutable replay: 209 passed, zero
+failed and zero ignored. Independent review approves its condition and
+producer repair. Conditions authenticate their actual operands, pipeline
+callback types come from bounded iterative prefix proofs, and mutable partial
+writes use the independently proved root type. Coordinated slot-fact and
+writer corruption rejects. Canonical builtin templates preserve contextual
+empty-container types. Returned fallbacks preserve implicit scalar lifting
+and nested Result data. The mixed-effect regression now corrupts an actual
+operand instead of requiring optional type evidence.
+Process argument-vector and try-capture transport remain required repairs.
+Matching products, native replay and complete capability/corpus qualification
+remain pending.
+
 Source `07ff1bbbd` integrates the reviewed resource-specialization repair.
 Its immutable merged replay passes 64 focused body, callable and resource
 controls with zero failures. One existing manual attribution test is ignored.
@@ -88,9 +101,10 @@ temporary and Result-context controls pass. The nullable-fallback test now
 descends its checked scrutinee before applying the original unchecked-slot
 corruption; its rejection requirement is unchanged.
 Expanded docs preparation advances to a process-command argument-vector
-producer; no matching documentation generation pass is claimed. Try-capture
-transport and condition-only producer authentication remain mandatory open
-repairs. Combined corpus qualification remains pending.
+producer; no matching documentation generation pass is claimed. Process
+argument-vector and try-capture transport remain mandatory open repairs.
+The condition-only producer repair passes the focused checkpoint above.
+Combined corpus qualification remains pending.
 Optional-record literals also fail to propagate a typed callable field context.
 Using an already typed callable isolates the verifier tests but does not close
 that checker case.
