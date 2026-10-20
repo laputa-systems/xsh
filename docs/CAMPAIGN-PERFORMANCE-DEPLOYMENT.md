@@ -20,7 +20,7 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `9dbde9ebe` passes 177 focused runtime, verifier, loader, semantic-body
+Source `052b13165` passes 184 focused runtime, verifier, loader, semantic-body
 and interface controls after local integration. The repaired public body
 comparison rejects lost UInt checks, accepts proven Int annotation removal,
 and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
@@ -65,8 +65,16 @@ docs preparation exposed binder and return-carrier cases. Reviewed repair
 iteration bindings, byte lines, nullable storage, optional return carriers,
 opaque record returns, glob and last-status values. Both indexed routes run
 after frontend disposal. The combined replay also passes all 38 grounded helper
-transfer controls. Expanded docs preparation now stops at a guarded optional
-record field; no matching documentation generation pass is claimed. Try-capture
+transfer controls. Repair `052b13165` preserves exact optional payloads through
+executed checks and authenticates typed calls even without Result constructors
+or redundant wrapper facts. Three new controls execute both indexed routes and
+reject incompatible callable producers. Removing only the typed-call proof root
+makes the actual wrong-source regression fail. Existing With error-slot, driver
+temporary and Result-context controls pass. The nullable-fallback test now
+descends its checked scrutinee before applying the original unchecked-slot
+corruption; its rejection requirement is unchanged.
+Expanded docs preparation advances to a process-command argument-vector
+producer; no matching documentation generation pass is claimed. Try-capture
 transport, condition-only producer authentication and resource specialization
 remain mandatory open repairs.
 Optional-record literals also fail to propagate a typed callable field context.
