@@ -21,7 +21,22 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `934eab3b1` passes the combined targeted boundary: 389 passed, zero
+Source `3c92adfb3` passes the combined targeted boundary: 407 passed, zero
+failed and zero ignored. Generic bodies prepare unguarded list indexing and
+slicing, literal record-key indexing through compiler-created temporaries,
+from-end literal indexing, and concrete arithmetic and list concatenation.
+Actual operands authenticate unsigned list guarantees. Ordinary runtime checks
+and invariant list typing remain intact. Validated list projections and
+`NonEmpty` concatenation retain their contracts. Shared classifier and
+512-block work-bound controls pass.
+
+Guarded postfix access remains mandatory work. The next witness,
+`pure keep(value, items: List[Int]?) { let _ = items?[0]; value }`, passes
+checking but fails preparation at the Optional parameter representation.
+Matching verification products remain at `934eab3b1`; no new corpus or native
+acceptance follows from the targeted source checks.
+
+Source `934eab3b1` passes the earlier combined targeted boundary: 389 passed, zero
 failed and zero ignored. Generic bodies now prepare lexical mutable and
 immutable locals, match arms, while and value loops, assignments, explicit
 discards and early returns. Declaration facts prove storage type, mutability,
@@ -133,9 +148,9 @@ That exact failure also reproduces before the correction at `f3e4eb405`:
 `ExprDynamicCall` has an unknown effect contract. It remains mandatory work;
 it is not waived by the targeted boundary above.
 
-Acceleration now runs six workstreams: ordinary generic bodies, driver
-projections, discard and noncompletion proofs, verification speed, corpus
-qualification, and independent generic-body review. Lease change `b1c1b886d` permits at most two ordinary
+Active implementation owns ordinary generic bodies and driver projection
+proofs. Independent review, corpus qualification and verification speed follow
+each accepted tranche. Lease change `b1c1b886d` permits at most two ordinary
 Cargo builds with disjoint output directories. Existing exclusive builds and
 performance windows still exclude them. Nineteen real-process controls pass,
 including same-output exclusion, module-alias safety and interruption cleanup.
