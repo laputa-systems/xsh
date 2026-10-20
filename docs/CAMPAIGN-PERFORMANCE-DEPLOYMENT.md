@@ -20,8 +20,10 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `77bd52859` passes 102 focused runtime, verifier, loader and interface
-controls after local integration. The mutable typed-storage repair at
+Source `d78615ba6` passes 129 focused runtime, verifier, loader, semantic-body
+and interface controls after local integration. The repaired public body
+comparison rejects lost UInt checks, accepts proven Int annotation removal,
+and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
 `152859aa2` has independent review and positive and corruption controls.
 Physical operations now authenticate callable kinds and finite effect bounds.
 Monomorphic shared reads authenticate the defining value and every writer,
@@ -51,7 +53,9 @@ receiver operands independently of constructor demand. The original implicit
 return passes, while wrong receivers and forged effect ceilings reject.
 Independent review and the merged check pass. Matching documentation replay
 gets past that failure, then rejects a ground match without a subject contract
-before writing files. Its minimal cause remains under investigation.
+before writing files. A focused Rust replay traces the generated match to
+`take_list` in `tour_html`, reading a scoped local through `ExprParam`. The
+origin repair remains open.
 Glob, last-status and try-capture strict-demand regressions also reproduce.
 Their repairs remain open.
 
@@ -60,12 +64,17 @@ identities while checking candidate bytes. Export, symlink and cancellation
 controls pass before integration, alongside warning-denied Clippy for xsh and
 xsht with all targets and features. The merged replay passes twelve process
 tests and two unit controls. Actual corpus comparison remains pending.
-Body selections, effects and executable validation
-need their separate canonical projection before removals earn parity credit.
+The consumer at `d78615ba6` adds body selections, effects and actual emitted
+validations to qualification. Its compilation and three focused controls pass,
+including real contextual module keys. Independent review finds no P1/P2 issue.
+All sixteen process controls still require matching rebuilt products.
 Private semantic capture at `6aca16797` retains checked facts and canonical
-source sites before checker disposal. Its pending value is not a complete body
-comparison. The public comparison will combine that snapshot with validations
-extracted after one normal lowering. Compilation and composite controls remain pending.
+source sites before checker disposal. The execution API at `8759502c1` combines
+that pending snapshot with validations extracted after one normal lowering.
+Repair `1abd4f41e` preserves proven integer driver bindings and checker-only
+commands. Its six composite controls and the canonical-site lifetime control
+pass in the integrated replay. Physical guards without an independent producer
+proof remain exact. No corpus-removal credit follows from these focused checks.
 
 Three native ownership controls at `f73caaa92` establish that record validation
 retains extra fields, including hidden resources, and nominal variant payloads
