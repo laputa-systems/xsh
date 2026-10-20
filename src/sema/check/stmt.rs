@@ -7959,6 +7959,64 @@ mod capture_stream_pull_tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn generic_proc_record_returns_preserve_field_relationships() {
+        let mut failures = Vec::new();
+        for (definition, consumer) in [
+            ("pure boxed(value) { {rows: value} }", "let number: Int = boxed(7).rows; let text: Str = boxed(\"value\").rows"),
+            ("proc boxed(value) [] { {rows: value} }", "let number: Int = (boxed(7)?).rows; let text: Str = (boxed(\"value\")?).rows"),
+            ("type Box = {rows: Int}; proc boxed(value: Int) [] -> Result[Box] { {rows: value} }", "let number: Int = (boxed(7)?).rows"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read(items: Stream[Int]) [error] -> Result[Stream[Int]] { (boxed(items)?).rows }"),
+            ("proc boxed(value: Stream[Int]) [] { {rows: value} }", "proc read(items: Stream[Int]) [error] -> Result[Stream[Int]] { (boxed(items)?).rows }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read() [error] -> Unit { for item in (boxed(\"value\")?).rows { let checked: Str = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read() [error] -> Unit { for item in (boxed([7])?).rows { let checked: Int = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read(items: Stream[Int]) [error] -> Unit { for item in (boxed(items)?).rows { let checked: Int = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read() [error] -> Unit { for item in boxed(\"value\")?.rows { let checked: Str = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read() [error] -> Unit { for item in boxed([7])?.rows { let checked: Int = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read(items: Stream[Int]) [error] -> Unit { for item in boxed(items)?.rows { let checked: Int = item; let _ = checked } }"),
+            ("proc boxed(value) [] { {rows: value} }", "proc read() [error] -> Unit { for item in (boxed({child: [7]})?).rows.child { let checked: Int = item; let _ = checked } }"),
+        ] {
+            let source = format!("{definition}\n{consumer}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if !errors.is_empty() { failures.push(format!("{source}\n{errors:?}")); }
+        }
+        for (argument, expected) in [("7", "Str"), ("\"value\"", "Int")] {
+            let source = format!("proc boxed(value) [] {{ {{rows: value}} }}\nlet wrong: {expected} = (boxed({argument})?).rows\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if !errors.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)) { failures.push(format!("missing shared field/argument mismatch: {source}\n{errors:?}")); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        for iterator in ["(boxed(7)?).rows", "boxed(7)?.rows"] {
+            let source = format!("proc boxed(value) [] {{ {{rows: value}} }}\nproc read() [error] -> Unit {{ for item in {iterator} {{ let _ = item }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(DiagnosticCode::CheckForIterator), "{source}\n{errors:?}");
+            let span = errors[0].labels[0].span;
+            assert_eq!(&source[span.start()..span.end()], iterator);
+        }
+        for (family, rejected) in [("Error", false), ("CaptureFailure", true)] {
+            let source = format!("error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\nstream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] {{ let _ = other; yield 7 }}\nproc box(items) [] {{ {{rows: items}} }}\nproc captured(other: Result[Int, OtherFailure]) [error] -> Result[Int, {family}] {{ try {{ for item in (box(safe(other))?).rows {{ let _ = item }}; 7 }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if rejected {
+                assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+                assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch), "{source}\n{errors:?}");
+                assert_eq!(errors[0].labels[0].message.as_deref(), Some("expected CaptureFailure, found Error"));
+            } else { assert!(errors.is_empty(), "{source}\n{errors:?}"); }
+        }
+    }
+
+    #[test]
     fn capture_retains_unknown_impure_call_failure_capability() {
         let mut failures = Vec::new();
         for (effects, family, rejected) in [("", "Error", false), ("", "CaptureFailure", true), (" []", "CaptureFailure", false), (" [error]", "CaptureFailure", true)] {

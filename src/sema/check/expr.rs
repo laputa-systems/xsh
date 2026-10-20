@@ -3375,6 +3375,19 @@ impl Checker {
         result
     }
 
+    fn resolve_field_type(&mut self, ty: &Type, span: Span) -> Result<Type, ()> {
+        match self.type_constraints.resolve(ty) {
+            Ok(resolved) => Ok(resolved),
+            Err(crate::sema::constraints::ConstraintResolutionError::TypeDepth) => {
+                self.expect_type(ty, ty, span);
+                Err(())
+            }
+            Err(crate::sema::constraints::ConstraintResolutionError::ForeignVariable) => {
+                panic!("field inference belongs to another checker")
+            }
+        }
+    }
+
     fn check_field_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -3453,16 +3466,8 @@ impl Checker {
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let base_ty = if matches!(base_ty, Type::Inference(_)) {
-            match self.type_constraints.resolve(&base_ty) {
-                Ok(resolved) => resolved,
-                Err(crate::sema::constraints::ConstraintResolutionError::TypeDepth) => {
-                    self.expect_type(&base_ty, &base_ty, span);
-                    return Type::Invalid;
-                }
-                Err(crate::sema::constraints::ConstraintResolutionError::ForeignVariable) => {
-                    panic!("field receiver inference belongs to another checker")
-                }
-            }
+            let Ok(resolved) = self.resolve_field_type(&base_ty, span) else { return Type::Invalid };
+            resolved
         } else {
             base_ty
         };
@@ -3488,7 +3493,7 @@ impl Checker {
         match base_ty.into_unvalidated() {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
-                Some(ty) => ty.clone(),
+                Some(ty) => self.resolve_field_type(ty, span).unwrap_or(Type::Invalid),
                 None => {
                     self.report_unknown_field(span, name, fields.keys());
                     Type::Unknown
@@ -3701,7 +3706,7 @@ impl Checker {
         let field_ty = match inner.unvalidated() {
             Type::ErasedRecord => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
-                Some(ty) => ty.clone(),
+                Some(ty) => self.resolve_field_type(ty, span).unwrap_or(Type::Invalid),
                 None => {
                     self.report_unknown_field(span, name, fields.keys());
                     Type::Unknown
