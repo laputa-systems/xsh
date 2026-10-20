@@ -23,6 +23,27 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `18c920910` passes the combined immutable replay: 233 passed, zero
+failed and zero ignored. Independent review approves physical ground Capture
+verification and its two runtime repairs. Capture verifies actual success
+values and propagated error families, including consumed streams through typed
+and recursive relays. Saved streams and nested Result values remain data.
+Canonical native contracts, nearest catch boundaries and existing verification
+work caps remain authoritative. Captured stream tails retain their resource
+owner. Failed Result iteration preserves its original payload and propagates
+through cleanup to the nearest capture.
+
+The compiler lane's focused group passes all 20 controls. Runtime controls
+exercise normal and forced indexed routes. Matching verification products and
+native annotation, resource and documentation replay are next.
+Source-origin diagnostics remain mandatory: consumed fallible streams can still
+pass a narrow source Capture contract before physical verification rejects it.
+The combined stream fixture also exceeds the unchanged proof-work budget when
+its typed relay case joins the larger aggregate. Separate minimal controls pass;
+that split does not qualify the aggregate. Repair both classes before closure.
+Generic Try/Capture admission, ordinary generic-body frontiers, corpus parity,
+performance, deployment and post-consolidation cleanup remain open.
+
 Source `0a948eab4` passes the combined immutable replay: 213 passed, zero
 failed and zero ignored. Independent review approves command-argument
 verification. Command constructors authenticate targets, argument words and
