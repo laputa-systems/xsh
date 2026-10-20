@@ -461,6 +461,15 @@ done
 export XSH_BIN=$xsh XSHT_BIN=$xsht
 export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
 
+practical_xsh_roots=(
+  core/wc.xsh core/sort.xsh core/awk.xsh
+  core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh
+  core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
+)
+practical_laputa_roots=(pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh)
+interface_callable_count=0
+interface_cli_count=0
+
 run_negative_control() {
   local selector=$1
   local name=$2
@@ -492,17 +501,18 @@ run_negative_control() {
 }
 
 for view in original reduced; do
-  run_check "$view" xsh 12 \
-    core/wc.xsh core/sort.xsh core/awk.xsh \
-    core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh \
-    core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
-  run_check "$view" laputa 3 pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh
+  run_check "$view" xsh "${#practical_xsh_roots[@]}" "${practical_xsh_roots[@]}"
+  run_check "$view" laputa "${#practical_laputa_roots[@]}" "${practical_laputa_roots[@]}"
   run_exact "$view" xsh core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes
   run_exact "$view" xsh core/tests/test-sort.xsh::test_sort_general_numeric_orders_past_double_precision
   run_exact "$view" xsh core/tests/test-awk.xsh::test_awk_arrays_functions_and_loops
+  run_exact "$view" xsh core/tests/test-awk.xsh::test_awk_matrix_program_files_and_includes_shard_001
   run_exact "$view" laputa tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
   run_exact "$view" laputa tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
 done
+
+run_interface_qualification xsh "${practical_xsh_roots[@]}"
+run_interface_qualification laputa "${practical_laputa_roots[@]}"
 
 run_negative_control 'xsh|core/wc.xsh|parameter|94|pure continuation parameter data' continuation_data
 run_negative_control 'xsh|core/wc.xsh|parameter|99|pure within parameter data' within_data
@@ -549,4 +559,5 @@ done
 
 verify_source
 verify_products
-printf 'paired practical corpus: retained diagnostics, five runtime selectors, and six signatures passed\n'
+printf 'paired practical corpus: retained diagnostics, six runtime selectors, six signatures, and interface qualification: %s callable, %s CLI passed\n' \
+  "$interface_callable_count" "$interface_cli_count"
