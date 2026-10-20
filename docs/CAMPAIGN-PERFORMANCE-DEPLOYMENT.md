@@ -4,6 +4,9 @@ Status: active, 2026-10-17. The owner authorized bounded isolated edits,
 local commits and integration, pinned fetches, and owned Docker/KVM operations.
 Pushing remains forbidden.
 
+The owner's 2026-10-20 direction keeps accepted work on
+`campaign/full-inference-integration`. Do not merge this campaign to `master`.
+
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
 operations on the existing Linux platform. Add no syntax-feature batches.
