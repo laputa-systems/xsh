@@ -26973,6 +26973,219 @@ proc main() {
     }
 
     #[test]
+    fn strict_result_producers_preserve_erased_record_returns() {
+        let source = "type Label = {label: Str}\npure plain() -> Record { {label: \"x\"} }\npure wrapped() -> Result[Record] { Ok(plain()) }\npure expect_record(value: Record, wrong: Str) -> Result[Record] { let _ = wrong; Ok(value) }\nlet found = expect_record(wrapped()?, \"wrong\")?\nlet value = found.require(Label)?\nassert value.label == \"x\"\n";
+        let program = Arc::new(fixture("erased-record-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "expect_record");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let value = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[value] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_byte_line_bindings() {
+        let source = r#"
+pure first(text: Bytes, wrong: List[Int]) -> Result[Bytes] {
+    let _ = wrong
+    for line in text.lines() { return Ok(line) }
+    Ok(b"")
+}
+assert first(b"x\ny", [1])? == b"x"
+"#;
+        let program = Arc::new(fixture("byte-line-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "first");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let loop_instruction = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtForStrLines).unwrap();
+        let schema::StmtView::ForStrLines { text, .. } = decoder.statement_view(loop_instruction).unwrap() else { unreachable!() };
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[text.raw() as usize] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground line source is neither text nor bytes"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_reassigned_optional_storage() {
+        let source = "pure selected(flag: Bool, wrong: Str) -> Result[Path?] { let _ = wrong; var chosen = null; if flag { chosen = p\"/selected\" }; Ok(chosen) }\nlet present: Path? = p\"/selected\"\nassert selected(true, \"wrong\")? == present\nassert selected(false, \"wrong\")? == null\n";
+        let program = Arc::new(fixture("optional-storage-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "selected");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let path = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprPath).unwrap();
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.tags[path] = FullTag::ExprParam;
+        forged.store.data[path] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_optional_return_values() {
+        let source = "type Pair = {left: Int, right: Int}\npure maybe(flag: Bool, wrong: Str) -> Pair? { let _ = wrong; if flag { return {left: 1, right: 2} }; null }\npure wrapped(flag: Bool) -> Result[Pair?] { Ok(maybe(flag, \"wrong\")) }\nlet present: Pair? = {left: 1, right: 2}\nassert wrapped(true)? == present\nassert wrapped(false)? == null\nproc lifted(flag: Bool) [] -> Result[Pair?] { if flag { return {left: 1, right: 2} }; null }\nassert lifted(true)? == present\nassert lifted(false)? == null\npure maybe_result(flag: Bool) -> Result[Int]? { if flag { return Ok(7) }; null }\npure wrapped_result(flag: Bool) -> Result[Result[Int]?] { Ok(maybe_result(flag)) }\nlet nested: Result[Int]? = Ok(7)\nassert wrapped_result(true)? == nested\nassert wrapped_result(false)? == null\n";
+        let program = Arc::new(fixture("optional-return-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "maybe");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let integer = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.tags[integer] = FullTag::ExprParam;
+        forged.store.data[integer] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_destructured_loop_bindings() {
+        let source = "type Row = {name: Str}\ntype Wrong = {name: Int}\npure word(name: Str) -> Str { name }\npure labels(rows: List[Row], wrong: List[Wrong]) -> Result[Str] { let _ = wrong; var text = \"\"; for {name} in rows { if name.starts_with(\"x\") { text = text + word(name) + f\"{name}\" } }; Ok(text) }\nassert labels([{name: \"x\"}], [{name: 1}])? == \"xx\"\n";
+        let program = Arc::new(fixture("destructured-loop-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "labels");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let loop_instruction = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtForRecord).unwrap();
+        let schema::StmtView::ForRecord { iter, .. } = decoder.statement_view(loop_instruction).unwrap() else { unreachable!() };
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[iter.raw() as usize] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_comprehension_predicate_bindings() {
+        let source = "pure filtered(values: List[Str], wrong: List[Int]) -> Result[List[Str]] { let _ = wrong; Ok([value for value in values if value != \"\"]) }\nassert filtered([\"\", \"x\"], [1])? == [\"x\"]\n";
+        let program = Arc::new(fixture("comprehension-predicate-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "filtered");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let comprehension = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListComp).unwrap();
+        let schema::ExprView::ListComp { mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+        let super::decode::CompQualifierView::For { iter, .. } = qualifiers.next().unwrap().unwrap() else { unreachable!() };
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[iter.raw() as usize] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_glob_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("glob-result-producer.xsh", r#"
+proc paths(wrong: List[Str]) [fs] -> Result[List[Path]] { let _ = wrong; Ok(g"/__xsh_missing_glob_producer_control__/*") }
+assert paths([])? == []
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "paths");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let glob = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprGlob).unwrap();
+            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.tags[glob] = FullTag::ExprParam;
+            forged.store.data[glob] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_last_status_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("last-status-result-producer.xsh", r#"
+proc observed(wrong: Int) [process] -> Result[Status] { let _ = wrong; run.status false; Ok($?) }
+assert observed(0)?.exited_with(1)
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "observed");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let status = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprLastStatus).unwrap();
+            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.tags[status] = FullTag::ExprParam;
+            forged.store.data[status] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+        });
+    }
+
+    #[test]
     fn strict_result_producers_prepare_tour_documentation_module() {
         run_with_large_stack(|| {
             let source = "use tour_html\n";

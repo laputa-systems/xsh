@@ -829,6 +829,8 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Duration(_) => Some(Type::Duration),
             schema::ExprView::PreparedRegex(_) => Some(Type::Regex),
             schema::ExprView::Path(_) => Some(Type::Path),
+            schema::ExprView::Glob { .. } => Some(Type::List(Box::new(Type::Path))),
+            schema::ExprView::LastStatus { .. } => Some(Type::Status),
             schema::ExprView::Range { .. } => Some(Type::Stream(Box::new(Type::Int))),
             schema::ExprView::Record(mut fields) => {
                 let writers = decoder.checked_record_field_writers(&mut fields, |source| self.need_context(decoder, source)?.ok_or_else(|| IrVerifyError::new("record spread derivation has no input contract")))?;
@@ -937,12 +939,18 @@ impl<'a> ProducerProof<'a> {
                     for (pattern, guarded) in preceding { subject = decoder.subject_after_arm(pattern, guarded, subject)?; }
                     return decoder.checked_pattern_bound_type_with_budget(pattern, slot, subject.as_ref(), |amount| self.budget.charge(amount)).map(|ty| ty.map(Arc::new));
                 }
-                if self.index.owners[&decoder.owner].comprehension_sources.contains_key(&binding) || self.index.owners[&decoder.owner].pipeline_sources.contains_key(&binding) { return Ok(None); }
+                if let Some(&(comprehension, iter)) = self.index.owners[&decoder.owner].comprehension_sources.get(&binding) {
+                    return self.comprehension_binding_type(decoder, comprehension, iter, slot);
+                }
+                if self.index.owners[&decoder.owner].pipeline_sources.contains_key(&binding) { return Ok(None); }
                 if let ProducerBinding::ScopedDeclaration(declaration, _) = binding {
+                    if let Some(ty) = self.statement_binding_type(decoder, declaration, slot)? { return Ok(Some(ty)); }
                     return match decoder.statement_view(declaration)? {
                         schema::StmtView::Let { annotation: Some(annotation), .. } => self.contract_type(annotation.id).map(Some),
                         schema::StmtView::Let { value, .. } => {
-                            if let Some(ty) = self.declared_type(decoder, value.raw() as usize)? { return Ok(Some(ty)); }
+                            if self.index.owners[&decoder.owner].writers.get(&binding).is_none_or(|writers| writers.len() <= 1)
+                                && let Some(ty) = self.declared_type(decoder, value.raw() as usize)?
+                            { return Ok(Some(ty)); }
                             let Some(id) = decoder.checked_slot_type(slot)? else { return Ok(None) };
                             let ty = self.contract_type(id)?;
                             if ty.contains_any() { return Ok(None); }
@@ -951,11 +959,6 @@ impl<'a> ProducerProof<'a> {
                         }
                         schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
                         schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
-                        schema::StmtView::For { iter, .. } => {
-                            let Some(source) = self.need_context(decoder, iter.raw() as usize)? else { return Ok(None) };
-                            self.budget.charge_clone(&source)?;
-                            Ok(source.iteration_item_type().map(Arc::new))
-                        }
                         schema::StmtView::With { mut bindings, else_param_slot, .. } => {
                             if else_param_slot == Some(slot) {
                                 return Ok(self.index.owners[&decoder.owner].with_errors.get(&declaration).cloned().map(Arc::new));
@@ -1583,6 +1586,7 @@ impl<'a> ProducerProof<'a> {
             self.function(target.index());
             return Ok(());
         }
+        if expected.unvalidated() == &Type::ErasedRecord && matches!(decoder.expression_view(instruction)?, schema::ExprView::Record(_)) { return Ok(()); }
         let actual = self.declared_type(&decoder, instruction)?;
         if let Some(actual) = &actual {
             let fits = if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
@@ -1594,8 +1598,15 @@ impl<'a> ProducerProof<'a> {
         let expected = if returned && !preserves_result && !actual.as_ref().is_some_and(|actual| actual.is_result()) {
             match expected.as_ref() { Type::Result(ok, _) => Arc::new((**ok).clone()), _ => expected }
         } else { expected };
+        let expected = if returned && let Type::Optional(payload) = expected.unvalidated()
+            && actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
+        {
+            self.budget.charge_clone(payload)?;
+            Arc::new((**payload).clone())
+        } else { expected };
         match decoder.expression_view(instruction)? {
             schema::ExprView::Param(slot) => self.slot(owner, instruction, slot, actual.unwrap_or(expected)),
+            schema::ExprView::Glob { .. } | schema::ExprView::LastStatus { .. } => Ok(()),
             schema::ExprView::Range { start, end, .. } => {
                 if !Type::Stream(Box::new(Type::Int)).matches_expected(&expected) { return Err(IrVerifyError::new("range producer has an incompatible stream contract")); }
                 self.expression(owner, start.raw() as usize, Arc::new(Type::Int), false);
@@ -1756,6 +1767,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Record(mut fields) => {
+                if expected.unvalidated() == &Type::ErasedRecord { return Ok(()); }
                 let Type::Record(expected_fields) = expected.unvalidated() else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
                 let writers = decoder.checked_record_field_writers(&mut fields, |value| self.need_context(&decoder, value)?.ok_or_else(|| IrVerifyError::new("ground record spread has no producer contract")))?;
                 for (name, expected) in expected_fields.iter() {
@@ -2010,6 +2022,7 @@ impl<'a> ProducerProof<'a> {
 
     fn verify_operands(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<(), IrVerifyError> {
         let owner = &self.index.owners[&decoder.owner];
+        let parent = instruction;
         let mut pending = Vec::new();
         let mut child = owner.children[instruction - owner.range.start];
         while child != IR_NONE { pending.push(child as usize); child = owner.siblings[child as usize - owner.range.start]; }
@@ -2017,7 +2030,7 @@ impl<'a> ProducerProof<'a> {
             self.budget.charge(1)?;
             match self.store.tags[instruction].kind() {
                 schema::InstructionKind::Expr => {
-                    let ty = self.need_context(decoder, instruction)?.ok_or_else(|| IrVerifyError::new("ground producer operand has no checked contract"))?;
+                    let ty = self.need_context(decoder, instruction)?.ok_or_else(|| IrVerifyError::new(format!("ground producer operand has no checked contract at owner {}, parent {parent} {:?}, child {instruction} {:?}", decoder.owner, self.store.tags[parent], self.store.tags[instruction])))?;
                     self.expression(decoder.owner, instruction, ty, false);
                 }
                 schema::InstructionKind::Int | schema::InstructionKind::Bool => {
@@ -2268,6 +2281,85 @@ impl<'a> ProducerProof<'a> {
         }
     }
 
+    fn iteration_binding_type(&mut self, decoder: &FullDecoder<'a>, iter: usize, target: super::super::decode::CompTargetView<'_>, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let Some(source) = self.need_context(decoder, iter)? else { return Ok(None) };
+        self.budget.charge_clone(&source)?;
+        let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground destructuring source has no item type"))?;
+        self.budget.charge_clone(&item)?;
+        let projected = comp_slot_type(target, slot, &item)?.ok_or_else(|| IrVerifyError::new("ground destructuring binding has no target projection"))?;
+        self.expression(decoder.owner, iter, source, false);
+        Ok(Some(Arc::new(projected)))
+    }
+
+    fn statement_binding_type(&mut self, decoder: &FullDecoder<'a>, declaration: usize, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        if self.store.tags[declaration].kind() != schema::InstructionKind::Stmt { return Ok(None); }
+        let (source, projected) = match decoder.statement_view(declaration)? {
+            schema::StmtView::ForRecord { target, iter, .. } => return self.iteration_binding_type(decoder, iter.raw() as usize, target, slot),
+            schema::StmtView::For { iter, .. } => {
+                let Some(source) = self.need_context(decoder, iter.raw() as usize)? else { return Ok(None) };
+                self.budget.charge_clone(&source)?;
+                let projected = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground loop source has no item contract"))?;
+                ((iter.raw() as usize, source), projected)
+            }
+            schema::StmtView::ForStrLines { text, .. } => {
+                let Some(source) = self.need_context(decoder, text.raw() as usize)? else { return Ok(None) };
+                if !matches!(source.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("ground line source is neither text nor bytes")); }
+                let projected = FullDecoder::registered_method_return_type(source.unvalidated(), "lines")?.and_then(|result| result.iteration_item_type()).ok_or_else(|| IrVerifyError::new("ground line source has no registered item contract"))?;
+                ((text.raw() as usize, source), projected)
+            }
+            schema::StmtView::LetRecord { source, target, .. } => {
+                let instruction = source.raw() as usize;
+                let Some(source) = self.need_context(decoder, instruction)? else { return Ok(None) };
+                self.budget.charge_clone(&source)?;
+                let projected = comp_slot_type(target, slot, &source)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no slot projection"))?;
+                ((instruction, source), projected)
+            }
+            schema::StmtView::Guard { value, target, optional, else_param_slot, .. } => {
+                let instruction = value.raw() as usize;
+                let Some(source) = self.need_context(decoder, instruction)? else { return Ok(None) };
+                self.budget.charge_clone(&source)?;
+                let projected = if else_param_slot == Some(slot) {
+                    match source.unvalidated() { Type::Result(_, error) if !optional => Some((**error).clone()), _ => None }
+                } else {
+                    let payload = match source.unvalidated() { Type::Result(ok, _) if !optional => Some(ok.as_ref()), Type::Optional(ok) if optional => Some(ok.as_ref()), _ => None };
+                    match payload { Some(payload) => comp_slot_type(target, slot, payload)?, None => None }
+                }.ok_or_else(|| IrVerifyError::new("ground guard has no slot transfer contract"))?;
+                ((instruction, source), projected)
+            }
+            schema::StmtView::ScanLines { text_slot, line_slot, .. } => {
+                if slot == line_slot { return Err(IrVerifyError::new("scan line temporary escapes its lexical iteration")); }
+                let source = decoder.checked_slot_type(text_slot)?.ok_or_else(|| IrVerifyError::new("scan source has no string slot contract"))?;
+                let source = self.ground_type(source)?;
+                if !matches!(source.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scan source slot is not text or bytes")); }
+                self.slot(decoder.owner, declaration, text_slot, source)?;
+                return Ok(Some(Arc::new(Type::Int)));
+            }
+            schema::StmtView::ScanBytes { config } => {
+                let ty = if slot == config.block_depth_slot || slot == config.string_delim_slot { Type::Int } else { Type::Bool };
+                self.slot(decoder.owner, declaration, config.line_slot, Arc::new(Type::Bytes))?;
+                self.slot(decoder.owner, declaration, config.block_depth_slot, Arc::new(Type::Int))?;
+                return Ok(Some(Arc::new(ty)));
+            }
+            _ => return Ok(None),
+        };
+        self.expression(decoder.owner, source.0, source.1, false);
+        Ok(Some(Arc::new(projected)))
+    }
+
+    fn comprehension_binding_type(&mut self, decoder: &FullDecoder<'a>, comprehension: usize, iter: usize, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let mut qualifiers = match decoder.expression_view(comprehension)? {
+            schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
+            _ => return Err(IrVerifyError::new("comprehension binding has no comprehension source")),
+        };
+        for qualifier in &mut qualifiers {
+            self.budget.charge(1)?;
+            if let super::super::decode::CompQualifierView::For { target, iter: candidate, .. } = qualifier? && candidate.raw() as usize == iter {
+                return self.iteration_binding_type(decoder, iter, target, slot);
+            }
+        }
+        Err(IrVerifyError::new("ground comprehension binder has no lexical source"))
+    }
+
     fn verify_slot(&mut self, owner: u32, binding: ProducerBinding, slot: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
         let decoder = self.owner(owner)?;
         if let Some(source) = self.index.owners[&owner].pipeline_sources.get(&binding).copied() {
@@ -2301,22 +2393,8 @@ impl<'a> ProducerProof<'a> {
             return self.verify_slot_writers(&decoder, binding, slot, expected, true);
         }
         if let Some(&(comprehension, iter)) = self.index.owners[&owner].comprehension_sources.get(&binding) {
-            let source = self.need_context(&decoder, iter)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable contract"))?;
-            let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
-            let mut qualifiers = match decoder.expression_view(comprehension)? {
-                schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
-                _ => unreachable!("comprehension binder has a non-comprehension source"),
-            };
-            let mut found = false;
-            for qualifier in &mut qualifiers {
-                if let super::super::decode::CompQualifierView::For { target, iter: candidate, .. } = qualifier? && candidate.raw() as usize == iter {
-                    let projected = comp_slot_type(target, slot, &item)?.ok_or_else(|| IrVerifyError::new("ground comprehension binding has no target projection"))?;
-                    if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground comprehension binding disagrees with its producer contract")); }
-                    found = true;
-                }
-            }
-            if !found { return Err(IrVerifyError::new("ground comprehension binder has no lexical source")); }
-            self.expression(owner, iter, source, false);
+            let projected = self.comprehension_binding_type(&decoder, comprehension, iter, slot)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable contract"))?;
+            if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground comprehension binding disagrees with its producer contract")); }
             return self.verify_slot_writers(&decoder, binding, slot, expected, true);
         }
         if let Some(step) = super::super::driver_owner_index(owner) {
@@ -2381,6 +2459,10 @@ impl<'a> ProducerProof<'a> {
     fn verify_slot_writer(&mut self, decoder: &FullDecoder<'a>, slot: usize, expected: Arc<Type>, writer: usize) -> Result<(), IrVerifyError> {
         let owner = decoder.owner;
         self.budget.charge(1)?;
+        if let Some(projected) = self.statement_binding_type(decoder, writer, slot)? {
+            if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground binding writer disagrees with its slot contract")); }
+            return Ok(());
+        }
         match decoder.statement_view(writer)? {
                 schema::StmtView::Let { value, .. } | schema::StmtView::DefaultParameter { value, .. } => self.expression(owner, value.raw() as usize, Arc::clone(&expected), false),
                 schema::StmtView::Assign { value, check, .. } => {
@@ -2422,55 +2504,6 @@ impl<'a> ProducerProof<'a> {
                     }
                     let ty = decoder.callable_assignment_target_type(slot, &checked)?.ok_or_else(|| IrVerifyError::new("ground path writer has no checked target type"))?;
                     self.expression(owner, value.raw() as usize, Arc::new(ty), false);
-                }
-                schema::StmtView::ScanLines { text_slot, line_slot, .. } => {
-                    if slot == line_slot { return Err(IrVerifyError::new("scan line temporary escapes its lexical iteration")); }
-                    if !Type::Int.matches_expected(&expected) { return Err(IrVerifyError::new("scan counter writer disagrees with its integer contract")); }
-                    let source = decoder.checked_slot_type(text_slot)?.ok_or_else(|| IrVerifyError::new("scan source has no string slot contract"))?;
-                    let source = self.ground_type(source)?;
-                    if !matches!(source.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scan source slot is not text or bytes")); }
-                    self.slot(owner, writer, text_slot, source)?;
-                }
-                schema::StmtView::ScanBytes { config } => {
-                    let ty = if slot == config.block_depth_slot || slot == config.string_delim_slot { Type::Int } else { Type::Bool };
-                    if !ty.matches_expected(&expected) { return Err(IrVerifyError::new("byte scan writer disagrees with its scalar contract")); }
-                    self.slot(owner, writer, config.line_slot, Arc::new(Type::Bytes))?;
-                    self.slot(owner, writer, config.block_depth_slot, Arc::new(Type::Int))?;
-                }
-                schema::StmtView::ForRecord { target, iter, .. } => {
-                    let ty = self.need_context(decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring loop has no iterable contract"))?;
-                    let item = ty.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground destructuring loop has no item contract"))?;
-                    let projected = comp_slot_type(target, slot, &item)?.ok_or_else(|| IrVerifyError::new("ground destructuring loop has no slot projection"))?;
-                    if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground destructuring loop disagrees with its slot contract")); }
-                    self.expression(owner, iter.raw() as usize, ty, false);
-                }
-                schema::StmtView::For { iter, .. } => {
-                    let ty = self.need_context(decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground loop producer has no iterable contract"))?;
-                    let item = ty.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground loop writer has no item contract"))?;
-                    if !item.matches_expected(&expected) { return Err(IrVerifyError::new("ground loop writer disagrees with its slot contract")); }
-                    self.expression(owner, iter.raw() as usize, ty, false);
-                }
-                schema::StmtView::ForStrLines { text, .. } => {
-                    let ty = self.need_context(decoder, text.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground line writer has no string contract"))?;
-                    if !ty.matches_expected(&expected) { return Err(IrVerifyError::new("ground line writer disagrees with its slot contract")); }
-                    self.expression(owner, text.raw() as usize, ty, false);
-                }
-                schema::StmtView::LetRecord { source, target, .. } => {
-                    let ty = self.need_context(decoder, source.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no source contract"))?;
-                    let projected = comp_slot_type(target, slot, &ty)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no slot projection"))?;
-                    if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground destructuring writer disagrees with its slot contract")); }
-                    self.expression(owner, source.raw() as usize, ty, false);
-                }
-                schema::StmtView::Guard { value, target, optional, else_param_slot, .. } => {
-                    let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground guard has no subject contract"))?;
-                    let projected = if else_param_slot == Some(slot) {
-                        match ty.unvalidated() { Type::Result(_, error) if !optional => Some((**error).clone()), _ => None }
-                    } else {
-                        let payload = match ty.unvalidated() { Type::Result(ok, _) if !optional => Some(ok.as_ref()), Type::Optional(ok) if optional => Some(ok.as_ref()), _ => None };
-                        match payload { Some(payload) => comp_slot_type(target, slot, payload)?, None => None }
-                    }.ok_or_else(|| IrVerifyError::new("ground guard has no slot transfer contract"))?;
-                    if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground guard writer disagrees with its slot contract")); }
-                    self.expression(owner, value.raw() as usize, ty, false);
                 }
                 schema::StmtView::With { mut bindings, else_param_slot, .. } => {
                     let failure = else_param_slot == Some(slot);
