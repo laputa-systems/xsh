@@ -46,7 +46,8 @@ parameters, inferred returns, and exported bindings; `locals` is opt-in. A
 bare `--annotate` uses `[check] annotate` when configured.
 
 `xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT
-CANDIDATE_PATH...` qualifies callable interfaces and CLI parsing contracts without writing either tree.
+CANDIDATE_PATH...` qualifies callable interfaces, CLI parsing contracts, and checked body facts
+without writing either tree.
 Candidate entries must be existing `.xsh` files inside the explicit candidate
 root; directories are not entry selectors. Relative paths are relative to the
 working directory. Candidate sources map by their relative path to existing
@@ -63,8 +64,14 @@ contracts fail with status 2 and a declaration diagnostic. CLI comparison covers
 command paths, parameter parser domains, defaults, rest parameters, and declared
 effect bounds. Help text and runtime behavior require separate paired tests.
 Internal host declarations
-are excluded from both sides. The command checks and validates lowerability of
-both programs; it does not establish runtime behavior equivalence.
+are excluded from both sides. The command checks each program once and prepares
+it once without executing initialization. It compares complete checked body owner
+sets by canonical source path and entry or declaration name. Checked operation and
+stage selections, effect summaries, and emitted runtime validation boundaries must
+be preserved according to the canonical body contract. Shared bodies must have
+mutually preserved contracts across entry programs on each side. Missing facts,
+unsupported capture, and preparation errors fail qualification. These checks do
+not establish runtime behavior equivalence.
 
 Both roots bound the source view: reachable user imports must stay inside the
 original root and have candidate files. Every candidate `.xsh` file must have

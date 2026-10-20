@@ -1282,3 +1282,82 @@ fn xsht_check_compare_rejects_retargeted_entry_symlinks() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("candidate entry resolution differs"));
     }
 }
+
+#[test]
+fn xsht_check_compare_rejects_changed_pipeline_selection_with_same_interface() {
+    let original = "pure aggregate(items: List[Int]) -> Int { items |> count() }\n";
+    let candidate = "pure aggregate(items: List[Int]) -> Int { items |> sum() }\n";
+    for source in [original, candidate] {
+        let control = compare_fixture(&[("main.xsh", source)], &[("main.xsh", source)]);
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+    }
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("checked body contract mismatch"), "{stderr}");
+    assert!(stderr.contains("main.xsh::aggregate"), "{stderr}");
+}
+
+#[test]
+fn xsht_check_compare_rejects_removed_unsigned_local_validation() {
+    let original = "proc bounded(value: Int) [] -> Int { let checked: UInt = value; checked }\n";
+    let candidate = "proc bounded(value: Int) [] -> Int { let checked = value; checked }\n";
+    for source in [original, candidate] {
+        let control = compare_fixture(&[("main.xsh", source)], &[("main.xsh", source)]);
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+    }
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("checked body contract mismatch"), "{stderr}");
+    assert!(stderr.contains("main.xsh::bounded"), "{stderr}");
+}
+
+#[test]
+fn xsht_check_compare_accepts_removed_plain_integer_local_annotation() {
+    let original = "pure copy(value: Int) -> Int { let checked: Int = value; checked }\n";
+    let candidate = "pure copy(value: Int) -> Int { let checked = value; checked }\n";
+    for source in [original, candidate] {
+        let control = compare_fixture(&[("main.xsh", source)], &[("main.xsh", source)]);
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+    }
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("checked body contract mismatch"));
+}
+
+#[test]
+fn xsht_check_compare_rejects_changed_required_effects_with_same_interface() {
+    use xsh::frontend::check::{CheckOptions, Checker};
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::node::Effect;
+    use xsh::frontend::syntax::parser::Parser;
+
+    let original = "proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
+    let candidate = "proc observe() [time] -> Int { 1 }\n";
+    let effects = |source: &str| {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_check_cli());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.function_effect_facts.len(), 1);
+        checked.function_effect_facts.into_values().next().unwrap()
+    };
+    let old_effects = effects(original);
+    let new_effects = effects(candidate);
+    assert_eq!(old_effects.effective, new_effects.effective);
+    assert_eq!(old_effects.required, Some(vec![Effect::Time]));
+    assert_eq!(new_effects.required, Some(Vec::new()));
+    for source in [original, candidate] {
+        let control = compare_fixture(&[("main.xsh", source)], &[("main.xsh", source)]);
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+    }
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("checked body contract mismatch"), "{stderr}");
+    assert!(stderr.contains("main.xsh::observe"), "{stderr}");
+}

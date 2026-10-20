@@ -209,7 +209,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 names: &["--compare-with"],
                 arg: OptionArg::value_or_equals("ORIGINAL_ROOT"),
                 repeatable: false,
-                description: "Qualify candidate callable interfaces against original sources",
+                description: "Qualify candidate interfaces and checked bodies against original sources",
             },
             OptionSpec {
                 names: &["--candidate-root"],

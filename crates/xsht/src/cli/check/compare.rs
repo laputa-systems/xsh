@@ -4,11 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use xsh::diagnostic::DiagnosticRenderer;
-use xsh::execution::evaluator::Evaluator;
+use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
+use xsh::execution::evaluator::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 use xsh::frontend::check::{
-    CheckOptions, CheckSession, CheckedCallableContract, CheckedCliEntryContract,
-    CheckedFunctionKind, Checker, CliContractError, ContractComparisonError,
+    BodyContractError, BodyContractOwner, CheckOptions, CheckSession,
+    CheckedCallableContract, CheckedCliEntryContract, CheckedFunctionKind,
+    CliContractError, ContractComparisonError,
 };
 use xsh::frontend::load as loader;
 use xsh::frontend::source::SourceMap;
@@ -30,6 +31,47 @@ impl DeclarationContract {
 }
 
 type Contracts = BTreeMap<(PathBuf, String), DeclarationContract>;
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum BodyOwner {
+    Entry,
+    Declaration(String),
+}
+
+impl BodyOwner {
+    fn label(&self) -> &str {
+        match self {
+            Self::Entry => "<entry>",
+            Self::Declaration(name) => name,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct BodyKey {
+    source_path: PathBuf,
+    module_key: Arc<str>,
+    owner: BodyOwner,
+}
+
+impl BodyKey {
+    fn new(module_key: &str, owner: BodyOwner, original_root: &Path) -> Result<Self, String> {
+        let physical = module_key.split('\0').next().expect("module key has a physical path");
+        Ok(Self {
+            source_path: bounded_file(Path::new(physical), original_root)?,
+            module_key: Arc::from(module_key),
+            owner,
+        })
+    }
+}
+
+type BodyContracts = BTreeMap<BodyKey, CheckedBodyContract>;
+
+struct CheckedProgram {
+    interfaces: Contracts,
+    bodies: BodyContracts,
+}
+
 
 pub fn compare_paths_timed(
     original_root: &str,
@@ -127,6 +169,8 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
     }
     let mut original_contracts = Contracts::new();
     let mut candidate_contracts = Contracts::new();
+    let mut original_bodies = BodyContracts::new();
+    let mut candidate_bodies = BodyContracts::new();
     let mut entries = BTreeSet::new();
     for path in paths {
         check_cancellation()?;
@@ -145,8 +189,10 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
         let config = config_for_file(path_text(&original)?)?;
         let old = check_contracts(&original, &original_root, &candidate_root, None, config.module_roots(), timings)?;
         let new = check_contracts(&original, &original_root, &candidate_root, Some(&overrides), config.module_roots(), timings)?;
-        merge_contracts(&mut original_contracts, old)?;
-        merge_contracts(&mut candidate_contracts, new)?;
+        merge_contracts(&mut original_contracts, old.interfaces)?;
+        merge_contracts(&mut candidate_contracts, new.interfaces)?;
+        merge_body_contracts(&mut original_bodies, old.bodies)?;
+        merge_body_contracts(&mut candidate_bodies, new.bodies)?;
     }
     let mut failures = Vec::new();
     if original_contracts.is_empty() || candidate_contracts.is_empty() {
@@ -180,6 +226,22 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
             failures.push(format!("{}::{name}: extra candidate declaration", path.display()));
         }
     }
+    if original_bodies.is_empty() || candidate_bodies.is_empty() {
+        failures.push("selected programs must publish checked body contracts on both sides".into());
+    }
+    for (key, old) in &original_bodies {
+        check_cancellation()?;
+        match candidate_bodies.get(key) {
+            None => failures.push(format!("{}::{}: missing candidate checked body contract", key.source_path.display(), key.owner.label())),
+            Some(new) if old.preserved_by(new) => {}
+            Some(_) => failures.push(format!("{}::{}: checked body contract mismatch", key.source_path.display(), key.owner.label())),
+        }
+    }
+    for key in candidate_bodies.keys() {
+        if !original_bodies.contains_key(key) {
+            failures.push(format!("{}::{}: extra candidate checked body contract", key.source_path.display(), key.owner.label()));
+        }
+    }
     if failures.is_empty() {
         let callables = original_contracts.values().filter(|contract| matches!(contract, DeclarationContract::Callable { .. })).count();
         Ok((callables, original_contracts.len() - callables))
@@ -205,6 +267,36 @@ fn merge_contracts(target: &mut Contracts, contracts: Contracts) -> Result<(), S
         } else { target.insert(key, contract); }
     }
     Ok(())
+}
+
+fn merge_body_contracts(target: &mut BodyContracts, bodies: BodyContracts) -> Result<(), String> {
+    for (key, body) in bodies {
+        check_cancellation()?;
+        if let Some(previous) = target.get(&key) {
+            if !previous.preserved_by(&body) || !body.preserved_by(previous) {
+                return Err(format!("{}::{}: inconsistent checked body contract across entry programs", key.source_path.display(), key.owner.label()));
+            }
+        } else { target.insert(key, body); }
+    }
+    Ok(())
+}
+
+fn body_contract_error(error: CheckedBodyContractError, sources: &SourceMap) -> String {
+    let (span, message) = match error {
+        CheckedBodyContractError::Preparation(diagnostic) => return DiagnosticRenderer::new().render(&[diagnostic], sources),
+        CheckedBodyContractError::Semantic(error) => match error {
+            BodyContractError::MissingSource(source) => return format!("cannot capture checked body contract: missing source {source:?}"),
+            BodyContractError::UnmappedFact(span) => (span, "checked fact has no canonical body site"),
+            BodyContractError::DuplicateOwner(span) => (span, "body owner is duplicated"),
+            BodyContractError::MissingReceiver(span) => (span, "selected operation has no checked receiver"),
+            BodyContractError::MissingEffectFact(span) => (span, "body has no checked effect fact"),
+            BodyContractError::UnsupportedSelection(span) => (span, "checked selection cannot be compared"),
+            BodyContractError::AmbiguousSite(span) => (span, "checked fact has an ambiguous body site"),
+        },
+    };
+    DiagnosticRenderer::new().render(&[
+        Diagnostic::error("cannot capture checked body contract").with_label(Label::primary(span, message)),
+    ], sources)
 }
 
 fn validate_candidate_imports(
@@ -257,7 +349,7 @@ fn check_contracts(
     overrides: Option<&BTreeMap<PathBuf, Vec<u8>>>,
     module_roots: Vec<PathBuf>,
     timings: &StageTimings,
-) -> Result<Contracts, String> {
+) -> Result<CheckedProgram, String> {
     check_cancellation()?;
     let file = path_text(entry)?;
     let bytes = match overrides {
@@ -323,18 +415,62 @@ fn check_contracts(
             return Err(format!("{}::{name}: ambiguous declaration key", path.display()));
         }
     }
-    let diagnostics = timings.time(Stage::Lower, || Evaluator::compact_lowerability_diagnostics_with_view(
-        &view, source_id, Arc::clone(&sources), Checker::compact_declarations(view.program(), checked),
-        Vec::new(), xsh::execution::script::script_command_name(file),
-    ));
+    let captured = timings.time(Stage::Lower, || checked_body_contracts(checked, &arena, &sources, source_id))
+        .map_err(|error| body_contract_error(error, &sources))?;
     check_cancellation()?;
-    if !diagnostics.is_empty() { return Err(DiagnosticRenderer::new().render(&diagnostics, &sources)); }
-    Ok(contracts)
+    let mut bodies = BodyContracts::new();
+    for body in captured {
+        check_cancellation()?;
+        let owner = arena.symbol_owner().with_current(|| match body.owner() {
+            BodyContractOwner::Entry => BodyOwner::Entry,
+            BodyContractOwner::Declaration(name) => BodyOwner::Declaration(name.as_str().to_string()),
+        });
+        let key = BodyKey::new(body.source_name(), owner, original_root)?;
+        if bodies.contains_key(&key) {
+            return Err(format!("{}::{}: ambiguous checked body owner", key.source_path.display(), key.owner.label()));
+        }
+        bodies.insert(key, body);
+    }
+    Ok(CheckedProgram { interfaces: contracts, bodies })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_body_keys_preserve_loaded_module_resolution_contexts() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let common = root.path().join("common");
+        let first = root.path().join("first");
+        let second = root.path().join("second");
+        for directory in [&common, &first, &second] { fs::create_dir_all(directory).unwrap(); }
+        let original_root = root.path().canonicalize().unwrap();
+        let shared = common.join("shared.xsh");
+        fs::write(&shared, "use nested\n").unwrap();
+        fs::write(first.join("nested.xsh"), "export const value = 1\n").unwrap();
+        fs::write(second.join("nested.xsh"), "export const value = 2\n").unwrap();
+        let inputs = [
+            ("one.xsh", vec![common.clone(), first.clone()]),
+            ("two.xsh", vec![common.clone(), first]),
+            ("three.xsh", vec![common, second]),
+        ].into_iter().map(|(name, module_roots)| loader::ArenaEntryInput {
+            file: root.path().join(name).to_str().unwrap().into(),
+            bytes: b"use shared\n".to_vec(), module_roots,
+        }).collect();
+        let loaded = loader::parse_load_entries_shared_arena_only(inputs);
+        assert!(loaded.entries.iter().all(|entry| entry.diagnostics.is_empty()));
+        let physical_key = loader::module_key(&shared);
+        let keys = loaded.program.modules.iter()
+            .filter(|module| module.key.split('\0').next() == Some(physical_key.as_str()))
+            .map(|module| BodyKey::new(&module.key, BodyOwner::Entry, &original_root).unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.iter().all(|key| key.source_path == shared.canonicalize().unwrap()));
+        assert!(keys.iter().any(|key| key.module_key.contains('\0')));
+    }
 
     #[test]
     fn qualification_cancellation_overrides_success() {
