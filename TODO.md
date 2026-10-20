@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 21
+Next: 22
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
@@ -10,6 +10,15 @@ Next: 21
 - **Problem:** Final private/resource qualification remains unrun on the current frozen source. The scheduler comparison failed, so composed baseline close cannot proceed.
 - **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
+- **Effort:** S
+
+### XSH-21 · P2 · Keep Docker output removable during worktree cleanup
+
+- **Area:** Operability
+- **Where:** `dev/performance/check.py:176`, `Dockerfile.test`
+- **Problem:** Owned Docker builds leave root-owned artifacts in campaign checkouts. A normal `git worktree remove` deleted one completed checkout's Git registration before artifact deletion failed. Recovery required ownership repair and rebuilding the registration.
+- **Recommendation:** Return writable build artifacts to the invoking user's ownership on success, failure and interruption. Check artifact removability before Git removes a worktree's registration.
+- **Fix with:** lifecycle-concurrency
 - **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
