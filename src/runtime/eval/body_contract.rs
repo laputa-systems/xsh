@@ -11,8 +11,7 @@ pub(super) enum PreparedValidationContract {
     CheckedValue(LoweredTypeCheck),
     Require(LoweredTypeCheck),
     Assignment(LoweredTypeCheck),
-    DriverCheck(LoweredTypeCheck),
-    DriverKind(LoweredType),
+    DriverBinding { check: Option<LoweredTypeCheck>, kind: Option<LoweredType> },
 }
 
 impl PreparedValidationContract {
@@ -80,7 +79,7 @@ pub fn checked_body_contracts(checked: CheckOutput, program: &ArenaProgram, sour
     }
     let declarations = Checker::compact_declarations(program, checked);
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
-    program.symbol_owner().with_current(|| evaluator.prepare_checked_compact_indexed_only(program, source_id, false, declarations))
+    program.symbol_owner().with_current(|| evaluator.prepare_checked_compact_indexed_only(program, source_id, true, declarations))
         .map_err(CheckedBodyContractError::Preparation)?;
     let prepared = evaluator.indexed_program.as_ref().ok_or_else(|| CheckedBodyContractError::Preparation(super::compact_lowerability_diagnostic(
         Span::new(source_id, 0, 0), "preparation did not publish an indexed program", DiagnosticCode::CompactIndexedBuild,
@@ -108,16 +107,45 @@ mod tests {
     use super::*;
     use crate::sema::check::CheckOptions;
 
-    fn declaration(source: &str) -> CheckedBodyContract {
+    fn snapshots(source: &str) -> Vec<CheckedBodyContract> {
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
             "body-contract.xsh", crate::loader::entry_source_from_text("body-contract.xsh", source.to_string()), Vec::new(),
         );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = sources.files().first().unwrap().id();
-        let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        checked_body_contracts(checked, &parsed.arena, &sources, source_id).unwrap().into_iter()
-            .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap()
+        let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions { embedded_bodies: true, reveal_types: true, ..CheckOptions::default() });
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+        checked_body_contracts(checked, &parsed.arena, &sources, source_id).unwrap()
+    }
+
+    fn declaration(source: &str) -> CheckedBodyContract {
+        snapshots(source).into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap()
+    }
+
+    fn entry(source: &str) -> CheckedBodyContract {
+        snapshots(source).into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap()
+    }
+
+    #[test]
+    fn checked_body_contract_preserves_proven_integer_driver_storage() {
+        let original = entry("let value: Int = 1\n");
+        let candidate = entry("let value = 1\n");
+        assert!(original.preserved_by(&original));
+        assert!(candidate.preserved_by(&candidate));
+        assert!(original.preserved_by(&candidate));
+        assert!(candidate.preserved_by(&original));
+        let mapped = entry("let value: Map[Int] = {}\n");
+        let record = entry("let value = {}\n");
+        assert!(mapped.preserved_by(&mapped));
+        assert!(record.preserved_by(&record));
+        assert!(!mapped.preserved_by(&record));
+    }
+
+    #[test]
+    fn checked_body_contract_preserves_checker_only_reveals() {
+        let original = entry("reveal_type(1)\n");
+        let candidate = entry("reveal_type(1)\n");
+        assert!(original.preserved_by(&candidate));
     }
 
     #[test]

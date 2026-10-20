@@ -1223,13 +1223,15 @@ impl FullProgram {
         for index in 0..self.store.driver_steps.len() {
             let view = FullDriverStepView { program: self, index };
             let execution = view.execution()?;
-            if let schema::DriverPayloadView::Let { validation, ty, .. } = view.decode_payload(&execution, view.payload()?)? {
-                let contract = match (validation, ty) {
-                    (Some(check), _) => Some(Contract::DriverCheck(Self::owned_validation(check)?)),
-                    (None, Some(kind)) => Some(Contract::DriverKind(kind.materialize_lowered()?)),
-                    (None, None) => None,
-                };
-                if let Some(contract) = contract { records.push(Record { site: Site::Statement(view.source_span()?), contract }); }
+            if let schema::DriverPayloadView::Let { validation, ty, value, .. } = view.decode_payload(&execution, view.payload()?)? {
+                let check = validation.map(Self::owned_validation).transpose()?;
+                let mut kind = ty.map(|kind| kind.materialize_lowered()).transpose()?;
+                if check.is_none() && kind == Some(LoweredType::Int)
+                    && indexed_int_literal(&execution.decoder(), value.raw())?.is_some()
+                {
+                    kind = None;
+                }
+                records.push(Record { site: Site::Statement(view.source_span()?), contract: Contract::DriverBinding { check, kind } });
             }
             self.validation_rows(&execution.decoder(), None, &mut records)?;
         }

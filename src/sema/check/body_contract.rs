@@ -1032,7 +1032,7 @@ mod tests {
             drop(checked);
             drop(sources);
             drop(program);
-            declarations.into_iter().map(|site| pending.canonical_site(site).unwrap().unwrap()).collect()
+            declarations.into_iter().map(|site| pending.canonical_site(site).unwrap().unwrap()).collect::<BTreeSet<_>>().into_iter().collect()
         }
         let original = sites("pure length(value: Str) -> Int { value.byte_len() }\n");
         let candidate = sites("type Unrelated = Int\npure length(value: Str) { value.byte_len() }\n");
