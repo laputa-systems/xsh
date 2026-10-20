@@ -27,8 +27,26 @@ envelope and every writer, including unused bindings and zero-output patterns.
 Fresh command-word lists retain contextual typing only through authenticated
 compiler-created bindings. Native process-option projection preserves every
 other registered contract. Wide destructuring stays within the existing proof
-work limits. Matching verification products are building; actual native runner
-bodies and corpus parity remain unqualified at this source.
+work limits. All three exact native Cargo-runner bodies pass with matching
+products: lock handoff, unmatched-filter rejection and lock release. The
+source remains clean and product hashes match before and after the replay.
+Broader native acceptance and corpus parity remain unqualified at this source.
+
+The matching-product corpus replay finishes all eight normal checks. All four
+Laputa checks pass. Frozen XSH original and candidate fail identically on the
+prior slice, record and list-match-subject proofs, plus three fresh-list-splice
+contract mismatches in `dev/docker`, `dev/gates` and `dev/internal`. Practical
+XSH original and reduced retain the prior `awk` producer disagreement and
+`sort` map-match-subject failure. The producer lane owns the new splice
+regressions together with the five existing classes. Interface comparison
+and runtime parity remain unrun. These checks supply no annotation-removal credit.
+
+Matching verification products build in `.work/wt/full-inference-driver-projection`
+under `.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is
+35,875,072 bytes, SHA-256
+`50ae360b081ed9fcee035ff50ec42e3e96521e2edddfe598c95b81c984245f04`.
+The `xsht` is 43,859,504 bytes, SHA-256
+`6dc77944c9c3c2967bca4c43d25a5ff18abd58190beb710690e8139a3446d85e`.
 
 Source `3c92adfb3` passes the earlier combined targeted boundary: 407 passed, zero
 failed and zero ignored. Generic bodies prepare unguarded list indexing and
@@ -112,10 +130,10 @@ unrun, and these checks supply no annotation-removal credit.
 Guard `6bfb3ca22` rejects an unmatched focused Cargo test filter with exit 125.
 The actual pinned Rust test binary passes one exact test, rejects a typo before
 body execution, and lists its tests without running them. The inherited Cargo
-lock is released before discovery and execution. Three XSH runner tests remain
-blocked on command-argument proof. The first selector still fails preparation
-with the matching `ae9793745` pair, before its body runs. The other two selectors
-remain unrun. Runner diagnosis must identify the actual failing producer.
+lock is released before discovery and execution. The matching `ae9793745` pair
+fails preparation on the first XSH runner selector, before its body runs.
+The later `cf1d47637` driver repair proves the actual contextual command-word
+producer, and all three native runner selectors pass with matching products.
 
 Source `0b33e84bf` passes the earlier combined targeted boundary: 342 passed, zero
 failed and zero ignored, including the previously failing dynamic-module-call
