@@ -23,6 +23,16 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `d2c820629` passes the combined immutable replay: 297 passed, zero
+failed and zero ignored. Independent review approves immediate error inference
+for unbounded typed Proc calls. Such a call widens a Capture to Error before
+its signature is published. Pure calls and saved Result and Stream data retain
+their existing behavior. Effect ceilings remain unchanged. All 41 focused
+source, neighbor and physical controls pass. Matching-product qualification is
+next. Context-free iteration over a generic Proc's returned record field still
+fails with `check.for-iterator`. Annotation-directed field controls pass, so
+they do not close that separate consumer-resolution gap.
+
 Source `f854ea6e2` passes the combined immutable replay: 295 passed, zero
 failed and zero ignored. Independent review approves canonical Path receiver
 contracts and physical Method and ModuleCall operand checks. Wrong receivers,
