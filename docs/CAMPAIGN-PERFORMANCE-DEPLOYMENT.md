@@ -201,6 +201,15 @@ wrappers and the existing verification work caps remain intact.
 Ground and generic try-capture transport, ordinary generic-body frontiers,
 matching products and complete capability/corpus qualification remain pending.
 
+A diagnostic per-root replay with matching `d2c820629` products still fails ten
+of the twelve original XSH roots; date-parse and docker pass. Failure frontiers
+have changed: wc, date, gates and internal now stop at import producer contracts;
+AWK stops at a generated constructor Try outside its inferred effect contract;
+sort, cut and tr lack discard proofs; system-report lacks a scalar predicate
+slot contract; main has an unknown dynamic-call effect contract. This isolated
+original-view replay does not run reduced views, Laputa, interface/body
+comparison or runtime selectors, and supplies no annotation-removal credit.
+
 Practical replay with matching `e0f8cbfac` products passes exact source-view
 validation, then fails the original twelve-root XSH check with six
 `compact.indexed-build` diagnostics. Individual checks attribute failures to ten
