@@ -945,6 +945,7 @@ impl<'a> ProducerProof<'a> {
                             if let Some(ty) = self.declared_type(decoder, value.raw() as usize)? { return Ok(Some(ty)); }
                             let Some(id) = decoder.checked_slot_type(slot)? else { return Ok(None) };
                             let ty = self.contract_type(id)?;
+                            if ty.contains_any() { return Ok(None); }
                             self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
                             Ok(Some(ty))
                         }
