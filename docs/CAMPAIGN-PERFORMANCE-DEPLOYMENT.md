@@ -20,6 +20,22 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `596a7f161` passes 71 focused runtime and verifier controls after local
+integration. Independent review finds no material issue in this slice.
+Physical operations now authenticate callable kinds and finite effect bounds.
+Monomorphic shared reads authenticate the defining value and every writer,
+including partial writes, nominal payloads and unsigned storage checks.
+Typed Proc factories and optional erased callable fields execute on both
+indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
+Matching native products, generated documentation and broader qualification
+remain pending. Context and process producer repairs are the next baseline work.
+
+The separate origin fix `16d7c4f15` preserves explicit Result discards as data
+and makes annotated storage violations fatal type errors. Explicit schema
+conversion remains recoverable. Source `b77ab2c68` adds canonical concrete-to-scheme
+interface comparison. Its eighteen focused tests and warning-denied library
+Clippy pass. Unsupported comparisons report typed errors and earn no parity credit.
+
 Source `1710bf2ff` passes all 31 focused replay cases, including the eighteen
 earlier library failures. The replay covers private bridge contracts, native
 and static constructor arguments, open typed-callable headers, Result payloads,
@@ -62,9 +78,9 @@ test-only Clippy warning. Seven descriptor checks pass before integration,
 and warning-denied Clippy passes for xsh and xsht with all targets and features.
 The merged seven-test replay also passes.
 
-The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
-red. Its initial Print-based premise was wrong: print and eprint require no
-language effect. Independent executable-effect validation remains mandatory.
+The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test
+passes at `596a7f161`, rejecting the modified program. Its initial Print-based
+premise was wrong: print and eprint require no language effect.
 Separately, `22e4de86c` makes direct and transitive glob use require `fs`, fixing
 the baseline's acceptance under an empty bound. The pure diagnostic stays
 unchanged. All four matching native regressions pass; the production caller
