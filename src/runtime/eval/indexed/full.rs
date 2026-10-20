@@ -27409,7 +27409,7 @@ proc main() {
         let mut forged = (*program).clone();
         forged.store.data[iter.raw() as usize] = program.store.data[wrong];
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(error.message.contains("ground binding writer disagrees with its slot contract"), "{}", error.message);
+        assert!(error.message.contains("scalar string predicate has a non-string slot"), "{}", error.message);
     }
 
     #[test]
@@ -28231,7 +28231,7 @@ assert first(b"x\ny", [1])? == b"x"
         let mut forged = (*program).clone();
         forged.store.data[iter.raw() as usize] = program.store.data[wrong];
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+        assert!(error.message.contains("scalar string predicate has a non-string slot"), "{}", error.message);
     }
 
     #[test]
