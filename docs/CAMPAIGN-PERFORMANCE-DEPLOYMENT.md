@@ -21,7 +21,18 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `cf1d47637` passes the combined targeted boundary: 414 passed, zero
+Source `d052c08c0` passes the combined targeted boundary: 432 passed, zero
+failed and zero ignored. Generic Optional field, index, slice and selected
+method access preserve null handling and lazy operands. Nullable return values
+retain nested Result data. Actual Result errors fit the owner's boundary;
+potentially failing unsigned requirements cannot escape a narrower error
+family. Directional Optional widening preserves ordinary explicit matches.
+Valid-first malformed-IR controls and both indexed runtime routes pass.
+Matching products remain at `cf1d47637`; corpus and broader native qualification
+do not transfer to this source. Nullable source joins and other F3 families
+remain mandatory work.
+
+Source `cf1d47637` passes the earlier combined targeted boundary: 414 passed, zero
 failed and zero ignored. Driver projections prove their actual source,
 envelope and every writer, including unused bindings and zero-output patterns.
 Fresh command-word lists retain contextual typing only through authenticated
