@@ -849,6 +849,7 @@ impl ProducerDemand {
             || Self::checked_result_constructors(program, declarations).next().is_some()
             || Self::operand_dependent_effect_calls(program, declarations).next().is_some()
             || Self::erased_callable_calls(program, declarations).next().is_some()
+            || Self::typed_callable_calls(program, declarations).next().is_some()
         {
             Self::Needed
         } else {
@@ -874,6 +875,17 @@ impl ProducerDemand {
             let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
             let crate::syntax::arena::ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else { return None };
             (name.as_str().as_str() == "call" && matches!(declarations.bodies.expr_types.get(&base), Some(Type::Pure | Type::Proc))).then_some(expression.span)
+        })
+    }
+
+    fn typed_callable_calls<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
+            matches!(declarations.bodies.expr_types.get(&callee), Some(Type::Callable(_))).then_some(expression.span)
         })
     }
 

@@ -1336,6 +1336,7 @@ pub(super) fn compact_function_selection(
         let proof_operations = super::ProducerDemand::checked_result_constructors(program, declarations)
             .chain(super::ProducerDemand::operand_dependent_effect_calls(program, declarations))
             .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
+            .chain(super::ProducerDemand::typed_callable_calls(program, declarations))
             .collect::<std::collections::BTreeSet<_>>();
         let contains_proof_operation = |statement| {
             let span = program.arena.stmt(statement).span;
@@ -5660,10 +5661,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    fn narrowed_erased_callable_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
+    fn narrowed_optional_payload_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
         let Type::Optional(payload) = self.stored_expression_type(id, slots)? else { return None };
-        let narrowed @ (Type::Pure | Type::Proc) = self.bodies.expr_types.get(&id)? else { return None };
-        (payload.as_ref() == narrowed).then(|| LoweredTypeCheck { ty: narrowed.clone(), name: Arc::from(narrowed.to_string()), schema: None })
+        let narrowed = self.bodies.expr_types.get(&id)?;
+        (payload.as_ref() == narrowed && *narrowed != Type::Any && !narrowed.contains_inference() && !narrowed.contains_recovery()).then(|| LoweredTypeCheck { ty: narrowed.clone(), name: Arc::from(narrowed.to_string()), schema: None })
     }
 
     fn lower_expr_attempt(
@@ -6003,7 +6004,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             )),
             ArenaExprKind::Ident(name) => {
                 let value = self.lower_bare_ident(id, name, slots)?;
-                if let Some(check) = self.narrowed_erased_callable_check(id, slots) {
+                if let Some(check) = self.narrowed_optional_payload_check(id, slots) {
                     Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }))
                 } else { Some(value) }
             }
@@ -6728,7 +6729,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                let check = self.narrowed_erased_callable_check(id, slots);
+                let check = self.narrowed_optional_payload_check(id, slots);
                 let lowered_base = self.lower_producer_input_expr(base, slots, current_function, item_slot)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Field { base: lowered_base, name: name.as_str(), span });
                 Some(if let Some(check) = check { push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }) } else { value })

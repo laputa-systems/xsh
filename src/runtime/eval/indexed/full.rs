@@ -6261,6 +6261,9 @@ impl<'a> FullDecoder<'a> {
                     | FullTag::ExprTypedCall
             ) {
                 self.derive_typed_callee_leaf_type(current)?
+            } else if leaf_tag == FullTag::ExprCheckedValue {
+                let schema::ExprView::CheckedValue { check, .. } = self.expression_view(current)? else { unreachable!() };
+                check.ty.id
             } else {
                 self.checked_expression_type_id(current)?
                     .ok_or_else(|| IrVerifyError::new("typed callee receiver has no checked type"))?
@@ -8851,6 +8854,13 @@ impl<'a> FullDecoder<'a> {
                         "checked value wrapper disagrees with its checked result type",
                     ));
                 }
+                let source = self.derive_checked_expression_type(value.raw() as usize)?;
+                if check.schema.is_none()
+                    && let Some(Type::Optional(payload)) = source
+                    && payload.as_ref() == expected
+                {
+                    return self.checked_expression_matches_type(value.raw() as usize, &Type::Optional(payload));
+                }
                 self.checked_expression_matches_type(value.raw() as usize, expected)
             }
             schema::ExprView::Try { value, .. } => {
@@ -10437,6 +10447,18 @@ impl<'a> FullDecoder<'a> {
             }
         };
         match view {
+            schema::ExprView::CheckedValue { value, check, .. } => {
+                if fact.function_ref().is_some() || fact.with_error_source()
+                    || check.schema.is_some() || check.ty.materialize()? != ty
+                { return Err(IrVerifyError::new("checked optional payload carries unrelated contract evidence")); }
+                let source = self.derive_checked_expression_type(value.raw() as usize)?;
+                let Some(Type::Optional(payload)) = source else {
+                    return Err(IrVerifyError::new("checked callable payload has no optional source contract"));
+                };
+                if payload.as_ref() != &ty { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
+                require_child(value.raw() as usize, &Type::Optional(payload))?;
+            }
+
             schema::ExprView::PreparedConstant(value) => {
                 if fact.function_ref().is_some() || fact.with_error_source() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
@@ -11171,7 +11193,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
             | schema::ExprView::Require { .. }
-            | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
@@ -21151,6 +21172,7 @@ pure nested(value: Result[Int]?) -> Result[Int] { value ?? Ok(9) }
             let decoder = function_view_decoder(&program.store, owner);
             let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(fallback).unwrap() else { panic!("Optional fallback") };
             let present = arms.nth(1).unwrap().unwrap().2.raw() as usize;
+            let schema::ExprView::CheckedValue { value, .. } = decoder.expression_view(value.raw() as usize).unwrap() else { panic!("narrowed Optional scrutinee") };
             assert_eq!(program.store.tags[present], FullTag::ExprParam);
             assert_eq!(program.store.tags[value.raw() as usize], FullTag::ExprParam);
             let mut erased = (*program).clone();
@@ -26970,6 +26992,165 @@ proc main() {
         forged.store.data[replacement] = program.store.data[wrong];
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_guarded_optional_record_fields() {
+        let source = r#"
+type Tool = {path: Path}
+pure render(tool: Tool?) -> Result[Str] {
+    let text = if tool == null { "" } else { f"{tool.path}" }
+    Ok(text)
+}
+let present: Tool? = {path: p"/tool"}
+assert render(present)? == "/tool"
+assert render(null)? == ""
+"#;
+        let program = Arc::new(fixture("optional-record-field-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "render");
+        let decoder = function_view_decoder(&program.store, owner);
+        let check = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check, .. }) if matches!(check.ty.materialize(), Ok(Type::Record(_))))).unwrap();
+        let mut forged = (*program).clone();
+        let any = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Any).unwrap();
+        let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
+        forged.store.extra[words.start + 1] = any.raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer operand has no checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_optional_typed_payload_contracts() {
+        let source = r#"
+type Scale = pure(value: Int) -> Int
+type Holder = {operation: Scale}
+pure identity(value: Int) -> Int { value }
+pure wrong(value: Str) -> Str { value }
+proc effectful(value: Int) [] -> Int { value }
+pure apply(holder: Holder?) -> Result[Int] {
+    if holder == null { return Ok(0) }
+    Ok(holder.operation(7))
+}
+pure plain(holder: Holder?) -> Int {
+    if holder == null { return 0 }
+    holder.operation(7)
+}
+pure through(value: Result[Int, Str]?) -> Result[Int, Str]? { value }
+let operation: Scale = identity
+let holder: Holder? = {operation: operation}
+let alternate = wrong
+let procedure = effectful
+assert apply(holder)? == 7
+assert apply(null)? == 0
+assert plain(holder) == 7
+assert plain(null) == 0
+let success: Result[Int, Str] = Ok(7)
+let failure: Result[Int, Str] = Err("kept")
+let nested: Result[Int, Str]? = success
+let failed: Result[Int, Str]? = failure
+assert through(success) == nested
+assert through(failure) == failed
+assert through(null) == null
+"#;
+        let program = Arc::new(fixture("optional-typed-payload-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let mut decoder = stage_view_decoder(&program.store);
+        decoder.function_signature_index = Some(Arc::new(program.symbol_owner().with_current(|| FunctionSignatureIndex::build(&program.store).unwrap())));
+        let reference = |name| {
+            let target = scheme_fixture_root_function(&program, name);
+            program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprFunctionRef { return None; }
+                let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                (program.symbol_owner().with_current(|| decoder.function_reference_target(function).unwrap().0.index()) == target).then_some(instruction)
+            }).unwrap()
+        };
+        let original = reference("identity");
+        for wrong in [reference("wrong"), reference("effectful")] {
+            let mut forged = (*program).clone();
+            forged.store.data[original] = program.store.data[wrong];
+            FullVerifier::verify(&forged).expect_err("optional payload checks retain the actual callable signature and kind");
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_plain_optional_typed_calls() {
+        let source = r#"
+type Scale = pure(value: Int) -> Int
+type Holder = {operation: Scale}
+type WrongScale = pure(value: Str) -> Str
+type WrongHolder = {operation: WrongScale}
+pure identity(value: Int) -> Int { value }
+pure wrong(value: Str) -> Str { value }
+proc effectful(value: Int) [] -> Int { value }
+pure apply(holder: Holder?, other: WrongHolder?) -> Int {
+    let _ = other
+    if holder == null { return 0 }
+    holder.operation(7)
+}
+let operation: Scale = identity
+let holder: Holder? = {operation: operation}
+let alternate: WrongScale = wrong
+let other: WrongHolder? = {operation: alternate}
+let procedure = effectful
+assert apply(holder, other) == 7
+assert apply(null, other) == 0
+"#;
+        let program = Arc::new(fixture("plain-optional-typed-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let mut decoder = stage_view_decoder(&program.store);
+        decoder.function_signature_index = Some(Arc::new(program.symbol_owner().with_current(|| FunctionSignatureIndex::build(&program.store).unwrap())));
+        let reference = |name| {
+            let target = scheme_fixture_root_function(&program, name);
+            program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprFunctionRef { return None; }
+                let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                (program.symbol_owner().with_current(|| decoder.function_reference_target(function).unwrap().0.index()) == target).then_some(instruction)
+            }).unwrap()
+        };
+        let original = reference("identity");
+        let mut stripped = (*program).clone();
+        stripped.store.checked_expr_types.retain(|fact| program.store.tags[fact.instruction as usize] != FullTag::ExprCheckedValue);
+        let apply = scheme_fixture_root_function(&program, "apply");
+        let apply_decoder = function_view_decoder(&program.store, apply);
+        let source = program.store.function_instruction_range(apply).unwrap().find_map(|instruction| {
+            let Ok(schema::ExprView::CheckedValue { value, check, .. }) = apply_decoder.expression_view(instruction) else { return None };
+            (matches!(check.ty.materialize(), Ok(Type::Record(_))) && matches!(apply_decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(0)))).then_some(value.raw() as usize)
+        }).unwrap();
+        let other = program.store.function_instruction_range(apply).unwrap().find(|&instruction| matches!(apply_decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        stripped.store.checked_expr_types.retain(|fact| fact.instruction as usize != source && fact.is_contract());
+        FullVerifier::verify(&stripped).unwrap();
+        let mut wrong_source = stripped.clone();
+        wrong_source.store.data[source] = program.store.data[other];
+        FullVerifier::verify(&wrong_source).expect_err("physical typed calls authenticate their actual optional formal source");
+        for wrong in [reference("wrong"), reference("effectful")] {
+            let mut forged = stripped.clone();
+            forged.store.data[original] = program.store.data[wrong];
+            FullVerifier::verify(&forged).expect_err("plain typed calls authenticate actual optional payloads without wrapper facts");
+        }
     }
 
     #[test]

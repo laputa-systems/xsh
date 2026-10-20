@@ -12,7 +12,7 @@ use super::super::decode::BorrowCodec;
 
 pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     demand: crate::runtime::eval::ProducerDemand,
-    result_constructors: Vec<usize>,
+    checked_producers: Vec<usize>,
     effect_operations: Vec<usize>,
     storage_reads: Vec<(u32, usize, TypeId)>,
     effect_demand_work: usize,
@@ -157,16 +157,19 @@ impl ProducerOwner {
 
 impl GroundProducerIndex {
     pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
-        let mut result_constructors = Vec::new();
+        let mut checked_producers = Vec::new();
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
-            let Some(&tag @ (FullTag::ExprOk | FullTag::ExprErr)) = store.tags.get(fact.instruction as usize) else { continue };
+            let Some(&tag) = store.tags.get(fact.instruction as usize) else { continue };
+            if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue) { continue; }
             let ty = store.semantic.to_type(fact.type_id)?;
-            if fact.authenticates_result_constructor(tag, &ty)? { result_constructors.push(index); }
+            if (tag == FullTag::ExprCheckedValue && ty.contains_typed_callable())
+                || fact.authenticates_result_constructor(tag, &ty)?
+            { checked_producers.push(index); }
         }
         let mut effect_demand_work = 0usize;
         let mut effect_demand = false;
-        if store.registered_calls.is_empty() && result_constructors.is_empty() {
+        if store.registered_calls.is_empty() && checked_producers.is_empty() {
             for instruction in 0..store.tags.len() {
                 effect_demand_work += 1;
                 if super::super::verify_effects::needs_operand_proof(store, instruction)? { effect_demand = true; break; }
@@ -174,10 +177,10 @@ impl GroundProducerIndex {
         }
         let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
             || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
-        let demand = if storage_demand || effect_demand || !store.registered_calls.is_empty() || !result_constructors.is_empty() {
+        let demand = if storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty() {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, result_constructors, effect_operations: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, checked_producers, effect_operations: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
@@ -525,7 +528,7 @@ impl GroundProducerIndex {
     pub(in crate::runtime::eval::indexed::full) fn temporary_payload_bytes(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
-            + self.result_constructors.capacity() * size_of::<usize>()
+            + self.checked_producers.capacity() * size_of::<usize>()
             + self.effect_operations.capacity() * size_of::<usize>() + self.storage_reads.capacity() * size_of::<(u32, usize, TypeId)>()
             + self.work.as_ref().map_or(0, |_| size_of::<RefCell<SchemeInstantiationBudget>>() + 2 * size_of::<usize>())
             + self.starts.len() * size_of::<(usize, u32)>()
@@ -648,7 +651,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instruction)?;
         proof.expression(owner, instruction, Arc::new(Type::Any), false);
     }
-    for &fact_index in &index.result_constructors {
+    for &fact_index in &index.checked_producers {
         let fact = store.checked_expr_types[fact_index];
         let instruction = fact.instruction as usize;
         let owner = index.instruction_owner(instruction)?;
@@ -1296,17 +1299,25 @@ impl<'a> ProducerProof<'a> {
                                         if !optional { path.push(FunctionProjection::ResultPayload(true)); }
                                         pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
                                     }
-                                    schema::StmtView::With { bindings, .. } => {
-                                        let mut found = false;
+                                    schema::StmtView::With { bindings, else_param_slot, .. } => {
+                                        let failure = else_param_slot == Some(slot);
+                                        let mut found = failure;
                                         for binding in bindings {
+                                            self.budget.charge(1)?;
                                             let (bound, value) = binding?;
-                                            if bound != slot { continue; }
+                                            if bound != slot && !failure { continue; }
                                             found = true;
+                                            let source = self.need_context(&decoder, value.raw() as usize)?;
+                                            if failure && !source.as_ref().is_some_and(|ty| ty.is_result()) { continue; }
                                             let mut path = path.clone();
-                                            if self.need_context(&decoder, value.raw() as usize)?.is_some_and(|ty| ty.is_result()) { path.push(FunctionProjection::ResultPayload(true)); }
+                                            if source.as_ref().is_some_and(|ty| ty.is_result()) { path.push(FunctionProjection::ResultPayload(!failure)); }
                                             pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
                                         }
-                                        if !found { return Err(IrVerifyError::new("callable with binder has no success producer")); }
+                                        if !found { return Err(IrVerifyError::new("callable with binder has no value producer")); }
+                                        if failure {
+                                            let contract = self.index.owners[&owner].with_errors.get(&writer).ok_or_else(|| IrVerifyError::new("callable With failure has no verified error contract"))?;
+                                            if contract.contains_typed_callable() { has_contract_source = true; }
+                                        }
                                     }
                                     _ => return Err(IrVerifyError::new("ground callable lexical writer is not a value transfer")),
                                 }
@@ -1415,8 +1426,13 @@ impl<'a> ProducerProof<'a> {
                     let source = self.need_context(&decoder, receiver.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable collection method has no receiver contract"))?;
                     let (domain, _) = FullDecoder::registered_method_receiver(&source, name).ok_or_else(|| IrVerifyError::new("callable collection method has no registry receiver"))?;
                     if path.last() == Some(&FunctionProjection::ResultPayload(false)) { continue; }
+                    let operation = crate::modules::api_spec().method_op(domain, name);
+                    if operation == Some(super::super::RuntimeOp::ResultContext) {
+                        pending.push((owner, CallableProducer::Expression(receiver.raw() as usize), path));
+                        continue;
+                    }
                     if path.last() == Some(&FunctionProjection::ResultPayload(true)) { path.pop(); }
-                    match crate::modules::api_spec().method_op(domain, name) {
+                    match operation {
                         Some(super::super::RuntimeOp::MapGet | super::super::RuntimeOp::ListGet) => path.push(FunctionProjection::Element),
                         Some(super::super::RuntimeOp::RecordGet) => {
                             let argument = args.into_iter().next().ok_or_else(|| IrVerifyError::new("callable record get has no field argument"))??;
@@ -1598,7 +1614,7 @@ impl<'a> ProducerProof<'a> {
         let expected = if returned && !preserves_result && !actual.as_ref().is_some_and(|actual| actual.is_result()) {
             match expected.as_ref() { Type::Result(ok, _) => Arc::new((**ok).clone()), _ => expected }
         } else { expected };
-        let expected = if returned && let Type::Optional(payload) = expected.unvalidated()
+        let expected = if let Type::Optional(payload) = expected.unvalidated()
             && actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
         {
             self.budget.charge_clone(payload)?;
@@ -1990,7 +2006,10 @@ impl<'a> ProducerProof<'a> {
                 let checked = self.contract_type(check.ty.id)?;
                 if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 if check.schema.is_some() || !super::runtime_complete_storage_check_type(&checked, &mut self.budget)? {
-                    self.expression(owner, value.raw() as usize, checked, false);
+                    let source = if check.schema.is_none() {
+                        self.need_context(&decoder, value.raw() as usize)?.filter(|source| matches!(source.as_ref(), Type::Optional(payload) if payload.as_ref() == checked.as_ref())).unwrap_or(checked)
+                    } else { checked };
+                    self.expression(owner, value.raw() as usize, source, false);
                 }
                 Ok(())
             }
@@ -2396,6 +2415,9 @@ impl<'a> ProducerProof<'a> {
             let projected = self.comprehension_binding_type(&decoder, comprehension, iter, slot)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable contract"))?;
             if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground comprehension binding disagrees with its producer contract")); }
             return self.verify_slot_writers(&decoder, binding, slot, expected, true);
+        }
+        if matches!(binding, ProducerBinding::ScopedDeclaration(_, _)) {
+            return self.verify_slot_writers(&decoder, binding, slot, expected, false);
         }
         if let Some(step) = super::super::driver_owner_index(owner) {
             if let Some(source) = decoder.driver_local_let_source(slot, |amount| self.budget.charge(amount))? {
