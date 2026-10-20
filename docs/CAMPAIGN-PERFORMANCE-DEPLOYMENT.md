@@ -21,7 +21,29 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `a9be9aafa` passes the combined targeted boundary and Optional inference
+Source `8f80bc2f5` passes the combined targeted boundary: 473 passed, zero
+failed and zero ignored. Optional aggregate producers prove every actual field
+and element. Immutable pattern reads retain narrowing under direct null guards
+in active if and while bodies, or after a matching branch that cannot complete.
+Wrong guards and writers fail; null exclusion cannot invent unsigned or
+validated domains. Hint-erased execution passes on both routes, including a
+32-node negation chain with charged iterative traversal. Ordinary unary-`!`
+and short-circuit guard forms still fail preparation in confirmed minimal
+sources; the producer lane retains them alongside the contextual carrier,
+conditional-list and `cut` failures. Matching products are building. No new
+corpus parity or annotation-removal credit follows from these targeted tests.
+
+Source `f53eb38d1` passes the earlier combined targeted boundary and construction
+neighbors: 468 passed, zero failed and zero ignored. Generic bodies prepare
+checked interpolation, list splices, ordered record spreads, computed maps and
+ground-domain sets through the existing indexed operations. Both runtime routes
+preserve values, overwritten-expression evaluation and first-failure order after
+frontend disposal. Truthful malformed display, splice, map and spread producers
+are rejected; formatting parts are charged before decoding. No new native
+command path or registry policy is introduced. Matching products remain at
+`cf1d47637`; corpus qualification and remaining body families stay open.
+
+Source `a9be9aafa` passes the earlier combined targeted boundary and Optional inference
 neighbors: 454 passed, zero failed and zero ignored. Null and concrete branches
 infer one Optional envelope in either order. Required annotations and invariant
 container domains retain their authority. Checked statement-tail joins survive
