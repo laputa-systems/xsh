@@ -152,6 +152,24 @@ fn is_body_expression(
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::Field { base, .. } => pending.push(base),
+            ArenaExprKind::Index { base, index, .. } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(base); pending.push(index);
+            }
+            ArenaExprKind::Slice { base, start, end, .. } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(base);
+                pending.extend(start);
+                pending.extend(end);
+            }
+            ArenaExprKind::Binary { left, right, .. } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(left); pending.push(right);
+            }
+            ArenaExprKind::Unary { expr, .. } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(expr);
+            }
             ArenaExprKind::List(items) => {
                 for item in program.arena.list_elements(items) {
                     if item.splice_span.is_some() { return false; }
@@ -310,6 +328,65 @@ mod ordinary_body_tests {
         accepts(
             "pure choose(flag: Bool, left, right) { var result = left; if flag { result = right }; result }",
             "let number: Int = choose(true, 1, 7)\nlet text: Str = choose(false, \"value\", \"other\")",
+        );
+    }
+
+    #[test]
+    fn generic_validated_aggregate_projections_keep_their_base_contract() {
+        for operation in ["items[0]", "items[0..1]"] {
+            accepts(
+                &format!("pure select(value, items: NonEmpty[Int]) {{ let _ = {operation}; value }}"),
+                "let number: Int = select(7, [1])\nlet text: Str = select(\"value\", [2])",
+            );
+        }
+    }
+
+    #[test]
+    fn generic_list_concatenation_preserves_invariant_unsigned_items() {
+        let source = "pure keep(value, unsigned: List[UInt], signed: List[Int]) { let _ = unsigned + signed; value }";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch) && diagnostic.labels.iter().any(|label| label.message.as_deref() == Some("expected List[UInt], found List[Int]"))), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_list_from_end_index_preserves_the_element_parameter() {
+        accepts(
+            "pure select(value) { [value][-1] }",
+            "let number: Int = select(7)\nlet text: Str = select(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_list_index_preserves_the_element_parameter() {
+        accepts(
+            "pure select(value) { [value][0] }",
+            "let number: Int = select(7)\nlet text: Str = select(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_list_slice_preserves_the_element_parameter() {
+        accepts(
+            "pure select(value) { [value, value][0..1] }",
+            "let numbers: List[Int] = select(7)\nlet texts: List[Str] = select(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_record_index_preserves_the_selected_field() {
+        accepts(
+            "pure select(value) { {item: value}[\"item\"] }",
+            "let number: Int = select(7)\nlet text: Str = select(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_grounded_operators_preserve_unrelated_parameters() {
+        accepts(
+            "pure select(value, number: Int) { let _ = number + 1; value }",
+            "let number: Int = select(7, 1)\nlet text: Str = select(\"value\", 2)",
         );
     }
 

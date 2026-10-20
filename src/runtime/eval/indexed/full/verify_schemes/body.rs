@@ -9,6 +9,7 @@ pub(super) struct LexicalScope {
 struct LocalBinding {
     ty: SchemeType,
     mutable: bool,
+    initializer: Option<(usize, LexicalScope)>,
 }
 
 struct LexicalFrame {
@@ -32,6 +33,23 @@ impl LexicalScope {
         Ok(None)
     }
 
+    pub(super) fn literal_string(&self, scopes: &LexicalScopes, decoder: &FullDecoder<'_>, mut instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<Arc<str>>, IrVerifyError> {
+        let mut scope = *self;
+        loop {
+            budget.charge(1)?;
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(binding) = scope.binding(scopes, slot, budget)? else { return Ok(None) };
+                    if binding.mutable { return Ok(None); }
+                    let Some((source, source_scope)) = binding.initializer else { return Ok(None) };
+                    instruction = source;
+                    scope = source_scope;
+                }
+                _ => return decoder.checked_literal_string(instruction),
+            }
+        }
+    }
+
     pub(super) fn slot_type<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a SchemeType>, IrVerifyError> {
         Ok(self.binding(scopes, slot, budget)?.map(|binding| &binding.ty))
     }
@@ -39,7 +57,7 @@ impl LexicalScope {
 
 enum Obligation {
     Expression(usize, LexicalScope),
-    Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, slot: usize, ty: SchemeType, mutable: bool },
+    Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, slot: usize, ty: SchemeType, mutable: bool, initializer: usize },
     Block { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType> },
 }
 
@@ -56,10 +74,10 @@ fn branch_scope(scope: &LexicalScope, scopes: &mut LexicalScopes, budget: &mut S
     Ok(LexicalScope { frame, loop_depth: scope.loop_depth })
 }
 
-fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     if scope.binding(scopes, slot, budget)?.is_some() { return Err(IrVerifyError::new("generic declaration rewrites a visible slot")); }
     budget.charge(1)?;
-    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable });
+    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable, initializer });
     Ok(())
 }
 
@@ -126,7 +144,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
     let result = branch_scope(scope, scopes, &mut work.borrow_mut())?;
     for (slot, ty) in bindings {
         if writers.insert(slot, ty.clone()).is_some() { return Err(IrVerifyError::new("generic pattern slot has multiple declarations")); }
-        declare(&result, scopes, slot, ty, false, &mut work.borrow_mut())?;
+        declare(&result, scopes, slot, ty, false, None, &mut work.borrow_mut())?;
     }
     Ok(result)
 }
@@ -140,7 +158,7 @@ pub(super) fn verify_body(
     let slot_count = decoder.slot_count as usize;
     for ty in slots.values() { budget.charge_scheme_clone(ty)?; }
     let mut writers = slots.clone();
-    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, ty)| (slot, LocalBinding { ty, mutable: false })).collect() }] };
+    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, ty)| (slot, LocalBinding { ty, mutable: false, initializer: None })).collect() }] };
     let scope = LexicalScope { frame: 0, loop_depth: 0 };
     let mut pending = vec![Obligation::Block { statements: statements.into(), position: 0, scope, value: None }];
     let mut visited = BTreeSet::new();
@@ -148,8 +166,8 @@ pub(super) fn verify_body(
     while let Some(obligation) = pending.pop() {
         budget.charge(1)?;
         match obligation {
-            Obligation::Publish { statements, position, scope, value, slot, ty, mutable } => {
-                declare(&scope, &mut scopes, slot, ty, mutable, budget)?;
+            Obligation::Publish { statements, position, scope, value, slot, ty, mutable, initializer } => {
+                declare(&scope, &mut scopes, slot, ty, mutable, Some((initializer, scope)), budget)?;
                 pending.push(Obligation::Block { statements, position, scope, value });
             }
             Obligation::Expression(instruction, scope) => {
@@ -212,7 +230,7 @@ pub(super) fn verify_body(
                         if slot >= slot_count || writers.insert(slot, declared.clone()).is_some() { return Err(IrVerifyError::new("generic declaration slot is duplicated or out of bounds")); }
                         let initializer = value.raw() as usize;
                         let initializer_scope = scope;
-                        pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, slot, ty: declared, mutable });
+                        pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, slot, ty: declared, mutable, initializer });
                         pending.push(Obligation::Expression(initializer, initializer_scope));
                         continue;
                     }
@@ -597,5 +615,99 @@ mod tests {
         }
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic value loop break disagrees with its result");
     }
+
+    #[test]
+    fn ordinary_generic_aggregate_binary_cannot_invent_unsigned_items() {
+        let program = prepare("pure keep(value, unsigned: List[UInt], signed: List[Int]) { let _ = unsigned + unsigned; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let right = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { right, .. }) => Some(right.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::Param(slot) = decoder.expression_view(right).unwrap() else { unreachable!() };
+        let (declaration, initializer) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let signed = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        let signed_item = program.store.scheme_types[SchemeTypeId::from_raw(signed.first).unwrap().index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, right].contains(&(fact.instruction as usize)) {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, signed.tag);
+                let item = SchemeTypeId::from_raw(node.first).unwrap();
+                let item = &mut changed.store.scheme_types[item.index()];
+                assert_eq!(item.tag, signed_item.tag);
+                item.first = signed_item.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic binary operands disagree with the operation");
+    }
+
+    #[test]
+    fn ordinary_generic_aggregate_validated_projections_preserve_base_contracts() {
+        for operation in ["items[0]", "items[0..1]"] {
+            prepare(&format!("pure keep(value, items: NonEmpty[Int]) {{ let _ = {operation}; value }}"));
+        }
+    }
+
+    #[test]
+    fn ordinary_generic_aggregate_bounds_authenticate_the_actual_operand() {
+        for operation in ["[value][index]", "[value][index..]"] {
+            let program = prepare(&format!("pure keep(value, index: Int, wrong: Str) {{ {operation} }}"));
+            let (owner, scheme) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let operand = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::Index { index, .. }) => Some(index.raw() as usize),
+                Ok(schema::ExprView::Slice { start: Some(start), .. }) => Some(start.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let schema::ExprView::Param(slot) = decoder.expression_view(operand).unwrap() else { unreachable!() };
+            let (declaration, initializer) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+                _ => None,
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+            let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+            let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+            let mut changed = program.clone();
+            let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            changed.store.extra[payload.start] = 2;
+            for fact in &changed.store.scheme_body_facts {
+                if [declaration, initializer, operand].contains(&(fact.instruction as usize)) {
+                    let node = &mut changed.store.scheme_types[fact.ty.index()];
+                    assert_eq!(node.tag, wrong.tag);
+                    node.first = wrong.first;
+                }
+            }
+            let message = FullVerifier::verify(&changed).unwrap_err().message;
+            assert!(matches!(message.as_str(), "generic index operands have no collection contract" | "generic slice bound is not an integer"), "{message}");
+        }
+    }
+
+    #[test]
+    fn ordinary_generic_aggregate_record_keys_follow_the_actual_initializer() {
+        let program = prepare("pure keep(value) { let _ = \"other\"; {item: value, other: 1}[\"item\"] }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let key = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("item")))).unwrap();
+        let other = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("other")))).unwrap();
+        let mut changed = program.clone();
+        changed.store.data[key] = program.store.data[other];
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+
 
 }

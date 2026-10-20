@@ -468,7 +468,8 @@ fn lowered_scheme_parameter_kind(ty: &SchemeType) -> Option<LoweredParamKind> {
     }
 }
 
-fn lowered_scheme_physical_type(ty: &SchemeType) -> Option<LoweredType> {
+fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
+    while let SchemeType::Validated(_, base) = ty { ty = base; }
     match ty {
         SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any),
         SchemeType::Callable { kind, .. } => match kind {
@@ -2769,8 +2770,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .as_ref()
                 .and_then(|scheme| scheme.params().get(index));
             let expected = match scheme_parameter.map(|parameter| &parameter.ty) {
-                Some(SchemeType::Ground(ty)) => Some(ty.clone()),
-                Some(_) => None,
+                Some(ty) => ty.closed_ground_type(),
                 None => self
                     .declarations
                     .parameter_types
@@ -3431,6 +3431,64 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if fields.get(&name) != Some(&ty) { return self.block_scheme_lowering_expr(expression); }
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
                 push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span })
+            }
+            ArenaExprKind::Index { base, index, guarded: false } => {
+                let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                if let Some(distance) = self.bodies.from_end_indexes.get(&expression).copied().and_then(super::EndDistance::new) {
+                    let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
+                    push_build_row!(self, expr, BuildExprRow::IndexFromEnd { base, distance, span })
+                } else {
+                    let index = self.lower_scheme_expression(index, slots, current_function, facts, visited, lowered_types, body)?;
+                    push_build_row!(self, expr, BuildExprRow::Index { base, index, span })
+                }
+            }
+            ArenaExprKind::Slice { base, start, end, guarded: false } => {
+                let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                let start = match start { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
+                let end = match end { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
+                push_build_row!(self, expr, BuildExprRow::Slice { base, start, end, span })
+            }
+            ArenaExprKind::Unary { op, expr } => {
+                let value = self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?;
+                match op {
+                    UnaryOp::Not => {
+                        let no = push_build_row!(self, expr, BuildExprRow::Bool(false));
+                        let yes = push_build_row!(self, expr, BuildExprRow::Bool(true));
+                        lowered_types.insert(no, SchemeType::Ground(Type::Bool));
+                        lowered_types.insert(yes, SchemeType::Ground(Type::Bool));
+                        push_build_row!(self, expr, BuildExprRow::IfExpr { branches: vec![(value, no)], else_value: yes, span })
+                    }
+                    UnaryOp::Neg => {
+                        let float = facts.expression_types().get(&expr).and_then(SchemeType::closed_ground_type) == Some(Type::Float);
+                        let constant = if float { push_build_row!(self, expr, BuildExprRow::Float(crate::runtime::value::FloatValue::new(-1.0))) } else { push_build_row!(self, expr, BuildExprRow::Int(0)) };
+                        lowered_types.insert(constant, SchemeType::Ground(if float { Type::Float } else { Type::Int }));
+                        let result = if float {
+                            push_build_row!(self, expr, BuildExprRow::Binary { op: BinaryOp::Mul, left: value, right: constant, span })
+                        } else {
+                            push_build_row!(self, expr, BuildExprRow::Binary { op: BinaryOp::Sub, left: constant, right: value, span })
+                        };
+                        if float { self.scratch.borrow_mut().non_int_binary_expressions.insert(result.index()); }
+                        result
+                    }
+                }
+            }
+            ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
+                let left_type = facts.expression_types().get(&left).and_then(SchemeType::closed_ground_type);
+                let right_type = facts.expression_types().get(&right).and_then(SchemeType::closed_ground_type);
+                let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let right = self.lower_scheme_expression(right, slots, current_function, facts, visited, lowered_types, body)?;
+                let raw = push_build_row!(self, expr, BuildExprRow::Binary { op, left, right, span });
+                if [left_type, right_type].iter().flatten().any(|ty| !matches!(ty.unvalidated(), Type::Int | Type::UInt)) {
+                    self.scratch.borrow_mut().non_int_binary_expressions.insert(raw.index());
+                }
+                match ty.closed_ground_type().filter(|ty| op == BinaryOp::Add && ty.has_unsigned_constraint()) {
+                    Some(expected) => {
+                        lowered_types.insert(raw, ty.clone());
+                        self.checked_unsigned_value(raw, &expected, span)
+                    }
+                    None => raw,
+                }
             }
             ArenaExprKind::List(items) => {
                 let mut values = Vec::new();

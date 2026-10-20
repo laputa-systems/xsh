@@ -756,6 +756,16 @@ impl Type {
         }
     }
 
+    pub(crate) fn concatenation_type(
+        operands: [Option<super::validated::Validation>; 2], concatenated: Type,
+    ) -> Type {
+        let kept = operands.into_iter().flatten().find(|validation| validation.survives_concatenation());
+        match kept.map(|validation| super::validated::ValidatedType::new(validation, concatenated.clone())) {
+            Some(Ok(validated)) => Type::Validated(Box::new(validated)),
+            _ => concatenated,
+        }
+    }
+
     pub fn is_map_key(&self) -> bool {
         matches!(
             self,

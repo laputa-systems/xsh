@@ -370,6 +370,7 @@ impl Checker {
         }
         for span in generalized_body_spans {
             self.expr_types.remove(&span);
+            self.projections.remove(&span);
         }
         Some(())
     }

@@ -3816,8 +3816,17 @@ Values may be scalar literals, parameter or local reads, ground immutable
 runtime captures, required `.field` projections, list literals without splices,
 records with named fields, `Ok` and `Err` constructors, value blocks,
 value-producing `if` and `match` branches, loops, or statically selected pure
-calls. A quantified proc may also call a selected finite proc whose effects fit
-its own checked ceiling. Branches evaluate only the selected value, in ordinary source order.
+calls. Unguarded list indexing and slicing preserve the element relationship;
+literal record keys preserve the selected field relationship through
+compiler-created immutable temporaries. Negative literal indexes retain the ordinary from-end rule, while computed negative indexes
+still fail. Numeric, text, and duration arithmetic with concrete operand types,
+concrete-list concatenation, and unary operations retain their ordinary
+contracts. Concatenation preserves `NonEmpty` when either operand has it.
+List element storage remains invariant: concatenating `List[UInt]` with
+`List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
+A quantified proc may also call a selected finite proc whose effects fit its
+own checked ceiling. Branches evaluate only the selected value, in ordinary
+source order.
 User function calls must supply every fixed required parameter, by position or
 name. Registered calls must have a selected pure signature with no host
 effects; their receiver domain and argument layout are fixed while checking
@@ -3825,10 +3834,10 @@ the declaration. A caller never supplies type evidence for choosing that
 declaration's operations. Unsigned argument and map-key contracts keep the
 ordinary checked conversions and failure propagation.
 
-Quantified body preparation still reports `check.local-inference` for
-unsupported shapes, including destructuring declarations, `for`, operators,
-optional field access, indexing, map and set literals, record spreads,
-interpolated text, dynamically selected calls, and captured mutable or resource
+Unsupported quantified body shapes still produce a checking or preparation
+diagnostic, including destructuring declarations, `for`, comparisons,
+logical binary expressions, membership, set operators, guarded postfix access,
+map and set literals, record spreads, interpolated text, dynamically selected calls, and captured mutable or resource
 state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing

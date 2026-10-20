@@ -3292,7 +3292,7 @@ impl Checker {
                     }
                     Type::List(ref item) if matches!(op, BinaryOp::Add) => {
                         self.expect_type(&left_ty, &right_ty, right_span);
-                        Self::concatenation_type(
+                        Type::concatenation_type(
                             [left_validation, right_validation],
                             Type::List(Box::new(if **item == Type::Unknown {
                                 collection_item_ty(&right_ty)

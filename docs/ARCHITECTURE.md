@@ -85,6 +85,14 @@ analysis supplies reachable loop exits, including bare `Unit` exits, even
 when ordinary producer demand is absent. Preparation retains no frontend tree
 for execution and performs no runtime type solving.
 
+A generic constant-key projection follows actual immutable initializer
+instructions in their lexical creation scopes. It does not infer a key from the
+claimed result type. Generalization replaces monomorphic projection residues
+with the same canonical scheme-body facts used for other expressions.
+Concatenation checks each real operand's payload guarantee before accepting its
+result claim; an ordinary complete unsigned check remains a separate boundary.
+The checker and verifier share the canonical concatenation validation rule.
+
 `execution::evaluator::checked_body_contracts` consumes one check, captures its
 semantic selections, and prepares the program once without running initialization.
 It extracts actual validation rows and parameter and return gates from the verified

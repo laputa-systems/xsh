@@ -1091,6 +1091,53 @@ fn verify_body_expression(
             if !body_type_matches(&child(else_value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
             ty.clone()
         }
+        schema::ExprView::Index { base, index, .. } => {
+            let mut source = child(base, budget)?;
+            while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
+            let key = child(index, budget)?;
+            match source {
+                SchemeType::List(item) if body_type_matches_ground(&key, &Type::Int) => *item,
+                SchemeType::Record { fields, .. } if body_type_matches_ground(&key, &Type::Str) => {
+                    let key = slots.literal_string(scopes, decoder, index.raw() as usize, budget)?.ok_or_else(|| IrVerifyError::new("generic record index has no constant key producer"))?;
+                    fields.get(&Name::intern(&key)).cloned().ok_or_else(|| IrVerifyError::new("generic record index has no selected field"))?
+                }
+                _ => return Err(IrVerifyError::new("generic index operands have no collection contract")),
+            }
+        }
+        schema::ExprView::IndexFromEnd { base, .. } => {
+            let mut source = child(base, budget)?;
+            while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
+            let SchemeType::List(item) = source else { return Err(IrVerifyError::new("generic from-end index has no list contract")) };
+            *item
+        }
+        schema::ExprView::Slice { base, start, end, .. } => {
+            let mut source = child(base, budget)?;
+            while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
+            for bound in [start, end].into_iter().flatten() {
+                if !body_type_matches_ground(&child(bound, budget)?, &Type::Int) { return Err(IrVerifyError::new("generic slice bound is not an integer")); }
+            }
+            match source {
+                SchemeType::List(_) => source,
+                SchemeType::Ground(ty) => SchemeType::Ground(FullDecoder::checked_slice_type(ty)?),
+                _ => return Err(IrVerifyError::new("generic slice has no collection contract")),
+            }
+        }
+        schema::ExprView::Binary { op, left, right, .. } => {
+            let left = child(left, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;
+            let right = child(right, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;
+            if op == crate::syntax::node::BinaryOp::Add && matches!(left.unvalidated(), Type::List(_)) {
+                let expected = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic concatenation has no closed item contract"))?;
+                budget.charge_clone(&expected)?;
+                let expected = expected.into_unvalidated();
+                if !matches!(expected, Type::List(_))
+                    || !initializer_type_matches_annotation(left.unvalidated(), &expected, budget, 0)?
+                    || !initializer_type_matches_annotation(right.unvalidated(), &expected, budget, 0)?
+                { return Err(IrVerifyError::new("generic binary operands disagree with the operation")); }
+                SchemeType::Ground(Type::concatenation_type([left.validated().map(|ty| ty.validation()), right.validated().map(|ty| ty.validation())], expected))
+            } else {
+                SchemeType::Ground(FullDecoder::checked_binary_result_type(op, left.unvalidated(), right.unvalidated()).ok_or_else(|| IrVerifyError::new("generic binary operands disagree with the operation"))?)
+            }
+        }
         schema::ExprView::Field { base, name, .. } => {
             let base = child(base, budget)?;
             match base {
