@@ -155,8 +155,10 @@ count as runs of the proposed 758 view, even when a selector overlaps. All 21
 selector names below were checked against exact test definitions in the frozen
 original tree.
 
-Append these exact arguments to the frozen adapter command above. The adapter
-runs each selector once in each view.
+Replace the sample selector pair in the frozen adapter command above with the
+pairs below. Each line is an argument-list fragment, not a standalone command.
+Combine the lines with the existing `--frozen` command. The adapter runs each
+selector once in each view.
 
 The `wc` selectors reach `posix_mode`, `read_file`, `files0_input`,
 `count_input`, and `count_one`. The `cut` selectors reach `bound`, `ranges`, and
@@ -165,7 +167,7 @@ The `wc` selectors reach `posix_mode`, `read_file`, `files0_input`,
 `date_parse.relative`, `format_date`, `format_text`, `format_directive`,
 `format_nanoseconds`, and `locale_name`:
 
-```sh
+```text
   --selector xsh 'core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes'
   --selector xsh 'core/tests/test-wc.xsh::test_wc_files0_processes_each_name_before_list_eof'
   --selector xsh 'core/tests/test-wc.xsh::test_wc_words_follow_unicode_white_space_unless_posix'
@@ -188,7 +190,7 @@ The network-device selector reaches `link_network_device_sources`. The capture
 selector reaches `capture_metadata_bytes`, `replay_mountinfo_bundle`,
 `encode_replayed_report`, and the production storage collector:
 
-```sh
+```text
   --selector xsh 'tests/xsh/system-report.xsh::test_system_report_live_collection_uses_explicit_root_and_redacts_by_default'
   --selector xsh 'tests/xsh/system-report.xsh::test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset'
   --selector xsh 'tests/xsh/system-report.xsh::test_system_report_memory_reports_malformed_and_oversized_meminfo_fields'
@@ -205,7 +207,7 @@ The plan JSON selector reaches `plan_json_write_dto`, `plan_json_from_dto`,
 `plan_json_node`, and `plan_json_dependency`. The recipe selector reaches
 `decode_filetree` and `decode_filetree_entry` for path validation:
 
-```sh
+```text
   --selector laputa 'tests/pm/pm_plan.xsh::test_build_plan_json_round_trip_and_detects_corruption'
   --selector laputa 'tests/pm/pm_recipe.xsh::test_recipe_rejects_parent_filetree_traversal'
 ```
