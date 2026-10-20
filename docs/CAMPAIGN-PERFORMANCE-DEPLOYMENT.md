@@ -31,6 +31,10 @@ work limits. All three exact native Cargo-runner bodies pass with matching
 products: lock handoff, unmatched-filter rejection and lock release. The
 source remains clean and product hashes match before and after the replay.
 Broader native acceptance and corpus parity remain unqualified at this source.
+All three hidden-resource lifetime controls also pass with matching products.
+The qualified-alias generic-constructor selector fails preparation on a list
+match subject at owner 11, instruction 261, subject 251. Its body does not run.
+The producer lane owns this smaller regression alongside the corpus failures.
 
 The matching-product corpus replay finishes all eight normal checks. All four
 Laputa checks pass. Frozen XSH original and candidate fail identically on the
