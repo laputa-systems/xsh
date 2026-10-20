@@ -23,6 +23,15 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `15ba7642d` passes the combined immutable replay: 245 passed, zero
+failed and zero ignored. Independent review approves Result-constructor mapping
+through named-argument bindings. Bounded traversal retains argument evaluation
+order and attaches the checked fact to the actual constructor. Both indexed
+routes preserve the outer error and its cause. A valid-first in-place integer
+cause mutation reaches the specific physical producer-contract rejection.
+The unique argument-initializer control passes. Matching products and actual
+docs and corpus replays remain required.
+
 Source `d8e6dc342` passes the combined immutable replay: 243 passed, zero
 failed and zero ignored. Independent review approves the physical abort-discard
 repair. `exit` produces no discarded value, while its status operand retains
