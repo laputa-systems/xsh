@@ -327,14 +327,15 @@ fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContrac
             }
         }
         for (receiver, methods) in api_spec().method_entries() {
-            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::FsRoot) { continue; }
+            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot) { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     let signature = &overload.sig;
                     if signature.binding == ImplBinding::Native {
-                        let signature = if receiver == MethodReceiver::FsRoot {
+                        let signature = if receiver != MethodReceiver::PathConstructor {
                             let mut signature = signature.clone();
-                            signature.params.insert(0, ParamSig { name: "self", ty: Type::FsRoot, defaulted: false, label: LabelRule::Free });
+                            let receiver_ty = overload.receiver_ty.clone().expect("native receiver method has a registered receiver type");
+                            signature.params.insert(0, ParamSig { name: "self", ty: receiver_ty, defaulted: false, label: LabelRule::Free });
                             NativeOperationContract::ReceiverMethod(signature)
                         } else { NativeOperationContract::Direct(signature) };
                         signatures.entry(signature.signature().op).or_default().push(signature);
@@ -375,26 +376,29 @@ pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<Nativ
 struct NativeMethodEffectRules {
     names: BTreeMap<&'static str, NativeEffectRule>,
     operand_dependent: BTreeSet<usize>,
+    receiver_names: BTreeSet<&'static str>,
 }
 
 fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
     static RULES: OnceLock<NativeMethodEffectRules> = OnceLock::new();
     RULES.get_or_init(|| {
         let mut signatures = BTreeMap::<&'static str, Vec<&'static ModuleFnSig>>::new();
+        let mut receiver_names = BTreeSet::new();
         for (receiver, methods) in api_spec().method_entries() {
             if receiver == MethodReceiver::PathConstructor { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     if overload.sig.binding == ImplBinding::Native {
                         signatures.entry(method.name).or_default().push(&overload.sig);
+                        if receiver == MethodReceiver::Path { receiver_names.insert(method.name); }
                     }
                 }
             }
         }
-        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new() };
+        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new(), receiver_names };
         for (name, signatures) in signatures {
             if let Some(rule) = native_effect_rule(signatures.iter().copied()) {
-                if rule == NativeEffectRule::OperandDependent {
+                if rule == NativeEffectRule::OperandDependent || rules.receiver_names.contains(name) {
                     rules.operand_dependent.extend(signatures.iter().map(|signature| *signature as *const ModuleFnSig as usize));
                 }
                 rules.names.insert(name, rule);
@@ -406,6 +410,10 @@ fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
 
 pub(crate) fn native_method_effect_rule(name: &str) -> Option<NativeEffectRule> {
     native_method_effect_rules().names.get(name).copied()
+}
+
+pub(crate) fn native_method_requires_receiver_proof(name: &str) -> bool {
+    native_method_effect_rules().receiver_names.contains(name)
 }
 
 pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceiver>, signature: &ModuleFnSig) -> bool {
@@ -477,7 +485,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
-        effects: Effect::from_module_call(module, function),
+        effects: if sig.pure { &[] } else { Effect::from_module_call(module, function) },
         discardable: sig.discardable,
     }
 }
@@ -668,10 +676,10 @@ mod tests {
                     assert_module_overload_matches_registry(main_overload, registry_overload);
                     assert_eq!(
                         main_overload.effects,
-                        crate::syntax::node::Effect::from_module_call(
+                        if registry_overload.pure { &[] } else { crate::syntax::node::Effect::from_module_call(
                             main_module.name,
                             main_function.name,
-                        )
+                        ) }
                     );
                 }
             }

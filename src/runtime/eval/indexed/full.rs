@@ -18446,6 +18446,9 @@ fn verify_node_metadata(
     if tag == FullTag::ExprModuleCall {
         let mut metadata = payload;
         let op = RuntimeOp::decode(decoder, &mut metadata)?;
+        if !crate::runtime::eval::Evaluator::lowered_module_op_executable(op) {
+            return Err(IrVerifyError::new("module call operation has no executable dispatch"));
+        }
         let plan =
             Option::<Arc<crate::runtime::eval::ModuleCallPlan>>::decode(decoder, &mut metadata)?;
         if let Some(plan) = plan {
@@ -20732,6 +20735,133 @@ pure sample(source: Str) -> Result[Str] {
 assert sample("{\"tool\":\"make\"}")? == "make make make make"
 "#));
             FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_reject_method_only_native_dispatch() {
+        run_with_large_stack(|| {
+            let program = fixture("path-dispatch-contract.xsh", "proc kind(value: Path) [fs, error] -> Result[Bool] { value.is_dir() }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "kind");
+            let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprModuleCall).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let op = program.store.extra[payload.start] as usize;
+            assert!(!Evaluator::lowered_module_op_supported(RuntimeOp::PathDisplay));
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let mut forged = program.clone();
+            forged.store.runtime_ops[op] = RuntimeOp::PathDisplay;
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.return_ty = Box::new(Type::Result(Box::new(Type::Str), Box::new(Type::Error)));
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            let FullCallableContract::Ground(signature) = forged.store.functions[owner].contract else { unreachable!() };
+            forged.store.functions[owner].checked_return_type = forged.store.semantic.signature_return_type(signature).unwrap().raw();
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(failure.message, "module call operation has no executable dispatch");
+        });
+    }
+
+    #[test]
+    fn physical_effects_select_path_and_mode_executable_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("path-mode-contracts.xsh", concat!(
+                "pure permission(mode: Int, target_path: Path) -> Bool { let _ = target_path; fs.executable(mode) }\n",
+                "assert permission(493, p\".\")\n",
+            ));
+            let mut independent = program.clone();
+            independent.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&independent).unwrap();
+            let owner = scheme_fixture_root_function(&independent, "permission");
+            let decoder = function_view_decoder(&independent.store, owner);
+            let instruction = independent.store.function_instruction_range(owner).unwrap().find(|&instruction| independent.store.tags[instruction] == FullTag::ExprModuleCall).unwrap();
+            let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            let argument = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(0)));
+            let mut forged = independent.clone();
+            let payload = forged.store.data[argument].range().bounds(forged.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            forged.store.extra[payload.start] = 1;
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert!(failure.message.contains("contract") || failure.message.contains("impure") || failure.message.contains("requires effect fs"), "{failure:?}");
+            let program = Arc::new(independent);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_path_method_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("path-method-contracts.xsh", concat!(
+                "proc directory(value: Path, destination: Path, wrong: Int) [fs, error] -> Result[Bool] { let _ = destination; let _ = wrong; value.is_dir() }\n",
+                "proc regular(value: Path, destination: Path, wrong: Int) [fs, error] -> Result[Bool] { let _ = destination; let _ = wrong; value.is_file() }\n",
+                "proc symbolic(value: Path, destination: Path, wrong: Int) [fs, error] -> Result[Bool] { let _ = destination; let _ = wrong; value.is_symlink() }\n",
+                "proc duplicate(value: Path, destination: Path, wrong: Int) [fs, error] -> Result[Unit] { let _ = wrong; value.copy(to: destination) }\n",
+                "proc link(value: Path, destination: Path, wrong: Int) [fs, error] -> Result[Unit] { let _ = wrong; value.symlink(to: destination) }\n",
+                "assert directory(p\".\", p\".\", 9)? == true\n",
+                "assert regular(p\".\", p\".\", 9)? == false\n",
+                "assert symbolic(p\".\", p\".\", 9)? == false\n",
+            ));
+            let mut independent = program.clone();
+            independent.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&independent).unwrap();
+            for name in ["directory", "regular", "symbolic", "duplicate", "link"] {
+                let owner = scheme_fixture_root_function(&independent, name);
+                let decoder = function_view_decoder(&independent.store, owner);
+                let instruction = independent.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(independent.store.tags[instruction], FullTag::ExprModuleCall | FullTag::ExprMethod)).unwrap();
+                let (receiver, arguments) = match decoder.expression_view(instruction).unwrap() {
+                    schema::ExprView::ModuleCall { mut args, .. } => {
+                        let receiver = args.next().unwrap().unwrap().unwrap().raw() as usize;
+                        let arguments = args.map(|argument| argument.unwrap().map(|argument| argument.raw() as usize)).collect::<Vec<_>>();
+                        (receiver, arguments)
+                    }
+                    schema::ExprView::Method { receiver, args, .. } => {
+                        let arguments = args.map(|argument| Some(argument.unwrap().raw() as usize)).collect::<Vec<_>>();
+                        (receiver.raw() as usize, arguments)
+                    }
+                    _ => unreachable!(),
+                };
+                assert!(matches!(decoder.expression_view(receiver).unwrap(), schema::ExprView::Param(_)));
+                assert_eq!(decoder.derive_checked_expression_type(receiver).unwrap(), Some(Type::Path));
+                let mut operands = vec![receiver];
+                if matches!(name, "duplicate" | "link") {
+                    operands.push(arguments[0].unwrap());
+                }
+                for operand in operands {
+                    assert!(matches!(decoder.expression_view(operand).unwrap(), schema::ExprView::Param(_)));
+                    let mut forged = independent.clone();
+                    let payload = forged.store.data[operand].range().bounds(forged.store.extra.len()).unwrap();
+                    assert_eq!(payload.len(), 1);
+                    forged.store.extra[payload.start] = 2;
+                    let failure = FullVerifier::verify(&forged).unwrap_err();
+                    assert!(failure.message.contains("contract") || failure.message.contains("producer"), "{name}: {failure:?}");
+                }
+                let FullCallableContract::Ground(signature) = independent.store.functions[owner].contract else { unreachable!() };
+                let mut callable = independent.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+                callable.effects = Some(vec![Effect::Error]);
+                let mut forged = independent.clone();
+                let mut semantic = SemanticPoolBuilder::default();
+                forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+                let failure = FullVerifier::verify(&forged).unwrap_err();
+                assert!(failure.message.contains("requires effect fs"), "{name}: {failure:?}");
+            }
+            let program = Arc::new(independent);
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.force_frames = force_frames;
@@ -28287,7 +28417,7 @@ assert observed(0)?.exited_with(1)
                 (op == RuntimeOp::BridgeTypeName).then_some(instruction)
             })
             .expect("the embedded JSON type_name call uses its private bridge");
-        let owner = program
+        let bridge_owner = program
             .store
             .functions
             .iter()
@@ -28299,9 +28429,10 @@ assert observed(0)?.exited_with(1)
                     .expect("verified function instruction range");
                 range
                     .contains(&bridge_instruction)
-                    .then_some(program.store.function_metadata[index].owner)
+                    .then_some(index)
             })
             .expect("the bridge instruction belongs to an embedded function");
+        let owner = program.store.function_metadata[bridge_owner].owner;
         assert_eq!(
             program.store.string(owner).unwrap(),
             "<xsh-stdlib:json>"
@@ -28310,6 +28441,10 @@ assert observed(0)?.exited_with(1)
             (program.store.function_metadata[index].owner == owner && program.store.string(function.name).unwrap() == "type_name")
                 .then_some(index)
         }).unwrap();
+        let mut escaped = program.clone();
+        escaped.store.function_metadata[bridge_owner].owner = IR_NONE;
+        let error = FullVerifier::verify(&escaped).unwrap_err();
+        assert_eq!(error.message, "private representation operation reached from outside its implementation module");
         let FullCallableContract::Ground(signature) = program.store.functions[declaration].contract else { panic!("ground bridge declaration") };
         let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
             &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();

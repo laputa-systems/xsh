@@ -126,14 +126,20 @@ use super::{
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 
+#[derive(Clone, Copy)]
+enum LoweredModuleOpScope {
+    Callable,
+    Executable,
+}
+
 macro_rules! lowered_module_op_support_guard {
-    (callable; $op:expr) => {
+    (callable; $scope:expr) => {
         true
     };
-    (internal; $op:expr) => {
-        false
+    (internal; $scope:expr) => {
+        matches!($scope, LoweredModuleOpScope::Executable)
     };
-    (fallback; $op:expr) => {
+    (fallback; $scope:expr) => {
         false
     };
 }
@@ -238,6 +244,14 @@ macro_rules! define_lowered_module_op_authority {
         }
 
         pub(super) fn lowered_module_op_supported($op: RuntimeOp) -> bool {
+            Self::lowered_module_op_has_route($op, LoweredModuleOpScope::Callable)
+        }
+
+        pub(super) fn lowered_module_op_executable($op: RuntimeOp) -> bool {
+            Self::lowered_module_op_has_route($op, LoweredModuleOpScope::Executable)
+        }
+
+        fn lowered_module_op_has_route($op: RuntimeOp, scope: LoweredModuleOpScope) -> bool {
             if process_module::is_prim($op)
                 || unix_module::is_prim($op)
                 || linux_module::is_prim($op)
@@ -249,7 +263,7 @@ macro_rules! define_lowered_module_op_authority {
             match $op {
                 $(
                     $(#[$pre_attribute])*
-                    $pre_pattern if lowered_module_op_support_guard!($pre_class; $op) => true,
+                    $pre_pattern if lowered_module_op_support_guard!($pre_class; scope) => true,
                 )*
                 with_unix_call_rows! {
                     lowered_unix_route_pattern! {}
@@ -257,7 +271,7 @@ macro_rules! define_lowered_module_op_authority {
                 } => true,
                 $(
                     $(#[$post_attribute])*
-                    $post_pattern if lowered_module_op_support_guard!($post_class; $op) => true,
+                    $post_pattern if lowered_module_op_support_guard!($post_class; scope) => true,
                 )*
                 with_linux_call_rows! {
                     lowered_linux_route_pattern! {}
@@ -265,7 +279,7 @@ macro_rules! define_lowered_module_op_authority {
                 } => true,
                 $(
                     $(#[$tail_attribute])*
-                    $tail_pattern if lowered_module_op_support_guard!($tail_class; $op) => true,
+                    $tail_pattern if lowered_module_op_support_guard!($tail_class; scope) => true,
                 )*
                 _ => false,
             }

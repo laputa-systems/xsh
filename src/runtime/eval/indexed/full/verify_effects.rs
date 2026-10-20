@@ -261,7 +261,9 @@ pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Resu
         }
         FullTag::ExprMethod => {
             let raw = *payload.get(1).ok_or_else(|| IrVerifyError::new("method operation selector is absent"))?;
-            crate::modules::signature::native_method_effect_rule(store.string(raw)?)
+            let name = store.string(raw)?;
+            if crate::modules::signature::native_method_requires_receiver_proof(name) { return Ok(true); }
+            crate::modules::signature::native_method_effect_rule(name)
         }
         _ => unreachable!(),
     };
