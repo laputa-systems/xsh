@@ -396,65 +396,83 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
     }
 }
 
+pub(crate) fn registered_call_result(
+    plan: &super::schemes::RegisteredCallPlan,
+    receiver: Option<&super::schemes::SchemeType>,
+    arguments: &[Option<&super::schemes::SchemeType>],
+) -> Option<super::schemes::SchemeType> {
+    let parameters = registered_call_parameters(plan, receiver, arguments, None)?;
+    symbolic_template_type(&plan.signature.return_ty, &parameters, 0)
+}
+
 pub(crate) fn verify_registered_call(
     plan: &super::schemes::RegisteredCallPlan,
     receiver: Option<&super::schemes::SchemeType>,
     arguments: &[Option<&super::schemes::SchemeType>],
     result: &super::schemes::SchemeType,
 ) -> bool {
+    let Some(parameters) = registered_call_parameters(plan, receiver, arguments, Some(result)) else { return false };
+    let Some(expected) = symbolic_template_type(&plan.signature.return_ty, &parameters, 0) else { return false };
+    result == &expected || matches!((result.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected)
+}
+
+fn registered_call_parameters(
+    plan: &super::schemes::RegisteredCallPlan,
+    receiver: Option<&super::schemes::SchemeType>,
+    arguments: &[Option<&super::schemes::SchemeType>],
+    result: Option<&super::schemes::SchemeType>,
+) -> Option<BTreeMap<BuiltinTypeParameter, super::schemes::SchemeType>> {
     use super::schemes::SchemeType;
     use crate::modules::{api_spec, MethodReceiver};
     let signature = plan.signature;
-    if !registered_call_is_executable(plan) || arguments.len() > signature.params.len() { return false; }
+    if !registered_call_is_executable(plan) || arguments.len() > signature.params.len() { return None; }
     let mut parameters = BTreeMap::new();
     match (plan.receiver, receiver) {
         (Some(domain), Some(actual)) => {
             let Some(method) = api_spec().method_overloads(domain, &plan.name)
                 .and_then(|methods| methods.iter().find(|method| std::ptr::eq(&method.sig, signature)))
-            else { return false };
+            else { return None };
             parameters.insert(BuiltinTypeParameter::Receiver, actual.clone());
             if let Some(template) = &method.receiver_ty {
-                if !bind_symbolic_template(template, actual, &mut parameters, 0) { return false; }
+                if !bind_symbolic_template(template, actual, &mut parameters, 0) { return None; }
             } else {
                 let valid = match domain {
                     MethodReceiver::Record => matches!(actual, SchemeType::Record { .. }) || matches!(actual.closed_ground_type(), Some(Type::Record(_))),
                     MethodReceiver::Int => matches!(actual.closed_ground_type().as_ref().map(Type::unvalidated), Some(Type::Int | Type::UInt)),
                     _ => false,
                 };
-                if !valid { return false; }
+                if !valid { return None; }
             }
         }
         (None, None) => {
-            if !api_spec().module_entries().any(|(_, module)| module.functions.iter().any(|function| function.name == plan.name.as_ref() && function.overloads.iter().any(|candidate| std::ptr::eq(candidate, signature)))) { return false; }
+            if !api_spec().module_entries().any(|(_, module)| module.functions.iter().any(|function| function.name == plan.name.as_ref() && function.overloads.iter().any(|candidate| std::ptr::eq(candidate, signature)))) { return None; }
         }
-        _ => return false,
+        _ => return None,
     }
     for (index, parameter) in signature.params.iter().enumerate() {
         match arguments.get(index).copied().flatten() {
             Some(actual) => {
-                if !bind_symbolic_template(&parameter.ty, actual, &mut parameters, 0) { return false; }
+                if !bind_symbolic_template(&parameter.ty, actual, &mut parameters, 0) { return None; }
             }
             None if parameter.defaulted => {}
-            None => return false,
+            None => return None,
         }
     }
-    if !bind_symbolic_template(&signature.return_ty, result, &mut parameters, 0) { return false; }
-    let Some(expected) = symbolic_template_type(&signature.return_ty, &parameters, 0) else { return false };
-    if result != &expected && !matches!((result.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected) { return false; }
+    if let Some(result) = result && !bind_symbolic_template(&signature.return_ty, result, &mut parameters, 0) { return None; }
     let receiver = receiver.and_then(SchemeType::closed_ground_type);
-    signature.params.iter().enumerate().all(|(slot, parameter)| {
-        let Some(expected) = symbolic_template_type(&parameter.ty, &parameters, 0) else { return false };
+    for (slot, parameter) in signature.params.iter().enumerate() {
+        let Some(expected) = symbolic_template_type(&parameter.ty, &parameters, 0) else { return None };
         let check = expected.closed_ground_type().and_then(|expected| registered_argument_check(receiver.as_ref(), slot, &expected));
-        if plan.argument_checks.get(slot) != Some(&check) { return false; }
+        if plan.argument_checks.get(slot) != Some(&check) { return None; }
         if let (Some(check), Some(actual)) = (check, arguments.get(slot).copied().flatten()) {
             let expected = match check {
                 super::schemes::RegisteredArgumentCheck::Unsigned(expected) => expected,
                 super::schemes::RegisteredArgumentCheck::UIntMapKey => Type::UInt,
             };
-            if actual.closed_ground_type() != Some(expected) { return false; }
+            if actual.closed_ground_type() != Some(expected) { return None; }
         }
-        true
-    })
+    }
+    Some(parameters)
 }
 
 fn symbolic_type_matches(actual: &super::schemes::SchemeType, expected: &super::schemes::SchemeType) -> bool {

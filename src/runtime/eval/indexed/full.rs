@@ -5108,7 +5108,8 @@ fn scheme_type_physical_kind(
         schema::FullSchemeTypeTag::Stream => Some(LoweredType::Stream),
         schema::FullSchemeTypeTag::Set => Some(LoweredType::Set),
         schema::FullSchemeTypeTag::Result => Some(LoweredType::Result),
-        schema::FullSchemeTypeTag::Optional | schema::FullSchemeTypeTag::Union => {
+        schema::FullSchemeTypeTag::Optional => Some(LoweredType::Any),
+        schema::FullSchemeTypeTag::Union => {
             return Err(IrVerifyError::new(
                 "scheme type has no supported physical parameter kind",
             ));
@@ -5164,9 +5165,7 @@ fn scheme_return_kind(
             if store.scheme_type(inner)?.tag == schema::FullSchemeTypeTag::Result {
                 LoweredReturnKind::OptionalResult
             } else {
-                return Err(IrVerifyError::new(
-                    "scheme optional return has no supported physical return kind",
-                ));
+                LoweredReturnKind::Plain(LoweredType::Any)
             }
         }
         _ => match scheme_type_physical_kind(store, type_id)? {
@@ -13229,24 +13228,18 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    /// The subject type the arms after `pattern` see. An unguarded `null` arm
-    /// consumes the absent case, so an optional binding (`if let f = maybe`)
-    /// lowers to a binding arm over the non-null value.
+    fn pattern_excludes_null(&self, pattern: u32, guarded: bool) -> Result<bool, IrVerifyError> {
+        if guarded { return Ok(false); }
+        match self.checked_pattern_view(pattern)? {
+            schema::PatternView::Literal(literal) => literal.is_null(),
+            _ => Ok(false),
+        }
+    }
+
     fn subject_after_arm(
-        &self,
-        pattern: u32,
-        guarded: bool,
-        subject_type: Option<Type>,
+        &self, pattern: u32, guarded: bool, subject_type: Option<Type>,
     ) -> Result<Option<Type>, IrVerifyError> {
-        if guarded {
-            return Ok(subject_type);
-        }
-        let schema::PatternView::Literal(literal) = self.checked_pattern_view(pattern)? else {
-            return Ok(subject_type);
-        };
-        if literal.materialize()? != LoweredValue::Null {
-            return Ok(subject_type);
-        }
+        if !self.pattern_excludes_null(pattern, guarded)? { return Ok(subject_type); }
         Ok(subject_type.map(|subject| match subject {
             Type::Optional(inner) => *inner,
             other => other,

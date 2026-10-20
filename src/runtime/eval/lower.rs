@@ -471,7 +471,7 @@ fn lowered_scheme_parameter_kind(ty: &SchemeType) -> Option<LoweredParamKind> {
 fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
     while let SchemeType::Validated(_, base) = ty { ty = base; }
     match ty {
-        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any),
+        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Optional(_))),
         SchemeType::Callable { kind, .. } => match kind {
             crate::sema::types::CallableKind::Pure => Some(LoweredType::Pure),
             crate::sema::types::CallableKind::Proc => Some(LoweredType::Proc),
@@ -483,8 +483,8 @@ fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
         SchemeType::Set(_) => Some(LoweredType::Set),
         SchemeType::Record { .. } => Some(LoweredType::Record),
         SchemeType::Result(_, _) => Some(LoweredType::Result),
+        SchemeType::Optional(_) => Some(LoweredType::Any),
         SchemeType::Parameter(_)
-        | SchemeType::Optional(_)
         | SchemeType::Union(_)
         | SchemeType::Validated(_, _) => None,
     }
@@ -516,8 +516,8 @@ fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
         SchemeType::Map(_, _) => Some(LoweredReturnKind::Plain(LoweredType::Map)),
         SchemeType::Stream(_) => Some(LoweredReturnKind::Plain(LoweredType::Stream)),
         SchemeType::Set(_) => Some(LoweredReturnKind::Plain(LoweredType::Set)),
-        SchemeType::Optional(_)
-        | SchemeType::Union(_)
+        SchemeType::Optional(_) => Some(LoweredReturnKind::Plain(LoweredType::Any)),
+        SchemeType::Union(_)
         | SchemeType::Validated(_, _) => None,
     }
 }
@@ -3405,6 +3405,61 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         read
     }
 
+    fn publish_scheme_expression(
+        &mut self, lowered: BuildExprId, ty: SchemeType, slots: &mut SlotScope,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> BuildExprId {
+        lowered_types.insert(lowered, ty.clone());
+        let slot = slots.reserve("generic body expression");
+        let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: lowered, annotation: None });
+        slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: ty.clone(), mutability: super::SchemeLocalMutability::Immutable });
+        body.push(declaration);
+        let read = push_build_row!(self, expr, BuildExprRow::Param(slot));
+        lowered_types.insert(read, ty);
+        read
+    }
+
+    fn lower_scheme_guarded_expression(
+        &mut self, expression: ExprId, base: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        let source = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+        let source_type = lowered_types.get(&source)?.clone();
+        let (present_type, optional) = match source_type {
+            SchemeType::Optional(inner) => (*inner, true),
+            SchemeType::Result(ok, _) => (*ok, false),
+            SchemeType::Ground(Type::Optional(inner)) => (SchemeType::Ground(*inner), true),
+            SchemeType::Ground(Type::Result(ok, _)) => (SchemeType::Ground(*ok), false),
+            _ => return self.block_scheme_lowering_expr(expression),
+        };
+        let span = self.program.arena.expr(expression).span;
+        let slot = slots.reserve("guarded generic receiver");
+        let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+        lowered_types.insert(bound, present_type.clone());
+        let receiver = if optional { source } else {
+            let value = push_build_row!(self, expr, BuildExprRow::Try { value: source, span });
+            lowered_types.insert(value, present_type.clone());
+            let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
+            slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: present_type, mutability: super::SchemeLocalMutability::Immutable });
+            body.push(declaration);
+            value
+        };
+        let previous = slots.postfix_receivers.insert(base, bound);
+        slots.guarded_postfixes.insert(expression);
+        let selected = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types);
+        slots.guarded_postfixes.remove(&expression);
+        match previous { Some(previous) => { slots.postfix_receivers.insert(base, previous); }, None => { slots.postfix_receivers.remove(&base); } }
+        let selected = selected?;
+        if !optional { return Some(selected); }
+        let absent = push_build_row!(self, expr, BuildExprRow::Null);
+        lowered_types.insert(absent, SchemeType::Ground(Type::Null));
+        let null = push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+        let present = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+        let lowered = push_build_row!(self, expr, BuildExprRow::MatchExpr { value: receiver, arms: vec![(null, None, absent), (present, None, selected)], span });
+        Some(self.publish_scheme_expression(lowered, facts.expression_types().get(&expression)?.clone(), slots, lowered_types, body))
+    }
+
     fn lower_scheme_expression(
         &mut self,
         expression: ExprId,
@@ -3415,8 +3470,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
+        if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
+        if !slots.guarded_postfixes.contains(&expression) {
+            let base = match self.program.arena.expr(expression).kind {
+                ArenaExprKind::NullSafeField { base, .. }
+                | ArenaExprKind::Index { base, guarded: true, .. }
+                | ArenaExprKind::Slice { base, guarded: true, .. } => Some(base),
+                ArenaExprKind::Call { callee, .. } => match self.program.arena.expr(callee).kind {
+                    ArenaExprKind::NullSafeField { base, .. } => Some(base),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(base) = base { return self.lower_scheme_guarded_expression(expression, base, slots, current_function, facts, visited, lowered_types, body); }
+        }
         if !visited.insert(expression) { return self.block_scheme_lowering_expr(expression); }
-        let ty = facts.expression_types().get(&expression)?.clone();
+        let mut ty = facts.expression_types().get(&expression)?.clone();
         let span = self.program.arena.expr(expression).span;
         let mut registered = None;
         let lowered = match self.program.arena.expr(expression).kind {
@@ -3426,25 +3495,58 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::Param(slot))
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
-            ArenaExprKind::Field { base, name } => {
-                let Some(SchemeType::Record { fields, .. }) = facts.expression_types().get(&base) else { return self.block_scheme_lowering_expr(expression) };
-                if fields.get(&name) != Some(&ty) { return self.block_scheme_lowering_expr(expression); }
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                let mut source = lowered_types.get(&base)?;
+                while let SchemeType::Validated(_, inner) = source { source = inner; }
+                ty = match source {
+                    SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
+                    _ => match source.closed_ground_type()?.unvalidated() {
+                        Type::Record(fields) => SchemeType::Ground(fields.get(&name)?.clone()),
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    },
+                };
                 push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span })
             }
-            ArenaExprKind::Index { base, index, guarded: false } => {
+            ArenaExprKind::Index { base, index, .. } => {
+                let source_base = base;
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                if slots.guarded_postfixes.contains(&expression) {
+                    let mut source = lowered_types.get(&base)?;
+                    while let SchemeType::Validated(_, inner) = source { source = inner; }
+                    ty = match source {
+                        SchemeType::List(item) | SchemeType::Map(_, item) => (**item).clone(),
+                        _ => match source.closed_ground_type()?.unvalidated() {
+                            Type::List(item) | Type::Map(_, item) => SchemeType::Ground((**item).clone()),
+                            Type::Record(_) => {
+                                let projection = crate::sema::projection::resolve_constant_key_projection(&self.program.arena, &self.declarations.prepared_constants, source_base, &source.closed_ground_type()?.into_unvalidated(), index, crate::sema::projection::ProjectionOperation::Index)?;
+                                SchemeType::Ground(projection.value_type)
+                            }
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        },
+                    };
+                }
                 if let Some(distance) = self.bodies.from_end_indexes.get(&expression).copied().and_then(super::EndDistance::new) {
                     let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
                     if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
                     push_build_row!(self, expr, BuildExprRow::IndexFromEnd { base, distance, span })
                 } else {
-                    let index = self.lower_scheme_expression(index, slots, current_function, facts, visited, lowered_types, body)?;
+                    let uint_key = lowered_types.get(&base).and_then(SchemeType::closed_ground_type).is_some_and(|ty| crate::sema::builtin_templates::registered_uint_map_key(Some(ty.unvalidated())));
+                    let mut lowered_index = self.lower_scheme_expression(index, slots, current_function, facts, visited, lowered_types, body)?;
+                    if uint_key {
+                        lowered_index = self.lower_scheme_registered_argument(lowered_index, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, self.program.arena.expr(index).span, slots, lowered_types, body);
+                    }
+                    let index = lowered_index;
                     push_build_row!(self, expr, BuildExprRow::Index { base, index, span })
                 }
             }
-            ArenaExprKind::Slice { base, start, end, guarded: false } => {
+            ArenaExprKind::Slice { base, start, end, .. } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                if slots.guarded_postfixes.contains(&expression) {
+                    let mut source = lowered_types.get(&base)?;
+                    while let SchemeType::Validated(_, inner) = source { source = inner; }
+                    ty = match source { SchemeType::List(_) => source.clone(), _ => SchemeType::Ground(source.closed_ground_type()?.into_unvalidated()) };
+                }
                 let start = match start { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
                 let end = match end { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
                 push_build_row!(self, expr, BuildExprRow::Slice { base, start, end, span })
@@ -3541,7 +3643,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Call { callee, args } => {
                 let plan = facts.registered_calls().get(&expression).cloned();
                 let receiver = if plan.as_ref().is_some_and(|plan| plan.receiver.is_some()) {
-                    let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
+                    let (ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. }) = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
                     Some(self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?)
                 } else { None };
                 if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
@@ -3589,6 +3691,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         if ordered.get_mut(slot)?.replace(value).is_some() { return self.block_scheme_lowering_expr(expression); }
                     }
                     while ordered.last() == Some(&None) { ordered.pop(); }
+                    if slots.guarded_postfixes.contains(&expression) {
+                        let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
+                        ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
+                    }
                     let lowered = if let Some(receiver) = receiver {
                         let args = ordered.into_iter().collect::<Option<Vec<_>>>()?;
                         push_build_row!(self, expr, BuildExprRow::Method { receiver, name: crate::symbol::NameText::Dynamic(Arc::clone(&plan.name)), args, span })
@@ -3617,14 +3723,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
-        lowered_types.insert(lowered, ty.clone());
-        let slot = slots.reserve("generic body expression");
-        let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: lowered, annotation: None });
-        slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: ty.clone(), mutability: super::SchemeLocalMutability::Immutable });
-        body.push(declaration);
-        let read = push_build_row!(self, expr, BuildExprRow::Param(slot));
-        lowered_types.insert(read, ty);
-        Some(read)
+        Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body))
     }
 
     fn block_scheme_lowering(

@@ -3824,6 +3824,16 @@ concrete-list concatenation, and unary operations retain their ordinary
 contracts. Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
+Optional parameters and returns retain their nullable contract. Guarded field,
+index, slice, and selected method access use the ordinary postfix rules: a null
+receiver returns null without evaluating its index, slice bounds, or method
+arguments. A present receiver runs the selected operation, including literal
+from-end indexing; an operation that already returns Optional keeps one
+Optional envelope. An Optional containing Result keeps both success and error
+values as data. A guarded Result receiver propagates its actual error to the
+function's Result boundary and runs the operation only on success. The error
+family must fit that boundary.
+
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
 source order.
@@ -3836,7 +3846,7 @@ ordinary checked conversions and failure propagation.
 
 Unsupported quantified body shapes still produce a checking or preparation
 diagnostic, including destructuring declarations, `for`, comparisons,
-logical binary expressions, membership, set operators, guarded postfix access,
+logical binary expressions, membership, set operators,
 map and set literals, record spreads, interpolated text, dynamically selected calls, and captured mutable or resource
 state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not

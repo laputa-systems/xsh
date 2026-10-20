@@ -198,12 +198,17 @@ impl Checker {
             let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None };
             let name = match program.arena.expr(callee).kind {
                 crate::syntax::arena::ArenaExprKind::Field { name, .. }
+                | crate::syntax::arena::ArenaExprKind::NullSafeField { name, .. }
                 | crate::syntax::arena::ArenaExprKind::Ident(name) => Arc::from(name.as_str().as_ref()),
                 _ => return None,
             };
             let receiver = if call.receiver.is_some() {
-                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return None };
-                generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type)
+                let (crate::syntax::arena::ArenaExprKind::Field { base, .. } | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. }) = program.arena.expr(callee).kind else { return None };
+                generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type).map(|receiver| {
+                    if matches!(program.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::NullSafeField { .. }) {
+                        match receiver { Type::Optional(inner) | Type::Result(inner, _) => *inner, receiver => receiver }
+                    } else { receiver }
+                })
             } else { None };
             let argument_checks = call.params.iter().enumerate().map(|(slot, parameter)| crate::sema::builtin_templates::registered_argument_check(receiver.as_ref(), slot, parameter)).collect::<Vec<_>>();
             let plan = crate::sema::schemes::RegisteredCallPlan {

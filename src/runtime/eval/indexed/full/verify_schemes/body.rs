@@ -107,6 +107,16 @@ fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection) ->
     Ok(symbolic)
 }
 
+fn subject_after_pattern(decoder: &FullDecoder<'_>, pattern: u32, guarded: bool, subject: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
+    budget.charge(1)?;
+    if !decoder.pattern_excludes_null(pattern, guarded)? { return Ok(subject); }
+    Ok(match subject {
+        SchemeType::Optional(inner) => *inner,
+        SchemeType::Ground(Type::Optional(inner)) => SchemeType::Ground(*inner),
+        other => other,
+    })
+}
+
 fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, scope: &LexicalScope, scopes: &mut LexicalScopes, slot_count: usize, writers: &mut BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<LexicalScope, IrVerifyError> {
     let mut bindings = BTreeMap::new();
     let ground = subject.closed_ground_type();
@@ -128,6 +138,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
             let ty = actual.cloned().or_else(|| projected.as_ref().and_then(SchemeType::closed_ground_type));
             match view {
                 schema::PatternView::Literal(value) => {
+                    if ty.is_none() && matches!(projected, Some(SchemeType::Optional(_))) && value.is_null()? { return Ok(()); }
                     let ty = ty.ok_or_else(|| IrVerifyError::new("generic literal pattern has no ground subject"))?;
                     value.with_scalar_view(|amount| work.borrow_mut().charge(amount), |value| {
                         if crate::runtime::eval::type_view::value_matches_static_type(value, &ty) { Ok(()) } else { Err(IrVerifyError::new("generic literal pattern disagrees with its subject")) }
@@ -193,7 +204,7 @@ pub(super) fn verify_body(
                     }
                     schema::ExprView::MatchExpr { value, mut arms, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        let subject = expression_type(types, value.raw() as usize, budget)?;
+                        let mut subject = expression_type(types, value.raw() as usize, budget)?;
                         for arm in &mut arms {
                             let (pattern, guard, value) = arm?;
                             let inner = pattern_scope(decoder, pattern.raw(), &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
@@ -203,12 +214,13 @@ pub(super) fn verify_body(
                                 condition(types, guard.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
                                 pending.push(Obligation::Expression(guard.raw() as usize, inner));
                             }
+                            subject = subject_after_pattern(decoder, pattern.raw(), guard.is_some(), subject, budget)?;
                         }
                         pending.push(Obligation::Expression(value.raw() as usize, scope));
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, &scope, &scopes, &mut children, &mut visited, registered, budget)?;
+                        verify_body_expression(store, decoder, instruction, types, &scope, &scopes, &mut children, &mut visited, registered, expected_return, budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -298,7 +310,7 @@ pub(super) fn verify_body(
                         nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
                     }
                     schema::StmtView::Match { value: subject, mut arms, .. } => {
-                        let subject_type = expression_type(types, subject.raw() as usize, budget)?;
+                        let mut subject_type = expression_type(types, subject.raw() as usize, budget)?;
                         expressions.push(subject.raw() as usize);
                         for arm in &mut arms {
                             let (pattern, guard, body) = arm?;
@@ -310,6 +322,7 @@ pub(super) fn verify_body(
                                 condition(types, guard.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
                                 nested.push(Obligation::Expression(guard.raw() as usize, inner));
                             }
+                            subject_type = subject_after_pattern(decoder, pattern.raw(), guard.is_some(), subject_type, budget)?;
                         }
                     }
                     _ => return Err(IrVerifyError::new("generic body has an unsupported statement contract")),
@@ -709,5 +722,147 @@ mod tests {
     }
 
 
+
+    #[test]
+    fn ordinary_generic_guarded_optional_projection_preserves_the_receiver() {
+        prepare("pure keep(value, items: List[Int]?) { let _ = items?[0]; value }");
+    }
+
+
+    fn guarded_receiver_source(program: &FullProgram, owner: usize, source: usize) -> (usize, usize, usize) {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::Param(slot) = decoder.expression_view(source).unwrap() else { panic!("guard receiver ANF read") };
+        let (declaration, initializer) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+        (declaration, initializer, source)
+    }
+
+    #[test]
+    fn ordinary_generic_guarded_results_authenticate_the_owner_error_family() {
+        let program = prepare("error First = Missing\nerror Second = Missing\npure keep(value, items: Result[List[Int], First], wrong: Result[List[Int], Second]) -> Result[Int, First] { let _ = value; let _ = wrong; Ok(items?[0]) }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let source = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Try { value, .. }) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let (declaration, initializer, read) = guarded_receiver_source(&program, owner, source);
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        assert_eq!(wrong.tag, FullSchemeTypeTag::Result);
+        let error = program.store.scheme_types[SchemeTypeId::from_raw(wrong.second).unwrap().index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
+                let result = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(result.tag, FullSchemeTypeTag::Result);
+                let actual_error = &mut changed.store.scheme_types[SchemeTypeId::from_raw(result.second).unwrap().index()];
+                assert_eq!(actual_error.tag, error.tag);
+                actual_error.first = error.first;
+                actual_error.second = error.second;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic propagated error disagrees with its owner boundary");
+    }
+
+    #[test]
+    fn ordinary_generic_guarded_receivers_follow_the_actual_nullable_producer() {
+        let program = prepare("pure keep(value, items: List[Int]?, wrong: List[Str]?) { let _ = wrong; let _ = items?[0]; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let source = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::MatchExpr { value, .. }) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let (declaration, initializer, read) = guarded_receiver_source(&program, owner, source);
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        assert_eq!(wrong.tag, FullSchemeTypeTag::Optional);
+        let list = program.store.scheme_types[SchemeTypeId::from_raw(wrong.first).unwrap().index()];
+        assert_eq!(list.tag, FullSchemeTypeTag::List);
+        let item = program.store.scheme_types[SchemeTypeId::from_raw(list.first).unwrap().index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
+                let optional = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(optional.tag, FullSchemeTypeTag::Optional);
+                let list = changed.store.scheme_types[SchemeTypeId::from_raw(optional.first).unwrap().index()];
+                assert_eq!(list.tag, FullSchemeTypeTag::List);
+                let actual = &mut changed.store.scheme_types[SchemeTypeId::from_raw(list.first).unwrap().index()];
+                assert_eq!(actual.tag, item.tag);
+                actual.first = item.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn ordinary_generic_guarded_present_bindings_require_prior_null_exclusion() {
+        let program = prepare("pure keep(value, items: List[Int]?) { let _ = items?[0]; value }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let matched = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::MatchExpr { .. }))).unwrap();
+        let payload = program.store.payload(program.store.data[matched].range()).unwrap();
+        let block = IrBlockId::from_raw(payload[1]).unwrap();
+        let range = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[range.start], 2);
+        assert_eq!(range.len(), 7);
+        let mut changed = program.clone();
+        for index in 0..3 { changed.store.extra.swap(range.start + 1 + index, range.start + 4 + index); }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+
+    #[test]
+    fn ordinary_generic_guarded_explicit_matches_preserve_optional_binding_types() {
+        prepare("pure keep(value, items: List[Int]?) { let _ = match items { null => items; present => present }; value }");
+    }
+
+
+    #[test]
+    fn ordinary_generic_guarded_uint_map_methods_retain_key_validation() {
+        prepare("pure keep(marker, items: Map[UInt, Int]?, key: UInt) { let _ = items?.get(key); marker }");
+    }
+
+
+    #[test]
+    fn ordinary_generic_guarded_key_requirements_preserve_the_owner_error_family() {
+        let program = prepare("error First = Missing\npure keep(marker, items: Map[UInt, Int]?, key: UInt, wrong: Int) -> Result[Int, First] { let _ = marker; let _ = wrong; let _ = items?.get(key); Ok(7) }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let source = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Require { value, check, .. }) if check.ty.materialize().unwrap() == Type::UInt => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::Param(slot) = decoder.expression_view(source).unwrap() else { panic!("unsigned argument ANF read") };
+        let (declaration, initializer) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(2)));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 3].ty.index()];
+        assert_eq!(wrong.tag, FullSchemeTypeTag::Ground);
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 3;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, source].contains(&(fact.instruction as usize)) {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, wrong.tag);
+                node.first = wrong.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic propagated error disagrees with its owner boundary");
+    }
 
 }

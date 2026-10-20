@@ -332,6 +332,11 @@ pub(in crate::runtime::eval) struct ValueRef<'a> {
     context: DecodeContext<'a>,
 }
 impl ValueRef<'_> {
+    pub(super) fn is_null(self) -> Result<bool, IrVerifyError> {
+        self.context.store.values.get(self.raw as usize).map(|tag| *tag == super::FullValueTag::Null)
+            .ok_or_else(|| IrVerifyError::new("value id is out of bounds"))
+    }
+
     pub(in crate::runtime::eval) fn with_scalar_view<R>(self, mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>, inspect: impl FnOnce(crate::runtime::eval::type_view::ValueView<'_>) -> Result<R, IrVerifyError>) -> Result<R, IrVerifyError> {
         use super::FullValueTag as V;
         use crate::map_key::MapKeyRef;

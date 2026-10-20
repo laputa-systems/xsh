@@ -151,7 +151,7 @@ fn is_body_expression(
                     || captures.contains(binding) && types.get(&expression).is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
-            ArenaExprKind::Field { base, .. } => pending.push(base),
+            ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
             ArenaExprKind::Index { base, index, .. } => {
                 if !types.contains_key(&expression) { return false; }
                 pending.push(base); pending.push(index);
@@ -207,7 +207,7 @@ fn is_body_expression(
             ArenaExprKind::Call { callee, args } => {
                 if let Some(plan) = registered_calls.get(&expression) {
                     if plan.receiver.is_some() {
-                        let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return false };
+                        let (ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. }) = program.arena.expr(callee).kind else { return false };
                         pending.push(base);
                     }
                 } else if !checked_calls.contains(&program.arena.expr(expression).span)
@@ -328,6 +328,38 @@ mod ordinary_body_tests {
         accepts(
             "pure choose(flag: Bool, left, right) { var result = left; if flag { result = right }; result }",
             "let number: Int = choose(true, 1, 7)\nlet text: Str = choose(false, \"value\", \"other\")",
+        );
+    }
+
+    #[test]
+    fn generic_guarded_optional_receivers_retain_their_checked_types() {
+        accepts(
+            "pure keep(value, items: List[Int]?) { let _ = items?[0]; value }",
+            "let number: Int = keep(7, null)\nlet text: Str = keep(\"value\", [1])",
+        );
+    }
+
+    #[test]
+    fn generic_guarded_fields_retain_their_checked_types() {
+        accepts(
+            "type Row = {item: Int}\npure keep(value, row: Row?) { let _ = row?.item; value }",
+            "let number: Int = keep(7, null)\nlet text: Str = keep(\"value\", {item: 1})",
+        );
+    }
+
+    #[test]
+    fn generic_guarded_methods_retain_the_selected_contract() {
+        accepts(
+            "pure keep(value, text: Str?) { let _ = text?.starts_with(\"v\"); value }",
+            "let number: Int = keep(7, null)\nlet text: Str = keep(\"value\", \"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_guarded_result_receivers_retain_the_error_contract() {
+        accepts(
+            "pure keep(value, items: Result[List[Int], Str]) -> Result[Int, Str] { let _ = value; Ok(items?[0]) }",
+            "let number: Result[Int, Str] = keep(7, Ok([1]))\nlet text: Result[Int, Str] = keep(\"value\", Err(\"failed\"))",
         );
     }
 

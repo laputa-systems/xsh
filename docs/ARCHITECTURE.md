@@ -93,6 +93,17 @@ Concatenation checks each real operand's payload guarantee before accepting its
 result claim; an ordinary complete unsigned check remains a separate boundary.
 The checker and verifier share the canonical concatenation validation rule.
 
+Nullable scheme types use the ordinary boxed physical representation while
+retaining their explicit Optional contract and parameter validation. Guarded
+postfix lowering evaluates the receiver once and places operand elaboration in
+the present arm. The verifier derives null exclusion from actual preceding
+patterns and permits a proved payload read to retain a checked Optional type.
+Selected native signatures determine the present operation's result before
+nullable lifting; an already nullable result keeps its existing envelope.
+Result guards prove the success producer and its error relation to the owning
+Result boundary independently. Unsigned key requirements retain their existing
+checked propagation path.
+
 `execution::evaluator::checked_body_contracts` consumes one check, captures its
 semantic selections, and prepares the program once without running initialization.
 It extracts actual validation rows and parameter and return gates from the verified

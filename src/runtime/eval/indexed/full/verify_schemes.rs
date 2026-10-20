@@ -994,6 +994,11 @@ fn body_types_equal(actual: &SchemeType, expected: &SchemeType) -> bool {
 }
 
 fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    if let SchemeType::Optional(inner) = expected {
+        budget.charge(1)?;
+        if actual == &SchemeType::Ground(Type::Null) { return Ok(true); }
+        if !matches!(actual, SchemeType::Optional(_)) { return body_type_matches(actual, inner, budget); }
+    }
     if actual == expected { return Ok(true); }
     match (actual.closed_ground_type(), expected.closed_ground_type()) {
         (Some(actual), Some(expected)) => initializer_type_matches_annotation(&actual, &expected, budget, 0),
@@ -1027,6 +1032,7 @@ fn verify_body_expression(
     pending: &mut Vec<usize>,
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
+    expected_return: &SchemeType,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<SchemeType, IrVerifyError> {
     budget.charge(1)?;
@@ -1041,9 +1047,17 @@ fn verify_body_expression(
     };
     let expected = match decoder.expression_view(instruction)? {
         schema::ExprView::Param(slot) => {
-            let ty = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?;
-            budget.charge_scheme_clone(ty)?;
-            ty.clone()
+            let actual = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?;
+            if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
+                && !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
+                && body_type_matches(actual, ty, budget)?
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
+            } else {
+                budget.charge_scheme_clone(actual)?;
+                actual.clone()
+            }
         },
         schema::ExprView::Null => SchemeType::Ground(Type::Null),
         schema::ExprView::Unit => SchemeType::Ground(Type::Unit),
@@ -1096,7 +1110,13 @@ fn verify_body_expression(
             while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
             let key = child(index, budget)?;
             match source {
+                SchemeType::Map(expected_key, item) if body_type_matches(&key, &expected_key, budget)? => *item,
+                SchemeType::Ground(Type::Map(expected_key, item)) => {
+                    if !body_type_matches(&key, &SchemeType::Ground(*expected_key), budget)? { return Err(IrVerifyError::new("generic map index has an incompatible key producer")); }
+                    SchemeType::Ground(*item)
+                }
                 SchemeType::List(item) if body_type_matches_ground(&key, &Type::Int) => *item,
+                SchemeType::Ground(Type::List(item)) if body_type_matches_ground(&key, &Type::Int) => SchemeType::Ground(*item),
                 SchemeType::Record { fields, .. } if body_type_matches_ground(&key, &Type::Str) => {
                     let key = slots.literal_string(scopes, decoder, index.raw() as usize, budget)?.ok_or_else(|| IrVerifyError::new("generic record index has no constant key producer"))?;
                     fields.get(&Name::intern(&key)).cloned().ok_or_else(|| IrVerifyError::new("generic record index has no selected field"))?
@@ -1139,11 +1159,14 @@ fn verify_body_expression(
             }
         }
         schema::ExprView::Field { base, name, .. } => {
-            let base = child(base, budget)?;
+            let mut base = child(base, budget)?;
+            while let SchemeType::Validated(_, inner) = base { budget.charge(1)?; base = *inner; }
             match base {
                 SchemeType::Record { fields, .. } => fields.get(&Name::intern(name)).cloned(),
-                SchemeType::Ground(Type::Record(fields)) => fields.get(&Name::intern(name)).cloned().map(SchemeType::Ground),
-                _ => None,
+                _ => match base.closed_ground_type() {
+                    Some(ty) => match ty.unvalidated() { Type::Record(fields) => fields.get(&Name::intern(name)).cloned().map(SchemeType::Ground), _ => None },
+                    None => None,
+                },
             }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?
         }
         schema::ExprView::Call { function, args, .. } | schema::ExprView::DirectPureCall { function, args, .. } => {
@@ -1201,12 +1224,31 @@ fn verify_body_expression(
             SchemeType::Result(Box::new(SchemeType::Ground(expected)), Box::new(SchemeType::Ground(Type::Error)))
         }
         schema::ExprView::Try { value, .. } => {
-            let schema::ExprView::Require { check, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(IrVerifyError::new("generic propagation has no checked unsigned storage")) };
-            if check.schema.is_some() || check.ty.materialize()?.may_hold_resource() { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
             let actual = child(value, budget)?;
-            let SchemeType::Result(ok, error) = actual else { return Err(IrVerifyError::new("generic unsigned storage check is not a result")) };
-            if *error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic unsigned storage error contract is invalid")); }
-            *ok
+            let (ok, error) = match actual {
+                SchemeType::Result(ok, error) => (*ok, *error),
+                SchemeType::Ground(Type::Result(ok, error)) => (SchemeType::Ground(*ok), SchemeType::Ground(*error)),
+                _ => return Err(IrVerifyError::new("generic propagation source is not a result")),
+            };
+            let owner_required = if let schema::ExprView::Require { value: input, check, .. } = decoder.expression_view(value.raw() as usize)? {
+                let required = check.ty.materialize()?;
+                if check.schema.is_some() || required.may_hold_resource() || error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
+                let actual_input = types.get(&(input.raw() as usize)).ok_or_else(|| IrVerifyError::new("generic requirement has no checked input contract"))?;
+                !body_type_matches(actual_input, &SchemeType::Ground(required), budget)?
+                    && matches!(expected_return, SchemeType::Result(_, _) | SchemeType::Ground(Type::Result(_, _)))
+            } else { true };
+            if owner_required {
+                let compatible = match expected_return {
+                    SchemeType::Result(_, expected_error) => body_type_matches(&error, expected_error, budget)?,
+                    SchemeType::Ground(Type::Result(_, expected_error)) => {
+                        budget.charge_clone(expected_error)?;
+                        body_type_matches(&error, &SchemeType::Ground((**expected_error).clone()), budget)?
+                    }
+                    _ => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
+                };
+                if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
+            }
+            ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
             let receiver = child(receiver, budget)?;
