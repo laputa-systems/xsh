@@ -23,6 +23,17 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `a320fbac9` passes the combined immutable replay: 287 passed, zero
+failed and zero ignored. Independent review approves source Stream-origin
+diagnostics and inferred Capture errors through returns, projections, bindings
+and loop backedges. The existing file probes settle these relationships before
+publishing signatures. The 69-case matrix and six driver cases cover mutable
+captures, global writes, branch joins and reachable loop transfers. Safe saved
+streams remain data. Existing module-cache work-count assertions pass unchanged.
+The focused source and neighboring group passes all 43 controls. Matching
+products, native replay and corpus qualification remain required. Generic Proc
+record-return projection and unknown impure source inference remain open.
+
 Source `15ba7642d` passes the combined immutable replay: 245 passed, zero
 failed and zero ignored. Independent review approves Result-constructor mapping
 through named-argument bindings. Bounded traversal retains argument evaluation
@@ -106,13 +117,8 @@ returned input, alias and typed alias. The repair must jointly settle stream
 origins and effects in the existing file probe loop before final checking.
 A nominal-seeded capture must infer Error for a fallible relay and retain the
 nominal family for a safe relay, independently of declaration order.
-The uncommitted source-origin repair passes five focused tests, including a
-40-case source matrix, inferred return types, declaration order, recursion and
-container projections. Yielded record fields retain their stream dependency.
-Review then identifies stale origins across mutable captures, loop backedges,
-match-arm writes and calls that mutate globals. Regressions and repairs for
-those paths remain required before accepting this change. These draft results
-do not qualify the integrated compiler or its existing products.
+Source `a320fbac9` above closes this source-origin repair, including stale
+origins across mutable captures, loop backedges, match arms and global writes.
 The earlier native results below remain bound to `18c920910`; they do not
 qualify this newer source. The reduced docs regression is a Capture around
 `fold(map.empty())`. A typed seed passes, as does the fold outside Capture.
