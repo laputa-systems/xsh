@@ -23,6 +23,18 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `55da2de13` passes the combined immutable replay: 237 passed, zero
+failed and zero ignored. Independent review approves the shared source checker
+repair for actual Stream pulls in loops and comprehensions. Known fallible
+pulls now contribute their error through the existing nearest propagation
+boundary. Safe pulls and saved streams remain valid. Seven source cases check
+the accepted forms and exact diagnostic code, message and failing-call span.
+Source provenance through relays and Result wrappers remains open.
+Matching products below remain at `18c920910`; their native results do not
+qualify this newer source. The reduced docs regression is a Capture around
+`fold(map.empty())`. A typed seed passes, as does the fold outside Capture.
+Repair its generated identity-match contract before rebuilding products.
+
 Source `18c920910` passes the combined immutable replay: 233 passed, zero
 failed and zero ignored. Independent review approves physical ground Capture
 verification and its two runtime repairs. Capture verifies actual success
