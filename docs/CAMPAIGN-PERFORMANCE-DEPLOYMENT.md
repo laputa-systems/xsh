@@ -21,7 +21,18 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `cce02595c` passes the combined targeted boundary: 362 passed, zero
+Source `934eab3b1` passes the combined targeted boundary: 389 passed, zero
+failed and zero ignored. Generic bodies now prepare lexical mutable and
+immutable locals, match arms, while and value loops, assignments, explicit
+discards and early returns. Declaration facts prove storage type, mutability,
+owner and instruction identity. Every writer is checked. Compound results
+cannot invent UInt validation, while lawful UInt-to-Int local storage passes.
+The iterative lexical-frame proof passes the 256- and 512-block controls under
+unchanged work limits. SPEC and Architecture describe this accepted tranche
+and the remaining unsupported preparation forms. Broader F3 families and
+matching-product corpus qualification remain open.
+
+Source `cce02595c` passes the earlier combined targeted boundary: 362 passed, zero
 failed and zero ignored. Normally completing tail-less value blocks prove Unit,
 including compatibility with Any. Noncompleting blocks remain distinct from
 Unit, and unresolved value tails retain their uncertainty. Abort rows prove
