@@ -23,6 +23,23 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `cac5a2ef9` passes the combined immutable replay: 323 passed, zero
+failed and zero ignored. Independently reviewed field projection resolves the
+selected closed-record field through the existing type constraints, including
+Result and Optional projections. Context-free Str, List and Stream iteration
+now preserves a generic Proc's returned field relationships. Cross-binder
+mismatches and non-iterable fields still reject. All 64 focused projection and
+neighboring controls pass. Matching products remain frozen at `d2c820629`;
+these source checks do not qualify new products.
+
+Matching `d2c820629` products pass 13 selected native controls and fail the
+imported record-constructor annotation-retention case. The preserved
+`e0f8cbfac` pair reproduces that exact failure. It is a preexisting constructor
+lowering gap, not evidence of a new regression. Source checking passes all
+80 API examples; 12 of the 202 docs-owned files still fail preparation. The
+actual docs command stops at the missing physical spawn proof. These checks
+supply no full docs or corpus acceptance.
+
 Source `d2c820629` passes the combined immutable replay: 297 passed, zero
 failed and zero ignored. Independent review approves immediate error inference
 for unbounded typed Proc calls. Such a call widens a Capture to Error before
