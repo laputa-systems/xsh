@@ -250,6 +250,7 @@ pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Resu
         FullTag::ExprModuleCall => {
             let raw = *payload.first().ok_or_else(|| IrVerifyError::new("native operation selector is absent"))?;
             let op = *store.runtime_ops.get(raw as usize).ok_or_else(|| IrVerifyError::new("native operation selector is invalid"))?;
+            if crate::modules::signature::native_static_operation_has_receiver(op) { return Ok(true); }
             crate::modules::signature::native_static_operation_effect_rule(op)
         }
         FullTag::ExprMethod => {

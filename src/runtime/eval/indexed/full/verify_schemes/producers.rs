@@ -1622,7 +1622,7 @@ impl<'a> ProducerProof<'a> {
                     }).collect::<Vec<_>>(), plan.signature.effects.to_vec(), plan.signature.pure)
                 } else {
                     let mut selected: Option<&crate::modules::signature::ModuleFnSig> = None;
-                    for &signature in crate::modules::signature::native_static_operation_signatures(op) {
+                    for signature in crate::modules::signature::native_static_operation_signatures(op) {
                         self.budget.charge(1 + signature.params.len())?;
                         if arguments.len() > signature.params.len() { continue; }
                         let mut fits = true;

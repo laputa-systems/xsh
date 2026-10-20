@@ -302,26 +302,42 @@ pub struct NamedMethodSigs {
     pub overloads: Vec<MethodSig>,
 }
 
-pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> &'static [&'static ModuleFnSig] {
-    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<&'static ModuleFnSig>>> = std::sync::OnceLock::new();
+enum NativeOperationContract {
+    Direct(&'static ModuleFnSig),
+    ReceiverMethod(ModuleFnSig),
+}
+
+impl NativeOperationContract {
+    fn signature(&self) -> &ModuleFnSig {
+        match self { Self::Direct(signature) => signature, Self::ReceiverMethod(signature) => signature }
+    }
+}
+
+fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContract] {
+    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<NativeOperationContract>>> = std::sync::OnceLock::new();
     let signatures = SIGNATURES.get_or_init(|| {
-        let mut signatures = FxHashMap::<RuntimeOp, Vec<&'static ModuleFnSig>>::default();
+        let mut signatures = FxHashMap::<RuntimeOp, Vec<NativeOperationContract>>::default();
         for (_, module) in api_spec().module_entries() {
             for function in &module.functions {
                 for signature in &function.overloads {
                     if signature.binding == ImplBinding::Native {
-                        signatures.entry(signature.op).or_default().push(signature);
+                        signatures.entry(signature.op).or_default().push(NativeOperationContract::Direct(signature));
                     }
                 }
             }
         }
         for (receiver, methods) in api_spec().method_entries() {
-            if receiver != MethodReceiver::PathConstructor { continue; }
+            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::FsRoot) { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     let signature = &overload.sig;
                     if signature.binding == ImplBinding::Native {
-                        signatures.entry(signature.op).or_default().push(signature);
+                        let signature = if receiver == MethodReceiver::FsRoot {
+                            let mut signature = signature.clone();
+                            signature.params.insert(0, ParamSig { name: "self", ty: Type::FsRoot, defaulted: false, label: LabelRule::Free });
+                            NativeOperationContract::ReceiverMethod(signature)
+                        } else { NativeOperationContract::Direct(signature) };
+                        signatures.entry(signature.signature().op).or_default().push(signature);
                     }
                 }
             }
@@ -329,6 +345,14 @@ pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> &'static [&'s
         signatures
     });
     signatures.get(&op).map_or(&[], Vec::as_slice)
+}
+
+pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> impl Iterator<Item = &'static ModuleFnSig> {
+    native_operation_contracts(op).iter().map(NativeOperationContract::signature)
+}
+
+pub(crate) fn native_static_operation_has_receiver(op: RuntimeOp) -> bool {
+    native_operation_contracts(op).iter().any(|contract| matches!(contract, NativeOperationContract::ReceiverMethod(_)))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -345,7 +369,7 @@ fn native_effect_rule<'a>(mut signatures: impl Iterator<Item = &'a ModuleFnSig>)
 }
 
 pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<NativeEffectRule> {
-    native_effect_rule(native_static_operation_signatures(op).iter().copied())
+    native_effect_rule(native_static_operation_signatures(op))
 }
 
 struct NativeMethodEffectRules {

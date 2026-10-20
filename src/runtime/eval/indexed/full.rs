@@ -20609,6 +20609,35 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
     }
 
     #[test]
+    fn physical_effects_preserve_fsroot_method_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("fsroot-method-contract.xsh", r#"
+proc host(root: FsRoot, wrong: Path) [fs, error] -> Result[Path] {
+    let _ = wrong
+    root.host_path()
+}
+"#);
+            let owner = scheme_fixture_root_function(&program, "host");
+            let decoder = function_view_decoder(&program.store, owner);
+            let instructions = program.store.function_instruction_range(owner).unwrap();
+            let root = instructions.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let wrong = instructions.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = program.clone();
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&forged).unwrap();
+            forged.store.data[root] = program.store.data[wrong];
+            FullVerifier::verify(&forged).expect_err("filesystem-root native methods must authenticate their actual receiver");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let mut callable = program.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Error]);
+            let mut forged_bound = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            forged_bound.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged_bound.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged_bound).unwrap_err().message.contains("requires effect fs"));
+        });
+    }
+
+    #[test]
     fn strict_result_producers_preserve_range_bounds() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("range-result-producer.xsh", r#"
