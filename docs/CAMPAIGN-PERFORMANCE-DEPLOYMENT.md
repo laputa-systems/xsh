@@ -28,9 +28,10 @@ Monomorphic shared reads authenticate the defining value and every writer,
 including partial writes, nominal payloads and unsigned storage checks.
 Typed mutable captures, Proc factories and optional erased callable fields execute on both
 indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
-Verification products at `4f58546f2` build successfully. Matching products for
-the storage and range repairs, generated documentation and broader qualification
-remain pending.
+Matching verification products build at `3594b4969`, whose runtime source is
+`77bd52859`. All nine annotation behavior tests and three hidden-resource
+ownership tests pass with zero skips. Generated documentation and broader
+qualification remain pending.
 
 Source `786080e95` integrates the reviewed context and process producer repair.
 Its four focused controls pass in the combined check. Context scopes authenticate
@@ -40,8 +41,8 @@ All three matching native context, process and explicit-discard regressions pass
 at `4f58546f2`. Its nine annotation cases fail during shared module preparation,
 before their bodies run. The isolated Rust preparation regression identifies
 an unsupported range producer. Repair `b7dc8f73c` passes that real fixture and
-a minimal range test with an invalid-bound control. Matching native replay
-and the full library check remain pending.
+a minimal range test with an invalid-bound control. Matching native replay at `3594b4969` passes all nine annotation cases.
+The full library check remains pending.
 
 Documentation generation at `4f58546f2` stops before writing files because
 the verifier cannot find the canonical effect contract for `FsRoot.host_path()`.
@@ -49,10 +50,10 @@ Repair `77bd52859` preserves that registered `fs` contract and authenticates
 receiver operands independently of constructor demand. The original implicit
 return passes, while wrong receivers and forged effect ceilings reject.
 Independent review and the merged check pass. Matching documentation replay
-remains pending.
-Source review also identifies Glob, last-status and try-capture producer forms
-that need focused strict-demand proofs. These remain open until reproduced
-and repaired.
+gets past that failure, then rejects a ground match without a subject contract
+before writing files. Its minimal cause remains under investigation.
+Glob, last-status and try-capture strict-demand regressions also reproduce.
+Their repairs remain open.
 
 The paired interface command at `4f58546f2` preserves original logical source
 identities while checking candidate bytes. Export, symlink and cancellation
@@ -61,6 +62,16 @@ xsht with all targets and features. The merged replay passes twelve process
 tests and two unit controls. Actual corpus comparison remains pending.
 Body selections, effects and executable validation
 need their separate canonical projection before removals earn parity credit.
+Private semantic capture at `6aca16797` retains checked facts and canonical
+source sites before checker disposal. Its pending value is not a complete body
+comparison. The public comparison will combine that snapshot with validations
+extracted after one normal lowering. Compilation and composite controls remain pending.
+
+Three native ownership controls at `f73caaa92` establish that record validation
+retains extra fields, including hidden resources, and nominal variant payloads
+retain resources until owner exit. Runtime replay passes with the matching
+`3594b4969` products. Canonical resource classification and safe scheme
+specialization remain open.
 
 The separate origin fix `16d7c4f15` preserves explicit Result discards as data
 and makes annotated storage violations fatal type errors. Explicit schema
