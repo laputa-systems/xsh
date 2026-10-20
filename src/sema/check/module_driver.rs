@@ -145,6 +145,7 @@ impl Checker {
                 summaries,
                 module_outputs,
                 suppressed_resource_transfers,
+                origin_summaries,
             ) = Self::check_modules(
                 view,
                 &active_records,
@@ -164,8 +165,8 @@ impl Checker {
                     embedded_bodies: true,
                     ..options
                 };
-                let (effect_graph, root_summaries) = Self::solve_file_effect_probes(
-                    |provisional| {
+                let (effect_graph, root_summaries, root_origins) = Self::solve_file_effect_probes(
+                    |provisional, provisional_origins| {
                         let mut probe = Self::session_effect_checker(
                             record_options,
                             byte_script_arguments,
@@ -175,6 +176,8 @@ impl Checker {
                             true,
                         );
                         probe.effect_summaries.extend(provisional);
+                        probe.stream_origin_inputs = origin_summaries.clone();
+                        probe.stream_origin_inputs.extend(provisional_origins);
                         probe.check_program_arena_with_type_program_and_sources(
                             view,
                             source,
@@ -184,6 +187,7 @@ impl Checker {
                         probe
                     },
                     &summaries,
+                    &origin_summaries,
                 );
                 let mut checker = Self::session_effect_checker(
                     record_options,
@@ -194,6 +198,8 @@ impl Checker {
                     false,
                 );
                 checker.effect_summaries.extend(root_summaries);
+                checker.stream_origin_inputs = origin_summaries;
+                checker.stream_origin_inputs.extend(root_origins);
                 checker.check_program_arena_with_type_program_and_sources(
                     view,
                     source,
@@ -294,9 +300,11 @@ impl Checker {
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         Vec<CheckOutput>,
         ResourceTransferFacts,
+        super::stream_origins::StreamOriginSummaries,
     ) {
         let mut signatures = FxHashMap::default();
         let mut summaries = std::collections::BTreeMap::new();
+        let mut origin_summaries = super::stream_origins::StreamOriginSummaries::new();
         let mut outputs = FxHashMap::default();
         // Suppressed embedded outputs still need the transfer-site facts used by lowering.
         let mut suppressed_resource_transfers = ResourceTransferFacts::default();
@@ -322,6 +330,7 @@ impl Checker {
                     entry_source,
                     &signatures,
                     &summaries,
+                    &origin_summaries,
                 )
             });
             if !record.is_embedded() {
@@ -335,6 +344,7 @@ impl Checker {
                 );
             }
             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
+            origin_summaries.extend(checked.output.stream_origin_summaries.clone());
             if Self::publish_embedded_record(view.program, module, options) {
                 let mut output = checked.output.clone();
                 if !options.reveal_types {
@@ -360,7 +370,7 @@ impl Checker {
         let outputs = publication_order
             .filter_map(|key| outputs.remove(&key))
             .collect();
-        (signatures, summaries, outputs, suppressed_resource_transfers)
+        (signatures, summaries, outputs, suppressed_resource_transfers, origin_summaries)
     }
 
     fn check_module_record(
@@ -374,6 +384,7 @@ impl Checker {
         entry_source: &str,
         dependencies: &FxHashMap<String, UserModuleSig>,
         dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        dependency_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> CheckedModuleFacts {
         let program = view.program;
         let module_view = CheckBundleView::for_module_owner(
@@ -389,8 +400,8 @@ impl Checker {
                 .text()
         });
         let byte_script_arguments = record.args_domain() == ArgsDomain::Bytes;
-        let (effect_graph, local_summaries) = Self::solve_file_effect_probes(
-            |provisional| {
+        let (effect_graph, local_summaries, local_origins) = Self::solve_file_effect_probes(
+            |provisional, provisional_origins| {
                 let mut probe = Self::session_effect_checker(
                     options,
                     byte_script_arguments,
@@ -400,6 +411,8 @@ impl Checker {
                     true,
                 );
                 probe.effect_summaries.extend(provisional);
+                probe.stream_origin_inputs = dependency_origins.clone();
+                probe.stream_origin_inputs.extend(provisional_origins);
                 record.prepared_facts().install(&mut probe, program);
                 // Keep constructor lookup maps scoped to imports while sharing publication order.
                 probe.record_constructors.replace_instance_facts(
@@ -416,6 +429,7 @@ impl Checker {
                 probe
             },
             dependency_summaries,
+            dependency_origins,
         );
 
         let mut checker = Self::session_effect_checker(
@@ -427,6 +441,8 @@ impl Checker {
             false,
         );
         checker.effect_summaries.extend(local_summaries);
+        checker.stream_origin_inputs = dependency_origins.clone();
+        checker.stream_origin_inputs.extend(local_origins);
         record.prepared_facts().install(&mut checker, program);
         // Keep constructor lookup maps scoped to imports while sharing publication order.
         checker.record_constructors.replace_instance_facts(
@@ -497,20 +513,28 @@ impl Checker {
     fn solve_file_effect_probes(
         mut probe: impl FnMut(
             std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+            super::stream_origins::StreamOriginSummaries,
         ) -> Self,
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        external_origins: &super::stream_origins::StreamOriginSummaries,
     ) -> (
         EffectGraph,
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        super::stream_origins::StreamOriginSummaries,
     ) {
         let mut provisional = std::collections::BTreeMap::new();
+        let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
-            let checker = probe(provisional.clone());
+            let mut checker = probe(provisional.clone(), provisional_origins.clone());
             let solved = checker.effect_graph.solve_with_external(external);
-            if !checker.provisional_effects_read.get() || solved == provisional {
-                return (checker.effect_graph, solved);
+            checker.settle_stream_origin_dependencies(external_origins);
+            if (!checker.provisional_effects_read.get() || solved == provisional)
+                && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
+            {
+                return (checker.effect_graph, solved, checker.stream_origin_outputs);
             }
             provisional = solved;
+            provisional_origins = checker.stream_origin_outputs;
         }
     }
 

@@ -355,6 +355,9 @@ impl Checker {
         let resolved_type_expressions = std::mem::take(&mut self.resolved_type_expressions);
         let block_exit_bindings = std::mem::take(&mut self.block_exit_bindings);
         let expr_types = std::mem::take(&mut self.expr_types);
+        let stream_expr_origins = std::mem::take(&mut self.stream_expr_origins);
+        let stream_stmt_origins = std::mem::take(&mut self.stream_stmt_origins);
+        let stream_stmt_results = std::mem::take(&mut self.stream_stmt_results);
         let projections = std::mem::take(&mut self.projections);
         let record_constructor_instances = std::mem::take(&mut self.record_constructor_instances);
         let requirement_targets = std::mem::take(&mut self.requirement_targets);
@@ -393,6 +396,9 @@ impl Checker {
         self.resolved_type_expressions = resolved_type_expressions;
         self.block_exit_bindings = block_exit_bindings;
         self.expr_types = expr_types;
+        self.stream_expr_origins = stream_expr_origins;
+        self.stream_stmt_origins = stream_stmt_origins;
+        self.stream_stmt_results = stream_stmt_results;
         self.projections = projections;
         self.record_constructor_instances = record_constructor_instances;
         self.requirement_targets = requirement_targets;

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
+    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind,
     ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
     PatternId, StmtId,
 };
@@ -465,12 +465,17 @@ impl Checker {
                             });
                             self.diagnostics.truncate(reported);
                             let ty = annotated.unwrap_or(actual);
+                            let origin = match initializer {
+                                ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
+                                ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
+                            };
                             self.define_binding_target_arena(
                                 program,
                                 target,
                                 &ty,
                                 matches!(kind, ArenaStmtKind::Var { .. }),
                                 decl.span,
+                                &origin,
                             );
                             self.annotation_facts.truncate(before);
                         }

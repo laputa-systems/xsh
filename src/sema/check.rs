@@ -421,6 +421,7 @@ mod stmt;
 pub(crate) use stmt::block_callable_body_cannot_fall_through_arena;
 #[path = "check/stream.rs"]
 mod stream;
+mod stream_origins;
 #[path = "check/typed_callable.rs"]
 mod typed_callable;
 #[path = "check/types.rs"]
@@ -574,6 +575,7 @@ pub struct CheckOutput {
     pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
+    pub(crate) stream_origin_summaries: stream_origins::StreamOriginSummaries,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     /// Statements whose checked command or `Result[Unit]` expression
@@ -784,6 +786,7 @@ impl CheckOutput {
         self.api_calls.append(&mut module.api_calls);
         self.module_commands.append(&mut module.module_commands);
         self.argument_bindings.append(&mut module.argument_bindings);
+        self.stream_origin_summaries.append(&mut module.stream_origin_summaries);
         self.definitely_exiting_block_spans
             .append(&mut module.definitely_exiting_block_spans);
         self.handler_input_types
@@ -974,6 +977,7 @@ pub(super) struct Binding {
     callable_alias: Option<CallableAlias>,
     ty: Type,
     latent_stream_error: bool,
+    stream_origins: stream_origins::StreamOrigins,
     mutable: bool,
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
@@ -989,6 +993,7 @@ impl Binding {
             recovery: false,
             callable_alias: None,
             static_namespace: false,
+            stream_origins: stream_origins::StreamOrigins::unproven(&ty),
             ty,
             latent_stream_error: false,
             mutable,
@@ -1676,6 +1681,8 @@ struct BoundaryContext {
     /// A producer cannot suspend while its deadline remains open.
     within_block_depth: usize,
     loop_depth: usize,
+    stream_loops: Vec<stream_origins::StreamLoopFrame>,
+    stream_flow: stream_origins::StreamFlow,
     block_depth: usize,
     in_defer_block: bool,
     in_signal_hook: bool,
@@ -1824,6 +1831,14 @@ pub struct Checker {
     function_body_check_entries: usize,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
+    provisional_stream_origins_read: std::cell::Cell<bool>,
+    stream_origin_inputs: stream_origins::StreamOriginSummaries,
+    stream_origin_outputs: stream_origins::StreamOriginSummaries,
+    stream_expr_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
+    stream_stmt_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
+    stream_stmt_results: FxHashSet<Span>,
+    stream_origin_owner: Option<EffectDeclarationId>,
+    stream_target_definitions: BTreeMap<EffectDeclarationId, CheckedFunctionTarget>,
     /// Set by a probe that read a callee's effects from a module-value type
     /// instead of recording a graph edge, so the probe must repeat until the
     /// summaries it read are the solved ones.
@@ -1858,6 +1873,8 @@ impl Checker {
         callback.current_yield = None;
         callback.collect_scope = None;
         callback.loop_depth = 0;
+        callback.stream_loops.clear();
+        callback.stream_flow = stream_origins::StreamFlow::Live;
         std::mem::replace(&mut self.boundary, callback)
     }
 
@@ -2035,6 +2052,7 @@ impl Checker {
             projections: self.projections,
             statement_positions: self.statement_positions,
             function_effect_facts: self.effect_graph.facts(&self.effect_summaries),
+            stream_origin_summaries: self.stream_origin_outputs,
             callable_effects,
             assertion_effect_spans: self.assertion_effect_spans,
             statement_expression_spans: self.statement_expression_spans,
@@ -2218,6 +2236,14 @@ impl Checker {
             function_body_check_entries: 0,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
+            provisional_stream_origins_read: std::cell::Cell::new(false),
+            stream_origin_inputs: stream_origins::StreamOriginSummaries::new(),
+            stream_origin_outputs: stream_origins::StreamOriginSummaries::new(),
+            stream_expr_origins: FxHashMap::default(),
+            stream_stmt_origins: FxHashMap::default(),
+            stream_stmt_results: FxHashSet::default(),
+            stream_origin_owner: None,
+            stream_target_definitions: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
             module_depth: 0,
             root_signal_hooks: FxHashMap::default(),

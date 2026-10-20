@@ -577,6 +577,7 @@ impl Checker {
         if actual == Type::Any {
             self.record_dynamic_require_receiver(arena, source, id, expected);
         }
+        self.record_checked_stream_origin(arena, id, &actual);
         actual
     }
 
@@ -1340,7 +1341,7 @@ impl Checker {
                     }
                 };
                 self.push_scope();
-                self.check_pattern_arena(arena, source, pattern, &subject_ty);
+                self.check_pattern_arena(arena, source, pattern, &subject_ty, &self.stream_expr_origin(arena, *value));
                 self.pop_scope();
                 Type::Bool
             }
@@ -2133,8 +2134,12 @@ impl Checker {
         expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
         let mut inferred = None;
+        let initial_stream_state = self.stream_mutable_state();
+        let mut stream_failure = initial_stream_state.clone();
+        let mut stream_reaching = Vec::new();
         let mut previous_failure = Vec::new();
         for branch in arena.arena.if_expr_branches(branches) {
+            self.restore_stream_mutable_state(&stream_failure);
             self.push_scope();
             self.apply_narrowings(&previous_failure);
             let narrowings = self.check_condition_arena(
@@ -2143,6 +2148,7 @@ impl Checker {
                 branch.condition,
                 DiagnosticCode::CheckIfCondition,
             );
+            stream_failure = self.stream_mutable_state();
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
@@ -2199,9 +2205,11 @@ impl Checker {
                 self.expect_type(branch_expectation.context(), &actual, value_span);
             }
             self.pop_scope();
+            if self.stream_expr_may_complete(arena, branch.value) { stream_reaching.push(self.stream_mutable_state()); }
             previous_failure.extend(narrowings.when_false);
             self.pop_scope();
         }
+        self.restore_stream_mutable_state(&stream_failure);
         self.push_scope();
         self.apply_narrowings(&previous_failure);
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
@@ -2219,7 +2227,10 @@ impl Checker {
         );
         let contextual_error = self.diagnostics.len() != diagnostics_before;
         let else_span = arena.arena.expr(else_value).span;
+        if self.stream_expr_may_complete(arena, else_value) { stream_reaching.push(self.stream_mutable_state()); }
         self.pop_scope();
+        self.restore_stream_mutable_state(&initial_stream_state);
+        self.join_stream_mutable_states(&stream_reaching);
         let merged = if else_ty != Type::Unknown && !contextual_error && !infer_branches {
             inferred.as_ref().and_then(|previous| {
                 super::types::merge_branch_candidate(else_expectation, previous, &else_ty)
@@ -2284,7 +2295,8 @@ impl Checker {
                     });
                     self.push_scope();
                     scopes += 1;
-                    self.define_binding_target_arena(arena, target, &item_ty, false, span);
+                    let origin = self.stream_iteration_origin(arena, iter, &iter_ty);
+                    self.define_binding_target_arena(arena, target, &item_ty, false, span, &origin);
                 }
                 ArenaCompQualifier::If { condition, .. } => {
                     let ty = self.check_expr_arena(arena, source, condition, None);
@@ -2394,9 +2406,11 @@ impl Checker {
         block: BlockId,
         span: Span,
     ) -> Type {
+        self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
         self.boundary.loop_depth += 1;
         self.check_block_arena(arena, source, block);
         self.boundary.loop_depth -= 1;
+        self.leave_stream_loop(arena, block);
         if !self.block_has_exit_point_arena(arena, block) {
             self.error(
                 span,
@@ -2697,9 +2711,13 @@ impl Checker {
             return expected.cloned().unwrap_or(Type::Unknown);
         }
         let mut inferred = None;
+        let initial_stream_state = self.stream_mutable_state();
+        let mut stream_failure = initial_stream_state.clone();
+        let mut stream_reaching = Vec::new();
         for arm in arm_list {
+            self.restore_stream_mutable_state(&stream_failure);
             self.push_scope();
-            self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            self.check_pattern_arena(arena, source, arm.pattern, &value_ty, &self.stream_expr_origin(arena, value));
             self.warn_flattened_error_handler_arena(arena, arm.value, arm.pattern, &value_ty);
             if let Some(guard) = arm.guard {
                 let guard_ty = self.check_expr_with_schema_arena(
@@ -2711,6 +2729,8 @@ impl Checker {
                 );
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
+                let guard_state = self.stream_mutable_state();
+                for (identity, origin) in guard_state { stream_failure.entry(identity).or_default().join(&origin); }
             }
             let infer_branches = self.inferred_returns.is_some() && expected.is_none();
             let arm_expected = if infer_branches {
@@ -2736,6 +2756,7 @@ impl Checker {
                     inferred.unwrap_or(actual)
                 });
             }
+            if self.stream_expr_may_complete(arena, arm.value) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();
         }
         let unguarded = arm_list
@@ -2752,6 +2773,9 @@ impl Checker {
         if exhaustive {
             self.exhaustive_match_spans.insert(span);
         }
+        if !exhaustive { stream_reaching.push(stream_failure); }
+        self.restore_stream_mutable_state(&initial_stream_state);
+        self.join_stream_mutable_states(&stream_reaching);
         if !exhaustive && !self.match_scrutinee_definitely_exits_arena(arena, value) {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
         }
