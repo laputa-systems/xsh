@@ -21,7 +21,18 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `d052c08c0` passes the combined targeted boundary: 432 passed, zero
+Source `a9be9aafa` passes the combined targeted boundary and Optional inference
+neighbors: 454 passed, zero failed and zero ignored. Null and concrete branches
+infer one Optional envelope in either order. Required annotations and invariant
+container domains retain their authority. Checked statement-tail joins survive
+generalization and preparation; every actual arm remains independently proved.
+Unresolved Optional returns preserve nested Result values as data on both
+indexed routes after frontend disposal. Ordinary dynamic-return propagation
+and the underdetermined dynamic-return diagnostic remain unchanged. SPEC and
+Architecture describe this contract expansion. Matching products remain at
+`cf1d47637`; corpus parity and broader native acceptance remain open.
+
+Source `d052c08c0` passes the earlier combined targeted boundary: 432 passed, zero
 failed and zero ignored. Generic Optional field, index, slice and selected
 method access preserve null handling and lazy operands. Nullable return values
 retain nested Result data. Actual Result errors fit the owner's boundary;
@@ -206,6 +217,15 @@ performance windows still exclude them. Nineteen real-process controls pass,
 including same-output exclusion, module-alias safety and interruption cleanup.
 No lockfiles or job registry were added. The focused launcher rejects an exact
 test filter that selects zero tests. Final gates retain their existing scope.
+
+Read-only F2 analysis at `d052c08c0` separates two remaining mechanisms.
+Concrete recursive effect propagation already exists. Joint clause comparison
+still supports only one unclaused declaration, while generic callback effects
+lack symbolic relationships in the canonical scheme constraints. The recursive
+`item_html`/`blocks_html`/`block_html` group in `dev/tour_html.xsh` supplies a
+source-supported joint witness, not newly resolved checker edges. The 60
+historical non-findings do not establish missing propagation; authored effect
+restrictions remain meaningful. All 202 private clauses remain pending.
 
 ## Current checkpoint
 
