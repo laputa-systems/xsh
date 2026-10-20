@@ -32,13 +32,26 @@ unchanged work limits. SPEC and Architecture describe this accepted tranche
 and the remaining unsupported preparation forms. Broader F3 families and
 matching-product corpus qualification remain open.
 
+Matching verification products build in `.work/wt/full-inference-bodies` under
+`.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is 35,780,280
+bytes, SHA-256 `6fbad331c90aba0918a082a97b96bc833474f9ce8a9d693d23e4712b02806200`.
+The `xsht` is 43,768,424 bytes, SHA-256
+`8f5b96c53d5d46a93eaa97a1a03e507fa97b314778a68bd11844e5a73c7c4704`.
+Eight normal corpus checks preserve both source cohorts and both pairs of
+views. All four Laputa checks pass. Frozen XSH original and candidate fail
+identically on slice proof in `cut`, record proof in `system-report`, and a
+list match subject in `dev/main`. Practical XSH original and reduced fail
+identically on a producer-contract mismatch in `awk` and a map match subject
+in `sort`. The prior tail-less discard and Abort diagnostics are gone.
+Interface comparison and runtime parity remain unrun. No annotation-removal
+credit follows from these normal checks.
+
 Source `cce02595c` passes the earlier combined targeted boundary: 362 passed, zero
 failed and zero ignored. Normally completing tail-less value blocks prove Unit,
 including compatibility with Any. Noncompleting blocks remain distinct from
 Unit, and unresolved value tails retain their uncertainty. Abort rows prove
 an Int status operand and require the process effect. The actual `lib.text_a2`
-import and malformed status/effect controls pass. Matching verification products
-remain at `ae9793745`; the new source has no full corpus or native acceptance.
+import and malformed status/effect controls pass. That checkpoint has no separate matching products or full native acceptance.
 
 Source `ae9793745` passes the earlier combined targeted boundary: 357 passed, zero
 failed and zero ignored. Scalar slots now use canonical lexical projections;
