@@ -20,7 +20,7 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `546a62469` passes 131 focused runtime, verifier, loader, semantic-body
+Source `9dbde9ebe` passes 177 focused runtime, verifier, loader, semantic-body
 and interface controls after local integration. The repaired public body
 comparison rejects lost UInt checks, accepts proven Int annotation removal,
 and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
@@ -60,10 +60,15 @@ writer control on both indexed routes. Its merged replay has 130 passes and
 one failure: the embedded `template` module rejects a producer contract.
 Repair `546a62469` leaves dynamic slots context-directed and restores the
 entire catalog. Its merged replay passes all 131 selected controls. Expanded
-docs preparation still exposes open binder and return-carrier cases. No matching
-documentation generation pass is claimed.
-Glob, last-status and try-capture strict-demand regressions also reproduce.
-Their repairs remain open.
+docs preparation exposed binder and return-carrier cases. Reviewed repair
+`561a011e6` passes eight new positive and corruption controls covering shared
+iteration bindings, byte lines, nullable storage, optional return carriers,
+opaque record returns, glob and last-status values. Both indexed routes run
+after frontend disposal. The combined replay also passes all 38 grounded helper
+transfer controls. Expanded docs preparation now stops at a guarded optional
+record field; no matching documentation generation pass is claimed. Try-capture
+transport, condition-only producer authentication and resource specialization
+remain mandatory open repairs.
 
 The paired interface command at `4f58546f2` preserves original logical source
 identities while checking candidate bytes. Export, symlink and cancellation
@@ -81,6 +86,13 @@ Repair `1abd4f41e` preserves proven integer driver bindings and checker-only
 commands. Its six composite controls and the canonical-site lifetime control
 pass in the integrated replay. Physical guards without an independent producer
 proof remain exact. No corpus-removal credit follows from these focused checks.
+
+Public API regression `9dbde9ebe` rejects a CLI parameter change from `Str` to
+`Int` that previously passed body comparison. Owners without a callable
+interface proof preserve exact header validations; normalization requires the
+existing canonical equivalence or instance proof. The public regression and
+all six existing composite controls pass. The separate generic identity
+comparison still fails and remains a resource-specialization requirement.
 
 Three native ownership controls at `f73caaa92` establish that record validation
 retains extra fields, including hidden resources, and nominal variant payloads
