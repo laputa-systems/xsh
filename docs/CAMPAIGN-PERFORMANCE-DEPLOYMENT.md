@@ -30,8 +30,24 @@ validated domains. Hint-erased execution passes on both routes, including a
 32-node negation chain with charged iterative traversal. Ordinary unary-`!`
 and short-circuit guard forms still fail preparation in confirmed minimal
 sources; the producer lane retains them alongside the contextual carrier,
-conditional-list and `cut` failures. Matching products are building. No new
-corpus parity or annotation-removal credit follows from these targeted tests.
+conditional-list and `cut` failures. No new corpus parity or annotation-removal
+credit follows from these targeted tests.
+
+Matching verification products build in `.work/wt/full-inference-producer-corpus`
+under `.work/target/x86_64-unknown-linux-musl/verification`. The `xsh` is
+35,929,080 bytes, SHA-256
+`6a83777a7b1a26ca734350fd105d14d799c446833cdf26153ae99ad1e7c2bb3d`.
+The `xsht` is 43,913,056 bytes, SHA-256
+`cc49f85ffdc30f7cd2320b3d5e044e0e03e985b081487776355a15245729f094`.
+The matching pair passes all six focused native Cargo-runner and hidden-resource
+controls, with unchanged source and products before and after execution.
+All eight normal corpus checks finish. Four Laputa checks pass. Frozen XSH
+original and candidate still fail identically on `cut`, three conditional-list
+splices and the `dev/main` list subject; the `system-report` record error is gone.
+Practical XSH original and reduced still fail identically: `awk` now reaches a
+missing loop-item contract instead of the prior nullable read failure, and
+`sort` retains its map-subject failure. Interface and runtime parity remain
+unrun, with no annotation-removal credit.
 
 Source `f53eb38d1` passes the earlier combined targeted boundary and construction
 neighbors: 468 passed, zero failed and zero ignored. Generic bodies prepare
