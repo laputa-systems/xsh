@@ -314,8 +314,37 @@ impl NativeOperationContract {
     }
 }
 
-fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContract] {
-    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<NativeOperationContract>>> = std::sync::OnceLock::new();
+struct NativeOperationContracts {
+    contracts: Vec<NativeOperationContract>,
+    process_options: Vec<usize>,
+}
+
+fn same_process_command_options(left: &ModuleFnSig, right: &ModuleFnSig) -> bool {
+    let ModuleFnSig { params, return_ty, pure, command, arg_check, semantic_rule, op, binding, effects, discardable } = left;
+    let ModuleFnSig { params: right_params, return_ty: right_return_ty, pure: right_pure, command: right_command,
+        arg_check: right_arg_check, semantic_rule: right_semantic_rule, op: right_op, binding: right_binding,
+        effects: right_effects, discardable: right_discardable } = right;
+    return_ty == right_return_ty && pure == right_pure && command == right_command && arg_check == right_arg_check
+        && semantic_rule == right_semantic_rule && op == right_op && binding == right_binding
+        && effects == right_effects && discardable == right_discardable && params.len() == right_params.len()
+        && params.iter().zip(right_params).enumerate().all(|(position, (left, right))| {
+            let ParamSig { name, ty, defaulted, label } = left;
+            name == &right.name && defaulted == &right.defaulted && label == &right.label && (position == 1 || ty == &right.ty)
+        })
+}
+
+fn process_command_option_representatives(contracts: &[NativeOperationContract]) -> Vec<usize> {
+    let mut representatives: Vec<usize> = Vec::new();
+    for (index, contract) in contracts.iter().enumerate() {
+        if !representatives.iter().any(|&previous| same_process_command_options(contracts[previous].signature(), contract.signature())) {
+            representatives.push(index);
+        }
+    }
+    representatives
+}
+
+fn native_operation_index(op: RuntimeOp) -> Option<&'static NativeOperationContracts> {
+    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, NativeOperationContracts>> = std::sync::OnceLock::new();
     let signatures = SIGNATURES.get_or_init(|| {
         let mut signatures = FxHashMap::<RuntimeOp, Vec<NativeOperationContract>>::default();
         for (_, module) in api_spec().module_entries() {
@@ -368,9 +397,22 @@ fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContrac
                 signatures.entry(release).or_default().push(NativeOperationContract::Internal(signature));
             }
         }
-        signatures
+        signatures.into_iter().map(|(op, contracts)| {
+            let process_options = if op == RuntimeOp::ProcessCommandArgv { process_command_option_representatives(&contracts) } else { Vec::new() };
+            (op, NativeOperationContracts { contracts, process_options })
+        }).collect()
     });
-    signatures.get(&op).map_or(&[], Vec::as_slice)
+    signatures.get(&op)
+}
+
+fn native_operation_contracts(op: RuntimeOp) -> &'static [NativeOperationContract] {
+    native_operation_index(op).map_or(&[], |index| index.contracts.as_slice())
+}
+
+pub(crate) fn native_process_command_option_signatures() -> impl Iterator<Item = &'static ModuleFnSig> {
+    native_operation_index(RuntimeOp::ProcessCommandArgv).into_iter().flat_map(|index| {
+        index.process_options.iter().map(|&representative| index.contracts[representative].signature())
+    })
 }
 
 pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> impl Iterator<Item = &'static ModuleFnSig> {
@@ -674,6 +716,50 @@ fn method_required_effects(receiver: MethodReceiver, pure: bool) -> &'static [Ef
 mod tests {
     use super::{api_spec, convert_type};
     use xsh_registry::signature as registry;
+
+    #[test]
+    fn process_option_projection_preserves_every_other_contract() {
+        use super::{ApiArgCheck, ImplBinding, LabelRule, NativeOperationContract, RuntimeOp, SemanticRule};
+        use crate::sema::types::Type;
+        let canonical = super::native_static_operation_signatures(RuntimeOp::ProcessCommandArgv).collect::<Vec<_>>();
+        let projected = super::native_process_command_option_signatures().collect::<Vec<_>>();
+        let bytes_stdin = canonical.iter().find(|signature| signature.params[4].ty == Type::Bytes).unwrap();
+        let path_stdin = canonical.iter().find(|signature| signature.params[0].ty == bytes_stdin.params[0].ty && signature.params[4].ty == Type::Path).unwrap();
+        assert!(!bytes_stdin.params[4].defaulted);
+        assert!(!super::same_process_command_options(bytes_stdin, path_stdin));
+        for signature in &canonical {
+            assert_eq!(projected.iter().filter(|representative| super::same_process_command_options(signature, representative)).count(), 1);
+        }
+        let base = canonical[0].clone();
+        let mut argv = base.clone();
+        argv.params[1].ty = Type::List(Box::new(Type::Path));
+        assert_eq!(super::process_command_option_representatives(&[
+            NativeOperationContract::Internal(base.clone()), NativeOperationContract::Internal(argv),
+        ]), vec![0]);
+        let mutations: &[fn(&mut super::ModuleFnSig)] = &[
+            |signature| { signature.params.pop(); },
+            |signature| signature.params[0].ty = Type::Bool,
+            |signature| signature.params[1].name = "words",
+            |signature| signature.params[1].defaulted = !signature.params[1].defaulted,
+            |signature| signature.params[1].label = LabelRule::Required,
+            |signature| signature.return_ty = Type::Bool,
+            |signature| signature.pure = !signature.pure,
+            |signature| signature.command = !signature.command,
+            |signature| signature.arg_check = ApiArgCheck::JsonCompatible,
+            |signature| signature.semantic_rule = SemanticRule::SchemaValidation,
+            |signature| signature.op = RuntimeOp::EnvSet,
+            |signature| signature.binding = ImplBinding::Script(super::ScriptImpl { module: "test", function: "test" }),
+            |signature| signature.effects = &[crate::syntax::node::Effect::Io],
+            |signature| signature.discardable = !signature.discardable,
+        ];
+        for (index, mutate) in mutations.iter().enumerate() {
+            let mut changed = base.clone();
+            mutate(&mut changed);
+            assert_eq!(super::process_command_option_representatives(&[
+                NativeOperationContract::Internal(base.clone()), NativeOperationContract::Internal(changed),
+            ]), vec![0, 1], "contract mutation {index} was hidden by argv projection");
+        }
+    }
 
     #[test]
     fn api_spec_adapter_exactly_mirrors_registry() {

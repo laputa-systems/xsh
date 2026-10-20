@@ -2254,15 +2254,32 @@ impl FullProgram {
         }
         let record_output_types = match (record_source, record_target) {
             (Some(source), Some(target)) => {
+                let schema::DriverPayloadView::LetRecord { target: output_target, .. } = view.decode_payload(&execution, view.payload()?)? else {
+                    return Err(IrVerifyError::new("driver record output payload is invalid"));
+                };
+                let output_target = if matches!(output_target, decode::CompTargetView::Discard) {
+                    decoder.driver_guard_source(source)?.0
+                } else {
+                    if !matches!(output_target, decode::CompTargetView::Record { .. }) {
+                        return Err(IrVerifyError::new("driver record target is not a record destructuring"));
+                    }
+                    output_target
+                };
+                let mut output_slots = Vec::new();
+                decoder.comp_target_written_slots(output_target, &mut output_slots)?;
+                output_slots.sort_unstable();
+                if output_slots != expected_by_slot.keys().copied().collect::<Vec<_>>() {
+                    return Err(IrVerifyError::new("driver record target does not match its payload fields"));
+                }
                 let output_types = decoder.checked_driver_record_output_types(source, target)?;
-                if output_types.len()
-                    != expected.iter().filter(|(_, slot)| slot.is_some()).count()
+                if output_types.as_ref().is_some_and(|types| types.len()
+                    != expected.iter().filter(|(_, slot)| slot.is_some()).count())
                 {
                     return Err(IrVerifyError::new(
                         "driver record target does not match its payload fields",
                     ));
                 }
-                Some(output_types)
+                output_types
             }
             (None, None) => None,
             _ => {
@@ -2358,16 +2375,13 @@ impl FullProgram {
                             "driver record writer has no typed definition slot",
                         )
                     })?;
-                let field_type = record_output_types
-                    .as_ref()
-                    .and_then(|types| types.get(&(writer.slot as usize)))
-                    .ok_or_else(|| {
+                if let Some(output_types) = &record_output_types {
+                    let field_type = output_types.get(&(writer.slot as usize)).ok_or_else(|| {
                         IrVerifyError::new("driver record writer has no checked field type")
                     })?;
-                if !field_type.matches_expected(&self.store.semantic.to_type(expected_type)?) {
-                    return Err(IrVerifyError::new(
-                        "driver definition type differs from its source field",
-                    ));
+                    if !field_type.matches_expected(&self.store.semantic.to_type(expected_type)?) {
+                        return Err(IrVerifyError::new("driver definition type differs from its source field"));
+                    }
                 }
             }
             let location_index = IrLocationId::from_raw(identity.location)
@@ -6749,7 +6763,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 let field_type = decoder
                     .checked_driver_record_output_types(source.raw() as usize, target)?
-                    .remove(&slot);
+                    .and_then(|mut fields| fields.remove(&slot));
                 self.checked_writer_slot_type(
                     binding_identity,
                     driver_slots,
@@ -6811,30 +6825,29 @@ impl<'a> FullDecoder<'a> {
         &self,
         source: usize,
         target: decode::CompTargetView<'a>,
-    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+    ) -> Result<Option<BTreeMap<usize, Type>>, IrVerifyError> {
         if !matches!(&target, decode::CompTargetView::Discard) {
-            let source_type = self.derive_checked_expression_type(source)?.ok_or_else(|| {
-                IrVerifyError::new("driver record source has no checked type")
-            })?;
-            return Self::checked_target_field_types(target, &source_type);
+            return self.derive_checked_expression_type(source)?
+                .map(|source_type| Self::checked_target_field_types(target, &source_type)).transpose();
         }
         let (target, value, optional) = self.driver_guard_source(source)?;
         if matches!(&target, decode::CompTargetView::Discard) {
-            return Ok(BTreeMap::new());
+            return Ok(Some(BTreeMap::new()));
         }
         let success_type = match (optional, self.expression_view(value)?) {
             (false, schema::ExprView::Ok(inner)) => {
                 self.derive_checked_expression_type(inner.raw() as usize)?
             }
-            _ => self.derive_checked_expression_type(value)?.and_then(|value_type| {
-                match value_type.into_unvalidated() {
+            _ => match self.derive_checked_expression_type(value)? {
+                Some(value_type) => match value_type.into_unvalidated() {
                     Type::Optional(inner) if optional => Some(*inner),
                     Type::Result(ok, _) if !optional => Some(*ok),
-                    _ => None,
-                }
-            }),
-        }.ok_or_else(|| IrVerifyError::new("driver guard source has no checked success type"))?;
-        Self::checked_target_slot_types(target, &success_type)
+                    _ => return Err(IrVerifyError::new("driver guard source has no checked success type")),
+                },
+                None => None,
+            },
+        };
+        success_type.map(|success_type| Self::checked_target_slot_types(target, &success_type)).transpose()
     }
 
     fn driver_guard_source<'e>(
@@ -6874,12 +6887,22 @@ impl<'a> FullDecoder<'a> {
         target: decode::CompTargetView<'_>,
         source_type: &Type,
     ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+        Self::checked_target_slot_types_with_charge(target, source_type, |_, _| Ok(()))
+    }
+
+    fn checked_target_slot_types_with_charge(
+        target: decode::CompTargetView<'_>,
+        source_type: &Type,
+        mut charge: impl FnMut(usize, Option<&Type>) -> Result<(), IrVerifyError>,
+    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
         let mut pending = vec![(target, source_type)];
         let mut output_types = BTreeMap::new();
         while let Some((target, source_type)) = pending.pop() {
+            charge(1, None)?;
             match target {
                 decode::CompTargetView::Discard => {}
                 decode::CompTargetView::Slot(slot) => {
+                    charge(0, Some(source_type))?;
                     if output_types
                         .insert(slot, source_type.clone())
                         .is_some()

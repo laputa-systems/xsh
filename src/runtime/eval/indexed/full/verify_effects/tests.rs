@@ -425,3 +425,239 @@ fn unknown_dynamic_calls_keep_unknown_effect_contracts() {
         assert!(error.message.contains("unknown effect contract"), "{error:?}");
     });
 }
+
+
+#[test]
+fn driver_projections_derive_wait_results_from_actual_writers() {
+    on_large_stack(|| {
+        let source = r#"
+let started = spawn run true
+let child = started?
+let statuses = wait [child]?
+assert statuses[0].ok
+"#;
+        let mut program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let wait = program.store.tags.iter().position(|tag| *tag == FullTag::ExprWait).unwrap();
+        let decoder = driver_projection_decoder(&program, wait);
+        let schema::ExprView::Wait { target, .. } = decoder.expression_view(wait).unwrap() else { panic!("wait producer") };
+        let schema::ExprView::List(mut values) = decoder.expression_view(target.raw() as usize).unwrap() else { panic!("wait target list") };
+        let argument = values.next().unwrap().unwrap().raw() as usize;
+        assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(_)));
+        let mut wrong_handle = program.clone();
+        wrong_handle.store.extra[program.store.data[argument].range().start as usize] = driver_projection_slot(&program, &decoder, "started");
+        let error = FullVerifier::verify(&wrong_handle).unwrap_err();
+        assert_eq!(error.message, "wait target is neither ProcessHandle nor List[ProcessHandle]", "{error:?}");
+        let index = program.store.tags.iter().position(|tag| *tag == FullTag::ExprIndex).unwrap();
+        let decoder = driver_projection_decoder(&program, index);
+        let schema::ExprView::Index { base, .. } = decoder.expression_view(index).unwrap() else { panic!("status readback index") };
+        let base = base.raw() as usize;
+        assert!(matches!(decoder.expression_view(base).unwrap(), schema::ExprView::Param(_)));
+        let mut wrong_readback = program.clone();
+        wrong_readback.store.extra[program.store.data[base].range().start as usize] = driver_projection_slot(&program, &decoder, "child");
+        let error = FullVerifier::verify(&wrong_readback).unwrap_err();
+        assert_eq!(error.message, "callable index producer has no checked collection element type", "{error:?}");
+    });
+}
+
+fn driver_projection_decoder(program: &FullProgram, instruction: usize) -> FullDecoder<'_> {
+    (0..program.store.driver_steps.len()).map(|step| verify_schemes::decoder_for_driver_step(&program.store, step).unwrap())
+        .find(|decoder| decoder.instruction_range.contains(&instruction)).unwrap()
+}
+
+fn driver_projection_slot(program: &FullProgram, decoder: &FullDecoder<'_>, name: &str) -> u32 {
+    let driver = program.store.driver_steps[driver_owner_index(decoder.owner).unwrap()];
+    let range = driver.slots.bounds(program.store.driver_slots.len()).unwrap();
+    program.store.driver_slots[range].iter().find(|slot| program.store.string(slot.name).unwrap() == name).unwrap().slot
+}
+
+#[test]
+fn driver_projections_authenticate_common_value_roots_and_all_writers() {
+    on_large_stack(|| {
+        let source = r#"
+type DriverRow = {value: Int}
+var state = {rows: [{value: 1}], enabled: true, kind: "stable", unused: "unused"}
+state = {rows: [{value: 2}], enabled: true, kind: "stable", unused: "unused"}
+proc change(value: Int, wrong: Bool) [] {
+    state.rows[0].value = value
+}
+pure project(rows: List[DriverRow], wrong: List[Str]) -> List[DriverRow] { rows }
+change(3, false)
+let alias = state
+let {rows, enabled, kind, unused} = alias
+let projected = project(rows, ["wrong"])
+guard let {values, active} = Ok({values: projected, active: enabled}) else { exit 3 }
+assert values[0].value == 3
+assert active
+assert state.enabled
+assert kind == state.kind
+"#;
+        let mut program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let definition = |name: &str| program.store.driver_slots.iter().position(|slot|
+            slot.flags & DRIVER_SLOT_DEFINITION != 0 && program.store.string(slot.name).unwrap() == name).unwrap();
+        let mut wrong_unused = program.clone();
+        wrong_unused.store.driver_slots[definition("unused")].type_id = program.store.driver_slots[definition("enabled")].type_id;
+        let error = FullVerifier::verify(&wrong_unused).unwrap_err();
+        assert_eq!(error.message, "storage declaration disagrees with its read contract", "{error:?}");
+        let alias_identity = program.store.binding_identities.iter().position(|identity| program.store.string(identity.name).unwrap() == "alias").unwrap() as u32;
+        let alias_step = program.store.driver_steps.iter().find(|step| {
+            let range = step.writers.bounds(program.store.driver_writers.len()).unwrap();
+            program.store.driver_writers[range].iter().any(|writer| writer.binding_identity == alias_identity)
+        }).unwrap();
+        let range = alias_step.slots.bounds(program.store.driver_slots.len()).unwrap();
+        let read = range.into_iter().find(|slot| program.store.driver_slots[*slot].flags & DRIVER_SLOT_READ != 0).unwrap();
+        let mut cyclic = program.clone();
+        cyclic.store.driver_slots[read].binding_identity = alias_identity;
+        cyclic.store.driver_slots[read].name = program.store.binding_identities[alias_identity as usize].name;
+        let error = FullVerifier::verify(&cyclic).unwrap_err();
+        assert_eq!(error.message, "driver sync type identities conflict", "{error:?}");
+        for name in ["change", "project"] {
+            let error = FullVerifier::verify(&process_parameter_mutation(&program, name, 0, 1)).unwrap_err();
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract", "{name}: {error:?}");
+        }
+        let mut fields = Vec::new();
+        for step in 0..program.store.driver_steps.len() {
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            for instruction in decoder.instruction_range.clone() {
+                if let Ok(schema::ExprView::Field { name, .. }) = decoder.expression_view(instruction) {
+                    fields.push((name.to_string(), instruction));
+                }
+            }
+        }
+        let boolean = fields.iter().find(|(name, _)| name == "enabled").unwrap().1;
+        let text = fields.iter().find(|(name, _)| name == "kind").unwrap().1;
+        let mut wrong_field = program.clone();
+        wrong_field.store.extra[program.store.data[boolean].range().start as usize + 1] = program.store.extra[program.store.data[text].range().start as usize + 1];
+        let error = FullVerifier::verify(&wrong_field).unwrap_err();
+        assert_eq!(error.message, "condition producer disagrees with its control role", "{error:?}");
+    });
+}
+
+#[test]
+fn driver_projections_contextual_argument_carriers_prove_actual_words() {
+    on_large_stack(|| {
+        let source = r#"
+pure descriptor(word: Path, wrong: Bool, more: List[Str], erased: Any, erased_more: List[Any]) -> Command {
+    let stored: List[Any] = ["true", word]
+    process.command_argv("true", ["true", word, @more, @[]], env: {})
+}
+let plan = descriptor(p"/bin/true", false, ["argument"], p"/bin/true", ["argument"])
+"#;
+        let mut program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "descriptor");
+        let decoder = function_view_decoder(&program.store, owner);
+        let call = decoder.instruction_range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprProcessCommandArgv).unwrap();
+        let schema::ExprView::ProcessCommandArgv(command) = decoder.expression_view(call).unwrap() else { panic!("command argv") };
+        let argument = command.argv.raw() as usize;
+        let stored = decoder.instruction_range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, annotation: Some(_), .. }) => Some(slot),
+            _ => None,
+        }).unwrap();
+        for slot in [stored as u32, 1] {
+            let mut noncarrier = program.clone();
+            noncarrier.store.extra[program.store.data[argument].range().start as usize] = slot;
+            let error = FullVerifier::verify(&noncarrier).unwrap_err();
+            assert!(error.message.starts_with("command argv has no concrete word list contract"), "{error:?}");
+        }
+        for (from, to) in [(0, 1), (0, 3), (2, 4)] {
+            let mut wrong_word = program.clone();
+            for instruction in decoder.instruction_range.clone() {
+                if matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot == from) {
+                    wrong_word.store.extra[program.store.data[instruction].range().start as usize] = to as u32;
+                }
+            }
+            let error = FullVerifier::verify(&wrong_word).unwrap_err();
+            assert_eq!(error.message, "command argv element is not a concrete process word", "{from}->{to}: {error:?}");
+        }
+    });
+}
+
+#[test]
+fn driver_projections_authenticate_zero_output_sources_and_envelopes() {
+    on_large_stack(|| {
+        let source = r#"
+var state = {value: 1}
+let alias = state
+let {} = alias
+guard let _ = Ok(alias) else { exit 3 }
+"#;
+        let mut program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let step = program.store.driver_steps.iter().find(|step| step.tag == FullDriverTag::LetRecord).unwrap();
+        let source = program.store.payload(step.data.range()).unwrap()[0] as usize;
+        assert!(matches!(program.store.tags[source], FullTag::ExprParam));
+        let mut wrong_source = program.clone();
+        wrong_source.store.tags[source] = FullTag::ExprBool;
+        wrong_source.store.extra[program.store.data[source].range().start as usize] = 1;
+        let error = FullVerifier::verify(&wrong_source).unwrap_err();
+        assert_eq!(error.message, "driver record source field path is not a record", "{error:?}");
+        let guard = program.store.tags.iter().position(|tag| *tag == FullTag::StmtGuard).unwrap();
+        let mut wrong_envelope = program.clone();
+        let range = program.store.data[guard].range().bounds(program.store.extra.len()).unwrap();
+        wrong_envelope.store.extra[range.end - 1] = 1;
+        let error = FullVerifier::verify(&wrong_envelope).unwrap_err();
+        assert_eq!(error.message, "driver guard writer has no success payload", "{error:?}");
+    });
+}
+
+#[test]
+fn driver_projections_contextual_lists_reject_guarded_multiarm_carriers() {
+    on_large_stack(|| {
+        let source = r#"
+pure choose(flag: Bool) -> Command {
+    let replacement = p"/bin/true"
+    match ["true", "argument"] {
+        values if flag => process.command_argv("true", values, env: {})
+        values => process.command_argv("true", values, env: {})
+    }
+}
+let plan = choose(false)
+"#;
+        let mut program = fixture(source);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "choose");
+        let decoder = function_view_decoder(&program.store, owner);
+        let path = decoder.instruction_range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprPath).unwrap();
+        let subject = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(instruction).ok()? else { return None };
+            let (_, guard, _) = arms.next()?.ok()?;
+            (guard.is_some() && arms.next().is_some()).then_some(value.raw() as usize)
+        }).unwrap();
+        let schema::ExprView::List(mut values) = decoder.expression_view(subject).unwrap() else { panic!("match list subject") };
+        let word = values.next().unwrap().unwrap().raw() as usize;
+        let mut mixed = program.clone();
+        mixed.store.tags[word] = program.store.tags[path];
+        mixed.store.data[word] = program.store.data[path];
+        let error = FullVerifier::verify(&mixed).unwrap_err();
+        assert!(error.message.starts_with("command argv has no concrete word list contract"), "{error:?}");
+    });
+}
+
+#[test]
+fn driver_projections_wide_unused_destructuring_keeps_bounded_proof_work() {
+    on_large_stack(|| {
+        let fields = (0..256).map(|index| format!("field{index}: {index}")).collect::<Vec<_>>().join(", ");
+        let names = (0..256).map(|index| format!("field{index}")).collect::<Vec<_>>().join(", ");
+        let source = format!("var state = {{{fields}}}\nlet alias = state\nlet {{{names}}} = alias\nassert field255 == 255\n");
+        let mut program = fixture(&source);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+    });
+}
