@@ -30,12 +30,30 @@ expected contract through its canonical native operation. The minimal inline
 fold and typed-seed controls produce the expected map on both indexed routes.
 Changing MapEmpty to SetEmpty, removing the binding or returning another slot
 rejects. The focused producer and Capture group passes all 61 controls.
-Matching verification products build. Actual repository docs replay passes the
-former parallel-map failure, then stops at `tour/30-cancel.xsh`: ExprSpawnRun
-has no executable type proof. A source-only batch checks all 221 snippet files
-and reports 17 preparation failures. Some batch locations name the wrong file;
-per-file diagnosis must establish the actual failing examples. Full docs
-qualification remains open.
+Matching verification products build. All nine native annotation cases, three
+hidden-resource cases and two docs fixture cases pass with zero failures or
+skips. Actual repository docs replay passes the former parallel-map failure,
+then stops at `tour/30-cancel.xsh`: ExprSpawnRun has no executable type proof.
+Full docs qualification remains open.
+
+Per-file checking establishes 16 unexpected preparation failures among the 202
+docs-owned examples. Rejected examples match their diagnostic annotations.
+A separate 80-file API pass finds one failure. The earlier directory invocation
+selects 221 files and misattributes some diagnostic paths. It does not define
+the docs-owned scope. The exact remaining failures under `docs/snippets` are:
+
+| Failure class | Source files |
+|---|---|
+| Process producer proof | `tour/20-spawn-wait.xsh`, `tour/30-cancel.xsh`, `spec/35-spawn-wait.xsh` |
+| Lambda body lowering | `tour/27-preflight.xsh` |
+| Dynamic call effect | `spec/12-module-contract-failure.xsh`, `spec/47-exact-module-contract.xsh` |
+| Capture identity | `spec/22-with-else.xsh` |
+| Native module effect | `spec/43-env-strings.xsh`, `spec/65-path-kind.xsh`, `spec/69-argument-label.xsh`, `spec/71-with-resource.xsh` |
+| Noncompletion discard | `spec/49-exit.xsh` |
+| Result cause producer | `spec/61-fail-because.xsh`, `api/core-causes.xsh` |
+| Deferred error effect | `spec/62-errdefer.xsh` |
+| Match subject producer | `spec/64-try-run.xsh` |
+| Membership container producer | `spec/69-sets.xsh` |
 
 The repair removes optional native-subject hints in its regression. It retains
 and independently checks the concrete match and accumulator claim. Three proof
