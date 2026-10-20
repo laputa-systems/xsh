@@ -439,6 +439,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn paired_qualification_preserves_actual_checked_bodies() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let source = "pure copy(value: Int) -> Int { let copied: Int = value; copied }\n\
+proc bounded(value: Int) [] -> Int { let checked: UInt = value; checked }\n\
+pure aggregate(items: List[Int]) -> Int { items |> count() }\n\
+proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
+        let safe = source.replace("let copied: Int = value", "let copied = value");
+        fs::write(original.join("main.xsh"), source).unwrap();
+        fs::write(candidate.join("main.xsh"), &safe).unwrap();
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+        assert_eq!(qualify(&original, &original), Ok((4, 0)));
+        assert_eq!(qualify(&candidate, &candidate), Ok((4, 0)));
+        assert_eq!(qualify(&original, &candidate), Ok((4, 0)));
+        for (mutated, owner) in [
+            (safe.replace("let checked: UInt = value", "let checked = value"), "bounded"),
+            (safe.replace("items |> count()", "items |> sum()"), "aggregate"),
+            (safe.replace("let _ = time.now(); 1", "1"), "observe"),
+        ] {
+            fs::write(candidate.join("main.xsh"), mutated).unwrap();
+            assert_eq!(qualify(&candidate, &candidate), Ok((4, 0)));
+            let diagnostic = qualify(&original, &candidate).unwrap_err();
+            assert!(diagnostic.contains("checked body contract mismatch"), "{diagnostic}");
+            assert!(diagnostic.contains(&format!("main.xsh::{owner}")), "{diagnostic}");
+        }
+    }
+
+    #[test]
     fn checked_body_keys_preserve_loaded_module_resolution_contexts() {
         let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
         fs::create_dir_all(&scratch).unwrap();
