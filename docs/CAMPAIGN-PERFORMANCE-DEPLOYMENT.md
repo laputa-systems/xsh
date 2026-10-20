@@ -86,6 +86,13 @@ returned input, alias and typed alias. The repair must jointly settle stream
 origins and effects in the existing file probe loop before final checking.
 A nominal-seeded capture must infer Error for a fallible relay and retain the
 nominal family for a safe relay, independently of declaration order.
+The uncommitted source-origin repair passes five focused tests, including a
+40-case source matrix, inferred return types, declaration order, recursion and
+container projections. Yielded record fields retain their stream dependency.
+Review then identifies stale origins across mutable captures, loop backedges,
+match-arm writes and calls that mutate globals. Regressions and repairs for
+those paths remain required before accepting this change. These draft results
+do not qualify the integrated compiler or its existing products.
 The earlier native results below remain bound to `18c920910`; they do not
 qualify this newer source. The reduced docs regression is a Capture around
 `fold(map.empty())`. A typed seed passes, as does the fold outside Capture.
