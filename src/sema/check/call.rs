@@ -396,7 +396,7 @@ impl Checker {
             if !alias.pure {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+            self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
             return contract.return_ty;
         }
 
@@ -467,7 +467,7 @@ impl Checker {
                 );
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.pures.get(&name).copied()
@@ -477,7 +477,7 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.streams.get(&name).copied()
@@ -500,7 +500,7 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
                 return sig.return_ty;
             }
             return self.check_constructor_call_arena(
@@ -628,7 +628,7 @@ impl Checker {
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -648,7 +648,7 @@ impl Checker {
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -668,7 +668,7 @@ impl Checker {
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if module == "Path" {
@@ -910,7 +910,7 @@ impl Checker {
                         span,
                         checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
                 }
                 ModuleExportType::Pure { sig, .. } => {
@@ -922,7 +922,7 @@ impl Checker {
                         span,
                         checked_argument,
                     );
-                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
                 }
                 // A module's exported value of a callable type is called

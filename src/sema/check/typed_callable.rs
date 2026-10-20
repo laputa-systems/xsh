@@ -292,7 +292,12 @@ impl Checker {
             // A procedure may change mutable lexical captures before the next statement.
             self.invalidate_mutable_narrowings();
         }
-        self.record_callee_propagation(&contract.effects, &return_ty, span);
+        let propagation_effects = if callable.pure {
+            &[][..]
+        } else {
+            contract.effects.as_deref().unwrap_or(&crate::syntax::node::Effect::ALL)
+        };
+        self.record_callee_propagation(Some(propagation_effects), &return_ty, span);
         self.typed_callable_calls.insert(span, callable.clone());
         return_ty
     }

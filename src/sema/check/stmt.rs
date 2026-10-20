@@ -7959,6 +7959,57 @@ mod capture_stream_pull_tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn capture_retains_unknown_impure_call_failure_capability() {
+        let mut failures = Vec::new();
+        for (effects, family, rejected) in [("", "Error", false), ("", "CaptureFailure", true), (" []", "CaptureFailure", false), (" [error]", "CaptureFailure", true)] {
+            let source = format!("error CaptureFailure = Failed(message: Str)\ntype Action = proc(value: Int){effects} -> Int\nproc captured(action: Action, value: Result[Int, CaptureFailure]) -> Result[Int, {family}] {{ try {{ let _ = action(1); value? }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if rejected {
+                if errors.is_empty() { failures.push(format!("accepted {source}")); }
+                else {
+                    assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+                    assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch), "{source}\n{errors:?}");
+                    assert_eq!(errors[0].labels[0].message.as_deref(), Some("expected CaptureFailure, found Error"));
+                    let span = errors[0].labels[0].span;
+                    assert_eq!(&source[span.start()..span.end()], "action(1)");
+                }
+            } else { assert!(errors.is_empty(), "{source}\n{errors:?}"); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn capture_infers_unknown_impure_call_failure_capability() {
+        use crate::sema::types::Type;
+        use crate::syntax::arena::ArenaStmtKind;
+        for (kind, effects, returned, broad) in [("proc", "", "Int", true), ("proc", " []", "Int", false), ("proc", " [error]", "Int", true), ("pure", "", "Int", false), ("proc", "", "Result[Int]", false), ("proc", "", "Stream[Int]", false)] {
+            let source = format!("error CaptureFailure = Failed(message: Str)\ntype Action = {kind}(value: Int){effects} -> {returned}\nproc captured(action: Action, value: Result[Int, CaptureFailure]) {{ try {{ let saved = action(1); let _ = saved; value? }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| {
+                let ArenaStmtKind::ProcDef(definition) = parsed.arena.arena.stmt(statement).kind else { return None };
+                let definition = parsed.arena.arena.function_def(definition);
+                (definition.name.as_str() == "captured").then_some(definition)
+            }).unwrap();
+            let span = parsed.arena.arena.span(parsed.arena.arena.block(definition.body).span);
+            let Type::Result(ok, error) = &checked.function_return_types[&span] else { panic!("missing inferred Result") };
+            assert_eq!(ok.as_ref(), &Type::Int);
+            assert_eq!(error.as_ref() == &Type::Error, broad, "{source}\n{error:?}");
+            if !broad {
+                let parameters = parsed.arena.arena.params(definition.params);
+                let value_span = parsed.arena.arena.span(parameters[1].span);
+                let Type::Result(_, expected_error) = &checked.parameter_types[&value_span] else { panic!("missing nominal Result input") };
+                assert_eq!(error, expected_error, "{source}");
+            }
+        }
+    }
+
+    #[test]
     fn capture_records_errors_when_a_fallible_stream_is_pulled() {
         let declarations = "error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\nstream failing(other: Result[Int, OtherFailure]) [error] -> Stream[Int] { yield other? }\nstream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] { let _ = other; yield 7 }\n";
         for (result, body, accepted) in [

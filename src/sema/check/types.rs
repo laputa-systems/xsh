@@ -155,11 +155,11 @@ impl Checker {
 
     pub(super) fn record_callee_propagation(
         &mut self,
-        effects: &Option<Vec<Effect>>,
+        effects: Option<&[Effect]>,
         return_ty: &Type,
         span: Span,
     ) {
-        match return_ty.callee_error_flow(effects.as_deref()) {
+        match return_ty.callee_error_flow(effects) {
             crate::sema::types::CalleeErrorFlow::None => {}
             crate::sema::types::CalleeErrorFlow::Latent => { self.latent_stream_error_spans.insert(span); }
             crate::sema::types::CalleeErrorFlow::Immediate => {
