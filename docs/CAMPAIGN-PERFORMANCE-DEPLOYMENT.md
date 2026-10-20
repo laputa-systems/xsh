@@ -21,7 +21,15 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `ae9793745` passes the combined targeted boundary: 357 passed, zero
+Source `cce02595c` passes the combined targeted boundary: 362 passed, zero
+failed and zero ignored. Normally completing tail-less value blocks prove Unit,
+including compatibility with Any. Noncompleting blocks remain distinct from
+Unit, and unresolved value tails retain their uncertainty. Abort rows prove
+an Int status operand and require the process effect. The actual `lib.text_a2`
+import and malformed status/effect controls pass. Matching verification products
+remain at `ae9793745`; the new source has no full corpus or native acceptance.
+
+Source `ae9793745` passes the earlier combined targeted boundary: 357 passed, zero
 failed and zero ignored. Scalar slots now use canonical lexical projections;
 native overload shape determines a result only with unambiguous authority,
 and actual operands remain independently checked. Fold accumulator proposals
