@@ -23,6 +23,14 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `80fea2f8d` fixes attribution of spanless compact-build errors to the
+current entry. Explicit source spans, diagnostic codes and messages remain
+unchanged. The two-source rendering regression fails before the fix and passes
+afterward, including a blocker with an explicit span in the other source.
+The coordinator's immutable merged replay passes that exact test.
+Matching products below remain at `e0f8cbfac`; this reporting repair does not
+repair the seventeen snippet preparation failures or qualify a new product pair.
+
 Source `e0f8cbfac` passes the combined immutable replay: 238 passed, zero
 failed and zero ignored. Independent review approves contextual verification
 through an exact identity-match binding. The actual subject still proves the
