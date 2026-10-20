@@ -941,7 +941,13 @@ impl<'a> ProducerProof<'a> {
                 if let ProducerBinding::ScopedDeclaration(declaration, _) = binding {
                     return match decoder.statement_view(declaration)? {
                         schema::StmtView::Let { annotation: Some(annotation), .. } => self.contract_type(annotation.id).map(Some),
-                        schema::StmtView::Let { value, .. } => self.declared_type(decoder, value.raw() as usize),
+                        schema::StmtView::Let { value, .. } => {
+                            if let Some(ty) = self.declared_type(decoder, value.raw() as usize)? { return Ok(Some(ty)); }
+                            let Some(id) = decoder.checked_slot_type(slot)? else { return Ok(None) };
+                            let ty = self.contract_type(id)?;
+                            self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
+                            Ok(Some(ty))
+                        }
                         schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
                         schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
                         schema::StmtView::For { iter, .. } => {
@@ -1901,7 +1907,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::MatchExpr { value, mut arms, .. } => {
-                let subject = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground match expression has no subject contract"))?;
+                let subject = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new(format!("ground match expression has no subject contract at owner {owner}, instruction {instruction}, subject {} {:?}", value.raw(), self.store.tags[value.raw() as usize])))?;
                 self.expression(owner, value.raw() as usize, subject, false);
                 for arm in &mut arms {
                     let (_, guard, value) = arm?;

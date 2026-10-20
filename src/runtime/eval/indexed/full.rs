@@ -26949,6 +26949,50 @@ proc main() {
     }
 
     #[test]
+    fn strict_result_producers_preserve_inferred_mutable_collection_writers() {
+        let source = "type Items = {items: List[List[Str]], next: Int}\npure gathered(flag: Bool, wrong: Int) -> Result[Items] { let _ = wrong; var items = []; var current = []; if flag { current = [\"x\"] }; items += [current]; Ok(Items(items:, next: 0)) }\nassert gathered(true, 0)?.items == [[\"x\"]]\nassert gathered(false, 0)?.items == [[]]\n";
+        let program = Arc::new(fixture("mutable-collection-producers.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let replacement = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
+        let owner = scheme_fixture_root_function(&program, "gathered");
+        let decoder = function_view_decoder(&program.store, owner);
+        let wrong = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.tags[replacement] = FullTag::ExprParam;
+        forged.store.data[replacement] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_prepare_tour_documentation_module() {
+        run_with_large_stack(|| {
+            let source = "use tour_html\n";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                "tour-preparation.xsh", crate::loader::entry_source_from_text("tour-preparation.xsh", source.to_string()),
+                vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("dev")],
+            );
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files().first().unwrap().id();
+            let checked = Checker::check_arena_with_sources_and_options(
+                &parsed.arena, &sources, source_id,
+                crate::sema::check::CheckOptions { reveal_types: true, embedded_bodies: true, ..crate::sema::check::CheckOptions::default() },
+            );
+            let declarations = Checker::compact_declarations(&parsed.arena, checked);
+            assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+            FullBuilder::build_compact(&parsed.arena, &declarations, source, Arc::new(sources), source_id).unwrap();
+        });
+    }
+
+    #[test]
     fn checked_json_type_name_uses_its_verified_bridge_operation() {
         let source = "proc main() { let _ = json.encode_lines([1]) }\n";
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
