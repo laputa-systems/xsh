@@ -2264,9 +2264,7 @@ impl Checker {
             match *qualifier {
                 ArenaCompQualifier::For { target, iter, span } => {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
-                    if iter_ty.is_result_iteration_source() {
-                        self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
-                    }
+                    self.check_iteration_propagation_arena(arena, iter, &iter_ty);
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
                         if iter_ty == Type::Any {
                             self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);

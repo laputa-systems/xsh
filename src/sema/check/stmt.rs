@@ -3995,6 +3995,26 @@ impl Checker {
         self.pop_scope();
     }
 
+    pub(super) fn check_iteration_propagation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        iter: ExprId,
+        iter_ty: &Type,
+    ) {
+        let span = arena.arena.expr(iter).span;
+        if iter_ty.is_result_iteration_source() {
+            self.check_propagation(iter_ty, span);
+        }
+        if matches!(iter_ty.unvalidated(), Type::Stream(_))
+            && self.expression_may_have_latent_stream_error(arena, iter)
+        {
+            self.check_propagation(
+                &Type::Result(Box::new(Type::Unit), Box::new(Type::Error)),
+                span,
+            );
+        }
+    }
+
     fn check_for_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4005,9 +4025,7 @@ impl Checker {
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        if iter_ty.is_result_iteration_source() {
-            self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
-        }
+        self.check_iteration_propagation_arena(arena, iter, &iter_ty);
         let item_ty = iter_ty
             .iteration_item_type()
             .unwrap_or_else(|| match iter_ty {
@@ -7765,5 +7783,48 @@ mod reader_binding_identity_tests {
                 diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckProcCommandSyntax)
             }));
         });
+    }
+}
+
+#[cfg(test)]
+mod capture_stream_pull_tests {
+    use super::Checker;
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn capture_records_errors_when_a_fallible_stream_is_pulled() {
+        let declarations = "error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\nstream failing(other: Result[Int, OtherFailure]) [error] -> Stream[Int] { yield other? }\nstream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] { let _ = other; yield 7 }\n";
+        for (result, body, accepted) in [
+            ("Result[Int]", "for item in failing(other) { let _ = item }; 7", true),
+            ("Result[Int, CaptureFailure]", "let saved = failing(other); let _ = saved; 7", true),
+            ("Result[Int, CaptureFailure]", "for item in safe(other) { let _ = item }; 7", true),
+            ("Result[Int, CaptureFailure]", "for item in failing(other) { let _ = item }; 7", false),
+            ("Result[Int]", "let rows = [item for item in failing(other)]; let _ = rows; 7", true),
+            ("Result[Int, CaptureFailure]", "let rows = [item for item in safe(other)]; let _ = rows; 7", true),
+            ("Result[Int, CaptureFailure]", "let rows = [item for item in failing(other)]; let _ = rows; 7", false),
+        ] {
+            let source = format!("{declarations}proc captured(other: Result[Int, OtherFailure]) [error] -> {result} {{ try {{ {body} }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert_eq!(
+                !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+                accepted,
+                "{source}\n{:?}",
+                checked.diagnostics,
+            );
+            if !accepted {
+                let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+                assert_eq!(errors.len(), 1, "{errors:?}");
+                assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch));
+                assert_eq!(errors[0].message, "type mismatch");
+                assert_eq!(errors[0].labels.len(), 1);
+                let label = &errors[0].labels[0];
+                assert_eq!(&source[label.span.start()..label.span.end()], "failing(other)");
+                assert_eq!(label.message.as_deref(), Some("expected CaptureFailure, found Error"));
+            }
+        }
     }
 }
