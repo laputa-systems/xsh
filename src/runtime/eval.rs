@@ -4600,6 +4600,7 @@ impl Evaluator {
             });
         }
         self.install_compact_runtime_declarations(&declarations);
+        let entry_source_id = source_id;
         let source_id = program.source_text_source_id().unwrap_or(source_id);
         let Some(source) = self.sources.get(source_id).map(|source| source.text()) else {
             return Err(compact_lowerability_diagnostic(
@@ -4618,21 +4619,7 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
             scope,
         )
-        .map_err(|error| {
-            let span = error.span.unwrap_or_else(zero_span);
-            let message = match error.detail.as_deref() {
-                Some(detail) if error.construct == "full_ir_verification" => {
-                    format!("indexed IR could not encode `{}`: {detail}", error.construct)
-                }
-                Some(detail) => format!("this function cannot be compiled yet: {detail}"),
-                None => format!("indexed IR could not encode `{}`", error.construct),
-            };
-            compact_lowerability_diagnostic(
-                span,
-                &message,
-                DiagnosticCode::CompactIndexedBuild,
-            )
-        })?;
+        .map_err(|error| compact_build_diagnostic(error, entry_source_id))?;
         let root = program.arena.stmt_ids(scope.root_statements()).collect::<Vec<_>>();
         let driver_steps = indexed.driver_step_count().map_err(|error| {
             compact_lowerability_diagnostic(
@@ -8037,6 +8024,18 @@ fn runtime_diagnostic(span: Span, message: &str, code: DiagnosticCode) -> Diagno
         .with_label(crate::diagnostic::Label::primary(span, ""))
 }
 
+fn compact_build_diagnostic(error: indexed::IrBuildError, entry_source_id: SourceId) -> Diagnostic {
+    let span = error.span.unwrap_or_else(|| Span::new(entry_source_id, 0, 0));
+    let message = match error.detail.as_deref() {
+        Some(detail) if error.construct == "full_ir_verification" => {
+            format!("indexed IR could not encode `{}`: {detail}", error.construct)
+        }
+        Some(detail) => format!("this function cannot be compiled yet: {detail}"),
+        None => format!("indexed IR could not encode `{}`", error.construct),
+    };
+    compact_lowerability_diagnostic(span, &message, DiagnosticCode::CompactIndexedBuild)
+}
+
 fn compact_lowerability_diagnostic(span: Span, message: &str, code: DiagnosticCode) -> Diagnostic {
     crate::diagnostic::Diagnostic::error(message)
         .with_code(code)
@@ -8414,6 +8413,37 @@ fn within_limit_text(limit: Duration) -> String {
         format!("{}s", millis / 1000)
     } else {
         format!("{millis}ms")
+    }
+}
+
+#[cfg(test)]
+mod compact_build_diagnostic_tests {
+    use super::*;
+    use crate::diagnostic::DiagnosticRenderer;
+
+    #[test]
+    fn build_errors_render_the_entry_fallback_and_preserve_explicit_sources() {
+        let mut sources = SourceMap::new();
+        let first = sources.add_file("first.xsh", "first()\n  first_again()\n");
+        let second = sources.add_file("second.xsh", "second()\n");
+        let explicit = Span::new(first, 10, 23);
+        for (span, expected, location, other_location) in [
+            (None, Span::new(second, 0, 0), "second.xsh:1:1", "first.xsh:1:1"),
+            (Some(explicit), explicit, "first.xsh:2:3", "second.xsh:1:1"),
+        ] {
+            let error = indexed::IrBuildError {
+                construct: "full_ir_verification", span,
+                attempted_instructions: 0, committed_instructions: 0,
+                detail: Some("invalid executable producer".into()),
+            };
+            let diagnostic = compact_build_diagnostic(error, second);
+            assert_eq!(diagnostic.code, Some(DiagnosticCode::CompactIndexedBuild));
+            assert_eq!(diagnostic.labels[0].span, expected);
+            let rendered = DiagnosticRenderer::new().render(&[diagnostic], &sources);
+            assert!(rendered.contains(location), "{rendered}");
+            assert!(!rendered.contains(other_location), "{rendered}");
+            assert!(rendered.contains("invalid executable producer"), "{rendered}");
+        }
     }
 }
 
