@@ -49,6 +49,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
+mod body_contract;
+pub use body_contract::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 mod call_plan;
 use call_plan::ModuleCallPlan;
 mod indexed;
@@ -1487,7 +1489,7 @@ struct LoweredTopLevelBinding {
     slot: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct LoweredTypeCheck {
     schema: Option<Arc<require::PreparedSchema>>,
     ty: Type,

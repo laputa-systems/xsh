@@ -1200,6 +1200,103 @@ impl FullProgram {
         &self.symbols
     }
 
+    pub(in crate::runtime::eval) fn validation_contracts(&self) -> Result<Vec<super::super::body_contract::PreparedValidationRecord>, IrVerifyError> {
+        use super::super::body_contract::{PreparedValidationContract as Contract, PreparedValidationRecord as Record};
+        use crate::sema::check::BodyContractSite as Site;
+        let _symbols = self.symbol_owner().enter();
+        let mut records = Vec::new();
+        for index in 0..self.store.functions.len() {
+            let view = self.function_view_at(index).ok_or_else(|| IrVerifyError::new("validation function is absent"))?;
+            let declaration = view.definition_span()?;
+            let header = view.header()?;
+            for (ordinal, kind) in header.param_kinds.iter().copied().enumerate() {
+                records.push(Record { site: Site::Parameter { declaration, ordinal }, contract: Contract::Parameter {
+                    kind, check: header.param_checks[ordinal].clone(), formal: self.validation_formal_type(index, Some(ordinal))?,
+                } });
+            }
+            records.push(Record { site: Site::Return { declaration }, contract: Contract::Return {
+                kind: header.return_kind, check: header.return_check.clone(), formal: self.validation_formal_type(index, None)?,
+            } });
+            let execution = view.execution()?;
+            self.validation_rows(&execution.decoder(), Some(declaration), &mut records)?;
+        }
+        for index in 0..self.store.driver_steps.len() {
+            let view = FullDriverStepView { program: self, index };
+            let execution = view.execution()?;
+            if let schema::DriverPayloadView::Let { validation, ty, .. } = view.decode_payload(&execution, view.payload()?)? {
+                let contract = match (validation, ty) {
+                    (Some(check), _) => Some(Contract::DriverCheck(Self::owned_validation(check)?)),
+                    (None, Some(kind)) => Some(Contract::DriverKind(kind.materialize_lowered()?)),
+                    (None, None) => None,
+                };
+                if let Some(contract) = contract { records.push(Record { site: Site::Statement(view.source_span()?), contract }); }
+            }
+            self.validation_rows(&execution.decoder(), None, &mut records)?;
+        }
+        Ok(records)
+    }
+
+    fn validation_formal_type(&self, function: usize, parameter: Option<usize>) -> Result<Option<Type>, IrVerifyError> {
+        let id = match self.store.functions[function].contract {
+            FullCallableContract::Ground(signature) => match parameter {
+                Some(parameter) => self.store.semantic.signature_param(signature, parameter)?.1,
+                None => self.store.semantic.signature_return_type(signature)?,
+            },
+            FullCallableContract::Scheme(scheme) => {
+                let scheme = self.store.scheme(scheme)?;
+                let node = match parameter {
+                    Some(parameter) => {
+                        let range = scheme.params.bounds(self.store.scheme_params.len()).ok_or_else(|| IrVerifyError::new("validation scheme parameter range is invalid"))?;
+                        self.store.scheme_params.get(range.start + parameter).filter(|_| parameter < range.len()).ok_or_else(|| IrVerifyError::new("validation scheme parameter is absent"))?.ty
+                    }
+                    None => scheme.return_type,
+                };
+                let node = self.store.scheme_type(node)?;
+                if node.tag != schema::FullSchemeTypeTag::Ground { return Ok(None); }
+                TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("validation scheme ground type is invalid"))?
+            }
+        };
+        self.store.semantic.to_type(id).map(Some)
+    }
+
+    fn owned_validation(check: decode::TypeCheckView<'_>) -> Result<LoweredTypeCheck, IrVerifyError> {
+        Ok(LoweredTypeCheck { ty: check.ty.materialize()?, schema: check.schema.cloned(), name: Arc::from(check.name) })
+    }
+
+    fn validation_rows(&self, decoder: &FullDecoder<'_>, declaration: Option<Span>, records: &mut Vec<super::super::body_contract::PreparedValidationRecord>) -> Result<(), IrVerifyError> {
+        use super::super::body_contract::{PreparedValidationContract as Contract, PreparedValidationRecord as Record};
+        use crate::sema::check::BodyContractSite as Site;
+        for instruction in decoder.instruction_range.clone() {
+            let record = match self.store.tags[instruction] {
+                FullTag::ExprCheckedValue => {
+                    let schema::ExprView::CheckedValue { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                    Some(Record { site: Site::ValueBoundary(span), contract: Contract::CheckedValue(Self::owned_validation(check)?) })
+                }
+                FullTag::ExprRequire => {
+                    let schema::ExprView::Require { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                    Some(Record { site: Site::Expression(span), contract: Contract::Require(Self::owned_validation(check)?) })
+                }
+                FullTag::StmtAssign | FullTag::StmtAssignPath => {
+                    let (check, span) = match decoder.statement_view(instruction)? {
+                        schema::StmtView::Assign { check, span, .. } | schema::StmtView::AssignPath { check, span, .. } => (check, span),
+                        _ => unreachable!(),
+                    };
+                    check.map(|check| Ok(Record { site: Site::Statement(span), contract: Contract::Assignment(Self::owned_validation(check)?) })).transpose()?
+                }
+                FullTag::StmtDefaultParameter => {
+                    let schema::StmtView::DefaultParameter { slot, kind, check, .. } = decoder.statement_view(instruction)? else { unreachable!() };
+                    let declaration = declaration.ok_or_else(|| IrVerifyError::new("default validation has no function declaration"))?;
+                    Some(Record { site: Site::Parameter { declaration, ordinal: slot }, contract: Contract::DefaultParameter {
+                        kind: kind.materialize_lowered()?, check: check.map(Self::owned_validation).transpose()?,
+                    } })
+                }
+                _ => None,
+            };
+            if let Some(record) = record { records.push(record); }
+        }
+        Ok(())
+    }
+
     pub(in crate::runtime::eval) fn function_count(&self) -> usize {
         self.store.functions.len()
     }

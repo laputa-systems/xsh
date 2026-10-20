@@ -5,7 +5,7 @@ use super::{
 use crate::sema::wire_enums::{PreparedWireEnums, WireEnumMapping};
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PreparedSchema {
     Validate(Type),
     Record(Vec<(Name, Arc<PreparedSchema>)>),

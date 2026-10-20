@@ -405,12 +405,14 @@ impl Capture<'_> {
                         if fact.is_some() { self.seen_effects.insert(identity); }
                         self.bodies.get_mut(&owner).unwrap().effects = fact.map(canonical_effects);
                         let definition_span = self.program.arena.stmt(statement).span;
-                        for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
-                            self.sites.entry(BodyContractSite::Parameter { declaration: definition_span, ordinal }).or_default()
-                                .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Parameter(ordinal))));
+                        for declaration_span in [definition_span, declaration.body] {
+                            for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
+                                self.sites.entry(BodyContractSite::Parameter { declaration: declaration_span, ordinal }).or_default()
+                                    .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Parameter(ordinal))));
+                            }
+                            self.sites.entry(BodyContractSite::Return { declaration: declaration_span }).or_default()
+                                .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Return)));
                         }
-                        self.sites.entry(BodyContractSite::Return { declaration: definition_span }).or_default()
-                            .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Return)));
                         path.clear();
                     }
                 }

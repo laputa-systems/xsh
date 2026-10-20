@@ -70,6 +70,16 @@ Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.
 
+`execution::evaluator::checked_body_contracts` consumes one check, captures its
+semantic selections, and prepares the program once without running initialization.
+It extracts actual validation rows and parameter and return gates from the verified
+program. The opaque result retains checks, schemas, source-role keys, multiplicity,
+and their symbol owner, without retaining the AST or prepared program. Comparison
+uses the canonical callable instance relation for interface gates; local, creation,
+assignment, requirement, and default checks remain exact. Prepared schemas compare
+structurally, including conversion order, nominal names, wire mappings, and error
+names. Preparation failures retain their original diagnostic.
+
 Private embedded-module bridges carry their native callable contract in the
 stdlib catalog. Prepared bridge declarations must match that contract and remain
 inside their declared module. The decoder derives bridge results from this
