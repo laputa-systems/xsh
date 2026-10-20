@@ -20609,6 +20609,129 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
     }
 
     #[test]
+    fn strict_result_producers_preserve_range_bounds() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("range-result-producer.xsh", r#"
+pure labels(limit: Int, wrong: Str) -> Result[Str] {
+    let _ = wrong
+    var text = ""
+    for item in range(1, limit) { text = text + f"{item}" }
+    Ok(text)
+}
+assert labels(4, "wrong")? == "123"
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "labels");
+            let decoder = function_view_decoder(&program.store, owner);
+            let instructions = program.store.function_instruction_range(owner).unwrap();
+            let range = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRange).unwrap();
+            let schema::ExprView::Range { end, .. } = decoder.expression_view(range).unwrap() else { unreachable!() };
+            assert_eq!(program.store.tags[end.raw() as usize], FullTag::ExprParam);
+            let wrong = instructions.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&forged).unwrap();
+            forged.store.data[end.raw() as usize] = program.store.data[wrong];
+            FullVerifier::verify(&forged).expect_err("range bounds must retain their integer producer contract");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_prepare_nested_schema_native_test() {
+        run_with_large_stack(|| {
+            let program = fixture("nested-schema-native-preparation.xsh", r####"
+const with_error_handler = r"""proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  with value = fallible() {
+    print ${value}
+  } else { |err|
+    return Err(err)
+  }
+  return Ok()
+}
+
+proc fallible() [error] -> Result[Str] {
+  return "ok"
+}
+"""
+
+const unchecked_boundary = r"""
+type Row = {name: Str}
+let row: Row = json.decode("{\"name\":\"demo\"}")?
+"""
+
+proc project(ctx: TestContext, files: Map[Str, Str]) [fs, error] -> Result[Path] {
+  let root = test.temp_dir(ctx, name: "project")?
+  for name in files.keys() {
+    let file = fp"{root}/{name}"
+    file.parent().mkdir()
+    file.write(files[name])
+  }
+
+  Ok(root)
+}
+
+pure diagnostics(stderr: Str) -> Str {
+  let found = rx"(?s)^(.*)xsht [a-z]+: [0-9]+ files? in [^\n]* \(thread time by stage: [^\n]*\n$".captures(stderr)
+  if found.len() == 2 { found[1] } else { f"no timing line: {stderr}" }
+}
+
+proc expect_clean_check(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
+  let root = project(ctx, files)?
+  cd $root {
+    let checked = run.capture --text "xsht" check $target
+    assert checked.status.exited_with(0), checked.stderr
+    assert checked.stdout == ""
+    assert diagnostics(checked.stderr) == "", checked.stderr
+  }
+}
+
+proc expect_check_passes(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
+  let root = project(ctx, files)?
+  cd $root {
+    let checked = run.capture --text "xsht" check $target
+    assert checked.status.exited_with(0), checked.stderr
+  }
+}
+
+test test_check_and_lint_nested_schema_constructors_without_stack_environment { |ctx|
+  var source = "type Leaf = {value: Int}\n"
+  var previous = "Leaf"
+  var constructor = "Leaf(value: 1)"
+  for depth in range(40) {
+    let name = f"Layer{depth}"
+    source = source + "type " + name + " = {child: " + previous + "}\n"
+    constructor = name + "(child: " + constructor + ")"
+    previous = name
+  }
+
+  source = source + "pure build() -> " + previous + " { " + constructor + " }\nlet value = build()\nlet _ = value\n"
+  let root = project(ctx, {"nested.xsh": source})?
+  cd $root {
+    let checked = run.capture --text env -u RUST_MIN_STACK -u XSH_MODULE_PATH xsht check nested.xsh
+    assert checked.status.exited_with(0), checked.stderr
+    assert "stack overflow" not in checked.stderr, checked.stderr
+    assert p"nested.xsh".read_text()? == source
+
+    let linted = run.capture --text env -u RUST_MIN_STACK -u XSH_MODULE_PATH xsht lint nested.xsh
+    assert linted.status.exited_with(0) or linted.status.exited_with(1), linted.stderr
+    assert "stack overflow" not in linted.stderr, linted.stderr
+    assert p"nested.xsh".read_text()? == source
+  }
+}
+
+"####);
+            FullVerifier::verify(&program).unwrap();
+        });
+    }
+
+    #[test]
     fn strict_result_producers_preserve_context_scope_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("strict-context-results.xsh", r#"

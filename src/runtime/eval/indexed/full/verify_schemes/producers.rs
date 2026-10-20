@@ -829,6 +829,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Duration(_) => Some(Type::Duration),
             schema::ExprView::PreparedRegex(_) => Some(Type::Regex),
             schema::ExprView::Path(_) => Some(Type::Path),
+            schema::ExprView::Range { .. } => Some(Type::Stream(Box::new(Type::Int))),
             schema::ExprView::Record(mut fields) => {
                 let writers = decoder.checked_record_field_writers(&mut fields, |source| self.need_context(decoder, source)?.ok_or_else(|| IrVerifyError::new("record spread derivation has no input contract")))?;
                 let mut fields = BTreeMap::new();
@@ -1588,6 +1589,12 @@ impl<'a> ProducerProof<'a> {
         } else { expected };
         match decoder.expression_view(instruction)? {
             schema::ExprView::Param(slot) => self.slot(owner, instruction, slot, actual.unwrap_or(expected)),
+            schema::ExprView::Range { start, end, .. } => {
+                if !Type::Stream(Box::new(Type::Int)).matches_expected(&expected) { return Err(IrVerifyError::new("range producer has an incompatible stream contract")); }
+                self.expression(owner, start.raw() as usize, Arc::new(Type::Int), false);
+                self.expression(owner, end.raw() as usize, Arc::new(Type::Int), false);
+                Ok(())
+            }
             schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. } | schema::ExprView::SelfCall { .. } => {
                 let (function, arguments) = call_parts(&decoder, instruction)?;
                 match self.store.functions[function].contract {
