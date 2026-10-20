@@ -561,6 +561,45 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn can_be_env_value(&self) -> bool {
+        self.can_be_argv_item()
+            || matches!(self.unvalidated(), Self::List(item) if matches!(**item, Self::Path | Self::Unknown))
+    }
+
+    pub(crate) fn accepts_context_scope_input(&self, kind: crate::syntax::arena::ContextScopeKind) -> bool {
+        use crate::syntax::arena::ContextScopeKind;
+        match kind {
+            ContextScopeKind::Within => matches!(self, Self::Duration | Self::Unknown | Self::Invalid),
+            ContextScopeKind::Cwd => matches!(self.unvalidated(), Self::Path | Self::Str | Self::Unknown | Self::Invalid),
+            ContextScopeKind::Env => match self {
+                Self::Record(fields) => fields.values().all(Self::can_be_env_value),
+                Self::Map(key, value) if **key == Self::Str => value.can_be_env_value(),
+                Self::Unknown | Self::Invalid => true,
+                _ => false,
+            },
+        }
+    }
+
+    pub(crate) fn run_capture_result(kind: crate::syntax::node::RunKind) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        let output = match kind {
+            RunKind::CaptureText => Self::Str,
+            RunKind::CaptureBytes => Self::Bytes,
+            RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
+                let output = if kind == RunKind::CaptureTextRecord { Self::Str } else { Self::Bytes };
+                Self::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("status"), Self::Status),
+                    (Name::intern("stdout"), output.clone()),
+                    (Name::intern("stderr"), output),
+                ])))
+            }
+            RunKind::StreamText => Self::Stream(Box::new(Self::Str)),
+            RunKind::StreamBytes => Self::Stream(Box::new(Self::Bytes)),
+            RunKind::Plain | RunKind::Status => return None,
+        };
+        Some(Self::Result(Box::new(output), Box::new(Self::ProcessError)))
+    }
+
     pub(crate) fn for_each_child<'a>(&'a self, mut visit: impl FnMut(&'a Type)) {
         match self {
             Self::List(inner) | Self::Stream(inner) | Self::Set(inner) | Self::Optional(inner) => visit(inner),

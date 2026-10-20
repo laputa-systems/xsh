@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
+    Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
     Name, RunKind, Span, Type, UnaryOp, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
@@ -13,13 +13,6 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::{CommandWordRefSegment, parse_command_word_reference};
 
-fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
-    entries
-        .into_iter()
-        .map(|(name, value)| (name.into(), value))
-        .collect()
-}
-
 pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
@@ -27,26 +20,7 @@ pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
 pub(super) fn run_capture_result_type_arena(arena: &ArenaProgram, run: RunFormId) -> Option<Type> {
     let run = arena.arena.run_form(run);
     let segment = arena.arena.run_segments(run.segments).first()?;
-    let ok = match segment.kind {
-        RunKind::CaptureText => Type::Str,
-        RunKind::CaptureBytes => Type::Bytes,
-        RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
-            let output = if segment.kind == RunKind::CaptureTextRecord {
-                Type::Str
-            } else {
-                Type::Bytes
-            };
-            Type::Record(btree_map(vec![
-                ("status", Type::Status),
-                ("stdout", output.clone()),
-                ("stderr", output),
-            ]).into())
-        }
-        RunKind::StreamText => Type::Stream(Box::new(Type::Str)),
-        RunKind::StreamBytes => Type::Stream(Box::new(Type::Bytes)),
-        RunKind::Plain | RunKind::Status => return None,
-    };
-    Some(Type::Result(Box::new(ok), Box::new(Type::ProcessError)))
+    Type::run_capture_result(segment.kind)
 }
 
 pub(super) fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
@@ -72,12 +46,8 @@ fn is_bare_ident(text: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
-/// An environment value is one argv item, or a `List[Path]`, which the
-/// runtime joins into a search path. A list of anything else has no single
-/// rendering.
 pub(super) fn can_be_env_value(ty: &Type) -> bool {
-    ty.can_be_argv_item()
-        || matches!(ty.unvalidated(), Type::List(item) if matches!(**item, Type::Path | Type::Unknown))
+    ty.can_be_env_value()
 }
 
 pub(super) fn valid_env_name(name: &str) -> bool {

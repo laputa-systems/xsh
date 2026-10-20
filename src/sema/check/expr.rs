@@ -896,7 +896,7 @@ impl Checker {
                 );
                 match kind {
                     ContextScopeKind::Within => {
-                        if !matches!(input_type, Type::Duration | Type::Unknown | Type::Invalid) {
+                        if !input_type.accepts_context_scope_input(*kind) {
                             self.error(
                                 arena.arena.expr(*input).span,
                                 "`within` requires a Duration",
@@ -905,10 +905,7 @@ impl Checker {
                         }
                     }
                     ContextScopeKind::Cwd => {
-                        if !matches!(
-                            input_type.unvalidated(),
-                            Type::Path | Type::Str | Type::Unknown | Type::Invalid
-                        ) {
+                        if !input_type.accepts_context_scope_input(*kind) {
                             self.error(
                                 arena.arena.expr(*input).span,
                                 "cwd scope requires Path or Str",
@@ -932,10 +929,7 @@ impl Checker {
                                 None
                             }
                         };
-                        if let Some(values) = values
-                            && values
-                                .into_iter()
-                                .any(|ty| !super::command::can_be_env_value(ty))
+                        if values.is_some() && !input_type.accepts_context_scope_input(*kind)
                         {
                             self.error(
                                 arena.arena.expr(*input).span,

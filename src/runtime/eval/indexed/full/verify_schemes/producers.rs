@@ -833,6 +833,29 @@ impl<'a> ProducerProof<'a> {
                 }
                 Some(Type::Record(Arc::new(fields)))
             }
+            schema::ExprView::RunCapture(run) => Type::run_capture_result(run.kind),
+            schema::ExprView::RunPipeline { mut segments, .. } => {
+                let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
+                Type::run_capture_result(first.kind)
+            }
+            schema::ExprView::ErrorContext { mut body, .. } => {
+                let block = body.block_identity();
+                return match decoder.derive_checked_block_tail_expression(&mut body)? {
+                    Some(tail) => self.need_context(decoder, tail),
+                    None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? => Ok(None),
+                    None => Ok(Some(Arc::new(Type::Unit))),
+                };
+            }
+            schema::ExprView::ContextScope { mut body, .. } => {
+                let block = body.block_identity();
+                let payload = match decoder.derive_checked_block_tail_expression(&mut body)? {
+                    Some(tail) => match self.need_context(decoder, tail)? { Some(payload) => payload, None => return Ok(None) },
+                    None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? => return Ok(None),
+                    None => Arc::new(Type::Unit),
+                };
+                self.budget.charge_clone(&payload)?;
+                Some(Type::Result(Box::new((*payload).clone()), Box::new(Type::Error)))
+            }
             schema::ExprView::ValueBlock { mut body, .. } => {
                 return match decoder.derive_checked_block_tail_expression(&mut body)? {
                     Some(tail) => self.need_context(decoder, tail),
@@ -1798,6 +1821,30 @@ impl<'a> ProducerProof<'a> {
                 for value in &mut values { self.expression(owner, value?.raw() as usize, Arc::new((**item).clone()), false); }
                 Ok(())
             }
+            schema::ExprView::RunCapture(run) => {
+                let result = Type::run_capture_result(run.kind).ok_or_else(|| IrVerifyError::new("ground run value has no capture contract"))?;
+                if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground capture kind disagrees with its result contract")); }
+                self.verify_operands(&decoder, instruction)
+            }
+            schema::ExprView::RunPipeline { mut segments, .. } => {
+                let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
+                let result = Type::run_capture_result(first.kind).ok_or_else(|| IrVerifyError::new("ground pipeline head has no capture contract"))?;
+                if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground pipeline head disagrees with its result contract")); }
+                self.verify_operands(&decoder, instruction)
+            }
+            schema::ExprView::ErrorContext { message, body, .. } => {
+                self.expression(owner, message.raw() as usize, Arc::new(Type::Str), false);
+                self.verify_block_value(&decoder, body, expected, returned)
+            }
+            schema::ExprView::ContextScope { kind, input, body, .. } => {
+                let source = self.need_context(&decoder, input.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground scope input has no producer contract"))?;
+                if !source.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("ground scope input disagrees with its scope kind")); }
+                self.expression(owner, input.raw() as usize, source, false);
+                let Type::Result(payload, error) = expected.as_ref() else { return Err(IrVerifyError::new("ground scope result has no Result contract")) };
+                if !Type::Error.matches_expected(error) { return Err(IrVerifyError::new("ground scope error disagrees with its Result contract")); }
+                self.budget.charge_clone(payload)?;
+                self.verify_block_value(&decoder, body, Arc::new((**payload).clone()), false)
+            }
             schema::ExprView::ValueBlock { mut body, .. } => {
                 if decoder.checked_branch_value_instruction(instruction)?.is_none() {
                     self.function(function_index(owner)?);
@@ -1908,6 +1955,22 @@ impl<'a> ProducerProof<'a> {
             _ if actual.is_some() => self.verify_operands(&decoder, instruction),
             _ => Err(IrVerifyError::new("ground producer form has no executable type proof")),
         }
+    }
+
+    fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
+        let block = body.block_identity();
+        if let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? {
+            self.expression(decoder.owner, tail, expected, returned);
+            return Ok(());
+        }
+        if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? {
+            if super::super::driver_owner_index(decoder.owner).is_none() {
+                self.function(function_index(decoder.owner)?);
+            }
+            return Ok(());
+        }
+        if Type::Unit.matches_expected(&expected) { return Ok(()); }
+        Err(IrVerifyError::new("ground completing block produces Unit instead of its checked contract"))
     }
 
     fn verify_operands(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<(), IrVerifyError> {

@@ -20604,6 +20604,200 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
     }
 
     #[test]
+    fn strict_result_producers_preserve_context_scope_results() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-context-results.xsh", r#"
+proc render() [error] -> Result[Str] { Ok(ctx "rendering" { "page" }) }
+proc directory() [env, error] -> Result[Str] { let text = cd (p"/") { "directory" }?; Ok(text) }
+proc environment() [env, error] -> Result[Str] { let text = env ({XSH_STRICT_SCOPE: "inner"}) { "environment" }?; Ok(text) }
+proc early(flag: Bool) [error] -> Result[Str] { Ok(ctx "early" { if flag { return Ok("returned") }; "tail" }) }
+let marker = 7
+assert early(true)? == "returned"
+assert early(false)? == "tail"
+assert render()? == "page"
+assert directory()? == "directory"
+assert environment()? == "environment"
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let render = scheme_fixture_root_function(&program, "render");
+            let context = program.store.function_instruction_range(render).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprErrorContext).unwrap();
+            let decoder = function_view_decoder(&program.store, render);
+            let schema::ExprView::ErrorContext { message, mut body, .. } = decoder.expression_view(context).unwrap() else { panic!("context") };
+            let tail = decoder.checked_block_tail_expression(&mut body).unwrap();
+            let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            for target in [message.raw() as usize, tail] {
+                let mut forged = (*program).clone();
+                forged.store.tags[target] = FullTag::ExprInt;
+                forged.store.data[target] = program.store.data[integer];
+                FullVerifier::verify(&forged).expect_err("context messages and body values retain their actual producer contracts");
+            }
+            let statement = body.block_identity_for_test();
+            let words = program.store.blocks[statement.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let statement = *program.store.extra[words].last().unwrap() as usize;
+            let mut missing_value = (*program).clone();
+            let location = *program.store.payload(program.store.data[context].range()).unwrap().last().unwrap();
+            let start = missing_value.store.extra.len() as u32;
+            missing_value.store.extra.extend([tail as u32, 2, location]);
+            missing_value.store.tags[statement] = FullTag::StmtLetRecord;
+            missing_value.store.data[statement] = IrData::new(start, 3);
+            let error = FullVerifier::verify(&missing_value).unwrap_err();
+            assert!(error.message.contains("producer") || error.message.contains("Unit"), "{}", error.message);
+            let directory = scheme_fixture_root_function(&program, "directory");
+            let scope = program.store.function_instruction_range(directory).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprContextScope).unwrap();
+            let decoder = function_view_decoder(&program.store, directory);
+            let schema::ExprView::ContextScope { input, .. } = decoder.expression_view(scope).unwrap() else { panic!("scope") };
+            let mut forged_input = (*program).clone();
+            forged_input.store.tags[input.raw() as usize] = FullTag::ExprInt;
+            forged_input.store.data[input.raw() as usize] = program.store.data[integer];
+            assert!(FullVerifier::verify(&forged_input).unwrap_err().message.contains("scope input"));
+            let mut forged_kind = (*program).clone();
+            let words = forged_kind.store.data[scope].range().bounds(forged_kind.store.extra.len()).unwrap();
+            forged_kind.store.extra[words.start] = 2;
+            assert!(FullVerifier::verify(&forged_kind).unwrap_err().message.contains("requires effect time"));
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_unit_context_bodies() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-unit-context-results.xsh", r#"
+var hits: Int = 0
+proc empty_context() [error] -> Result[Unit] { Ok(ctx "empty" {}) }
+proc statement_context() [error] -> Result[Unit] { Ok(ctx "statement" { hits += 1 }) }
+proc empty_scope() [env, error] -> Result[Unit] { let value = cd (p"/") {}?; Ok(value) }
+proc statement_scope() [env, error] -> Result[Unit] { let value = env ({XSH_STRICT_SCOPE: "inner"}) { hits += 1 }?; Ok(value) }
+proc transfer() [error] -> Result[Unit] { let value = ctx "transfer" { return Ok() }; Ok(value) }
+assert empty_context() == Ok()
+assert statement_context() == Ok()
+assert empty_scope() == Ok()
+assert statement_scope() == Ok()
+assert transfer() == Ok()
+assert hits == 2
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_driver_context_exits() {
+        run_with_large_stack(|| {
+            for (case, source) in [
+                "let value: Result[Unit] = Ok(ctx \"stop\" { exit 7; let unused = 0 })\n",
+                "let value: Result[Result[Unit]] = Ok(cd (p\"/\") { exit 7; let unused = 0 })\n",
+                "let value: Result[Result[Unit]] = Ok(env ({XSH_STRICT_SCOPE: \"inner\"}) { exit 7; let unused = 0 })\n",
+            ].into_iter().enumerate() {
+                let program = Arc::new(fixture("strict-driver-context-exit.xsh", source));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut exit = None;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        match evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap() {
+                            Ok(_) => {}
+                            Err(error) => { exit = error.abort.map(|signal| signal.status); break; }
+                        }
+                    }
+                    assert_eq!(exit, Some(7));
+                }
+                if case == 0 {
+                    let constructors = program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| (*tag == FullTag::ExprOk).then_some(instruction)).collect::<Vec<_>>();
+                    assert_eq!(constructors.len(), 1);
+                    let constructor = constructors[0];
+                    let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&constructor)).unwrap();
+                    let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                    let schema::ExprView::Ok(context) = decoder.expression_view(constructor).unwrap() else { panic!("physical constructor") };
+                    let schema::ExprView::ErrorContext { mut body, .. } = decoder.expression_view(context.raw() as usize).unwrap() else { panic!("physical context") };
+                    let block = body.block_identity_for_test();
+                    assert!(decoder.derive_checked_block_tail_expression(&mut body).unwrap().is_none());
+                    assert!(indexed_block_can_return_with_decoder(&program.store, block, Some(&decoder)).unwrap());
+                    let mut prepared = (*program).clone();
+                    let ty = Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
+                    let ty = SemanticPoolBuilder::default().intern_type(&mut prepared.store.semantic, &ty).unwrap();
+                    prepared.store.checked_expr_types.retain(|fact| fact.instruction != constructor as u32);
+                    let at = prepared.store.checked_expr_types.partition_point(|fact| fact.instruction < constructor as u32);
+                    prepared.store.checked_expr_types.insert(at, FullCheckedExprType {
+                        instruction: constructor as u32, type_id: ty,
+                        purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+                    });
+                    assert_eq!(verify_schemes::GroundProducerIndex::new(&prepared.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+                    FullVerifier::verify(&prepared).expect("a closed constructor contract on a noncompleting driver context has no function return owner");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_process_capture_results() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-process-results.xsh", r#"
+proc text_result() [process, error] -> Result[Str] { Ok(run.text printf hello ?) }
+proc bytes_result() [process, error] -> Result[Bytes] { Ok(run.bytes printf bytes ?) }
+proc captured_text() [process, error] -> Result[Str] { let captured = run.capture --text printf text; Ok(captured.stdout) }
+proc captured_bytes() [process, error] -> Result[Bytes] { let captured = run.capture --bytes printf bytes; Ok(captured.stdout) }
+proc pipeline_result() [process, error] -> Result[Str] { let captured = run.capture --text printf pipeline | run cat; Ok(captured.stdout) }
+proc raw_result() [process] -> Result[Str, ProcessError] { try run.text printf raw }
+assert raw_result()? == "raw"
+assert text_result()? == "hello"
+assert bytes_result()? == b"bytes"
+assert captured_text()? == "text"
+assert captured_bytes()? == b"bytes"
+assert pipeline_result()? == "pipeline"
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let text = scheme_fixture_root_function(&program, "text_result");
+            let capture = program.store.function_instruction_range(text).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRunCapture).unwrap();
+            let mut forged_kind = (*program).clone();
+            let words = forged_kind.store.data[capture].range().bounds(forged_kind.store.extra.len()).unwrap();
+            let kind = forged_kind.store.run_kinds.len() as u32;
+            forged_kind.store.run_kinds.push(RunKind::CaptureBytes);
+            forged_kind.store.extra[words.start] = kind;
+            FullVerifier::verify(&forged_kind).expect_err("capture payloads must follow the actual run kind");
+            let pipeline = scheme_fixture_root_function(&program, "pipeline_result");
+            let instruction = program.store.function_instruction_range(pipeline).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRunPipeline).unwrap();
+            let decoder = function_view_decoder(&program.store, pipeline);
+            let schema::ExprView::RunPipeline { segments, .. } = decoder.expression_view(instruction).unwrap() else { panic!("pipeline") };
+            let block = segments.block_identity_for_test();
+            let words = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut forged_head = (*program).clone();
+            let kind = forged_head.store.run_kinds.len() as u32;
+            forged_head.store.run_kinds.push(RunKind::CaptureBytesRecord);
+            forged_head.store.extra[words.start + 1] = kind;
+            FullVerifier::verify(&forged_head).expect_err("pipeline capture shape comes from the head kind");
+            let raw = scheme_fixture_root_function(&program, "raw_result");
+            let capture = program.store.function_instruction_range(raw).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRunCapture).unwrap();
+            let decoder = function_view_decoder(&program.store, raw);
+            let words = program.store.data[capture].range().bounds(program.store.extra.len()).unwrap();
+            let cursor = LoweredRunCapture::field_cursor(DecodeContext::from_decoder(&decoder), FullCursor::new(&program.store.extra[words.clone()]), "propagate").unwrap();
+            let mut forged_flag = (*program).clone();
+            forged_flag.store.extra[words.start + cursor.index] = 1;
+            assert!(FullVerifier::verify(&forged_flag).unwrap_err().message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
     fn strict_result_producers_accept_open_callable_parameter_contracts() {
         run_with_large_stack(|| {
             let program = fixture("strict-result-open-callback.xsh", r#"
