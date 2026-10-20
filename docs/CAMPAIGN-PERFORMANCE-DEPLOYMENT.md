@@ -20,30 +20,42 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `4f58546f2` passes 97 focused runtime, verifier, loader and interface
-controls after local integration. Independent reviews cover the accepted slices.
+Source `b7dc8f73c` passes 101 focused runtime, verifier, loader and interface
+controls after local integration. The mutable typed-storage repair at
+`152859aa2` has independent review and positive and corruption controls.
 Physical operations now authenticate callable kinds and finite effect bounds.
 Monomorphic shared reads authenticate the defining value and every writer,
 including partial writes, nominal payloads and unsigned storage checks.
-Typed Proc factories and optional erased callable fields execute on both
+Typed mutable captures, Proc factories and optional erased callable fields execute on both
 indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
-Matching verification products build successfully. Generated documentation and
-broader qualification remain pending.
+Verification products at `4f58546f2` build successfully. Matching products for
+the storage and range repairs, generated documentation and broader qualification
+remain pending.
 
 Source `786080e95` integrates the reviewed context and process producer repair.
 Its four focused controls pass in the combined check. Context scopes authenticate
 their body and inputs. Process payloads use the pipeline head's checked run kind.
 The verifier also preserves driver exits followed by unreachable declarations.
-All three matching native context, process and explicit-discard regressions pass.
-The nine annotation cases fail during shared module preparation, before their
-bodies run, with `ground producer form has no executable type proof`.
-That producer failure is under diagnosis. The full library check remains pending.
+All three matching native context, process and explicit-discard regressions pass
+at `4f58546f2`. Its nine annotation cases fail during shared module preparation,
+before their bodies run. The isolated Rust preparation regression identifies
+an unsupported range producer. Repair `b7dc8f73c` passes that real fixture and
+a minimal range test with an invalid-bound control. Matching native replay
+and the full library check remain pending.
+
+Documentation generation at `4f58546f2` stops before writing files because
+the verifier cannot find the canonical effect contract for `FsRoot.host_path()`.
+The method already requires `fs`. Repair must preserve that registered contract.
+Source review also identifies Glob, last-status and try-capture producer forms
+that need focused strict-demand proofs. These remain open until reproduced
+and repaired.
 
 The paired interface command at `4f58546f2` preserves original logical source
 identities while checking candidate bytes. Export, symlink and cancellation
 controls pass before integration, alongside warning-denied Clippy for xsh and
-xsht with all targets and features. The merged process replay and actual corpus
-comparison remain pending. Body selections, effects and executable validation
+xsht with all targets and features. The merged replay passes twelve process
+tests and two unit controls. Actual corpus comparison remains pending.
+Body selections, effects and executable validation
 need their separate canonical projection before removals earn parity credit.
 
 The separate origin fix `16d7c4f15` preserves explicit Result discards as data
