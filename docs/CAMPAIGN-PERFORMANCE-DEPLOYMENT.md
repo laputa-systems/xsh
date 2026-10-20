@@ -21,7 +21,24 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `12f65d5ee` passes the combined targeted boundary: 338 passed, zero
+Source `0b33e84bf` passes the combined targeted boundary: 342 passed, zero
+failed and zero ignored, including the previously failing dynamic-module-call
+selector. Dynamic calls through required Module exports prove actual arguments,
+defaults, results and effects. Runtime-loaded module calls execute on both
+routes; erased unknown Proc calls still fail finite effect ceilings.
+Matching verification products build in `.work/wt/full-inference-dynamic-contract`.
+The imported constructor annotation selector now passes, as do all three
+hidden-resource lifetime controls, with zero skips. No full native, docs,
+corpus or performance acceptance follows from these focused results.
+
+The matching `xsh` is 35,560,776 bytes, SHA-256
+`3bd5fc41a9bc425b35ca5f2cf61f57a1b8f07fdd22a262199c7267a54b389ddb`;
+`xsht` is 43,550,736 bytes, SHA-256
+`4a9b47543bc2e3ef73fd8079b8af3271f8b83d682082b00b7de770b9ac8d3947`.
+Both are under `.work/target/x86_64-unknown-linux-musl/verification`
+in that frozen checkout. Earlier product evidence remains bound to its source.
+
+Source `12f65d5ee` passes the earlier combined targeted boundary: 338 passed, zero
 failed and zero ignored. Imported module reads use the actual verified Use
 origin and registered export contracts, including reads with erased precision.
 Five portable regressions cover execution after frontend disposal on both
