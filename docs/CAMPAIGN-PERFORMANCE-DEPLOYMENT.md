@@ -20,7 +20,7 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `d78615ba6` passes 129 focused runtime, verifier, loader, semantic-body
+Source `546a62469` passes 131 focused runtime, verifier, loader, semantic-body
 and interface controls after local integration. The repaired public body
 comparison rejects lost UInt checks, accepts proven Int annotation removal,
 and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
@@ -58,7 +58,10 @@ before writing files. A focused Rust replay traces the generated match to
 origin repair at `4a12cc8a8` passes the real tour import and a mutable-list
 writer control on both indexed routes. Its merged replay has 130 passes and
 one failure: the embedded `template` module rejects a producer contract.
-That regression remains open. No matching documentation generation pass is claimed.
+Repair `546a62469` leaves dynamic slots context-directed and restores the
+entire catalog. Its merged replay passes all 131 selected controls. Expanded
+docs preparation still exposes open binder and return-carrier cases. No matching
+documentation generation pass is claimed.
 Glob, last-status and try-capture strict-demand regressions also reproduce.
 Their repairs remain open.
 
