@@ -455,6 +455,7 @@ impl Checker {
             std::mem::take(&mut resource_check.suppressed_body_transfers);
         checker.diagnostics.extend(resource_check.diagnostics);
         checker.resource_transfers.extend(resource_check.transfers);
+        checker.same_scope_resource_assignments.extend(resource_check.same_scope_assignments);
         let facts = checker.effect_graph.facts(&checker.effect_summaries);
         checker.finalize_function_declarations(program, &facts);
         let mut signature = signature;

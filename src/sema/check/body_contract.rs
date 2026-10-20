@@ -1,16 +1,16 @@
 use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
-use super::callable_contract::{SchemaIdentity, same_schema, schema_identities};
+use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_schema, schema_identities};
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
 use crate::sema::constants::CheckedRecordConstructor;
-use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan};
+use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan, SchemeType, TypeScheme};
 use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
-use crate::syntax::arena::{ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, ExprId, StmtId, SugarView, TypeDefId};
+use crate::syntax::arena::{ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
 use crate::syntax::node::{Effect, StreamStageKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -113,7 +113,7 @@ impl PendingBodyContracts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize) }
+enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize), RunValue }
 
 type NodePath = Vec<PathStep>;
 
@@ -160,6 +160,101 @@ enum ControlFact {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum TransferKind { Return, BlockValue, Break, Assignment, Yield }
 
+#[derive(Clone, Debug)]
+enum OperandType {
+    Ground(Type),
+    Scheme { ty: SchemeType, owner: Arc<TypeScheme> },
+    Missing,
+}
+
+impl OperandType {
+    fn ground(&self) -> Option<Type> {
+        match self {
+            Self::Ground(ty) => Some(ty.clone()),
+            Self::Scheme { ty, .. } => ty.closed_ground_type(),
+            Self::Missing => None,
+        }
+    }
+
+    fn specialized(&self, instance: &CallableInstanceEvidence) -> Option<Type> {
+        match self {
+            Self::Ground(ty) => Some(ty.clone()),
+            Self::Scheme { ty, owner } => instance.specialize(ty, owner),
+            Self::Missing => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum TransferOperand {
+    Expression(OperandType),
+    Run(OperandType),
+    DelegatedExpression(OperandType),
+    BareTail(OperandType),
+    Empty,
+    NoValue,
+    SameScopeAssignment,
+    Match(Vec<TransferCause>),
+    Missing,
+}
+
+impl TransferOperand {
+    fn same_role(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Expression(_), Self::Expression(_)) | (Self::Run(_), Self::Run(_))
+            | (Self::BareTail(_), Self::BareTail(_)) | (Self::DelegatedExpression(_), Self::DelegatedExpression(_))
+            | (Self::Empty, Self::Empty)
+            | (Self::NoValue, Self::NoValue) | (Self::SameScopeAssignment, Self::SameScopeAssignment)
+            | (Self::Missing, Self::Missing) => true,
+            (Self::Match(left), Self::Match(right)) => left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| left.operand.same_role(&right.operand)),
+            _ => false,
+        }
+    }
+
+    fn scalar_instance(&self, candidate: &Self, instance: &CallableInstanceEvidence) -> bool {
+        match (self, candidate) {
+            (Self::Expression(old), Self::Expression(new)) | (Self::Run(old), Self::Run(new))
+            | (Self::BareTail(old), Self::BareTail(new))
+            | (Self::DelegatedExpression(old), Self::DelegatedExpression(new)) => old.ground().is_some_and(|old|
+                !old.may_hold_resource() && new.specialized(instance).as_ref() == Some(&old)),
+            (Self::Match(old), Self::Match(new)) => old.len() == new.len() && !old.is_empty()
+                && old.iter().zip(new).all(|(old, new)| old.preserved_by(new, Some(instance))
+                    && (matches!((&old.operand, &new.operand), (Self::Empty, Self::Empty) | (Self::NoValue, Self::NoValue))
+                        && !old.runtime_flag && !new.runtime_flag
+                        || old.operand.scalar_instance(&new.operand, instance))),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TransferCause {
+    runtime_flag: bool,
+    operand: TransferOperand,
+}
+
+impl TransferCause {
+    fn preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
+        if !self.operand.same_role(&candidate.operand) { return false; }
+        if let (TransferOperand::Match(old), TransferOperand::Match(new)) = (&self.operand, &candidate.operand) {
+            if self.runtime_flag != old.iter().any(|cause| cause.runtime_flag)
+                || candidate.runtime_flag != new.iter().any(|cause| cause.runtime_flag)
+                || !old.iter().zip(new).all(|(old, new)| old.preserved_by(new, instance))
+            { return false; }
+        }
+        self.runtime_flag == candidate.runtime_flag
+            || !self.runtime_flag && candidate.runtime_flag && instance.is_some_and(|instance|
+                self.operand.scalar_instance(&candidate.operand, instance))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ResourceTransfer {
+    kind: TransferKind,
+    cause: TransferCause,
+}
+
 #[derive(Clone, Debug, Default)]
 struct NodeSelection {
     requirement: Option<RequirementTarget>,
@@ -183,7 +278,7 @@ struct NodeSelection {
     result_constructor: Option<super::CheckedResultConstructor>,
     collect_target: Option<Span>,
     resources: Option<Vec<ManagedResource>>,
-    transfers: Vec<(TransferKind, bool)>,
+    transfers: Vec<ResourceTransfer>,
     text_pattern: Option<TextPattern>,
 }
 
@@ -199,14 +294,18 @@ impl SemanticBodyContract {
     /// explicit clause additionally requires the checker's redundancy proof.
     /// Unknown summaries remain unknown and never authorize clause removal.
     pub(crate) fn preserved_by(&self, candidate: &Self) -> bool {
+        self.preserved_by_instance(candidate, None)
+    }
+
+    pub(crate) fn preserved_by_instance(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
         self.source_name == candidate.source_name && self.owner == candidate.owner
             && self.operations == candidate.operations && same_effect_fact(self.effects.as_ref(), candidate.effects.as_ref())
             && self.selections.len() == candidate.selections.len()
             && self.selections.iter().all(|(path, left)| candidate.selections.get(path)
-                .is_some_and(|right| self.same_selection(left, right, candidate)))
+                .is_some_and(|right| self.same_selection(left, right, candidate, instance)))
     }
 
-    fn same_selection(&self, left: &NodeSelection, right: &NodeSelection, candidate: &Self) -> bool {
+    fn same_selection(&self, left: &NodeSelection, right: &NodeSelection, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
         let same_requirement = match (&left.requirement, &right.requirement) {
             (None, None) => true,
             (Some(left), Some(right)) => left.ty == right.ty
@@ -240,7 +339,10 @@ impl SemanticBodyContract {
             && left.stage_kind == right.stage_kind
             && left.handler_input == right.handler_input && left.position == right.position && left.control == right.control
             && left.result_constructor == right.result_constructor && left.resources == right.resources
-            && left.transfers == right.transfers && left.text_pattern == right.text_pattern
+            && left.transfers.len() == right.transfers.len()
+            && left.transfers.iter().zip(&right.transfers).all(|(old, new)| old.kind == new.kind
+                && old.cause.preserved_by(&new.cause, instance))
+            && left.text_pattern == right.text_pattern
     }
 }
 
@@ -281,7 +383,9 @@ struct Capture<'a> {
     seen_spans: BTreeSet<Span>,
     seen_stages: BTreeSet<(Option<Name>, Span)>,
     user_sources: BTreeSet<SourceId>,
-    transfers: BTreeMap<Span, Vec<(TransferKind, bool)>>,
+    transfers: BTreeMap<Span, Vec<ResourceTransfer>>,
+    operand_expressions: BTreeMap<ExprId, OperandType>,
+    operand_tails: BTreeMap<StmtId, OperandType>,
     module_sources: BTreeMap<SourceId, Arc<str>>,
     sites: BTreeMap<BodyContractSite, BTreeSet<SiteLocation>>,
     value_boundaries: BTreeSet<(OwnerKey, NodePath, NodePath)>,
@@ -310,7 +414,8 @@ impl PendingBodyContracts {
             registered: BTreeMap::new(), seen_registered: BTreeSet::new(), seen_api: BTreeSet::new(),
             seen_commands: BTreeSet::new(), seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
             user_sources: BTreeSet::new(), transfers: BTreeMap::new(), seen_stages: BTreeSet::new(), module_sources: BTreeMap::new(),
-            sites: BTreeMap::new(), value_boundaries: BTreeSet::new() };
+            sites: BTreeMap::new(), value_boundaries: BTreeSet::new(),
+            operand_expressions: BTreeMap::new(), operand_tails: BTreeMap::new() };
         for module in &program.modules {
             let source = program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span.source_id)
                 .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id));
@@ -324,6 +429,10 @@ impl PendingBodyContracts {
         for declaration in checked.checked_declarations.functions.values().filter(|declaration| !declaration.internal) {
             capture.user_sources.insert(declaration.body.source_id);
             if let Some(facts) = &declaration.scheme_body_facts {
+                capture.operand_expressions.extend(facts.expression_types().iter().map(|(&id, ty)|
+                    (id, OperandType::Scheme { ty: ty.clone(), owner: Arc::clone(facts.scheme()) })));
+                capture.operand_tails.extend(facts.tail_types().iter().map(|(&id, ty)|
+                    (id, OperandType::Scheme { ty: ty.clone(), owner: Arc::clone(facts.scheme()) })));
                 for (&expression, plan) in facts.registered_calls() {
                     if capture.registered.insert(expression, Arc::clone(plan)).is_some() {
                         return Err(BodyContractError::UnmappedFact(program.arena.expr(expression).span));
@@ -339,9 +448,10 @@ impl PendingBodyContracts {
                 ResourceTransferSite::Assignment(id) => (program.arena.stmt(id).span, TransferKind::Assignment),
                 ResourceTransferSite::Yield(id) => (program.arena.stmt(id).span, TransferKind::Yield),
             };
-            capture.transfers.entry(span).or_default().push((kind, value));
+            let operand = capture.transfer_operand(site);
+            capture.transfers.entry(span).or_default().push(ResourceTransfer { kind, cause: TransferCause { runtime_flag: value, operand } });
         }
-        for transfers in capture.transfers.values_mut() { transfers.sort(); }
+        for transfers in capture.transfers.values_mut() { transfers.sort_by_key(|transfer| transfer.kind); }
         capture.roots(program.statement_ids().collect(), None)?;
         for module in program.modules.iter().filter(|module| !module.internal) {
             capture.roots(program.module_statements(module).collect(), Some(module.name))?;
@@ -355,6 +465,68 @@ impl PendingBodyContracts {
 }
 
 impl Capture<'_> {
+    fn expression_type(&self, expression: ExprId) -> OperandType {
+        self.operand_expressions.get(&expression).cloned().unwrap_or_else(||
+            self.span_operand(self.program.arena.expr(expression).span))
+    }
+
+    fn expression_operand(&self, expression: ExprId) -> TransferOperand {
+        TransferOperand::Expression(self.expression_type(expression))
+    }
+
+    fn span_operand(&self, span: Span) -> OperandType {
+        self.checked.expr_types.get(&span).cloned().map(OperandType::Ground).unwrap_or(OperandType::Missing)
+    }
+
+    fn expr_or_run_operand(&self, value: ArenaExprOrRun) -> TransferOperand {
+        match value {
+            ArenaExprOrRun::Expr(expression) => self.expression_operand(expression),
+            ArenaExprOrRun::Run(_) => TransferOperand::Run(self.span_operand(super::expr::expr_or_run_span_arena(self.program, value))),
+        }
+    }
+
+    fn transfer_operand(&self, site: ResourceTransferSite) -> TransferOperand {
+        match site {
+            ResourceTransferSite::BlockValue(block) => self.block_operand(block),
+            ResourceTransferSite::Return(statement) | ResourceTransferSite::Break(statement)
+            | ResourceTransferSite::Yield(statement) | ResourceTransferSite::Assignment(statement) => {
+                if matches!(site, ResourceTransferSite::Assignment(_))
+                    && self.checked.same_scope_resource_assignments.contains(&statement)
+                { return TransferOperand::SameScopeAssignment; }
+                match self.program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Return(Some(value)) | ArenaStmtKind::Yield(value)
+                    | ArenaStmtKind::Assign { value, .. } => self.expr_or_run_operand(value),
+                    ArenaStmtKind::Break { value: Some(expression) } => self.expression_operand(expression),
+                    ArenaStmtKind::YieldDelegate(expression) => TransferOperand::DelegatedExpression(self.expression_type(expression)),
+                    ArenaStmtKind::Return(None) | ArenaStmtKind::Break { value: None } => TransferOperand::NoValue,
+                    _ => TransferOperand::Missing,
+                }
+            }
+        }
+    }
+
+    fn block_operand(&self, block: BlockId) -> TransferOperand {
+        let Some(statement) = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last() else {
+            return TransferOperand::Empty;
+        };
+        let node = self.program.arena.stmt(statement);
+        match self.checked.statement_positions.get(&node.span) {
+            Some(StatementPosition::Statement) => return TransferOperand::NoValue,
+            Some(StatementPosition::Value) => {}
+            None => return TransferOperand::Missing,
+        }
+        match node.kind {
+            ArenaStmtKind::Expr(expression) => self.expression_operand(expression),
+            ArenaStmtKind::TailBareIdent(_) => TransferOperand::BareTail(self.operand_tails.get(&statement).cloned()
+                .unwrap_or_else(|| self.span_operand(node.span))),
+            ArenaStmtKind::Match { arms, .. } => self.program.arena.match_arms(arms).iter().map(|arm| {
+                self.checked.resource_transfers.get(&ResourceTransferSite::BlockValue(arm.block)).copied()
+                    .map(|runtime_flag| TransferCause { runtime_flag, operand: self.block_operand(arm.block) })
+            }).collect::<Option<Vec<_>>>().map(TransferOperand::Match).unwrap_or(TransferOperand::Missing),
+            _ => TransferOperand::NoValue,
+        }
+    }
+
     fn source_name(&self, source_id: SourceId) -> Result<Arc<str>, BodyContractError> {
         if let Some(key) = self.module_sources.get(&source_id) { return Ok(Arc::clone(key)); }
         self.sources.get(source_id).map(|source| Arc::from(source.name())).ok_or(BodyContractError::MissingSource(source_id))
@@ -485,6 +657,7 @@ impl Capture<'_> {
             }
         }
         if let ArenaChild::Stmt(statement) = node {
+            self.run_value(statement, owner, path, namespace)?;
             let span = match self.program.arena.stmt(statement).kind {
                 ArenaStmtKind::Command(command) => self.program.arena.span(self.program.arena.command_stmt(command).span),
                 _ => self.program.arena.stmt(statement).span,
@@ -500,6 +673,27 @@ impl Capture<'_> {
                 self.bodies.get_mut(owner).unwrap().operations.insert(path.to_vec(), Operation { selection, command_arguments: Some(command_arguments) });
             }
         }
+        Ok(())
+    }
+
+    fn run_value(&mut self, statement: StmtId, owner: &OwnerKey, path: &[PathStep], namespace: Option<Name>) -> Result<(), BodyContractError> {
+        let value = match self.program.arena.stmt(statement).kind {
+            ArenaStmtKind::Return(Some(value)) | ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value, _)
+            | ArenaStmtKind::Assign { value, .. } => value,
+            ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => initializer,
+            _ => return Ok(()),
+        };
+        let ArenaExprOrRun::Run(_) = value else { return Ok(()); };
+        let span = super::expr::expr_or_run_span_arena(self.program, value);
+        let mut path = path.to_vec();
+        path.push(PathStep::RunValue);
+        let selection = self.node_selection(span, namespace)?;
+        self.seen_spans.insert(span);
+        self.sites.entry(BodyContractSite::Expression(span)).or_default()
+            .insert((owner.clone(), CanonicalBodyContractSite(SitePath::Expression(path.clone()))));
+        let body = self.bodies.get_mut(owner).unwrap();
+        body.span_paths.entry(span).or_insert_with(|| path.clone());
+        if body.selections.insert(path, selection).is_some() { return Err(BodyContractError::UnmappedFact(span)); }
         Ok(())
     }
 
@@ -763,6 +957,135 @@ mod tests {
 
     fn declaration(source: &str) -> SemanticBodyContract {
         snapshots(source).into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap()
+    }
+
+    #[test]
+    fn checked_body_contract_resource_specialization_requires_same_header_binders_and_operand_roles() {
+        let (_, _, old_checked) = checked("pure choose(first: Int, second: Str) -> Int { first }\n");
+        let (_, _, new_checked) = checked("pure choose(first, second) { first }\n");
+        let old = old_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+        let declaration = new_checked.checked_declarations.functions.values().next().unwrap();
+        let new = declaration.callable_contract().unwrap();
+        let scheme = declaration.scheme.as_ref().unwrap();
+        let instance = old.instance_evidence(&new).unwrap().unwrap();
+        let operand = |ordinal: usize| OperandType::Scheme { ty: scheme.params()[ordinal].ty.clone(), owner: Arc::clone(scheme) };
+        for role in [TransferOperand::Expression as fn(OperandType) -> TransferOperand, TransferOperand::Run, TransferOperand::BareTail, TransferOperand::DelegatedExpression] {
+            let old = TransferCause { runtime_flag: false, operand: role(OperandType::Ground(Type::Int)) };
+            let candidate = TransferCause { runtime_flag: true, operand: role(operand(0)) };
+            assert!(old.preserved_by(&candidate, Some(&instance)));
+            assert!(!candidate.preserved_by(&old, Some(&instance)));
+            assert!(!old.preserved_by(&candidate, None));
+            assert!(!old.preserved_by(&TransferCause { runtime_flag: true, operand: role(operand(1)) }, Some(&instance)));
+            assert!(!old.preserved_by(&TransferCause { runtime_flag: true, operand: role(OperandType::Missing) }, Some(&instance)));
+            let foreign = OperandType::Scheme { ty: scheme.params()[0].ty.clone(), owner: Arc::new((**scheme).clone()) };
+            assert!(!old.preserved_by(&TransferCause { runtime_flag: true, operand: role(foreign) }, Some(&instance)));
+        }
+        for (old_type, new_type) in [
+            (Type::List(Box::new(Type::Optional(Box::new(Type::Int)))),
+             SchemeType::List(Box::new(SchemeType::Optional(Box::new(scheme.params()[0].ty.clone()))))),
+            (Type::Map(Box::new(Type::Str), Box::new(Type::Set(Box::new(Type::Int)))),
+             SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Set(Box::new(scheme.params()[0].ty.clone()))))),
+        ] {
+            let old = TransferCause { runtime_flag: false, operand: TransferOperand::Expression(OperandType::Ground(old_type)) };
+            let new = TransferCause { runtime_flag: true, operand: TransferOperand::Expression(OperandType::Scheme { ty: new_type, owner: Arc::clone(scheme) }) };
+            assert!(old.preserved_by(&new, Some(&instance)));
+        }
+        for ty in [Type::Any, Type::Record(Arc::new(BTreeMap::new())), Type::Tag(declaration.name)] {
+            let old = TransferCause { runtime_flag: false, operand: TransferOperand::Expression(OperandType::Ground(ty.clone())) };
+            let new = TransferCause { runtime_flag: true, operand: TransferOperand::Expression(OperandType::Ground(ty)) };
+            assert!(!old.preserved_by(&new, Some(&instance)));
+        }
+        let old_arm = || TransferCause { runtime_flag: false, operand: TransferOperand::Expression(OperandType::Ground(Type::Int)) };
+        let new_arm = || TransferCause { runtime_flag: true, operand: TransferOperand::Expression(operand(0)) };
+        let old_match = TransferCause { runtime_flag: false, operand: TransferOperand::Match(vec![old_arm(), old_arm()]) };
+        let new_match = TransferCause { runtime_flag: true, operand: TransferOperand::Match(vec![new_arm(), new_arm()]) };
+        assert!(old_match.preserved_by(&new_match, Some(&instance)));
+        let changed_match = TransferCause { runtime_flag: true, operand: TransferOperand::Match(vec![old_arm(), new_arm()]) };
+        assert!(!new_match.preserved_by(&changed_match, Some(&instance)));
+        for operand in [TransferOperand::Empty, TransferOperand::NoValue, TransferOperand::SameScopeAssignment, TransferOperand::Missing] {
+            let original = TransferCause { runtime_flag: false, operand: operand.clone() };
+            assert!(!original.preserved_by(&TransferCause { runtime_flag: true, operand }, Some(&instance)));
+        }
+        let original = TransferCause { runtime_flag: false, operand: TransferOperand::Expression(OperandType::Ground(Type::Int)) };
+        let changed = TransferCause { runtime_flag: true, operand: TransferOperand::BareTail(operand(0)) };
+        assert!(!original.preserved_by(&changed, Some(&instance)));
+    }
+
+    #[test]
+    fn checked_body_contract_resource_specialization_rejects_missing_tail_authority() {
+        let original = declaration("pure keep(value: Int) -> Int { value }\n");
+        let (_, _, old_checked) = checked("pure keep(value: Int) -> Int { value }\n");
+        let old_interface = old_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+        for missing_position in [true, false] {
+            let (program, sources, mut checked) = checked("pure keep(value) { value }\n");
+            let declaration = checked.checked_declarations.functions.values_mut().next().unwrap();
+            let interface = declaration.callable_contract().unwrap();
+            if missing_position { checked.statement_positions.clear(); }
+            else {
+                declaration.scheme_body_facts = Some(crate::sema::schemes::SchemeBodyFacts::new(
+                    Arc::clone(declaration.scheme.as_ref().unwrap()), BTreeMap::new(), BTreeMap::new()).unwrap());
+            }
+            let candidate = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts().into_iter()
+                .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+            assert!(candidate.selections.values().flat_map(|selection| &selection.transfers).any(|transfer|
+                matches!(transfer.cause.operand, TransferOperand::Missing | TransferOperand::BareTail(OperandType::Missing))));
+            let instance = old_interface.instance_evidence(&interface).unwrap().unwrap();
+            assert!(!original.preserved_by_instance(&candidate, Some(&instance)));
+        }
+    }
+
+    #[test]
+    fn checked_body_contract_preserves_match_transfer_causes_and_disjunction() {
+        let scalar = || TransferCause { runtime_flag: false, operand: TransferOperand::Expression(OperandType::Ground(Type::Int)) };
+        let old = TransferCause { runtime_flag: false, operand: TransferOperand::Match(vec![scalar(), scalar()]) };
+        assert!(old.preserved_by(&old, None));
+        let mut changed = old.clone();
+        let TransferOperand::Match(arms) = &mut changed.operand else { unreachable!() };
+        arms[0].runtime_flag = true;
+        assert!(!old.preserved_by(&changed, None));
+        changed.runtime_flag = true;
+        assert!(!old.preserved_by(&changed, None));
+        let mut missing = old.clone();
+        let TransferOperand::Match(arms) = &mut missing.operand else { unreachable!() };
+        arms[0].operand = TransferOperand::Missing;
+        assert!(!old.preserved_by(&missing, None));
+    }
+
+    #[test]
+    fn checked_body_contract_captures_analyzer_assignment_roles() {
+        let (program, sources, checked) = checked("proc keep(value: Int) [] -> Int { var result = value; result = value; { result = value }; result }\n");
+        assert_eq!(checked.same_scope_resource_assignments.len(), 1);
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
+        let assignments = contracts.iter().flat_map(|body| body.selections.values()).flat_map(|selection| &selection.transfers)
+            .filter(|transfer| transfer.kind == TransferKind::Assignment).collect::<Vec<_>>();
+        assert_eq!(assignments.len(), 2);
+        assert!(assignments.iter().any(|transfer| matches!(transfer.cause.operand, TransferOperand::SameScopeAssignment)));
+        assert!(assignments.iter().any(|transfer| matches!(transfer.cause.operand, TransferOperand::Expression(_))));
+    }
+
+    #[test]
+    fn checked_body_contract_captures_checked_transfer_operand_roles() {
+        let source = "pure branch(value: Int) -> Int { match true { true => value; false => value } }\npure stop(value: Int) -> Int { let result = loop { break value }; result }\nstream child(value: Int) [] -> Stream[Int] { yield value }\nstream parent(value: Int) [] -> Stream[Int] { yield @child(value) }\nproc command() [process, error] -> Result[Str] { return run.text /bin/pwd ? }\n";
+        let contracts = snapshots(source);
+        let transfers = contracts.iter().flat_map(|body| body.selections.values()).flat_map(|selection| &selection.transfers).collect::<Vec<_>>();
+        assert!(transfers.iter().any(|transfer| transfer.kind == TransferKind::BlockValue
+            && matches!(&transfer.cause.operand, TransferOperand::Match(arms) if arms.len() == 2 && arms.iter().all(|arm| !arm.runtime_flag))));
+        assert!(transfers.iter().any(|transfer| transfer.kind == TransferKind::Break && matches!(transfer.cause.operand, TransferOperand::Expression(_))));
+        assert!(transfers.iter().any(|transfer| transfer.kind == TransferKind::Yield && matches!(transfer.cause.operand, TransferOperand::Expression(_))));
+        assert!(transfers.iter().any(|transfer| transfer.kind == TransferKind::Yield && matches!(transfer.cause.operand, TransferOperand::DelegatedExpression(_))));
+        assert!(transfers.iter().any(|transfer| transfer.kind == TransferKind::Return && matches!(transfer.cause.operand, TransferOperand::Run(_))));
+    }
+
+    #[test]
+    fn checked_body_contract_preserves_run_value_control_selections() {
+        let source = "proc command() [process, error] -> Result[Str] { return run.text /bin/pwd ? }\n";
+        let original = declaration(source);
+        let shifted = declaration(&format!("type Unrelated = Int\n{source}"));
+        assert!(original.preserved_by(&shifted));
+        let mut changed = shifted;
+        let selection = changed.selections.values_mut().find(|selection| selection.control.contains(&ControlFact::PropagatingError)).unwrap();
+        selection.control.remove(&ControlFact::PropagatingError);
+        assert!(!original.preserved_by(&changed));
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub type ResourceTransferFacts = FxHashMap<ResourceTransferSite, bool>;
 pub(super) struct ResourceCheck {
     pub diagnostics: Vec<Diagnostic>,
     pub transfers: ResourceTransferFacts,
+    pub same_scope_assignments: FxHashSet<StmtId>,
     /// Transfer facts that remain knowable when embedded bodies are suppressed.
     pub suppressed_body_transfers: ResourceTransferFacts,
 }
@@ -84,6 +85,7 @@ fn check_scopes<'a>(
         blocks: FxHashSet::default(),
         diagnostics: Vec::new(),
         transfers: FxHashMap::default(),
+        same_scope_assignments: FxHashSet::default(),
         suppressed_body_transfers: FxHashMap::default(),
         scheme_body_resource_facts,
         diagnosed: FxHashSet::default(),
@@ -102,6 +104,7 @@ struct Analyzer<'a> {
     blocks: FxHashSet<BlockId>,
     diagnostics: Vec<Diagnostic>,
     transfers: ResourceTransferFacts,
+    same_scope_assignments: FxHashSet<StmtId>,
     suppressed_body_transfers: ResourceTransferFacts,
     scheme_body_resource_facts: FxHashMap<Span, bool>,
     diagnosed: FxHashSet<(BindingId, Span)>,
@@ -205,6 +208,7 @@ impl Analyzer<'_> {
         ResourceCheck {
             diagnostics: self.diagnostics,
             transfers: self.transfers,
+            same_scope_assignments: self.same_scope_assignments,
             suppressed_body_transfers: self.suppressed_body_transfers,
         }
     }
@@ -424,6 +428,7 @@ impl Analyzer<'_> {
                     )
                 {
                     let holds = if declared_bindings.contains(&binding) {
+                        self.same_scope_assignments.insert(stmt);
                         self.suppressed_body_transfers
                             .insert(ResourceTransferSite::Assignment(stmt), false);
                         Some(false)
@@ -459,8 +464,6 @@ impl Analyzer<'_> {
                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
                             *position == super::StatementPosition::Value
                         ) => {
-                            // A tail Match yields its chosen arm block's value, so
-                            // its transfer fact follows the checked arm tails.
                             let arm_blocks = self
                                 .program
                                 .arena

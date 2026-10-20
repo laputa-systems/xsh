@@ -892,12 +892,7 @@ impl SchemeType {
                     pending.push(key);
                     pending.push(value);
                 }
-                Self::Record { fields, tail } => {
-                    if matches!(tail, SchemeRowTail::Parameter(_)) {
-                        return true;
-                    }
-                    pending.extend(fields.values());
-                }
+                Self::Record { .. } => return true,
                 Self::Union(members) => pending.extend(members),
             }
         }
@@ -1111,6 +1106,14 @@ mod tests {
     use crate::syntax::arena::TypeDefId;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
+
+    #[test]
+    fn scheme_resource_potential_preserves_hidden_record_payloads() {
+        let record = SchemeType::Record { fields: BTreeMap::new(), tail: SchemeRowTail::Closed };
+        assert!(record.may_hold_resource());
+        assert!(SchemeType::List(Box::new(record)).may_hold_resource());
+        assert!(!SchemeType::List(Box::new(SchemeType::Ground(Type::Int))).may_hold_resource());
+    }
 
     #[test]
     fn generic_proc_schemes_reject_unresolved_effects() {

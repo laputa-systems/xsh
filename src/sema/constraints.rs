@@ -764,6 +764,17 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn resolve_instance_operand(
+        &self,
+        ty: &SchemeType,
+        instance: &InstantiatedScheme,
+        origin: Span,
+    ) -> Result<Type, SchemeOperationError> {
+        let mut operand = self.clone();
+        let ty = operand.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, 1, origin, 0)?;
+        operand.resolve(&ty).map_err(SchemeOperationError::Resolution)
+    }
+
     pub(crate) fn resolve_call_instantiation(
         &self,
         callable: &CallableScheme,

@@ -32,6 +32,20 @@ pub(super) struct SchemaIdentity {
     pub(super) name: crate::symbol::Name,
 }
 
+pub(crate) struct CallableInstanceEvidence {
+    constraints: crate::sema::constraints::TypeConstraints,
+    instance: crate::sema::constraints::InstantiatedScheme,
+    scheme: Arc<TypeScheme>,
+    origin: crate::source::Span,
+}
+
+impl CallableInstanceEvidence {
+    pub(crate) fn specialize(&self, ty: &SchemeType, owner: &Arc<TypeScheme>) -> Option<crate::sema::types::Type> {
+        if !Arc::ptr_eq(owner, &self.scheme) { return None; }
+        self.constraints.resolve_instance_operand(ty, &self.instance, self.origin).ok()
+    }
+}
+
 impl Checker {
     pub(super) fn callable_schema_identities(&self, program: &ArenaProgram, scheme: &TypeScheme) -> Arc<BTreeMap<TypeDefId, SchemaIdentity>> {
         let mut types = scheme.params().iter().map(|parameter| &parameter.ty)
@@ -105,6 +119,12 @@ impl CheckedCallableContract {
     /// Returns an error when the original is generic or the comparison cannot
     /// establish a resolved instance. An error does not establish a mismatch.
     pub fn is_instance_of(&self, generalized: &Self) -> Result<bool, ContractComparisonError> {
+        self.instance_evidence(generalized).map(|evidence| evidence.is_some())
+    }
+
+    pub(crate) fn instance_evidence(&self, generalized: &Self)
+        -> Result<Option<CallableInstanceEvidence>, ContractComparisonError>
+    {
         use crate::sema::constraints::TypeConstraints;
         use crate::source::{SourceId, Span};
 
@@ -113,7 +133,7 @@ impl CheckedCallableContract {
             || !same_effects(self.scheme.effects(), generalized.scheme.effects())
             || self.scheme.params().len() != generalized.scheme.params().len()
         {
-            return Ok(false);
+            return Ok(None);
         }
         let schemas = BoundEquivalence {
             types: BTreeMap::new(), rows: BTreeMap::new(),
@@ -125,7 +145,7 @@ impl CheckedCallableContract {
                     && schemas.schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref())
             })
         {
-            return Ok(false);
+            return Ok(None);
         }
         let ground = self.scheme.params().iter().map(|parameter| &parameter.ty)
             .chain(std::iter::once(self.scheme.return_type()))
@@ -142,9 +162,9 @@ impl CheckedCallableContract {
         }
         for (expected, actual) in instantiated.zip(&ground) {
             let resolved = constraints.resolve(expected).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
-            if &resolved != actual { return Ok(false); }
+            if &resolved != actual { return Ok(None); }
         }
-        Ok(true)
+        Ok(Some(CallableInstanceEvidence { constraints, instance, scheme: Arc::clone(&generalized.scheme), origin }))
     }
 
     /// Joins finite effect requirements for the same checked callable shape.
@@ -582,6 +602,25 @@ mod tests {
             assert_eq!(concrete(Type::Str).is_instance_of(&generic), Err(ContractComparisonError::CannotEstablishConstraints));
             assert_eq!(generic.is_instance_of(&integer), Err(ContractComparisonError::NonConcreteOriginal));
             assert_eq!(generic.is_instance_of(&generic), Err(ContractComparisonError::NonConcreteOriginal));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_reuses_header_solution_without_body_constraints() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let binder = SchemeTypeParameterId(7);
+            let generic = instance_contract(&owner, vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Parameter(binder), vec![binder], Vec::new(), Some(Vec::new()));
+            let concrete = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(Type::Int))],
+                SchemeType::Ground(Type::Int), Vec::new(), Vec::new(), Some(Vec::new()));
+            let instance = concrete.instance_evidence(&generic).unwrap().unwrap();
+            let metrics = instance.constraints.metrics();
+            assert_eq!(metrics.scheme_instantiations, 1);
+            let operand = SchemeType::List(Box::new(SchemeType::Parameter(binder)));
+            assert_eq!(instance.specialize(&operand, &generic.scheme), Some(Type::List(Box::new(Type::Int))));
+            assert_eq!(instance.specialize(&SchemeType::Parameter(SchemeTypeParameterId(99)), &generic.scheme), None);
+            assert_eq!(instance.constraints.metrics(), metrics);
         });
     }
 

@@ -45,15 +45,22 @@ impl CheckedBodyContract {
     /// Requires preserved checked selections and every emitted validation boundary.
     pub fn preserved_by(&self, candidate: &Self) -> bool {
         let _symbols = self.symbols.enter();
-        if !self.semantic.preserved_by(&candidate.semantic) { return false; }
-        let interface_proven = match (&self.interface, &candidate.interface) {
+        let (interface_proven, instance) = match (&self.interface, &candidate.interface) {
             (Some(original), Some(candidate)) => {
-                if !original.equivalent_to(candidate) && original.is_instance_of(candidate) != Ok(true) { return false; }
-                true
+                if original.equivalent_to(candidate) { (true, None) }
+                else {
+                    let Ok(Some(instance)) = original.instance_evidence(candidate) else { return false; };
+                    (true, Some(instance))
+                }
             }
-            (None, None) => false,
+            (None, None) => (false, None),
             _ => return false,
         };
+        let preserved = match instance.as_ref() {
+            Some(instance) => self.semantic.preserved_by_instance(&candidate.semantic, Some(instance)),
+            None => self.semantic.preserved_by(&candidate.semantic),
+        };
+        if !preserved { return false; }
         if self.validations.len() != candidate.validations.len() { return false; }
         self.validations.iter().all(|(site, original)| candidate.validations.get(site).is_some_and(|candidate| {
             original == candidate || interface_proven && original.len() == candidate.len() && original.iter().zip(candidate).all(|(original, candidate)| original.interface_gate() && candidate.interface_gate())
@@ -117,7 +124,7 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = sources.files().first().unwrap().id();
         let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions { embedded_bodies: true, reveal_types: true, ..CheckOptions::default() });
-        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
         checked_body_contracts(checked, &parsed.arena, &sources, source_id).unwrap()
     }
 
@@ -127,6 +134,31 @@ mod tests {
 
     fn entry(source: &str) -> CheckedBodyContract {
         snapshots(source).into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap()
+    }
+
+    #[test]
+    fn checked_body_contract_specializes_identity_resource_transfer() {
+        let original = declaration("pure identity(value: Int) -> Int { value }\n");
+        let generic = declaration("pure identity(value) { value }\n");
+        assert!(original.preserved_by(&original));
+        assert!(generic.preserved_by(&generic));
+        assert!(original.preserved_by(&generic));
+        assert!(!generic.preserved_by(&original));
+    }
+
+    #[test]
+    fn checked_body_contract_specializes_scalar_transfer_roles() {
+        for (original, candidate) in [
+            ("pure keep(value: Int) -> Int { return value }\n", "pure keep(value) { return value }\n"),
+            ("pure keep(value: List[Int?]) -> List[Int?] { value }\n", "pure keep(value) { value }\n"),
+            ("pure keep(value: Int) -> List[Int] { [value] }\n", "pure keep(value) { [value] }\n"),
+            ("pure keep(value: Int) -> Int { if true { value } else { value } }\n",
+             "pure keep(value) { if true { value } else { value } }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(original.preserved_by(&candidate), "{:?} -> {:?}", original, candidate);
+        }
     }
 
     #[test]

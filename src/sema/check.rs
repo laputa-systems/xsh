@@ -669,6 +669,7 @@ pub struct CheckOutput {
     /// different runtime ownership scope. Missing entries indicate an
     /// unpublished sink fact, not a scalar value.
     pub resource_transfers: ResourceTransferFacts,
+    pub(crate) same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
     /// Each text pattern, compiled: its literal segments and what each hole
     /// makes of the text it matches. Lowering copies this into the program.
     pub text_patterns: BTreeMap<Span, TextPattern>,
@@ -809,6 +810,7 @@ impl CheckOutput {
         self.conversions.append(&mut module.conversions);
         self.resource_scopes.append(&mut module.resource_scopes);
         self.resource_transfers.extend(module.resource_transfers);
+        self.same_scope_resource_assignments.extend(module.same_scope_resource_assignments);
         self.text_patterns.append(&mut module.text_patterns);
         self.inferred_variant_patterns
             .append(&mut module.inferred_variant_patterns);
@@ -1799,6 +1801,7 @@ pub struct Checker {
     exhaustive_match_spans: BTreeSet<Span>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
+    same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
     text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
@@ -2072,6 +2075,7 @@ impl Checker {
             },
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
+            same_scope_resource_assignments: self.same_scope_resource_assignments,
             text_patterns: self.text_patterns,
             inferred_variant_patterns: self.inferred_variant_patterns,
             embedded_bodies_checked: self.options.embedded_bodies,
@@ -2193,6 +2197,7 @@ impl Checker {
             exhaustive_match_spans: BTreeSet::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
+            same_scope_resource_assignments: rustc_hash::FxHashSet::default(),
             text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
@@ -2440,6 +2445,7 @@ impl Checker {
             let resource_check = resource::check_root_owner(self, bundle);
             self.diagnostics.extend(resource_check.diagnostics);
             self.resource_transfers = resource_check.transfers;
+            self.same_scope_resource_assignments = resource_check.same_scope_assignments;
         }
     }
 
