@@ -130,9 +130,12 @@ matching products and complete capability/corpus qualification remain pending.
 
 Practical replay with matching `e0f8cbfac` products passes exact source-view
 validation, then fails the original twelve-root XSH check with six
-`compact.indexed-build` diagnostics. They cover an implicit discard without a
-value contract, module import and effect contracts, and a Result constructor
-without a physical producer. The reduced view, three Laputa roots, signature
+`compact.indexed-build` diagnostics. Individual checks attribute failures to ten
+of the twelve roots: wc, sort, AWK, cut and tr lack discard proofs; date,
+internal and main lack native effect contracts; system-report lacks the Result
+cause producer; gates lacks an import module contract. Date-parse and docker
+pass source checking. The shared batch deduplicates some failures and does not
+count failing roots. The reduced view, three Laputa roots, signature
 and body comparison, and runtime selectors do not run. The four selected
 annotation removals receive no new parity credit. The cohort remains XSH
 `4233e34ee` and Laputa `a81760724`, separate from the historical 1,040 result.
