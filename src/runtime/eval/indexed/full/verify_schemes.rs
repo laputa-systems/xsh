@@ -1077,13 +1077,88 @@ fn verify_body_expression(
             }
             ty.clone()
         }
+        schema::ExprView::ListBuild(mut values) => {
+            let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list builder has no item contract")); };
+            for entry in &mut values {
+                let (splice, value, _) = entry?;
+                let mut actual = child(value, budget)?;
+                let actual = if splice {
+                    while let SchemeType::Validated(_, inner) = actual { budget.charge(1)?; actual = *inner; }
+                    match actual {
+                        SchemeType::List(item) => *item,
+                        SchemeType::Ground(source) => {
+                            let Type::List(item) = source.unvalidated() else { return Err(IrVerifyError::new("generic list splice has no list producer")) };
+                            budget.charge_clone(item)?;
+                            SchemeType::Ground((**item).clone())
+                        }
+                        _ => return Err(IrVerifyError::new("generic list splice has no list producer")),
+                    }
+                } else { actual };
+                if !body_type_matches(&actual, item, budget)? { return Err(IrVerifyError::new("generic list splice disagrees with its item contract")); }
+            }
+            ty.clone()
+        }
+        schema::ExprView::FmtString(mut parts) | schema::ExprView::PathFmtString { mut parts, .. } => {
+            while parts.len() != 0 {
+                budget.charge(1)?;
+                let part = parts.next().ok_or_else(|| IrVerifyError::new("generic interpolation part is absent"))??;
+                if let super::decode::FmtPartView::Expr(value, _, _) = part {
+                    let actual = child(value, budget)?;
+                    let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic interpolation has no checked display domain"))?;
+                    if !actual.can_display() { return Err(IrVerifyError::new("generic interpolation producer cannot be displayed")); }
+                }
+            }
+            SchemeType::Ground(if store.tags[instruction] == FullTag::ExprPathFmtString { Type::Path } else { Type::Str })
+        }
+        schema::ExprView::MapLiteral(mut entries) => {
+            let SchemeType::Map(key, item) = ty else { return Err(IrVerifyError::new("generic map producer has no key and value contract")); };
+            let domain = key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map key domain is unresolved"))?;
+            if !domain.is_map_key() { return Err(IrVerifyError::new("generic map key domain is invalid")); }
+            for entry in &mut entries {
+                let (entry_key, value, _) = entry?;
+                if let Some(entry_key) = entry_key {
+                    if !body_type_matches(&child(entry_key, budget)?, key, budget)? || !body_type_matches(&child(value, budget)?, item, budget)? {
+                        return Err(IrVerifyError::new("generic map entry disagrees with its checked domain"));
+                    }
+                } else if !body_type_matches(&child(value, budget)?, ty, budget)? {
+                    return Err(IrVerifyError::new("generic map spread disagrees with its checked domain"));
+                }
+            }
+            ty.clone()
+        }
         schema::ExprView::Record(mut entries) => {
             let mut fields = BTreeMap::new();
+            let mut has_spread = false;
+            let mut tail = SchemeRowTail::Closed;
             for entry in &mut entries {
-                let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("generic record producer has an unsupported spread")); };
-                if fields.insert(name, child(value, budget)?).is_some() { return Err(IrVerifyError::new("generic record producer repeats a field")); }
+                match entry? {
+                    super::decode::RecordEntryView::Field(name, value) => {
+                        if fields.contains_key(&name) && !has_spread { return Err(IrVerifyError::new("generic record producer repeats a field")); }
+                        fields.insert(name, child(value, budget)?);
+                    }
+                    super::decode::RecordEntryView::Spread(value) => {
+                        has_spread = true;
+                        let mut source = child(value, budget)?;
+                        while let SchemeType::Validated(_, inner) = source { budget.charge(1)?; source = *inner; }
+                        let (spread, spread_tail) = match source {
+                            SchemeType::Record { fields, tail } => (fields, tail),
+                            SchemeType::Ground(source) => {
+                                let Type::Record(fields) = source.unvalidated() else { return Err(IrVerifyError::new("generic record spread has no record producer")) };
+                                let mut spread = BTreeMap::new();
+                                for (name, ty) in fields.iter() { budget.charge_clone(ty)?; spread.insert(*name, SchemeType::Ground(ty.clone())); }
+                                (spread, SchemeRowTail::Closed)
+                            }
+                            _ => return Err(IrVerifyError::new("generic record spread has no record producer")),
+                        };
+                        if spread_tail != SchemeRowTail::Closed {
+                            if tail != SchemeRowTail::Closed && tail != spread_tail { return Err(IrVerifyError::new("generic record spreads disagree on their row domain")); }
+                            tail = spread_tail;
+                        }
+                        fields.extend(spread);
+                    }
+                }
             }
-            SchemeType::Record { fields, tail: SchemeRowTail::Closed }
+            SchemeType::Record { fields, tail }
         }
         schema::ExprView::Ok(value) => {
             let SchemeType::Result(ok, _) = ty else { return Err(IrVerifyError::new("generic success producer has no result contract")); };

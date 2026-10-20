@@ -3838,6 +3838,17 @@ values as data. A guarded Result receiver propagates its actual error to the
 function's Result boundary and runs the operation only on success. The error
 family must fit that boundary.
 
+List splices preserve the checked item domain, including a shared type
+parameter. Named record fields and record spreads use the ordinary ordered
+field rules: later permitted fields replace earlier fields, while every
+expression still evaluates in source order. Computed map keys keep a checked
+scalar key domain; map values may retain the callable's type parameters.
+Map spreads preserve both domains. Scalar-key set literals use the ordinary
+set conversion and remove duplicates. Text and path interpolation use the
+ordinary display and formatting rules. Each interpolated operand must have a
+checked display type in the declaration; a caller cannot supply a display
+operation for an unconstrained parameter.
+
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
 source order.
@@ -3851,8 +3862,8 @@ ordinary checked conversions and failure propagation.
 Unsupported quantified body shapes still produce a checking or preparation
 diagnostic, including destructuring declarations, `for`, comparisons,
 logical binary expressions, membership, set operators,
-map and set literals, record spreads, interpolated text, dynamically selected calls, and captured mutable or resource
-state. Compile-time constant bindings and registered calls with specialized
+record shorthand and static record-update paths, dynamically selected calls,
+and captured mutable or resource state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing
 defaulted parameters. Calls to user functions with defaulted or rest parameters

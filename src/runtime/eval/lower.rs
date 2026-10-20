@@ -3588,22 +3588,86 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     None => raw,
                 }
             }
+            ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
+                let mut lowered = Vec::new();
+                for part in self.program.arena.fmt_parts(parts).collect::<Vec<_>>() {
+                    lowered.push(match part {
+                        ArenaFmtPart::Text(text) => super::LoweredFmtPart::Text(Arc::from(self.text_value(&text)?)),
+                        ArenaFmtPart::Expr(value, spec) => {
+                            let span = self.program.arena.expr(value).span;
+                            let value = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
+                            super::LoweredFmtPart::Expr(value, span, spec)
+                        }
+                    });
+                }
+                match self.program.arena.expr(expression).kind {
+                    ArenaExprKind::PathFmtString(_) => push_build_row!(self, expr, BuildExprRow::PathFmtString { parts: lowered, span }),
+                    _ => push_build_row!(self, expr, BuildExprRow::FmtString(lowered)),
+                }
+            }
             ArenaExprKind::List(items) => {
                 let mut values = Vec::new();
+                let mut splice = false;
                 for item in self.program.arena.list_elements(items).collect::<Vec<_>>() {
-                    if item.splice_span.is_some() { return self.block_scheme_lowering_expr(expression); }
-                    values.push(self.lower_scheme_expression(item.value, slots, current_function, facts, visited, lowered_types, body)?);
+                    splice |= item.splice_span.is_some();
+                    let span = item.splice_span.map(|span| self.program.arena.span(span)).unwrap_or(self.program.arena.expr(item.value).span);
+                    values.push((item.splice_span.is_some(), self.lower_scheme_expression(item.value, slots, current_function, facts, visited, lowered_types, body)?, span));
                 }
-                push_build_row!(self, expr, BuildExprRow::List(values))
+                if splice { push_build_row!(self, expr, BuildExprRow::ListBuild(values)) }
+                else { push_build_row!(self, expr, BuildExprRow::List(values.into_iter().map(|(_, value, _)| value).collect())) }
+            }
+            ArenaExprKind::Set(items) => {
+                let mut values = Vec::new();
+                for value in self.program.arena.list_elements(items).map(|item| item.value).collect::<Vec<_>>() {
+                    values.push(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?);
+                }
+                let item = match &ty { SchemeType::Set(item) => (**item).clone(), _ => return self.block_scheme_lowering_expr(expression) };
+                let list = push_build_row!(self, expr, BuildExprRow::List(values));
+                lowered_types.insert(list, SchemeType::List(Box::new(item)));
+                let [method] = api_spec().method_overloads(crate::modules::MethodReceiver::List, "to_set")? else { return self.block_scheme_lowering_expr(expression) };
+                registered = Some(Arc::new(crate::sema::schemes::RegisteredCallPlan {
+                    receiver: Some(crate::modules::MethodReceiver::List), name: Arc::from("to_set"), signature: &method.sig,
+                    argument_slots: Arc::from([]), argument_checks: Arc::from([]),
+                }));
+                self.set_of_list(list, span)
             }
             ArenaExprKind::Record(fields) => {
-                let mut entries = Vec::new();
-                for field in self.program.arena.record_fields(fields).to_vec() {
-                    let ArenaRecordFieldKind::Named { name, value, .. } = field.kind else { return self.block_scheme_lowering_expr(expression); };
-                    let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
-                    entries.push(LoweredRecordEntry::Field(name, value));
+                if matches!(ty, SchemeType::Map(_, _)) {
+                    let SchemeType::Map(ref key_type, _) = ty else { unreachable!() };
+                    let key_type = key_type.closed_ground_type()?;
+                    let mut entries = Vec::new();
+                    for field in self.program.arena.record_fields(fields).to_vec() {
+                        let (key, value, entry_span) = match field.kind {
+                            ArenaRecordFieldKind::Computed { key, value, span } => {
+                                let key_span = self.program.arena.expr(key).span;
+                                let mut key = self.lower_scheme_expression(key, slots, current_function, facts, visited, lowered_types, body)?;
+                                if key_type == Type::UInt { key = self.lower_scheme_registered_argument(key, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, key_span, slots, lowered_types, body); }
+                                (Some(key), self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span))
+                            }
+                            ArenaRecordFieldKind::Named { name, value, span } => {
+                                let key = if key_type == Type::Path {
+                                    push_build_row!(self, expr, BuildExprRow::Path(PathValue::from_text(name.as_str().as_str()).ok()?))
+                                } else { push_build_row!(self, expr, BuildExprRow::Str(Arc::from(name.as_str().as_str()))) };
+                                lowered_types.insert(key, SchemeType::Ground(if key_type == Type::Path { Type::Path } else { Type::Str }));
+                                (Some(key), self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span))
+                            }
+                            ArenaRecordFieldKind::Spread { expr, span } => (None, self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span)),
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        };
+                        entries.push((key, value, entry_span));
+                    }
+                    push_build_row!(self, expr, BuildExprRow::MapLiteral(entries))
+                } else {
+                    let mut entries = Vec::new();
+                    for field in self.program.arena.record_fields(fields).to_vec() {
+                        entries.push(match field.kind {
+                            ArenaRecordFieldKind::Named { name, value, .. } => LoweredRecordEntry::Field(name, self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?),
+                            ArenaRecordFieldKind::Spread { expr, .. } => LoweredRecordEntry::Spread(self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?),
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        });
+                    }
+                    push_build_row!(self, expr, BuildExprRow::Record(entries))
                 }
-                push_build_row!(self, expr, BuildExprRow::Record(entries))
             }
             ArenaExprKind::If { branches, else_value } => {
                 let mut values = Vec::new();

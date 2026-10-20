@@ -450,3 +450,110 @@ fn nullable_branch_inference_executes_independent_payloads_after_frontend_dispos
         }
     }
 }
+
+#[test]
+fn generic_construction_values_execute_after_frontend_disposal() {
+    use crate::runtime::value::{MapKey, PathValue};
+    let record = |item: Value, name: &str, value: Value| Value::Map([(MapKey::Str(Arc::from("item")), item), (MapKey::Str(Arc::from(name)), value)].into_iter().collect());
+    for (prefix, definition, number_type, text_type, number, text) in [
+        ("type Number = {item: Int, formatted: Str}\ntype Text = {item: Str, formatted: Str}",
+         "pure keep(value) { {item: value, formatted: f\"item:{2:03}\"} }", "Number", "Text",
+         record(Value::Int(7), "formatted", Value::Str(Arc::from("item:002"))), record(Value::Str(Arc::from("value")), "formatted", Value::Str(Arc::from("item:002")))),
+        ("type Number = {item: Int, path: Path}\ntype Text = {item: Str, path: Path}",
+         "pure keep(value) { {item: value, path: fp\"{/tmp}/{\"item\"}\"} }", "Number", "Text",
+         record(Value::Int(7), "path", Value::Path(PathValue::from_text("/tmp/item").unwrap())), record(Value::Str(Arc::from("value")), "path", Value::Path(PathValue::from_text("/tmp/item").unwrap()))),
+        ("", "pure keep(value) { [@[value], value] }", "List[Int]", "List[Str]",
+         Value::List(vec![Value::Int(7), Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value")), Value::Str(Arc::from("value"))])),
+        ("type Number = {item: Int, count: Int}\ntype Text = {item: Str, count: Int}",
+         "pure keep(value) { let row = {item: value, count: 0}; {count: false, ...row, count: 1} }", "Number", "Text",
+         record(Value::Int(7), "count", Value::Int(1)), record(Value::Str(Arc::from("value")), "count", Value::Int(1))),
+        ("", "pure keep(value) { let initial = {[0]: value}; {...initial, [1]: value} }", "Map[Int, Int]", "Map[Int, Str]",
+         Value::Map([(MapKey::Int(0), Value::Int(7)), (MapKey::Int(1), Value::Int(7))].into_iter().collect()), Value::Map([(MapKey::Int(0), Value::Str(Arc::from("value"))), (MapKey::Int(1), Value::Str(Arc::from("value")))].into_iter().collect())),
+        ("type Number = {item: Int, unique: Set[Int]}\ntype Text = {item: Str, unique: Set[Int]}",
+         "pure keep(value) { {item: value, unique: {1, 2, 1}} }", "Number", "Text",
+         record(Value::Int(7), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect())), record(Value::Str(Arc::from("value")), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))),
+    ] {
+        let source = format!("{prefix}\n{definition}\npure number() -> {number_type} {{ keep(7) }}\npure text() -> {text_type} {{ keep(\"value\") }}\n");
+        let (program, sources, source_id) = {
+            let mut sources = SourceMap::default();
+            let source_id = sources.add_file("generic-construction.xsh", source.clone());
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            let program = FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+            (Arc::new(program), sources, source_id)
+        };
+        for force_frames in [false, true] {
+            for (name, expected) in [("number", number.clone()), ("text", text.clone())] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = match actual {
+                    Value::Record(fields) => Value::Map(fields.iter().map(|(name, value)| (MapKey::Str(Arc::from(name)), value.clone())).collect()),
+                    actual => actual,
+                };
+                assert_eq!(actual, expected, "{definition} {name} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_construction_operands_preserve_order_and_first_failure() {
+    for operation in [
+        "f\"{ { count = count + 1; count } }:{ { count = count + 1; count } }\"",
+        "[@[{ count = count + 1; count }], { count = count + 1; count }]",
+        "{first: { count = count + 1; count }, ...{first: 99}, second: { count = count + 1; count }}",
+        "{[0]: { count = count + 1; count }, [0]: { count = count + 1; count }}",
+    ] {
+        let source = format!("proc keep(value) [] {{ var count = 0; let built = {operation}; {{item: value, count: count, built: built}} }}\nproc number() [] {{ keep(7) }}\n");
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("generic-construction-order.xsh", source.clone());
+        let parsed = Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let program = Arc::new(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}")));
+        drop(checked);
+        drop(parsed);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("a proc preserves its result envelope") };
+            let Value::Record(fields) = *actual else { panic!("the ordered constructor returns its counters") };
+            assert_eq!(fields.get("count"), Some(&Value::Int(2)), "{operation}");
+            let expected = if operation.starts_with('f') { Value::Str(Arc::from("1:2")) }
+                else if operation.starts_with('[') { Value::List(vec![Value::Int(1), Value::Int(2)]) }
+                else if operation.starts_with("{first:") { Value::Record([(Arc::from("first"), Value::Int(99)), (Arc::from("second"), Value::Int(2))].into_iter().collect()) }
+                else { Value::Map([(crate::runtime::value::MapKey::Int(0), Value::Int(2))].into_iter().collect()) };
+            assert_eq!(fields.get("built"), Some(&expected), "{operation}");
+        }
+    }
+    for operation in ["f\"{[1][first]}:{[2][second]}\"", "[@[[1][first]], [2][second]]", "{...{first: [1][first]}, second: [2][second]}", "{[0]: [1][first], [1]: [2][second]}"] {
+        let source = format!("pure keep(value, first: Int, second: Int) {{ let _ = value; {operation} }}\npure number() {{ keep(7, 1, 2) }}\n");
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("generic-construction-failure.xsh", source.clone());
+        let parsed = Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let program = Arc::new(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}")));
+        drop(checked);
+        drop(parsed);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
+            assert_eq!(error.kind, "index-out-of-range");
+            assert_eq!(&source[error.span.unwrap().range()], "[1][first]");
+        }
+    }
+}

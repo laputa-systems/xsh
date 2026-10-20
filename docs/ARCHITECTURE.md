@@ -93,6 +93,14 @@ Concatenation checks each real operand's payload guarantee before accepting its
 result claim; an ordinary complete unsigned check remains a separate boundary.
 The checker and verifier share the canonical concatenation validation rule.
 
+Generic constructors reuse the ordinary format parts, list builders, record
+entries, and map entries. Format operands retain their individual value blocks;
+all constructors preserve source evaluation order. Verification proves every
+actual operand, including overwritten fields, before accepting the final
+ordered fields or collection payload. Display and map-key domains come from
+the checked operand types. Generated set conversion retains the canonical
+selected registry method and uses the same native-call proof as a source call.
+
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
 postfix lowering evaluates the receiver once and places operand elaboration in

@@ -910,4 +910,148 @@ mod tests {
         }
     }
 
+    fn retarget_construction_operand(program: &FullProgram, owner: usize, scheme: FullSchemeId, operand: usize, wrapped: bool) -> FullProgram {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let mut instructions = vec![operand];
+        let read = if let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(operand).unwrap() {
+            let statements = body.map(|statement| statement.unwrap().raw() as usize).collect::<Vec<_>>();
+            let schema::StmtView::Value { value } = decoder.statement_view(*statements.last().unwrap()).unwrap() else { panic!("the operand retains its value tail") };
+            instructions.push(value.raw() as usize);
+            value.raw() as usize
+        } else { operand };
+        let schema::ExprView::Param(slot) = decoder.expression_view(read).unwrap() else { panic!("the constructor reads its bound operand") };
+        let (declaration, initializer) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+        instructions.extend([declaration, initializer]);
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        let wrong_child = wrapped.then(|| program.store.scheme_types[SchemeTypeId::from_raw(wrong.first).unwrap().index()]);
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if instructions.contains(&(fact.instruction as usize)) {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, wrong.tag);
+                if let Some(wrong_child) = wrong_child {
+                    let child = SchemeTypeId::from_raw(node.first).unwrap();
+                    let child = &mut changed.store.scheme_types[child.index()];
+                    assert_eq!(child.tag, wrong_child.tag);
+                    child.first = wrong_child.first;
+                } else { node.first = wrong.first; }
+            }
+        }
+        changed
+    }
+
+    #[test]
+    fn generic_construction_interpolation_requires_the_actual_display_domain() {
+        for prefix in ["f", "fp"] {
+            let program = prepare(&format!("pure keep(value, text: Str, wrong: Regex) {{ let _ = {prefix}\"{{text}}\"; value }}"));
+            let (owner, scheme) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let operand = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::FmtString(mut parts)) | Ok(schema::ExprView::PathFmtString { mut parts, .. }) => match parts.next().unwrap().unwrap() {
+                    super::super::super::decode::FmtPartView::Expr(value, _, _) => Some(value.raw() as usize),
+                    _ => None,
+                },
+                _ => None,
+            }).unwrap();
+            let changed = retarget_construction_operand(&program, owner, scheme, operand, false);
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic interpolation producer cannot be displayed");
+        }
+    }
+
+    #[test]
+    fn generic_construction_splices_preserve_the_actual_payload_domain() {
+        prepare("pure keep(value, items: NonEmpty[Int]) { let _ = [@items]; value }");
+        let program = prepare("pure keep(value, items: List[Int], wrong: List[Str]) { let _ = [@items, 1]; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let operand = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListBuild(mut entries)) => { let (splice, value, _) = entries.next().unwrap().unwrap(); assert!(splice); Some(value.raw() as usize) }
+            _ => None,
+        }).unwrap();
+        let changed = retarget_construction_operand(&program, owner, scheme, operand, true);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic list splice disagrees with its item contract");
+
+        let program = prepare("pure keep(value, unsigned: UInt) { let _ = {-1, 2}; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let method = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "to_set", .. }))).unwrap();
+        let (declaration, slot) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == method => Some((instruction, slot)),
+            _ => None,
+        }).unwrap();
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let unsigned = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        let mut changed = program.clone();
+        for fact in &changed.store.scheme_body_facts {
+            if [method, declaration, read].contains(&(fact.instruction as usize)) {
+                let node = changed.store.scheme_types[fact.ty.index()];
+                let child = SchemeTypeId::from_raw(node.first).unwrap();
+                let child = &mut changed.store.scheme_types[child.index()];
+                assert_eq!(child.tag, unsigned.tag);
+                child.first = unsigned.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic host method disagrees with its selected registry signature");
+    }
+
+    #[test]
+    fn generic_construction_maps_require_the_actual_key_domain() {
+        let program = prepare("pure keep(value, key: Int, wrong: Str) { let _ = {[key]: value}; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let operand = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::MapLiteral(mut entries)) => Some(entries.next().unwrap().unwrap().0.unwrap().raw() as usize),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_construction_operand(&program, owner, scheme, operand, false);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic map entry disagrees with its checked domain");
+    }
+
+    #[test]
+    fn generic_construction_record_spreads_prove_actual_fields() {
+        let program = prepare("pure keep(value) { let _ = {other: 1}; {...{item: value}} }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (block, record) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut entries)) => match entries.next().unwrap().unwrap() {
+                super::super::super::decode::RecordEntryView::Field(name, _) if name.as_str().as_str() == "item" => Some((entries.block_identity_for_test(), instruction)),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let payload = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut changed = program.clone();
+        assert_eq!(changed.store.extra[payload.start], 1);
+        assert_eq!(changed.store.extra[payload.start + 1], 0);
+        changed.store.extra[payload.start + 2] = program.symbol_owner().with_current(|| Name::intern("other").symbol().raw());
+        let (declaration, slot) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == record => Some((instruction, slot)),
+            _ => None,
+        }).unwrap();
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        let other = program.store.scheme_fields.iter().find(|field| program.store.string(field.name).unwrap() == "other").unwrap().name;
+        for fact in &changed.store.scheme_body_facts {
+            if [record, declaration, read].contains(&(fact.instruction as usize)) {
+                let node = changed.store.scheme_types[fact.ty.index()];
+                let fields = node.children.bounds(changed.store.scheme_fields.len()).unwrap();
+                assert_eq!(fields.len(), 1);
+                assert_eq!(changed.store.string(changed.store.scheme_fields[fields.start].name).unwrap(), "item");
+                changed.store.scheme_fields[fields.start].name = other;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
 }

@@ -172,14 +172,23 @@ fn is_body_expression(
             }
             ArenaExprKind::List(items) => {
                 for item in program.arena.list_elements(items) {
-                    if item.splice_span.is_some() { return false; }
                     pending.push(item.value);
                 }
             }
             ArenaExprKind::Record(fields) => {
                 for field in program.arena.record_fields(fields) {
-                    let crate::syntax::arena::ArenaRecordFieldKind::Named { value, .. } = field.kind else { return false; };
-                    pending.push(value);
+                    match field.kind {
+                        crate::syntax::arena::ArenaRecordFieldKind::Named { value, .. } => pending.push(value),
+                        crate::syntax::arena::ArenaRecordFieldKind::Spread { expr, .. } => pending.push(expr),
+                        crate::syntax::arena::ArenaRecordFieldKind::Computed { key, value, .. } => { pending.push(key); pending.push(value); }
+                        _ => return false,
+                    }
+                }
+            }
+            ArenaExprKind::Set(items) => pending.extend(program.arena.list_elements(items).map(|item| item.value)),
+            ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
+                for part in program.arena.fmt_parts(parts) {
+                    if let crate::syntax::arena::ArenaFmtPart::Expr(value, _) = part { pending.push(value); }
                 }
             }
             ArenaExprKind::If { branches, else_value } => {
@@ -429,6 +438,55 @@ mod ordinary_body_tests {
             "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
         );
     }
+
+    #[test]
+    fn generic_construction_formats_checked_scalar_operands() {
+        accepts(
+            "pure keep(value, text: Str, count: Int) { let _ = f\"{text}:{count}\"; value }",
+            "let number: Int = keep(7, \"item\", 2)\nlet text: Str = keep(\"value\", \"item\", 3)",
+        );
+    }
+
+    #[test]
+    fn generic_construction_formats_checked_path_operands() {
+        accepts(
+            "pure keep(value, root: Path, name: Str) { let _ = fp\"{root}/{name}\"; value }",
+            "let number: Int = keep(7, /tmp, \"item\")\nlet text: Str = keep(\"value\", /tmp, \"other\")",
+        );
+    }
+
+    #[test]
+    fn generic_construction_splices_lists_with_one_payload_binder() {
+        accepts(
+            "pure copy(value) { [@[value], value] }",
+            "let number: List[Int] = copy(7)\nlet text: List[Str] = copy(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_construction_spreads_records_with_one_payload_binder() {
+        accepts(
+            "type Numbers = {item: Int, count: Int}\ntype Words = {item: Str, count: Int}\npure copy(value) { let row = {item: value}; {...row, count: 1} }",
+            "let number: Numbers = copy(7)\nlet text: Words = copy(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_construction_maps_retain_key_and_payload_domains() {
+        accepts(
+            "pure copy(value) { {[0]: value} }",
+            "let number: Map[Int, Int] = copy(7)\nlet text: Map[Int, Str] = copy(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_construction_sets_retain_the_checked_scalar_domain() {
+        accepts(
+            "pure keep(value, item: Int) { let _ = {1, item}; value }",
+            "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)",
+        );
+    }
+
 }
 
 #[cfg(test)]
