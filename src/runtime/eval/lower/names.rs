@@ -1,6 +1,6 @@
 use super::{
     Arc, ArenaStmtKind, BindingId, BuildExprId, BuildExprRow, CompactFunctionIndex,
-    CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
+    CallableKind, CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
     SlotScope, Span, StmtId, Type, lower_command_word_reference, lower_prepared_literal,
 };
 
@@ -45,7 +45,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let Some(function) = definitions.definition(key) else {
             return false;
         };
-        if !function.pure {
+        if function.kind == CallableKind::Proc {
             return false;
         }
         let def = self.program.arena.function_def(function.id);
@@ -253,8 +253,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let key = index.checked_target_key(target)?;
         let definition = index.definition(key)?;
         let matches_checked_type = match checked_type {
-            Type::Pure => definition.pure,
-            Type::Proc => !definition.pure,
+            Type::Pure => definition.kind != CallableKind::Proc,
+            Type::Proc => definition.kind == CallableKind::Proc,
             Type::Callable(expected) => {
                 let signature = self.compact_function_sig_for_key(key)?;
                 let actual = crate::sema::types::CallableType {
@@ -262,7 +262,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return_ty: Box::new(signature.return_ty.clone()),
                     effects: signature.effects.clone(),
                 };
-                expected.mismatch(definition.pure, &actual, true).is_none()
+                expected.mismatch(definition.kind != CallableKind::Proc, &actual, true).is_none()
             }
             _ => return None,
         };
@@ -275,7 +275,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn lower_function_ref(&self, key: LoweredFunctionKey) -> Option<BuildExprId> {
         let pure = self.function_index().definition(key).map_or_else(
             || self.functions.is_none_or(|functions| functions.pure_contains(key)),
-            |function| function.pure,
+            |function| function.kind != CallableKind::Proc,
         );
         Some(push_build_row!(
             self,

@@ -234,6 +234,32 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
     }
 
+    pub(super) fn signature_effects(&self, id: SignatureId) -> Result<Option<Vec<Effect>>, IrVerifyError> {
+        let payload = self.signature_payload(id)?;
+        if payload[1] == IR_NONE { return Ok(None); }
+        let effect_count = signature_effect_count(payload)?;
+        if effect_count > Effect::ALL.len() {
+            return Err(IrVerifyError::new("signature effects exceed the capability set"));
+        }
+        let effects = payload.get(3..3 + effect_count)
+            .ok_or_else(|| IrVerifyError::new("signature effects are out of bounds"))?;
+        let mut seen = 0u32;
+        effects.iter().map(|raw| {
+            let bit = 1u32.checked_shl(*raw).ok_or_else(|| IrVerifyError::new("signature effect is invalid"))?;
+            if seen & bit != 0 { return Err(IrVerifyError::new("signature effect is repeated")); }
+            seen |= bit;
+            Ok(match *raw {
+            value if value == EffectCode::Fs as u32 => Effect::Fs,
+            value if value == EffectCode::Net as u32 => Effect::Net,
+            value if value == EffectCode::Process as u32 => Effect::Process,
+            value if value == EffectCode::Env as u32 => Effect::Env,
+            value if value == EffectCode::Time as u32 => Effect::Time,
+            value if value == EffectCode::Error as u32 => Effect::Error,
+            value if value == EffectCode::Io as u32 => Effect::Io,
+            _ => return Err(IrVerifyError::new("signature effect is invalid")),
+        }) }).collect::<Result<Vec<_>, _>>().map(Some)
+    }
+
     pub(super) fn signature_has_error_effect(
         &self,
         id: SignatureId,
@@ -815,24 +841,7 @@ impl SemanticPools {
                 .checked_add(param_count)
                 .ok_or_else(|| IrVerifyError::new("semantic signature expansion overflows"))?,
         )?;
-        let effects = if payload[1] == IR_NONE {
-            None
-        } else {
-            let mut effects = Vec::with_capacity(effect_count);
-            for raw in &payload[3..3 + effect_count] {
-                effects.push(match *raw {
-                    value if value == EffectCode::Fs as u32 => Effect::Fs,
-                    value if value == EffectCode::Net as u32 => Effect::Net,
-                    value if value == EffectCode::Process as u32 => Effect::Process,
-                    value if value == EffectCode::Env as u32 => Effect::Env,
-                    value if value == EffectCode::Time as u32 => Effect::Time,
-                    value if value == EffectCode::Error as u32 => Effect::Error,
-                    value if value == EffectCode::Io as u32 => Effect::Io,
-                    _ => return Err(IrVerifyError::new("signature effect is invalid")),
-                });
-            }
-            Some(effects)
-        };
+        let effects = self.signature_effects(id)?;
         let mut params = Vec::with_capacity(param_count);
         for raw in payload[3 + effect_count..].as_chunks::<3>().0 {
             params.push(CallableParamType {

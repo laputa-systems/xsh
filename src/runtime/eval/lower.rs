@@ -8,7 +8,7 @@ use crate::sema::check::{
     ResourceTransferSite, block_callable_body_cannot_fall_through_arena,
 };
 use crate::sema::arguments::ArgumentValueSource;
-use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
+use crate::sema::types::{CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::DeferTrigger;
@@ -965,7 +965,7 @@ impl CompactFunctionIndex {
     }
 
     fn scc_metadata(&self, function: &CompactFunctionDef) -> (usize, Option<usize>) {
-        let class = usize::from(!function.pure);
+        let class = usize::from(function.kind == CallableKind::Proc);
         self.scc[class]
             .get(&function.key)
             .copied()
@@ -1011,7 +1011,7 @@ fn compact_scc_groups(
 ) -> FxHashMap<LoweredFunctionKey, (usize, Option<usize>)> {
     let selected = defs
         .iter()
-        .filter(|candidate| candidate.pure == pure)
+        .filter(|candidate| (candidate.kind != CallableKind::Proc) == pure)
         .collect::<Vec<_>>();
     let index_of = selected
         .iter()
@@ -1042,7 +1042,7 @@ fn compact_scc_groups(
 struct CompactFunctionDef {
     key: LoweredFunctionKey,
     id: FunctionDefId,
-    pure: bool,
+    kind: CallableKind,
     exported: bool,
     namespace: Option<Name>,
     definition_span: Span,
@@ -1333,15 +1333,17 @@ pub(super) fn compact_function_selection(
         function.key
     }).collect();
     if producer_demand == super::ProducerDemand::Absent {
-        let constructors = super::ProducerDemand::checked_result_constructors(program, declarations)
+        let proof_operations = super::ProducerDemand::checked_result_constructors(program, declarations)
+            .chain(super::ProducerDemand::operand_dependent_effect_calls(program, declarations))
+            .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
             .collect::<std::collections::BTreeSet<_>>();
-        let contains_constructor = |statement| {
+        let contains_proof_operation = |statement| {
             let span = program.arena.stmt(statement).span;
-            constructors.range(Span::at(span.source_id, span.start())..Span::at(span.source_id, span.end()))
+            proof_operations.range(Span::at(span.source_id, span.start())..Span::at(span.source_id, span.end()))
                 .next().is_some()
         };
-        if program.arena.stmt_ids(scope.root_statements).any(contains_constructor)
-            || scope.modules.iter().any(|module| program.module_statements(module).any(contains_constructor))
+        if program.arena.stmt_ids(scope.root_statements).any(contains_proof_operation)
+            || scope.modules.iter().any(|module| program.module_statements(module).any(contains_proof_operation))
         {
             producer_demand = super::ProducerDemand::Needed;
         }
@@ -1365,7 +1367,7 @@ fn collect_compact_function_def(
             functions.push(CompactFunctionDef {
                 key: compact_function_key(namespace, name),
                 id: def,
-                pure: true,
+                kind: CallableKind::Pure,
                 exported,
                 namespace,
                 definition_span: program.arena.stmt(id).span,
@@ -1376,7 +1378,7 @@ fn collect_compact_function_def(
             functions.push(CompactFunctionDef {
                 key: compact_function_key(namespace, name),
                 id: def,
-                pure: false,
+                kind: CallableKind::Proc,
                 exported,
                 namespace,
                 definition_span: program.arena.stmt(id).span,
@@ -1387,7 +1389,7 @@ fn collect_compact_function_def(
             functions.push(CompactFunctionDef {
                 key: compact_function_key(namespace, name),
                 id: def,
-                pure: true,
+                kind: CallableKind::Stream,
                 exported,
                 namespace,
                 definition_span: program.arena.stmt(id).span,
@@ -2475,7 +2477,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self.program.arena.function_def(def).name,
                     ),
                     id: def,
-                    pure: true,
+                    kind: CallableKind::Pure,
                     exported,
                     namespace: self.current_namespace,
                     definition_span: self.program.arena.stmt(id).span,
@@ -2517,7 +2519,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self.program.arena.function_def(def).name,
                     ),
                     id: def,
-                    pure: false,
+                    kind: CallableKind::Proc,
                     exported,
                     namespace: self.current_namespace,
                     definition_span: self.program.arena.stmt(id).span,
@@ -2563,14 +2565,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .arena
             .span(self.program.arena.block(def.body).span);
         let definition_span = function.definition_span;
-        match self.lower_function_with_blocker(function.id) {
+        match self.lower_function_with_blocker(function.id, function.kind) {
             Ok(body) => {
                 let param_count = body.params.len();
                 let capture_count = body.captures.len();
                 let slot_count = body.slot_count;
                 LoweredFunctionUnit {
                     key: function.key,
-                    kind: if function.pure {
+                    kind: if function.kind != CallableKind::Proc {
                         LoweredFunctionKind::Pure
                     } else {
                         LoweredFunctionKind::Proc
@@ -2594,7 +2596,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let blocker_detail = self.last_blocker_detail.clone();
                 LoweredFunctionUnit {
                     key: function.key,
-                    kind: if function.pure {
+                    kind: if function.kind != CallableKind::Proc {
                         LoweredFunctionKind::Pure
                     } else {
                         LoweredFunctionKind::Proc
@@ -2668,6 +2670,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn lower_function_with_blocker(
         &mut self,
         id: crate::syntax::arena::FunctionDefId,
+        callable_kind: CallableKind,
     ) -> Result<FunctionBuild, CompactFunctionBlocker> {
         self.last_blocker_detail = None;
         let def = self.program.arena.function_def(id);
@@ -3033,6 +3036,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 schema: None,
             });
         Ok(FunctionBuild {
+            callable_kind,
             params,
             param_kinds,
             param_checks,
@@ -5640,6 +5644,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(())
     }
 
+    fn stored_expression_type<'t>(&self, id: ExprId, slots: &'t SlotScope) -> Option<&'t Type> {
+        use super::indexed::full::{CallableAssignmentPathStep, FullDecoder};
+        match self.program.arena.expr(id).kind {
+            ArenaExprKind::Ident(_) => slots.binding_type(self.expression_binding(id)?),
+            ArenaExprKind::Field { base, name } => {
+                let root = self.stored_expression_type(base, slots)?;
+                FullDecoder::assignment_target_from_type(root, &[CallableAssignmentPathStep::Field(name)], |_| Ok(())).ok().flatten()
+            }
+            ArenaExprKind::Index { base, .. } => {
+                let root = self.stored_expression_type(base, slots)?;
+                FullDecoder::assignment_target_from_type(root, &[CallableAssignmentPathStep::Index], |_| Ok(())).ok().flatten()
+            }
+            _ => None,
+        }
+    }
+
+    fn narrowed_erased_callable_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
+        let Type::Optional(payload) = self.stored_expression_type(id, slots)? else { return None };
+        let narrowed @ (Type::Pure | Type::Proc) = self.bodies.expr_types.get(&id)? else { return None };
+        (payload.as_ref() == narrowed).then(|| LoweredTypeCheck { ty: narrowed.clone(), name: Arc::from(narrowed.to_string()), schema: None })
+    }
+
     fn lower_expr_attempt(
         &mut self,
         id: ExprId,
@@ -5975,7 +6001,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::Bytes(self.program.arena.bytes_literal(value).clone(),)
             )),
-            ArenaExprKind::Ident(name) => self.lower_bare_ident(id, name, slots),
+            ArenaExprKind::Ident(name) => {
+                let value = self.lower_bare_ident(id, name, slots)?;
+                if let Some(check) = self.narrowed_erased_callable_check(id, slots) {
+                    Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }))
+                } else { Some(value) }
+            }
             ArenaExprKind::Item => {
                 item_slot.map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot)))
             }
@@ -6697,16 +6728,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
+                let check = self.narrowed_erased_callable_check(id, slots);
                 let lowered_base = self.lower_producer_input_expr(base, slots, current_function, item_slot)?;
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Field {
-                        base: lowered_base,
-                        name: name.as_str(),
-                        span,
-                    }
-                ))
+                let value = push_build_row!(self, expr, BuildExprRow::Field { base: lowered_base, name: name.as_str(), span });
+                Some(if let Some(check) = check { push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }) } else { value })
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_postfix_receiver(base, slots, current_function, item_slot)?;
@@ -8330,7 +8355,7 @@ mod checked_constructor_fact_tests {
             with_error_source_exprs: super::FxHashMap::default(),
         };
         checked.parsed.arena.symbol_owner().with_current(|| {
-            assert!(probe.lower_function_with_blocker(caller).is_err());
+            assert!(probe.lower_function_with_blocker(caller, crate::sema::types::CallableKind::Pure).is_err());
             assert_eq!(
                 probe
                     .last_blocker_detail

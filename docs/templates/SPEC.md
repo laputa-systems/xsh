@@ -3310,7 +3310,7 @@ A proc may declare an effect clause between its parameters and its return type:
 | `fs` | filesystem APIs (`fs`, `archive`, `diff`, `patch`, `user`, `group`, `module`, path I/O methods) |
 | `net` | `net`, `dns`, and the socket operations listed below |
 | `process` | `run`, `spawn`, `wait`, handle cancellation, effectful `process` APIs, `unix`, `linux`, `applet` |
-| `env` | `env`, `cd`, `system` |
+| `env` | `env`, `cd`, host-dependent `system` operations |
 | `time` | `time` APIs and delayed `retry` |
 | `io` | stdin/stdout APIs; also implies `fs`, `net`, `process`, and `env` |
 | `error` | propagating an `Err` out of the proc |

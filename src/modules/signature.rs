@@ -2,7 +2,7 @@ use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
@@ -302,9 +302,116 @@ pub struct NamedMethodSigs {
     pub overloads: Vec<MethodSig>,
 }
 
+pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> &'static [&'static ModuleFnSig] {
+    static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<&'static ModuleFnSig>>> = std::sync::OnceLock::new();
+    let signatures = SIGNATURES.get_or_init(|| {
+        let mut signatures = FxHashMap::<RuntimeOp, Vec<&'static ModuleFnSig>>::default();
+        for (_, module) in api_spec().module_entries() {
+            for function in &module.functions {
+                for signature in &function.overloads {
+                    if signature.binding == ImplBinding::Native {
+                        signatures.entry(signature.op).or_default().push(signature);
+                    }
+                }
+            }
+        }
+        for (receiver, methods) in api_spec().method_entries() {
+            if receiver != MethodReceiver::PathConstructor { continue; }
+            for method in methods {
+                for overload in &method.overloads {
+                    let signature = &overload.sig;
+                    if signature.binding == ImplBinding::Native {
+                        signatures.entry(signature.op).or_default().push(signature);
+                    }
+                }
+            }
+        }
+        signatures
+    });
+    signatures.get(&op).map_or(&[], Vec::as_slice)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NativeEffectRule {
+    Uniform { effects: &'static [Effect], pure: bool },
+    OperandDependent,
+}
+
+fn native_effect_rule<'a>(mut signatures: impl Iterator<Item = &'a ModuleFnSig>) -> Option<NativeEffectRule> {
+    let first = signatures.next()?;
+    Some(if signatures.all(|signature| signature.effects == first.effects && signature.pure == first.pure) {
+        NativeEffectRule::Uniform { effects: first.effects, pure: first.pure }
+    } else { NativeEffectRule::OperandDependent })
+}
+
+pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<NativeEffectRule> {
+    native_effect_rule(native_static_operation_signatures(op).iter().copied())
+}
+
+struct NativeMethodEffectRules {
+    names: BTreeMap<&'static str, NativeEffectRule>,
+    operand_dependent: BTreeSet<usize>,
+}
+
+fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
+    static RULES: OnceLock<NativeMethodEffectRules> = OnceLock::new();
+    RULES.get_or_init(|| {
+        let mut signatures = BTreeMap::<&'static str, Vec<&'static ModuleFnSig>>::new();
+        for (receiver, methods) in api_spec().method_entries() {
+            if receiver == MethodReceiver::PathConstructor { continue; }
+            for method in methods {
+                for overload in &method.overloads {
+                    if overload.sig.binding == ImplBinding::Native {
+                        signatures.entry(method.name).or_default().push(&overload.sig);
+                    }
+                }
+            }
+        }
+        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new() };
+        for (name, signatures) in signatures {
+            if let Some(rule) = native_effect_rule(signatures.iter().copied()) {
+                if rule == NativeEffectRule::OperandDependent {
+                    rules.operand_dependent.extend(signatures.iter().map(|signature| *signature as *const ModuleFnSig as usize));
+                }
+                rules.names.insert(name, rule);
+            }
+        }
+        rules
+    })
+}
+
+pub(crate) fn native_method_effect_rule(name: &str) -> Option<NativeEffectRule> {
+    native_method_effect_rules().names.get(name).copied()
+}
+
+pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceiver>, signature: &ModuleFnSig) -> bool {
+    if signature.binding != ImplBinding::Native { return false; }
+    match receiver {
+        None | Some(MethodReceiver::PathConstructor) => native_static_operation_effect_rule(signature.op) == Some(NativeEffectRule::OperandDependent),
+        Some(_) => native_method_effect_rules().operand_dependent.contains(&(signature as *const ModuleFnSig as usize)),
+    }
+}
+
 pub fn api_spec() -> &'static ApiSpec {
     static SPEC: OnceLock<ApiSpec> = OnceLock::new();
     SPEC.get_or_init(|| ApiSpec::from_registry(registry::api_spec()))
+}
+
+#[cfg(test)]
+mod numeric_effect_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_system_contracts_do_not_read_the_environment() {
+        for name in ["parse_long_double", "format_long_double", "long_double_precision"] {
+            let operation = api_spec().module_overloads("system", name).unwrap().first().unwrap();
+            assert!(operation.pure);
+            assert!(operation.effects.is_empty());
+        }
+        let hostname = api_spec().module_overloads("system", "hostname").unwrap().first().unwrap();
+        assert!(!hostname.pure);
+        assert_eq!(hostname.effects, &[Effect::Env]);
+    }
 }
 
 fn convert_module_entry(entry: &registry::ModuleEntry) -> ModuleEntry {

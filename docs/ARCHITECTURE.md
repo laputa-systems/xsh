@@ -82,19 +82,29 @@ result proofs do not require a caller to supply a concrete function identity.
 
 Closed Result constructor contracts use the existing ground producer proof for
 payloads, including contextual collections and lexical writers. Verification
-derives producer demand once from selected operations and constructor facts;
-its owner indexes and loop analysis share that transient demand.
+derives producer demand from selected operations, constructor facts, and mutable
+captures. Its owner indexes and loop analysis share that transient demand.
 
 Explicit discard bindings consume values without propagating Result errors.
 Static storage annotations use checked-value validation; a failed annotation is
 a fatal type error. Explicit schema requirements retain their Result transport.
 Module storage checks include the selected callable export contracts.
 
+Monomorphic capture reads use one storage proof per binding and contract. The
+proof anchors the contract in the defining writer, then checks replacement and
+partial writers across driver steps and functions. Destructuring projects the
+binding's contract from the actual source and target. Runtime storage validators
+discharge complete checks. Typed callable signatures and nominal payloads retain
+independent producer proof. Generic shared-state restrictions remain separate.
+
 Quantified proc effects must be finite and include each selected callee's
-checked effect contract. Ground callable effect clauses remain an existing
-trust boundary. Reconstructing language effects from indexed ground bodies,
-including rejection of jointly forged callee clauses and caller bounds,
-remains required work before claiming independent effect validation.
+checked effect contract. `FullVerifier` derives ground owner requirements from
+physical operations and selected native contracts. Operations with different
+overload effects require proof of their actual operands. Unknown callee contracts
+cannot satisfy finite effect bounds. Callable kind must match the prepared entry
+and return boundary. Pure body restrictions remain independent of capability
+sets, and captured errors remove only the Error requirement within their actual
+runtime boundary.
 
 Indexed IDs refer to program-owned tables. `SymbolOwner` owns dynamic names.
 The installed program retains its source map, but not the CST, arena program,

@@ -2,6 +2,7 @@ pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 mod verify_schemes;
+mod verify_effects;
 mod schemes;
 use schemes::{
     FullCallableContract, FullSchemeId, FullSchemeTypeNode, SchemeTypeId,
@@ -478,7 +479,7 @@ struct TemporarySlotWriters {
 }
 
 #[derive(Clone, Copy)]
-enum CallableAssignmentPathStep {
+pub(in crate::runtime::eval) enum CallableAssignmentPathStep {
     Field(Name),
     Index,
 }
@@ -656,7 +657,8 @@ impl FunctionSignatureIndex {
 struct FullFunctionMetadata {
     owner: u32,
     flags: u8,
-    reserved: [u8; 3],
+    callable_kind: crate::sema::types::CallableKind,
+    reserved: [u8; 2],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3613,7 +3615,8 @@ impl FullBuilder {
                 owner,
                 flags: u8::from(unit.kind() == LoweredFunctionKind::Proc)
                     | (u8::from(unit.is_exported()) << 1),
-                reserved: [0; 3],
+                callable_kind: body.callable_kind,
+                reserved: [0; 2],
             });
             self.function_definition_spans.push(unit.definition_span());
         }
@@ -6232,6 +6235,15 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_slot_type(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
         let fact = self.slot_type_fact(slot)?;
+        let fact = if fact.is_none() && self.producer_demand == crate::runtime::eval::ProducerDemand::Needed
+            && driver_owner_index(self.owner).is_none()
+        {
+            let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("capture read owner is invalid"))?;
+            let function = self.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("capture read owner is out of bounds"))?;
+            self.store.captures[function.captures.bounds(self.store.captures.len()).ok_or_else(|| IrVerifyError::new("capture read range is invalid"))?].iter()
+                .find(|capture| (capture.slot_and_flags & !(1 << 31)) as usize == slot && capture.slot_and_flags & (1 << 31) != 0)
+                .map(|capture| capture.type_id)
+        } else { fact };
         if driver_owner_index(self.owner).is_some()
             && self.is_temporary_slot(slot, &mut |_| Ok(()))?
             && let Some(fact) = fact
@@ -9308,35 +9320,6 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn native_static_operation_signatures(op: RuntimeOp) -> &'static [&'static crate::modules::signature::ModuleFnSig] {
-        static SIGNATURES: std::sync::OnceLock<FxHashMap<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>> = std::sync::OnceLock::new();
-        let signatures = SIGNATURES.get_or_init(|| {
-            let mut signatures = FxHashMap::<RuntimeOp, Vec<&'static crate::modules::signature::ModuleFnSig>>::default();
-            for (_, module) in crate::modules::api_spec().module_entries() {
-                for function in &module.functions {
-                    for signature in &function.overloads {
-                        if signature.binding == crate::modules::signature::ImplBinding::Native {
-                            signatures.entry(signature.op).or_default().push(signature);
-                        }
-                    }
-                }
-            }
-            for (receiver, methods) in crate::modules::api_spec().method_entries() {
-                if receiver != crate::modules::MethodReceiver::PathConstructor { continue; }
-                for method in methods {
-                    for overload in &method.overloads {
-                        let signature = &overload.sig;
-                        if signature.binding == crate::modules::signature::ImplBinding::Native {
-                            signatures.entry(signature.op).or_default().push(signature);
-                        }
-                    }
-                }
-            }
-            signatures
-        });
-        signatures.get(&op).map_or(&[], Vec::as_slice)
-    }
-
     fn checked_module_call_return_type(
         op: RuntimeOp,
         call_plan: Option<&crate::runtime::eval::ModuleCallPlan>,
@@ -9354,7 +9337,7 @@ impl<'a> FullDecoder<'a> {
         if let Some(result) = Self::derive_registered_api_operation_return_type(op)? {
             return Ok(Some(result));
         }
-        let signatures = Self::native_static_operation_signatures(op);
+        let signatures = crate::modules::signature::native_static_operation_signatures(op);
         let mut result = None;
         for signature in signatures {
             if arguments.len() > signature.params.len() { continue; }
@@ -9745,6 +9728,11 @@ impl<'a> FullDecoder<'a> {
             return Ok(Some(ty));
         }
         match self.expression_view(instruction)? {
+            schema::ExprView::FunctionRef { function, pure } => {
+                let (_, _, actual_pure) = self.function_reference_target(function)?;
+                if actual_pure != pure { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
+                Ok(Some(if pure { Type::Pure } else { Type::Proc }))
+            }
             schema::ExprView::Int(_) => Ok(Some(Type::Int)),
             schema::ExprView::Str(_) => Ok(Some(Type::Str)),
             schema::ExprView::FmtString(_) => Ok(Some(Type::Str)),
@@ -10053,7 +10041,6 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Null
             | schema::ExprView::PreparedRegex(_)
             | schema::ExprView::PreparedConstant(_)
-            | schema::ExprView::FunctionRef { .. }
             | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Glob { .. }
             | schema::ExprView::LastStatus { .. }
@@ -10072,7 +10059,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
-            | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
@@ -12612,34 +12598,37 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn assignment_receiver_type(mut ty: &Type) -> &Type {
+        loop {
+            ty = match ty { Type::Validated(value) => value.base(), Type::Optional(value) => value, _ => return ty };
+        }
+    }
+
+    pub(in crate::runtime::eval) fn assignment_target_from_type<'t>(
+        root: &'t Type,
+        path: &[CallableAssignmentPathStep],
+        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<&'t Type>, IrVerifyError> {
+        let mut target = root;
+        for step in path {
+            charge(1)?;
+            target = match (step, Self::assignment_receiver_type(target)) {
+                (CallableAssignmentPathStep::Field(name), Type::Record(fields)) => fields.get(name).ok_or_else(|| IrVerifyError::new("assignment field is absent from its declared receiver"))?,
+                (CallableAssignmentPathStep::Index, Type::List(item) | Type::Map(_, item)) => item,
+                _ => return Ok(None),
+            };
+        }
+        Ok(Some(target))
+    }
+
     fn callable_assignment_target_type(
         &self,
         root_slot: usize,
         path: &[CallableAssignmentPathStep],
     ) -> Result<Option<Type>, IrVerifyError> {
-        let Some(root_type) = self.checked_slot_type(root_slot)? else {
-            return Ok(None);
-        };
-        let mut target_type = self.store.semantic.to_type(root_type)?;
-        for step in path {
-            target_type = match step {
-                CallableAssignmentPathStep::Field(name) => {
-                    let Type::Record(fields) = target_type else {
-                        return Ok(None);
-                    };
-                    fields.get(name).cloned().ok_or_else(|| {
-                        IrVerifyError::new(
-                            "callable assignment field is absent from its checked receiver",
-                        )
-                    })?
-                }
-                CallableAssignmentPathStep::Index => match target_type.into_unvalidated() {
-                    Type::List(item) | Type::Map(_, item) => *item,
-                    _ => return Ok(None),
-                },
-            };
-        }
-        Ok(Some(target_type))
+        let Some(root_type) = self.checked_slot_type(root_slot)? else { return Ok(None) };
+        let root_type = self.store.semantic.to_type(root_type)?;
+        Self::assignment_target_from_type(&root_type, path, |_| Ok(())).map(|target| target.cloned())
     }
 
     fn verify_callable_assignment_value(
@@ -13564,6 +13553,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
             | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
@@ -16596,6 +16586,7 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
+            verify_effects::verify_owner(&decoder, index)?;
             // Reject malformed transfers even when no loop-return query in
             // this function happens to request the cached analysis.
             drop(decoder.return_analysis()?);
@@ -20803,6 +20794,498 @@ assert first([], [7])? == {key: "", text: "empty"}
     }
 
     #[test]
+    fn physical_effects_authenticate_operand_dependent_calls_without_constructor_demand() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("physical-mixed-effects.xsh", concat!(
+                "pure checksum() -> Int {\n",
+                " let buffers = [\"hello\"] |> map { |text| bytes.from_text(text + \"!\") } |> collect()\n",
+                " let digest = hash.md5(buffers[0])\n",
+                " 7\n}\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            assert!(program.store.registered_calls.is_empty());
+            assert!(!program.store.tags.iter().any(|tag| matches!(tag, FullTag::ExprOk | FullTag::ExprErr)));
+            assert!(program.store.checked_expr_types.iter().any(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "checksum")), LoweredFunctionKind::Pure,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, Value::Int(7));
+            }
+            let mut missing_payloads = (*program).clone();
+            missing_payloads.store.data.clear();
+            assert!(FullVerifier::verify(&missing_payloads).unwrap_err().message.contains("instruction payload"));
+            let mut missing_evidence = (*program).clone();
+            missing_evidence.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&missing_evidence).expect_err("physical mixed operations must demand operand proof even without source demand scratch");
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_pure_numeric_operations() {
+        run_with_large_stack(|| {
+            let program = fixture("pure-numeric-effects.xsh", concat!(
+                "pure precision() -> Int { system.long_double_precision() }\n",
+                "assert precision() > 0\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    fn assert_erased_pure_projection_rejects_proc_receiver(program: &FullProgram) {
+        let function = scheme_fixture_root_function(program, "apply");
+        let instructions = program.store.function_instruction_range(function).unwrap();
+        let call = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprDynamicCall).unwrap();
+        let decoder = function_view_decoder(&program.store, function);
+        let schema::ExprView::DynamicCall { callee, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let projection = callee.raw();
+        let base = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprParam).unwrap();
+        let mut forged = program.clone();
+        forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&forged).unwrap();
+        let words = forged.store.data[base].range().bounds(forged.store.extra.len()).unwrap();
+        assert_eq!(forged.store.extra[words.start], 0);
+        forged.store.extra[words.start] = 1;
+        let pure = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Pure).unwrap();
+        forged.store.checked_expr_types.retain(|fact| fact.instruction != projection);
+        let insert = forged.store.checked_expr_types.partition_point(|fact| fact.instruction < projection);
+        forged.store.checked_expr_types.insert(insert, FullCheckedExprType { instruction: projection, type_id: pure, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(function).unwrap())) });
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn monomorphic_storage_authenticates_nested_partial_and_computed_writers() {
+        run_with_large_stack(|| {
+            let program = fixture("monomorphic-storage-writers.xsh", concat!(
+                "type Holder = { handle: Pure, ignored: Any }\ntype Box = { inner: Holder }\n",
+                "pure first() -> Int { 7 }\npure second() -> Int { 8 }\n",
+                "proc wrong() [] -> Int { 9 }\nlet proc_witness: Proc = wrong\n",
+                "var box: Box = { inner: { handle: first, ignored: \"data\" } }\n",
+                "var handles: List[Pure] = [first]\n",
+                "pure boxed() -> Any { box.inner.handle.call() }\n",
+                "pure listed() -> Any { handles[0].call() }\n",
+                "proc choose(flag: Bool) [] -> Pure { if flag { return first }; return second }\n",
+                "proc update() [] -> Unit { box.inner.handle = choose(false); handles[0] = second }\n",
+                "proc shadow() [] -> Unit { var handles: List[Proc] = [wrong]; handles = [wrong] }\n",
+                "assert boxed() == 7\nassert listed() == 7\n",
+                "update()\nassert boxed() == 8\nassert listed() == 8\n",
+                "handles = handles\nshadow()\n",
+                "box = { inner: { handle: first, ignored: 42 } }\nhandles = [first]\n",
+                "assert boxed() == 7\nassert listed() == 7\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let decoder = stage_view_decoder(&program.store);
+            let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+            }).unwrap();
+            let update = scheme_fixture_root_function(&program, "update");
+            let decoder = function_view_decoder(&program.store, update);
+            let instruction = program.store.function_instruction_range(update).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssignPath && matches!(decoder.statement_view(instruction).unwrap(), schema::StmtView::AssignPath { value, .. } if program.store.tags[value.raw() as usize] == FullTag::ExprFunctionRef)).unwrap();
+            let schema::StmtView::AssignPath { value, .. } = decoder.statement_view(instruction).unwrap() else { unreachable!() };
+            let mut forged = (*program).clone();
+            forged.store.data[value.raw() as usize] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("non-pure executable target") || error.message == "ground producer value disagrees with its checked contract", "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_retains_nominal_payload_validator_obligations() {
+        run_with_large_stack(|| {
+            let program = fixture("nominal-storage-validator.xsh", concat!(
+                "enum Wrapped { Saved(Pure) }\n",
+                "type Holder = { handle: Pure, saved: Wrapped }\n",
+                "pure first() -> Int { 7 }\nproc wrong() -> Int { 9 }\nlet witness: Proc = wrong\n",
+                "var holder: Holder = { handle: first, saved: Saved(first) }\n",
+                "pure apply() -> Any { holder.handle.call() }\nassert apply() == 7\n",
+            ));
+            let decoder = stage_view_decoder(&program.store);
+            let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+            }).unwrap();
+            let constructor = program.store.tags.iter().position(|tag| *tag == FullTag::ExprTag).unwrap();
+            let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&constructor)).unwrap();
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            let schema::ExprView::Tag { mut fields, .. } = decoder.expression_view(constructor).unwrap() else { unreachable!() };
+            let payload = fields.next().unwrap().unwrap().raw() as usize;
+            let mut forged = program.clone();
+            forged.store.data[payload] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message == "ground producer value disagrees with its checked contract" || error.message.contains("non-pure executable target"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_retains_typed_callable_validator_obligations() {
+        run_with_large_stack(|| {
+            let program = fixture("typed-storage-validator.xsh", concat!(
+                "type Action = pure(value: Int) -> Int\n",
+                "type Holder = { handle: Pure, typed: Action, ignored: Any }\n",
+                "pure first() -> Int { 7 }\n",
+                "pure right(value: Int) -> Int { value }\n",
+                "pure wrong(value: Str) -> Str { value }\nlet witness = wrong\n",
+                "var holder: Holder = { handle: first, typed: right, ignored: null }\n",
+                "pure apply() -> Any { holder.handle.call() }\nassert apply() == 7\n",
+            ));
+            let decoder = stage_view_decoder(&program.store);
+            let reference = |name| program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprFunctionRef { return None; }
+                let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                matches!(function, decode::FunctionNameView::Name(found) if found.as_str().as_str() == name).then_some(instruction)
+            }).unwrap();
+            let right = reference("right");
+            let wrong = reference("wrong");
+            let mut forged = program.clone();
+            forged.store.data[right] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message == "checked function reference identity disagrees with its producer: source name" || error.message.contains("signature"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_checks_guard_origin_replacement_writers() {
+        run_with_large_stack(|| {
+            let program = fixture("guard-storage-writers.xsh", concat!(
+                "pure first() -> Int { 7 }\nproc wrong() -> Int { 9 }\n",
+                "guard let box = Ok({ handle: first }) else { exit 3 }\n",
+                "pure apply() -> Any { var scratch = { handle: wrong }; scratch.handle = wrong; box.handle.call() }\n",
+                "assert apply() == 7\n",
+            ));
+            let apply = scheme_fixture_root_function(&program, "apply");
+            let decoder = function_view_decoder(&program.store, apply);
+            let instruction = program.store.function_instruction_range(apply).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssignField).unwrap();
+            let captures = program.store.functions[apply].captures.bounds(program.store.captures.len()).unwrap();
+            let capture = captures.into_iter().find(|&index| program.store.string(program.store.captures[index].name).unwrap() == "box").unwrap();
+            let slot = program.store.captures[capture].slot_and_flags & !(1 << 31);
+            assert!(matches!(decoder.statement_view(instruction).unwrap(), schema::StmtView::AssignField { .. }));
+            let mut forged = program.clone();
+            let words = forged.store.data[instruction].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[words.start] = slot;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("pure executable body writes shared mutable state") || error.message.contains("non-pure executable target") || error.message == "ground producer value disagrees with its checked contract", "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_rejects_scalar_writers_that_bypass_unsigned_checks() {
+        run_with_large_stack(|| {
+            let program = fixture("unsigned-captured-writer.xsh", concat!(
+                "var checked: UInt = 1\n",
+                "proc read() [error] -> Result[UInt] { Ok(checked) }\n",
+                "proc write() [] -> Unit { var scratch: Int = 0; scratch = -1 }\n",
+                "assert read()? == 1\n",
+            ));
+            let write = scheme_fixture_root_function(&program, "write");
+            let instruction = program.store.function_instruction_range(write).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssignInt).unwrap();
+            let captures = program.store.functions[write].captures.bounds(program.store.captures.len()).unwrap();
+            let capture = captures.into_iter().find(|&index| program.store.string(program.store.captures[index].name).unwrap() == "checked").unwrap();
+            let slot = program.store.captures[capture].slot_and_flags & !(1 << 31);
+            let mut forged = program.clone();
+            let words = forged.store.data[instruction].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[words.start] = slot;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("unsigned storage"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_authenticates_destructured_defining_projection() {
+        run_with_large_stack(|| {
+            let program = fixture("destructured-capture-origin.xsh", concat!(
+                "proc wrong() -> Int { 9 }\n",
+                "var { box } = { box: { handle: wrong } }\n",
+                "proc apply() -> Any { box.handle.call() }\n",
+            ));
+            let _symbols = program.symbol_owner().enter();
+            let mut forged = program.clone();
+            FullVerifier::verify(&forged).unwrap();
+            let apply = scheme_fixture_root_function(&forged, "apply");
+            forged.store.function_metadata[apply].callable_kind = crate::sema::types::CallableKind::Pure;
+            forged.store.function_metadata[apply].flags &= !1;
+            let ty = Type::Record(Arc::new(std::collections::BTreeMap::from([(Name::intern("handle"), Type::Pure)])));
+            let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
+            let captures = forged.store.functions[apply].captures.bounds(forged.store.captures.len()).unwrap();
+            let capture = captures.into_iter().find(|&index| forged.store.string(forged.store.captures[index].name).unwrap() == "box").unwrap();
+            forged.store.captures[capture].type_id = ty;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("storage declaration disagrees with its read contract"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_monomorphic_mutable_capture_reads() {
+        run_with_large_stack(|| {
+            let program = fixture("mutable-ground-result.xsh", concat!(
+                "var shared: Int = 1\n",
+                "proc read() [error] -> Result[Int] { Ok(shared) }\n",
+                "assert read()? == 1\nshared = 2\nassert read()? == 2\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_mutable_erased_pure_capture_reads() {
+        run_with_large_stack(|| {
+            let program = fixture("mutable-erased-pure-capture.xsh", concat!(
+                "pure first() -> Int { 7 }\npure second() -> Int { 8 }\n",
+                "proc wrong() [] -> Int { 9 }\nlet proc_witness: Proc = wrong\n",
+                "var handle: Pure = first\n",
+                "proc install() [] -> Unit { handle = second }\n",
+                "pure apply() -> Any { handle.call() }\n",
+                "handle = handle\nassert apply() == 7\nhandle = second\nassert apply() == 8\n",
+                "handle = first\ninstall()\nassert apply() == 8\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let decoder = stage_view_decoder(&program.store);
+            let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+            }).unwrap();
+            let install = scheme_fixture_root_function(&program, "install");
+            let statement = program.store.function_instruction_range(install).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssign).unwrap();
+            let decoder = function_view_decoder(&program.store, install);
+            let schema::StmtView::Assign { value, .. } = decoder.statement_view(statement).unwrap() else { unreachable!() };
+            let mut replacements = vec![value.raw() as usize];
+            for (step, row) in program.store.driver_steps.iter().enumerate() {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                let mut payload = FullCursor::new(program.store.payload(row.data.range()).unwrap());
+                match row.tag {
+                    FullDriverTag::Let => {
+                        let name: Name = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        if name.as_str().as_str() != "handle" { continue; }
+                        let _: Option<LoweredType> = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        let validation: Option<LoweredTypeCheck> = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        assert!(validation.is_none());
+                        let _: Option<Type> = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        let _: bool = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        replacements.push(payload.raw().unwrap() as usize);
+                    }
+                    FullDriverTag::Assign => {
+                        let _: Name = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        payload.raw().unwrap();
+                        let _: AssignOp = FullCodec::decode(&decoder, &mut payload).unwrap();
+                        let value = payload.raw().unwrap() as usize;
+                        if program.store.tags[value] == FullTag::ExprFunctionRef { replacements.push(value); }
+                    }
+                    _ => {}
+                }
+            }
+            for replacement in replacements {
+                let mut forged = (*program).clone();
+                forged.store.data[replacement] = program.store.data[wrong];
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("non-pure executable target") || error.message == "ground producer value disagrees with its checked contract", "{}", error.message);
+            }
+            let mut forged = (*program).clone();
+            let captures = forged.store.functions[install].captures.bounds(forged.store.captures.len()).unwrap();
+            let proc_type = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Proc).unwrap();
+            let capture = captures.into_iter().find(|&index| forged.store.string(forged.store.captures[index].name).unwrap() == "handle").unwrap();
+            forged.store.captures[capture].type_id = proc_type;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("storage writer root disagrees"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_erased_pure_shared_reads() {
+        run_with_large_stack(|| {
+            let program = fixture("erased-pure-shared-reads.xsh", concat!(
+                "var shared = 0\n",
+                "pure captured() -> Int { shared }\n",
+                "pure apply(handle: Pure) -> Any { handle.call() }\n",
+                "assert apply(captured) == 0\n",
+                "shared = 1\n",
+                "assert apply(captured) == 1\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_indexed_erased_pure_callees() {
+        let program = fixture("indexed-erased-pure.xsh", "pure apply(handles: List[Pure], other: List[Proc]) -> Any { handles[0].call() }\n");
+        FullVerifier::verify(&program).unwrap();
+        assert_erased_pure_projection_rejects_proc_receiver(&program);
+    }
+
+    #[test]
+    fn monomorphic_storage_preserves_typed_proc_factory_writers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("typed-proc-factory-writer.xsh", concat!(
+                "type Action = proc() [] -> Int\ntype Factory = proc() [] -> Action\n",
+                "proc first() [] -> Int { 7 }\nproc second() [] -> Int { 9 }\n",
+                "proc wrong(value: Int) [] -> Int { value }\nlet witness: Proc = wrong\n",
+                "proc make() [] -> Action { second }\nlet factory: Factory = make\n",
+                "var action: Action = first\n",
+                "proc update() [] -> Unit { action = factory() }\nproc apply() [] -> Int { action() }\n",
+                "assert apply() == 7\nupdate()\nassert apply() == 9\n",
+            )));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let decoder = stage_view_decoder(&program.store);
+            let reference = |name| program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprFunctionRef { return None; }
+                let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                matches!(function, decode::FunctionNameView::Name(found) if found.as_str().as_str() == name).then_some(instruction)
+            }).unwrap();
+            let initializer = reference("first");
+            let wrong = reference("wrong");
+            let mut forged = (*program).clone();
+            forged.store.data[initializer] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("signature") || error.message.contains("source name"), "{}", error.message);
+            let update = scheme_fixture_root_function(&program, "update");
+            let call = program.store.function_instruction_range(update).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprTypedCall).unwrap();
+            let decoder = function_view_decoder(&program.store, update);
+            let schema::ExprView::TypedCall { signature, .. } = decoder.expression_view(call).unwrap() else { panic!("factory typed call") };
+            let Type::Callable(contract) = signature.materialize().unwrap() else { panic!("factory contract") };
+            let mut wrong_return = (*program).clone();
+            let mut changed = (*contract).clone();
+            changed.sig.return_ty = Box::new(Type::Str);
+            let ty = SemanticPoolBuilder::default().intern_type(&mut wrong_return.store.semantic, &Type::Callable(Arc::new(changed))).unwrap();
+            let words = wrong_return.store.data[call].range().bounds(wrong_return.store.extra.len()).unwrap();
+            wrong_return.store.extra[words.start + 2] = ty.raw();
+            FullVerifier::verify(&wrong_return).expect_err("a factory call cannot change its declared return contract");
+            let mut wrong_kind = (*program).clone();
+            let mut changed = (*contract).clone();
+            changed.pure = true;
+            let ty = SemanticPoolBuilder::default().intern_type(&mut wrong_kind.store.semantic, &Type::Callable(Arc::new(changed))).unwrap();
+            wrong_kind.store.extra[words.start + 1] = 1;
+            wrong_kind.store.extra[words.start + 2] = ty.raw();
+            FullVerifier::verify(&wrong_kind).expect_err("joint call kind and signature changes must authenticate the actual factory");
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_null_guarded_erased_pure_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("null-guarded-pure-field.xsh", concat!(
+                "type Box = { handle: Pure? }\npure first() -> Int { 7 }\n",
+                "pure apply(box: Box) -> Any { if box.handle != null { box.handle.call() } else { null } }\n",
+                "assert apply({ handle: null }) == null\nassert apply({ handle: first }) == 7\n",
+            )));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_null_guarded_erased_pure_callees() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("null-guarded-pure-callee.xsh", concat!(
+                "pure first() -> Int { 7 }\n",
+                "pure apply(handle: Pure?) -> Any { if handle == null { return 0 }; handle.call() }\n",
+                "assert apply(null) == 0\nassert apply(first) == 7\n",
+            )));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let apply = scheme_fixture_root_function(&program, "apply");
+            let check = program.store.function_instruction_range(apply).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprCheckedValue).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&forged).unwrap();
+            let nullable = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Optional(Box::new(Type::Pure))).unwrap();
+            let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[words.start + 1] = nullable.raw();
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message == "ground producer value disagrees with its checked contract", "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn physical_effects_preserve_optional_erased_pure_callees() {
+        let program = fixture("optional-erased-pure.xsh", "pure optional(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }\n");
+        FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn physical_effects_preserve_nested_erased_pure_callees() {
+        let program = fixture("nested-erased-pure.xsh", "type Inner = { handle: Pure }\ntype Box = { inner: Inner }\ntype OtherInner = { handle: Proc }\ntype OtherBox = { inner: OtherInner }\npure apply(box: Box, other: OtherBox) -> Any { box.inner.handle.call() }\n");
+        FullVerifier::verify(&program).unwrap();
+        assert_erased_pure_projection_rejects_proc_receiver(&program);
+    }
+
+    #[test]
+    fn physical_effects_preserve_erased_pure_calls_in_pure_owners() {
+        run_with_large_stack(|| {
+            let program = fixture("erased-pure-effects.xsh", "pure apply(handle: Pure, other: Proc) -> Any { handle.call() }\n");
+            FullVerifier::verify(&program).unwrap();
+            let function = scheme_fixture_root_function(&program, "apply");
+            let callee = program.store.function_instruction_range(function).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprParam).unwrap();
+            let mut forged = program;
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&forged).unwrap();
+            let words = forged.store.data[callee].range().bounds(forged.store.extra.len()).unwrap();
+            assert_eq!(forged.store.extra[words.start], 0);
+            forged.store.extra[words.start] = 1;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("ground producer value disagrees with its checked contract"));
+        });
+    }
+
+    #[test]
     fn typed_record_storage_preserves_empty_effect_contracts() {
         run_with_large_stack(|| {
             let program = fixture("typed-record-storage-effects.xsh", concat!(
@@ -20842,6 +21325,254 @@ assert first([], [7])? == {key: "", text: "empty"}
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
             }
+        });
+    }
+
+    #[test]
+    fn physical_effects_charge_implicit_result_discards() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-discard-effects.xsh", concat!(
+                "pure fail() -> Result[Unit, Str] { Err(\"bad\") }\n",
+                "proc owner() [error] -> Result[Unit, Str] { fail(); Ok() }\n",
+                "proc erased(value: Any) [] -> Unit { let observed: Any = if true { value } else { value } }\n",
+                "let failure: Result[Unit, Str] = Err(\"bad\")\nerased(failure)\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let shared = Arc::new(program.clone());
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*shared.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&shared));
+                for step in 0..shared.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(shared.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "owner");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(Vec::new());
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+            let erased = scheme_fixture_root_function(&program, "erased");
+            let statement = program.store.function_instruction_range(erased).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtLet).unwrap();
+            let decoder = function_view_decoder(&program.store, erased);
+            let schema::StmtView::Let { value, .. } = decoder.statement_view(statement).unwrap() else { panic!("erased binding") };
+            let value = value.raw();
+            let discard = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtExpr).unwrap();
+            let location = program.store.payload(program.store.data[discard].range()).unwrap()[1];
+            let mut dynamic = program.clone();
+            let start = dynamic.store.extra.len() as u32;
+            dynamic.store.extra.extend([value, location]);
+            dynamic.store.tags[statement] = FullTag::StmtExpr;
+            dynamic.store.data[statement] = IrData::from_range(IrRange::new(start, 2));
+            let FullCallableContract::Ground(signature) = dynamic.store.functions[erased].contract else { panic!("erased contract") };
+            let mut callable = dynamic.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Error]);
+            dynamic.store.functions[erased].contract = FullCallableContract::Ground(semantic.intern_signature(&mut dynamic.store.semantic, &callable).unwrap());
+            FullVerifier::verify(&dynamic).unwrap();
+            let decoder = function_view_decoder(&dynamic.store, erased);
+            assert_eq!(decoder.expression_checked_type_id(value as usize).unwrap(), None);
+            assert_eq!(decoder.derive_checked_expression_type(value as usize).unwrap(), Some(Type::Any));
+            let FullCallableContract::Ground(signature) = dynamic.store.functions[erased].contract else { panic!("erased contract") };
+            let mut callable = dynamic.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(Vec::new());
+            dynamic.store.functions[erased].contract = FullCallableContract::Ground(semantic.intern_signature(&mut dynamic.store.semantic, &callable).unwrap());
+            dynamic.store.checked_expr_types.retain(|fact| fact.is_contract());
+            let error = FullVerifier::verify(&dynamic).unwrap_err();
+            assert!(error.message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_reject_guard_initializer_error_capture() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-guard-effects.xsh", concat!(
+                "pure fail() -> Result[Unit, Str] { Err(\"bad\") }\n",
+                "pure wrap(value: Unit) -> Result[Unit, Str] { Ok(value) }\n",
+                "proc owner() [error] -> Result[Unit, Str] {\n",
+                " guard let value = wrap(fail()?) else { |failure| return Err(failure) }\n",
+                " Ok(value)\n}\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "owner");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(Vec::new());
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_charge_cd_entry_failures() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-cd-effects.xsh", "proc owner() [env, error] -> Int { cd p\"/definitely-missing\" {}; 1 }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "owner");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Env]);
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_charge_internal_run_and_print_propagation() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-command-effects.xsh", concat!(
+                "proc command() [process, error] -> Result[Unit] { run false; Ok() }\n",
+                "proc accepted() [process, error] -> Int { let status = run.status --accept=[0] false; 7 }\n",
+                "proc printed() [] -> Unit { print \"owned\" }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            for name in ["command", "accepted"] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground command") };
+                let mut forged = program.clone();
+                let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+                callable.effects = Some(vec![Effect::Process]);
+                let mut semantic = SemanticPoolBuilder::default();
+                forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+                assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+            }
+            let printed = scheme_fixture_root_function(&program, "printed");
+            let print = program.store.function_instruction_range(printed).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtPrint).unwrap();
+            let mut forged = program.clone();
+            let payload = forged.store.data[print].range().bounds(forged.store.extra.len()).unwrap();
+            assert_eq!(forged.store.extra[payload.start + 3], 0);
+            forged.store.extra[payload.start + 3] = 1;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_keep_retry_delay_errors_outside_the_attempt_boundary() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-retry-delay-effects.xsh", concat!(
+                "error DelayError = Failed\n",
+                "proc delay() [error] -> Result[Duration] { Err(DelayError.Failed()) }\n",
+                "proc owner() [time, error] -> Result[Int] { retry [delay()?] { 1 } }\n",
+                "proc assertion() [error] -> Unit { assert false }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let function = scheme_fixture_root_function(&program, "owner");
+            let FullCallableContract::Ground(signature) = program.store.functions[function].contract else { panic!("ground contract") };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Time]);
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[function].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+            let assertion = scheme_fixture_root_function(&program, "assertion");
+            let FullCallableContract::Ground(signature) = program.store.functions[assertion].contract else { panic!("ground assertion") };
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(Vec::new());
+            forged.store.functions[assertion].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_reject_callable_kind_laundering() {
+        run_with_large_stack(|| {
+            let program = fixture("physical-kind-effects.xsh", concat!(
+                "var shared = 0\n",
+                "pure captured() -> Int { shared }\n",
+                "proc mutate() [] -> Unit { shared += 1 }\n",
+                "proc announce() [] -> Unit { print \"owned\" }\n",
+                "pure identity(value: Int) -> Int { value }\n",
+                "pure collected() -> List[Int] { collect { yield 1 } }\n",
+                "assert captured() == 0\nshared = 1\nassert captured() == 1\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let shared = Arc::new(program.clone());
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*shared.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&shared));
+                for step in 0..shared.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(shared.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let announce = scheme_fixture_root_function(&program, "announce");
+            let mut pure = program.clone();
+            pure.store.function_metadata[announce].callable_kind = crate::sema::types::CallableKind::Pure;
+            pure.store.function_metadata[announce].flags &= !1;
+            assert!(FullVerifier::verify(&pure).unwrap_err().message.contains("pure executable body"));
+            let identity = scheme_fixture_root_function(&program, "identity");
+            let mut stream = program.clone();
+            stream.store.function_metadata[identity].callable_kind = crate::sema::types::CallableKind::Stream;
+            assert!(FullVerifier::verify(&stream).unwrap_err().message.contains("stream callable"));
+            let captured = scheme_fixture_root_function(&program, "mutate");
+            let captures = program.store.functions[captured].captures.bounds(program.store.captures.len()).unwrap();
+            assert!(program.store.captures[captures].iter().any(|capture| capture.slot_and_flags & (1 << 31) != 0));
+            let mut pure_capture = program.clone();
+            pure_capture.store.function_metadata[captured].callable_kind = crate::sema::types::CallableKind::Pure;
+            pure_capture.store.function_metadata[captured].flags &= !1;
+            assert!(FullVerifier::verify(&pure_capture).unwrap_err().message.contains("pure executable body writes shared mutable state"));
+        });
+    }
+
+    #[test]
+    fn physical_effects_charge_stream_contracts_before_lazy_execution() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("physical-stream-effects.xsh", concat!(
+                "stream lazy(divisor: Int) [io] -> Stream[Int] { let flushed = io.flush_stdout(); yield 1 / divisor }\n",
+                "proc unopened() [io] -> Int { let values = lazy(0); 7 }\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "unopened")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, Value::Int(7));
+            }
+            let unopened = scheme_fixture_root_function(&program, "unopened");
+            let FullCallableContract::Ground(signature) = program.store.functions[unopened].contract else { panic!("ground contract") };
+            let mut forged = (*program).clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = Some(vec![Effect::Fs]);
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[unopened].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect io"));
+        });
+    }
+
+    #[test]
+    fn generic_proc_effects_reject_joint_callee_and_owner_forgery() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-proc-joint-effect-forgery.xsh", concat!(
+                "proc mark(label: Str) [io] -> Int { let flushed = io.flush_stdout(); 1 }\n",
+                "proc traced(value, label: Str) [io] { let observed = mark(label); value }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let helper = scheme_fixture_root_function(&program, "mark");
+            let FullCallableContract::Ground(signature) = program.store.functions[helper].contract else { panic!("ground helper") };
+            let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
+                &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            signature.effects = Some(vec![crate::syntax::node::Effect::Fs]);
+            let traced = scheme_fixture_root_function(&program, "traced");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[traced].contract else { panic!("generic caller") };
+            let effects = program.store.schemes[scheme.index()].effects.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
+            let mut forged = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let signature = semantic.intern_signature(&mut forged.store.semantic, &signature).unwrap();
+            forged.store.functions[helper].contract = FullCallableContract::Ground(signature);
+            forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
+            assert!(FullVerifier::verify(&forged).is_err(), "executable io.flush_stdout still requires io after both declarations claim fs");
         });
     }
 
@@ -27040,6 +27771,7 @@ proc main() [env, error] -> Result[Unit] {
                 scratch.stmt(BuildStmtRow::Return { value: selection })
             };
             let body = FunctionBuild {
+                callable_kind: crate::sema::types::CallableKind::Pure,
                 scheme: None,
                 scheme_body_types: BTreeMap::new(),
                 scheme_tail_types: BTreeMap::new(),
@@ -38959,6 +39691,7 @@ proc local() [env, error] -> Int {
                 let name = Name::intern("value");
                 let scratch = Rc::new(RefCell::new(BuildScratch::default()));
                 let body = FunctionBuild {
+                    callable_kind: crate::sema::types::CallableKind::Pure,
                     params: SmallVec::from_vec(vec![name]),
                     param_kinds: SmallVec::from_vec(vec![LoweredParamKind::Typed(
                         LoweredType::Int,

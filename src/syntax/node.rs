@@ -68,7 +68,10 @@ impl Effect {
                 "millis" | "seconds" => &[],
                 _ => &[Self::Time],
             },
-            "system" => &[Self::Env],
+            "system" => match function {
+                "parse_long_double" | "format_long_double" | "long_double_precision" => &[],
+                _ => &[Self::Env],
+            },
             "applet" => &[Self::Process],
             "process" | "unix" | "linux" => match function {
                 "command_argv" | "argv_words" => &[],
