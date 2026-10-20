@@ -1,11 +1,16 @@
 import fcntl
+import importlib.util
 import multiprocessing
 import os
 from pathlib import Path
+import queue
+import signal
+import sys
 import tempfile
+import threading
 import unittest
 
-from leases import _cargo_held, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root
+from leases import _cargo_held, _cargo_lease, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root
 
 
 def hold(path, mode, channel):
@@ -13,6 +18,30 @@ def hold(path, mode, channel):
         channel.send("held")
         channel.recv()
     channel.send("released")
+
+
+def interrupt_worker(signum, frame):
+    raise KeyboardInterrupt
+
+
+def cargo_worker(path, root, target, channel):
+    signal.signal(signal.SIGUSR1, interrupt_worker)
+    try:
+        with _cargo_lease(Path(root), Path(path), None, Path(target)):
+            channel.send("held")
+            action = channel.recv()
+            if action == "raise":
+                raise RuntimeError("worker failure")
+            if action == "signal":
+                channel.send("signal-ready")
+                signal.pause()
+        channel.send("released")
+    except LeaseBusy:
+        channel.send("busy")
+    except RuntimeError:
+        channel.send("exception")
+    except KeyboardInterrupt:
+        channel.send("interrupted")
 
 
 class LeaseTests(unittest.TestCase):
@@ -23,6 +52,46 @@ class LeaseTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "lease"
         self.path.write_bytes(b"preserve")
+        self.roots = []
+        for name in ("source-a", "source-b", "source-c"):
+            root = Path(self.directory.name) / name
+            (root / ".work/target").mkdir(parents=True)
+            self.roots.append(root)
+
+    def start_cargo_worker(self, root_index):
+        parent, child = multiprocessing.Pipe()
+        worker = multiprocessing.get_context("spawn").Process(
+            target=cargo_worker,
+            args=(str(self.path), str(self.roots[root_index]), str(self.roots[root_index] / ".work/target"), child),
+        )
+        worker.start()
+        child.close()
+
+        def cleanup():
+            if worker.is_alive():
+                worker.kill()
+            worker.join(5)
+            parent.close()
+
+        self.addCleanup(cleanup)
+        return worker, parent
+
+    def cargo_identity(self):
+        info = self.path.stat()
+        return info.st_dev, info.st_ino
+
+    def attempt_cargo(self, root_index, target=True):
+        path = self.roots[root_index] / ".work/target" if target else None
+        return _cargo_lease(self.roots[root_index], self.path, self.cargo_identity(), path)
+
+    def join_worker(self, worker):
+        worker.join(5)
+        self.assertFalse(worker.is_alive(), "cargo worker did not exit")
+        self.assertEqual(worker.exitcode, 0)
+
+    def receive(self, channel, expected):
+        self.assertTrue(channel.poll(5), f"worker did not send {expected}")
+        self.assertEqual(channel.recv(), expected)
 
     def assert_exclusion(self, held, rejected):
         parent, child = multiprocessing.Pipe()
@@ -116,6 +185,128 @@ class LeaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             with acquire([(self.path, fcntl.LOCK_SH, None)]):
                 self.fail("dangling cleanup marker accepted")
+
+    def test_parallel_cargo_admits_two_disjoint_outputs_and_rejects_a_third(self):
+        first, first_pipe = self.start_cargo_worker(0)
+        self.receive(first_pipe, "held")
+        second, second_pipe = self.start_cargo_worker(1)
+        self.receive(second_pipe, "held")
+        with self.assertRaises(LeaseBusy):
+            with self.attempt_cargo(2):
+                self.fail("third disjoint output entered")
+        first_pipe.send("release")
+        self.receive(first_pipe, "released")
+        self.join_worker(first)
+        with self.attempt_cargo(2):
+            pass
+        second_pipe.send("release")
+        self.receive(second_pipe, "released")
+        self.join_worker(second)
+
+    def test_parallel_cargo_rejects_same_output_without_consuming_second_slot(self):
+        first, first_pipe = self.start_cargo_worker(0)
+        self.receive(first_pipe, "held")
+        with self.assertRaises(LeaseBusy):
+            with self.attempt_cargo(0):
+                self.fail("same output entered twice")
+        second, second_pipe = self.start_cargo_worker(1)
+        self.receive(second_pipe, "held")
+        first_pipe.send("release")
+        self.receive(first_pipe, "released")
+        self.join_worker(first)
+        second_pipe.send("release")
+        self.receive(second_pipe, "released")
+        self.join_worker(second)
+
+    def test_failed_nested_exclusive_cargo_lease_preserves_shared_output_range(self):
+        with self.attempt_cargo(0):
+            with self.assertRaises(LeaseBusy):
+                with self.attempt_cargo(1, target=False):
+                    self.fail("nested exclusive cargo lease entered")
+            results = queue.Queue()
+
+            def concurrent_exclusive_attempt():
+                try:
+                    with self.attempt_cargo(1, target=False):
+                        results.put("entered")
+                except LeaseBusy:
+                    results.put("busy")
+
+            thread = threading.Thread(target=concurrent_exclusive_attempt)
+            thread.start()
+            thread.join(5)
+            self.assertFalse(thread.is_alive(), "same-process Cargo attempt did not return")
+            self.assertEqual(results.get_nowait(), "busy")
+            probe, probe_pipe = self.start_cargo_worker(0)
+            self.receive(probe_pipe, "busy")
+            self.join_worker(probe)
+        with self.attempt_cargo(0):
+            pass
+
+    def test_failed_exclusive_cargo_alias_preserves_shared_output_range(self):
+        alias_name = "leases_import_alias"
+        spec = importlib.util.spec_from_file_location(alias_name, Path(__file__).with_name("leases.py"))
+        alias = importlib.util.module_from_spec(spec)
+        sys.modules[alias_name] = alias
+        try:
+            spec.loader.exec_module(alias)
+            with self.attempt_cargo(0):
+                with self.assertRaises(alias.LeaseBusy):
+                    with alias._cargo_lease(self.roots[1], self.path, self.cargo_identity(), None):
+                        self.fail("aliased exclusive Cargo lease entered")
+                probe, probe_pipe = self.start_cargo_worker(0)
+                self.receive(probe_pipe, "busy")
+                self.join_worker(probe)
+        finally:
+            del sys.modules[alias_name]
+
+    def test_parallel_cargo_excludes_exclusive_final_lease(self):
+        worker, channel = self.start_cargo_worker(0)
+        self.receive(channel, "held")
+        with self.assertRaises(LeaseBusy):
+            with self.attempt_cargo(1, target=False):
+                self.fail("exclusive final lease entered during parallel builds")
+        channel.send("release")
+        self.receive(channel, "released")
+        self.join_worker(worker)
+        with self.attempt_cargo(1, target=False):
+            pass
+
+    def test_parallel_cargo_releases_ranges_after_worker_exception(self):
+        worker, channel = self.start_cargo_worker(0)
+        self.receive(channel, "held")
+        channel.send("raise")
+        self.receive(channel, "exception")
+        self.join_worker(worker)
+        with self.attempt_cargo(0):
+            pass
+
+    def test_parallel_cargo_releases_ranges_after_worker_signal(self):
+        worker, channel = self.start_cargo_worker(0)
+        self.receive(channel, "held")
+        channel.send("signal")
+        self.receive(channel, "signal-ready")
+        os.kill(worker.pid, signal.SIGUSR1)
+        self.receive(channel, "interrupted")
+        self.join_worker(worker)
+        with self.attempt_cargo(0):
+            pass
+
+    def test_parallel_cargo_rejects_output_replacement_during_lease(self):
+        target = self.roots[0] / ".work/target"
+        replacement = target.with_name("target-original")
+        with self.assertRaisesRegex(ValueError, "changed during lease"):
+            with self.attempt_cargo(0):
+                target.rename(replacement)
+                target.mkdir()
+
+    def test_parallel_cargo_rejects_symlinked_output(self):
+        target = self.roots[0] / ".work/target"
+        target.rmdir()
+        target.symlink_to(self.roots[1] / ".work/target", target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "source-local"):
+            with self.attempt_cargo(0):
+                self.fail("symlinked Cargo output entered")
 
 
 if __name__ == "__main__":
