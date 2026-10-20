@@ -18,6 +18,14 @@ pub struct CheckedCallableContract {
     schema_identities: Arc<BTreeMap<TypeDefId, SchemaIdentity>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContractComparisonError {
+    NonConcreteOriginal,
+    UnsupportedContract,
+    CannotEstablishConstraints,
+    UnresolvedInstance,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SchemaIdentity {
     pub(super) module: Option<Arc<str>>,
@@ -78,6 +86,53 @@ impl CheckedCallableContract {
     /// part of the contract; annotation and inference provenance do not.
     pub fn equivalent_to(&self, other: &Self) -> bool {
         same_effects(self.scheme.effects(), other.scheme.effects()) && self.same_shape(other)
+    }
+
+    /// Tests whether this concrete contract is an exact instance of the given
+    /// scheme, preserving labels, layout, schema identities, and effects.
+    /// Returns an error when the original is generic or the comparison cannot
+    /// establish a resolved instance. An error does not establish a mismatch.
+    pub fn is_instance_of(&self, generalized: &Self) -> Result<bool, ContractComparisonError> {
+        use crate::sema::constraints::TypeConstraints;
+        use crate::source::{SourceId, Span};
+
+        if self.is_generic() { return Err(ContractComparisonError::NonConcreteOriginal); }
+        if self.kind() != generalized.kind()
+            || !same_effects(self.scheme.effects(), generalized.scheme.effects())
+            || self.scheme.params().len() != generalized.scheme.params().len()
+        {
+            return Ok(false);
+        }
+        let schemas = BoundEquivalence {
+            types: BTreeMap::new(), rows: BTreeMap::new(),
+            left_schemas: &self.schema_identities, right_schemas: &generalized.schema_identities,
+        };
+        if !schemas.schema(self.scheme.return_schema(), generalized.scheme.return_schema())
+            || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
+                old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
+                    && schemas.schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref())
+            })
+        {
+            return Ok(false);
+        }
+        let ground = self.scheme.params().iter().map(|parameter| &parameter.ty)
+            .chain(std::iter::once(self.scheme.return_type()))
+            .map(SchemeType::closed_ground_type).collect::<Option<Vec<_>>>()
+            .ok_or(ContractComparisonError::UnsupportedContract)?;
+        let mut constraints = TypeConstraints::default();
+        let origin = Span::at(SourceId::new(0), 0);
+        let instance = constraints.instantiate_callable(generalized.scheme.callable(), 1, origin)
+            .map_err(|_| ContractComparisonError::UnsupportedContract)?;
+        let instantiated = instance.params.iter().chain(std::iter::once(&instance.return_type));
+        for (expected, actual) in instantiated.clone().zip(&ground) {
+            constraints.constrain_annotation(expected, actual, origin)
+                .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
+        }
+        for (expected, actual) in instantiated.zip(&ground) {
+            let resolved = constraints.resolve(expected).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+            if &resolved != actual { return Ok(false); }
+        }
+        Ok(true)
     }
 
     /// Joins finite effect requirements for the same checked callable shape.
@@ -400,21 +455,25 @@ mod tests {
     }
 
     fn imported_schema_contract(key: &str, namespace: &str) -> CheckedCallableContract {
+        imported_schema_contract_with_prefix(key, namespace, "")
+    }
+
+    fn imported_schema_contract_with_prefix(key: &str, namespace: &str, prefix: &str) -> CheckedCallableContract {
         use crate::syntax::arena::ArenaProgramBuilder;
-        let source = "use shared as api\n";
+        let source = format!("{prefix}use shared as api\n");
         let module_source = "##! Schema module.\n## A phantom schema.\nexport type Entry[T] = {label: Str}\n## Reads its label.\nexport pure describe(value: Entry[Int]) -> Str { value.label }\n";
         let mut builder = ArenaProgramBuilder::with_token_capacity(128);
-        let root = Parser::parse_source_into_arena_builder(SourceId::new(0), source, &mut builder);
+        let root = Parser::parse_source_into_arena_builder(SourceId::new(0), &source, &mut builder);
         let module = Parser::parse_source_into_arena_builder(SourceId::new(1), module_source, &mut builder);
         assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
         assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
         let name = builder.symbol_owner().intern(namespace);
         builder.push_arena_module(key.to_owned(), name, module.statements);
-        let statement = builder.statement_ids(root.statements)[0];
-        let (use_id, _, _) = builder.use_stmt_for_statement(statement).unwrap();
+        let (use_id, _, _) = builder.statement_ids(root.statements).iter()
+            .find_map(|statement| builder.use_stmt_for_statement(*statement)).unwrap();
         builder.set_use_resolved(use_id, Arc::from(key));
         let program = builder.finish_with_statements(root.statements);
-        let checked = Checker::check_arena_with_options(&program, source,
+        let checked = Checker::check_arena_with_options(&program, &source,
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         program.symbol_owner().with_current(|| checked.checked_declarations.functions.values()
@@ -476,6 +535,173 @@ mod tests {
             assert!(first.equivalent_to(&renamed));
             assert_eq!(first.to_string(), renamed.to_string());
             assert!(!first.equivalent_to(&build(3, true)));
+        });
+    }
+
+    fn instance_contract(owner: &SymbolOwner, params: Vec<SchemeParameter>, result: SchemeType,
+        types: Vec<SchemeTypeParameterId>, rows: Vec<SchemeRowParameter>,
+        effects: Option<Vec<crate::syntax::node::Effect>>) -> CheckedCallableContract
+    {
+        CheckedCallableContract {
+            scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Proc, types, rows,
+                params, result, None, false, effects, false).unwrap()),
+            symbol_owner: owner.clone(), schema_identities: Default::default(),
+        }
+    }
+
+    fn instance_parameter(ty: SchemeType) -> SchemeParameter {
+        SchemeParameter { name: Name::intern("value"), ty, schema_expectation: None, defaulted: false, rest: false }
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_solves_shared_parameter_and_return_together() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let generic = identity(&owner, 7, None);
+            let concrete = |result| {
+                let mut contract = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(Type::Int))],
+                    SchemeType::Ground(result), Vec::new(), Vec::new(), None);
+                contract.scheme = Arc::new(TypeScheme::with_callable(crate::sema::types::CallableKind::Pure,
+                    Arc::clone(contract.scheme.callable()), None, false).unwrap());
+                contract
+            };
+            let integer = concrete(Type::Int);
+            assert_eq!(integer.is_instance_of(&generic), Ok(true));
+            assert_eq!(concrete(Type::Str).is_instance_of(&generic), Err(ContractComparisonError::CannotEstablishConstraints));
+            assert_eq!(generic.is_instance_of(&integer), Err(ContractComparisonError::NonConcreteOriginal));
+            assert_eq!(generic.is_instance_of(&generic), Err(ContractComparisonError::NonConcreteOriginal));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_rejects_concrete_widening() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let make = |parameter| instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(parameter))],
+                SchemeType::Ground(Type::Int), Vec::new(), Vec::new(), None);
+            assert_eq!(make(Type::Int).is_instance_of(&make(Type::Any)), Ok(false));
+            assert_eq!(make(Type::Record(Arc::new(BTreeMap::from([(Name::intern("extra"), Type::Int)]))))
+                .is_instance_of(&make(Type::Record(Arc::new(BTreeMap::new())))), Ok(false));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_anchors_checked_dynamic_and_empty_types() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let binder = SchemeTypeParameterId(0);
+            let generic = instance_contract(&owner, vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Parameter(binder), vec![binder], Vec::new(), Some(Vec::new()));
+            for ty in [Type::Null, Type::Any, Type::Record(Arc::new(BTreeMap::new())),
+                Type::List(Box::new(Type::Any))]
+            {
+                let concrete = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(ty.clone()))],
+                    SchemeType::Ground(ty.clone()), Vec::new(), Vec::new(), Some(Vec::new()));
+                assert_eq!(concrete.is_instance_of(&generic), Ok(true), "{ty:?}");
+                let mismatched = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(ty.clone()))],
+                    SchemeType::Ground(Type::Int), Vec::new(), Vec::new(), Some(Vec::new()));
+                let expected = if ty == Type::Any { Ok(false) } else { Err(ContractComparisonError::CannotEstablishConstraints) };
+                assert_eq!(mismatched.is_instance_of(&generic), expected, "{ty:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_preserves_layout_kind_and_effects() {
+        use crate::syntax::node::Effect;
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let parameter = instance_parameter(SchemeType::Ground(Type::Int));
+            let make = |parameter, effects| instance_contract(&owner, vec![parameter], SchemeType::Ground(Type::Int),
+                Vec::new(), Vec::new(), effects);
+            let original = make(parameter.clone(), Some(vec![Effect::Fs]));
+            assert_eq!(original.is_instance_of(&original), Ok(true));
+            for mutated in [SchemeParameter { name: Name::intern("other"), ..parameter.clone() },
+                SchemeParameter { defaulted: true, ..parameter.clone() },
+                SchemeParameter { rest: true, ..parameter.clone() }]
+            {
+                assert_eq!(original.is_instance_of(&make(mutated, Some(vec![Effect::Fs]))), Ok(false));
+            }
+            assert_eq!(original.is_instance_of(&make(parameter.clone(), Some(vec![Effect::Process]))), Ok(false));
+            assert_eq!(make(parameter.clone(), None).is_instance_of(&make(parameter.clone(), Some(Vec::new()))), Ok(false));
+            let mut pure = original.clone();
+            pure.scheme = Arc::new(TypeScheme::with_callable(crate::sema::types::CallableKind::Pure,
+                Arc::clone(original.scheme.callable()), original.scheme.effects().map(<[_]>::to_vec), false).unwrap());
+            assert_eq!(original.is_instance_of(&pure), Ok(false));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_uses_canonical_schema_module_identity() {
+        let first = imported_schema_contract("/library/first.xsh", "shared");
+        let shifted = imported_schema_contract_with_prefix("/library/first.xsh", "renamed", "type Unrelated = Int\n");
+        assert_ne!(first.schema_identities.keys().next(), shifted.schema_identities.keys().next());
+        assert_eq!(first.is_instance_of(&shifted), Ok(true));
+        assert_eq!(shifted.is_instance_of(&first), Ok(true));
+        assert_eq!(first.is_instance_of(&imported_schema_contract("/library/second.xsh", "shared")), Ok(false));
+        assert_eq!(root_schema_contract("type Entry[T] = {label: Str}\npure describe(value: Entry[Int]) -> Str { value.label }\n")
+            .is_instance_of(&root_schema_contract("type Entry[T] = {label: Str}\npure describe(value: Entry[Str]) -> Str { value.label }\n")), Ok(false));
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_preserves_row_lacks() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let value = Name::intern("value");
+            let extra = Name::intern("extra");
+            let row = SchemeRowParameterId(4);
+            let generalized = |lacks| instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Record { fields: BTreeMap::from([(value, SchemeType::Ground(Type::Int))]),
+                    tail: SchemeRowTail::Parameter(row) })], SchemeType::Ground(Type::Int), Vec::new(),
+                vec![SchemeRowParameter { id: row, lacks }], Some(Vec::new()));
+            let concrete = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(Type::Record(Arc::new(
+                BTreeMap::from([(value, Type::Int), (extra, Type::Str)])))))], SchemeType::Ground(Type::Int),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            assert_eq!(concrete.is_instance_of(&generalized(BTreeSet::from([value]))), Ok(true));
+            assert_eq!(concrete.is_instance_of(&generalized(BTreeSet::from([value, extra]))), Err(ContractComparisonError::CannotEstablishConstraints));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_reports_unsupported_generic_union_constraints() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let binder = SchemeTypeParameterId(0);
+            let generalized = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Union(vec![SchemeType::Parameter(binder), SchemeType::Ground(Type::Int)]))],
+                SchemeType::Parameter(binder), vec![binder], Vec::new(), Some(Vec::new()));
+            let concrete = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Union(vec![SchemeType::Ground(Type::Str), SchemeType::Ground(Type::Int)]))],
+                SchemeType::Ground(Type::Str), Vec::new(), Vec::new(), Some(Vec::new()));
+            assert_eq!(concrete.is_instance_of(&generalized), Err(ContractComparisonError::CannotEstablishConstraints));
+        });
+    }
+
+    #[test]
+    fn checked_callable_contract_instance_reports_unsupported_nested_schema_and_stream() {
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let callback = |kind, schema| SchemeType::Callable {
+                kind, effects: Some(Arc::from([])),
+                monotype: Arc::new(CallableMonotype::new(
+                    vec![instance_parameter(SchemeType::Ground(Type::Int))], SchemeType::Ground(Type::Int), schema)),
+            };
+            let make = |ty| instance_contract(&owner, vec![instance_parameter(ty)], SchemeType::Ground(Type::Int),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            let pure = make(callback(crate::sema::types::CallableKind::Pure, None));
+            let schema = SchemaExpectation {
+                instances: vec![crate::sema::constants::SchemaInstance {
+                    definition: TypeDefId::from_index(0), arguments: Vec::new(),
+                }],
+                ..SchemaExpectation::default()
+            };
+            let schema = make(callback(crate::sema::types::CallableKind::Pure, Some(schema)));
+            let stream = make(callback(crate::sema::types::CallableKind::Stream, None));
+            assert_eq!(pure.is_instance_of(&pure), Ok(true));
+            for unsupported in [schema, stream] {
+                assert_eq!(unsupported.is_instance_of(&unsupported), Err(ContractComparisonError::UnsupportedContract));
+                assert_eq!(pure.is_instance_of(&unsupported), Err(ContractComparisonError::UnsupportedContract));
+            }
         });
     }
 

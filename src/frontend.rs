@@ -14,7 +14,7 @@ pub mod check {
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
         CheckBundleView, CheckSession, CheckOptions, CheckOutput, CheckedControlFlowFacts,
         CheckedCommandArgument, CheckedModuleCommand,
-        CheckedCallableContract, CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
+        CheckedCallableContract, ContractComparisonError, CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
         CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,
         Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
         Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo, FunctionEffectFact,

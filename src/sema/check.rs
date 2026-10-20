@@ -353,7 +353,7 @@ mod callable_alias;
 mod collect;
 mod checked_declarations;
 mod callable_contract;
-pub use callable_contract::CheckedCallableContract;
+pub use callable_contract::{CheckedCallableContract, ContractComparisonError};
 pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
     CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
 pub(crate) use checked_declarations::CheckedFunctionTarget;
