@@ -2261,6 +2261,10 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::MatchExpr { value, mut arms, .. } => {
+                if let Some(subject) = super::super::indexed_identity_match_subject(&decoder, instruction)? {
+                    self.expression(owner, subject as usize, expected, returned);
+                    return Ok(());
+                }
                 let subject = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new(format!("ground match expression has no subject contract at owner {owner}, instruction {instruction}, subject {} {:?}", value.raw(), self.store.tags[value.raw() as usize])))?;
                 self.expression(owner, value.raw() as usize, subject, false);
                 for arm in &mut arms {

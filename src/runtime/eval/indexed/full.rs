@@ -28068,6 +28068,70 @@ assert observed(0)?.exited_with(1)
     }
 
     #[test]
+    fn strict_result_producers_ground_contextual_fold_seeds_inside_capture() {
+        run_with_large_stack(|| {
+            for source in [
+                r#"let result = [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged }"#,
+                r#"let seed: Map[Str, Int] = map.empty(); let result = try { [1] |> fold(seed) { |acc, item| var merged = acc; merged["k"] = item; merged } }"#,
+                r#"let result = try { [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged } }"#,
+            ] {
+                let mut program = fixture("capture-contextual-fold.xsh", source);
+                FullVerifier::verify(&program).unwrap();
+                if source.contains("try { [1] |> fold(map.empty())") {
+                    let (step, binding, subject) = (0..program.store.driver_steps.len()).find_map(|step| {
+                        let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                        program.store.driver_instruction_range(step).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::ExprMatch).find_map(|instruction| {
+                            let subject = indexed_identity_match_subject(&decoder, instruction).unwrap()?;
+                            let schema::ExprView::ModuleCall { op: RuntimeOp::MapEmpty, .. } = decoder.expression_view(subject as usize).unwrap() else { return None };
+                            Some((step, instruction, subject as usize))
+                        })
+                    }).expect("fold seed has an authenticated identity binding");
+                    let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                    let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(binding).unwrap() else { unreachable!() };
+                    let (pattern, _, result) = arms.next().unwrap().unwrap();
+                    let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw()).unwrap() else { unreachable!() };
+                    let pattern = pattern.raw() as usize;
+                    let result = result.raw() as usize;
+                    drop(decoder);
+                    program.store.checked_expr_types.retain(|fact| fact.is_contract() || fact.instruction as usize != subject);
+                    FullVerifier::verify(&program).unwrap();
+                    let mut wrong_operation = program.clone();
+                    let op = u32::try_from(wrong_operation.store.runtime_ops.len()).unwrap();
+                    wrong_operation.store.runtime_ops.push(RuntimeOp::SetEmpty);
+                    let payload = wrong_operation.store.data[subject].range().bounds(wrong_operation.store.extra.len()).unwrap();
+                    wrong_operation.store.extra[payload.start] = op;
+                    let error = FullVerifier::verify(&wrong_operation).expect_err("identity context cannot change a native operation's actual result");
+                    assert!(error.message.contains("contract"), "{error:?}");
+                    let mut missing_binding = program.clone();
+                    missing_binding.store.patterns[pattern] = FullPatternTag::Wildcard;
+                    missing_binding.store.pattern_data[pattern] = IrData::new(missing_binding.store.pattern_data[pattern].range().start, 0);
+                    assert!(indexed_identity_match_subject(&verify_schemes::decoder_for_driver_step(&missing_binding.store, step).unwrap(), binding).unwrap().is_none());
+                    assert!(FullVerifier::verify(&missing_binding).is_err());
+                    let mut wrong_parameter = program.clone();
+                    let payload = wrong_parameter.store.data[result].range().bounds(wrong_parameter.store.extra.len()).unwrap();
+                    wrong_parameter.store.extra[payload.start] = u32::try_from(slot + 1).unwrap();
+                    let wrong_decoder = verify_schemes::decoder_for_driver_step(&wrong_parameter.store, step).unwrap();
+                    assert!(indexed_identity_match_subject(&wrong_decoder, binding).unwrap().is_none());
+                    assert!(FullVerifier::verify(&wrong_parameter).is_err());
+                }
+                let program = Arc::new(program);
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                    let map = Value::Map([(crate::map_key::MapKey::Str(Arc::from("k")), Value::Int(1))].into_iter().collect());
+                    let expected = if source.contains("try {") { Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(map))) } else { map };
+                    assert_eq!(evaluator.lookup(Name::intern("result")).unwrap().value, expected, "{source}");
+                }
+            }
+        });
+    }
+
+    #[test]
     fn strict_result_producers_prepare_tour_documentation_module() {
         run_with_large_stack(|| {
             let source = "use tour_html\n";
