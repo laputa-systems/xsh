@@ -174,8 +174,13 @@ requiring one immutable function identity. The proof anchors the contract in the
 partial writers across driver steps and functions. Destructuring projects the
 binding's contract from the actual source and target. Driver aliases and unused
 destructuring outputs authenticate their defining binding identities even without
-optional producer contexts. Every destructuring source and guard envelope is
-proved, including targets that bind no values. Fresh list arguments preserve
+optional producer contexts. Optional aggregate payloads retain every
+field and element proof; their raw shape cannot establish a validated domain.
+Direct slot/null comparisons establish an immutable pattern read in an active
+`if` branch or `while` body, or after a matching `if` branch that cannot complete,
+only when the exact regional binding has no writers. Null exclusion preserves
+the payload's unsigned and validated domains.
+Every destructuring source and guard envelope is proved, including targets that bind no values. Fresh list arguments preserve
 contextual element proofs through canonical binding carriers; stored list
 contracts remain invariant. Runtime storage validators
 discharge complete checks. Typed callable signatures and nominal payloads retain

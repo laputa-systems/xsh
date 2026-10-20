@@ -661,3 +661,249 @@ fn driver_projections_wide_unused_destructuring_keeps_bounded_proof_work() {
         execute_both(&program);
     });
 }
+
+#[test]
+fn physical_optional_record_lifts_validate_nested_fields() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+type Row = {value: Int, items: List[Int]}
+pure foreign() -> Str { "bad" }
+pure keep() -> Row? {
+    var active: Row? = null
+    active = {value: 7, items: []}
+    active
+}
+assert keep() != null
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "keep");
+        let scalar = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let foreign = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
+        let mut wrong_field = program.clone();
+        wrong_field.store.tags[scalar] = FullTag::ExprStr;
+        wrong_field.store.data[scalar] = program.store.data[foreign];
+        let error = FullVerifier::verify(&wrong_field).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+    });
+}
+
+#[test]
+fn physical_optional_pattern_reads_require_a_dominating_exit() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+enum Node { Item(Int?) }
+pure take(value: Int) -> Result[Int] { Ok(value) }
+pure initial() -> Int? { null }
+pure keep(node: Node) -> Result[Int] {
+    match node {
+        Item(child) => {
+            var scratch = initial()
+            if child == null { return Ok(0) }
+            scratch = null
+            take(child)
+        }
+    }
+}
+assert keep(Item(7))? == 7
+assert keep(Item(null))? == 0
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "keep");
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let guard = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::BoolLiteralCompareSlot).unwrap();
+        let condition = program.store.data[guard].range().start as usize;
+        let guarded_slot = program.store.extra[condition + 1];
+        let mut wrong_guard = program.clone();
+        let op = program.store.extra[condition] as usize;
+        wrong_guard.store.binary_ops[op] = BinaryOp::Ne;
+        let error = FullVerifier::verify(&wrong_guard).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        let writer = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssign).unwrap();
+        let mut stale_read = program.clone();
+        stale_read.store.extra[program.store.data[writer].range().start as usize] = guarded_slot;
+        let error = FullVerifier::verify(&stale_read).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        let mut no_hints = program.clone();
+        let facts = program.store.functions[owner].slot_type_facts;
+        no_hints.store.slot_type_facts[facts.start as usize..(facts.start + facts.len) as usize].fill(IR_NONE);
+        FullVerifier::verify(&no_hints).unwrap();
+        execute_both(&no_hints);
+        let source = r#"
+enum Node { Item(Int?, Int) }
+pure take(value: Int) -> Result[Int] { Ok(value) }
+pure keep(node: Node) -> Result[Int] {
+    match node {
+        Item(child, checked) => {
+            if GUARD { return Ok(0) }
+            let _ = take(checked)
+            let _ = take(checked)
+            let _ = take(checked)
+            take(checked)
+        }
+    }
+}
+assert keep(Item(7, 7))? == 7
+assert keep(Item(null, 7))? == 0
+"#.replace("GUARD", &format!("child == null{}", " == false".repeat(32)));
+        let mut deep = fixture(&source);
+        execute_both(&deep);
+        let owner = function(&deep, "keep");
+        let range = deep.store.function_instruction_range(owner).unwrap();
+        assert_eq!(range.clone().filter(|&instruction| deep.store.tags[instruction] == FullTag::BoolNot).count(), 32);
+        let decoder = function_view_decoder(&deep.store, owner);
+        let comparison = range.clone().find(|&instruction| deep.store.tags[instruction] == FullTag::BoolLiteralCompareSlot).unwrap();
+        let slot = deep.store.extra[deep.store.data[comparison].range().start as usize + 1];
+        let target = function(&deep, "take");
+        let arguments = range.filter_map(|instruction| {
+            let schema::ExprView::DirectPureCall { function, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None };
+            if function.id.index() != target { return None; }
+            let decode::CallArgView::Single(value) = args.next()?.unwrap() else { panic!("single argument") };
+            Some(value.raw() as usize)
+        }).collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 4);
+        for argument in arguments {
+            deep.store.extra[deep.store.data[argument].range().start as usize] = slot;
+        }
+        deep.store.checked_expr_types.retain(|fact| fact.is_contract());
+        let facts = deep.store.functions[owner].slot_type_facts;
+        deep.store.slot_type_facts[facts.start as usize..(facts.start + facts.len) as usize].fill(IR_NONE);
+        FullVerifier::verify(&deep).unwrap();
+        execute_both(&deep);
+    });
+}
+
+#[test]
+fn physical_optional_aggregate_shapes_do_not_establish_validation() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+pure empty() -> List[Int]? { [] }
+assert (empty() ?? [1]).is_empty()
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "empty");
+        let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground function") };
+        let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
+            &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+        signature.return_ty = Box::new(Type::Optional(Box::new(Type::non_empty(Type::Int))));
+        let signature = SemanticPoolBuilder::default().intern_signature(&mut program.store.semantic, &signature).unwrap();
+        program.store.functions[owner].contract = FullCallableContract::Ground(signature);
+        program.store.functions[owner].checked_return_type = program.store.semantic.signature_return_type(signature).unwrap().raw();
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(error.message.contains("ground list producer has no item contract"), "{error:?}");
+    });
+}
+
+#[test]
+fn physical_optional_pattern_active_branch_preserves_narrowing() {
+    on_large_stack(|| {
+        for body in [
+            "if child != null { take(child) } else { return Ok(0) }",
+            "if child != null { take(child) } else { Ok(0) }",
+            "if child != null { return take(child) }; Ok(0)",
+            "while child != null { return take(child) }; Ok(0)",
+        ] {
+            let source = r#"
+enum Node { Item(Int?) }
+pure take(value: Int) -> Result[Int] { Ok(value) }
+pure keep(node: Node) -> Result[Int] {
+    match node { Item(child) => { BODY } }
+}
+assert keep(Item(7))? == 7
+assert keep(Item(null))? == 0
+"#.replace("BODY", body);
+            let mut program = fixture(&source);
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let owner = function(&program, "keep");
+            let guard = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(program.store.tags[instruction], FullTag::BoolLiteralCompareSlot | FullTag::ExprBinary)).unwrap();
+            let op = program.store.extra[program.store.data[guard].range().start as usize] as usize;
+            let mut wrong_arm = program.clone();
+            wrong_arm.store.binary_ops[op] = BinaryOp::Eq;
+            let error = FullVerifier::verify(&wrong_arm).unwrap_err();
+            assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+            let facts = program.store.functions[owner].slot_type_facts;
+            program.store.slot_type_facts[facts.start as usize..(facts.start + facts.len) as usize].fill(IR_NONE);
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+        }
+    });
+}
+
+#[test]
+fn physical_optional_pattern_null_guards_do_not_validate_unsigned() {
+    on_large_stack(|| {
+        for source in [r#"
+enum Node { Item(Int?, UInt) }
+pure take(value: UInt) -> Result[UInt] { Ok(value) }
+pure keep(node: Node) -> Result[UInt] {
+    match node {
+        Item(child, checked) => {
+            if child == null { return Ok(0) }
+            take(checked)
+        }
+    }
+}
+assert keep(Item(-1, 7))? == 7
+"#, r#"
+type Signed = {value: Int}
+type Unsigned = {value: UInt}
+enum Node { Item(Signed?, Unsigned) }
+pure take(value: Unsigned) -> Result[UInt] { Ok(value.value) }
+pure keep(node: Node) -> Result[UInt] {
+    match node {
+        Item(child, checked) => {
+            if child == null { return Ok(0) }
+            take(checked)
+        }
+    }
+}
+assert keep(Item({value: -1}, {value: 7}))? == 7
+"#] {
+            let mut program = fixture(source);
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let owner = function(&program, "keep");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let guard = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::BoolLiteralCompareSlot).unwrap();
+            let slot = program.store.extra[program.store.data[guard].range().start as usize + 1];
+            let target = function(&program, "take");
+            let argument = range.clone().find_map(|instruction| {
+                let schema::ExprView::DirectPureCall { function, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None };
+                if function.id.index() != target { return None; }
+                let decode::CallArgView::Single(value) = args.next()?.unwrap() else { panic!("single argument") };
+                Some(value.raw() as usize)
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(_)));
+            let mut forged = program.clone();
+            forged.store.extra[program.store.data[argument].range().start as usize] = slot;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        }
+        let mut lawful = fixture(r#"
+enum Node { Item(UInt?) }
+pure take(value: Int) -> Result[Int] { Ok(value) }
+pure keep(node: Node) -> Result[Int] {
+    match node {
+        Item(child) => {
+            if child == null { return Ok(0) }
+            take(child)
+        }
+    }
+}
+assert keep(Item(7))? == 7
+assert keep(Item(null))? == 0
+"#);
+        lawful.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&lawful).unwrap();
+        execute_both(&lawful);
+    });
+}

@@ -12049,13 +12049,21 @@ impl<'a> FullDecoder<'a> {
         Ok(None)
     }
 
-    /// Collects the conditions active at a branch child and the roots whose
-    /// earlier writes can invalidate those facts. A while condition applies
-    /// only to the current iteration because the condition runs again next time.
     fn checked_branch_conditions_for_child(
         &self,
         parent: usize,
         child: usize,
+    ) -> Result<Option<(Vec<(usize, bool, bool)>, Vec<usize>)>, IrVerifyError> {
+        self.checked_branch_conditions_for_child_with(parent, child,
+            |instruction, roots| self.checked_instruction_is_in_roots(instruction, roots), |_| Ok(()))
+    }
+
+    fn checked_branch_conditions_for_child_with(
+        &self,
+        parent: usize,
+        child: usize,
+        mut in_roots: impl FnMut(usize, &[usize]) -> Result<bool, IrVerifyError>,
+        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(Vec<(usize, bool, bool)>, Vec<usize>)>, IrVerifyError> {
         let mut prior_false = Vec::new();
         match self.store.tags[parent] {
@@ -12068,7 +12076,9 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
+                    charge(1)?;
                     let (condition, body) = branch?;
+                    charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
                         prior_false.push((condition.raw() as usize, true, false));
@@ -12077,6 +12087,7 @@ impl<'a> FullDecoder<'a> {
                     prior_false.push((condition.raw() as usize, false, false));
                 }
                 if let Some(body) = else_body {
+                    charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
                         return Ok(Some((prior_false, body)));
@@ -12092,7 +12103,9 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("boolean if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
+                    charge(1)?;
                     let (condition, body) = branch?;
+                    charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
                         prior_false.push((condition.raw() as usize, true, true));
@@ -12101,6 +12114,7 @@ impl<'a> FullDecoder<'a> {
                     prior_false.push((condition.raw() as usize, false, true));
                 }
                 if let Some(body) = else_body {
+                    charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
                         return Ok(Some((prior_false, body)));
@@ -12117,16 +12131,17 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("if expression tag and generated view disagree")
                 };
                 for branch in &mut branches {
+                    charge(1)?;
                     let (condition, value) = branch?;
                     let value = value.raw() as usize;
-                    if self.checked_instruction_is_in_roots(child, &[value])? {
+                    if in_roots(child, &[value])? {
                         prior_false.push((condition.raw() as usize, true, false));
                         return Ok(Some((prior_false, vec![value])));
                     }
                     prior_false.push((condition.raw() as usize, false, false));
                 }
                 let else_value = else_value.raw() as usize;
-                if self.checked_instruction_is_in_roots(child, &[else_value])? {
+                if in_roots(child, &[else_value])? {
                     return Ok(Some((prior_false, vec![else_value])));
                 }
             }
@@ -12134,8 +12149,9 @@ impl<'a> FullDecoder<'a> {
                 let schema::StmtView::While { condition, body } = self.statement_view(parent)? else {
                     unreachable!("while statement tag and generated view disagree")
                 };
+                charge(body.len().saturating_mul(2))?;
                 let body = self.checked_statement_ids(body)?;
-                if self.checked_instruction_is_in_roots(child, &body)? {
+                if in_roots(child, &body)? {
                     return Ok(Some((
                         vec![(condition.raw() as usize, true, false)],
                         body,
@@ -12148,8 +12164,9 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("boolean while statement tag and generated view disagree")
                 };
+                charge(body.len().saturating_mul(2))?;
                 let body = self.checked_statement_ids(body)?;
-                if self.checked_instruction_is_in_roots(child, &body)? {
+                if in_roots(child, &body)? {
                     return Ok(Some((
                         vec![(condition.raw() as usize, true, true)],
                         body,
@@ -12205,6 +12222,44 @@ impl<'a> FullDecoder<'a> {
             Ok(short_circuit_path && evaluated_right_path)
         } else {
             Ok((proves(left, false)? && preserves_after_left) || proves(right, false)?)
+        }
+    }
+
+    fn checked_slot_null_condition_proves_nonnull(&self, condition: usize, when_true: bool, slot: usize) -> Result<bool, IrVerifyError> {
+        self.checked_slot_null_condition_proves_nonnull_with(condition, when_true, true, slot, |_| Ok(()))
+    }
+
+    fn checked_slot_null_condition_proves_nonnull_with(
+        &self,
+        mut condition: usize,
+        mut when_true: bool,
+        is_boolean: bool,
+        slot: usize,
+        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if !is_boolean {
+            charge(3)?;
+            let schema::ExprView::Binary { op, left, right, .. } = self.expression_view(condition)? else { return Ok(false) };
+            if !matches!(op, BinaryOp::Eq | BinaryOp::Ne) { return Ok(false); }
+            let compared = match (self.expression_view(left.raw() as usize)?, self.expression_view(right.raw() as usize)?) {
+                (schema::ExprView::Param(compared), schema::ExprView::Null)
+                | (schema::ExprView::Null, schema::ExprView::Param(compared)) => compared,
+                _ => return Ok(false),
+            };
+            return Ok(compared == slot && (op == BinaryOp::Ne) == when_true);
+        }
+        loop {
+            charge(1)?;
+            let tag = *self.store.tags.get(condition).ok_or_else(|| IrVerifyError::new("optional narrowing condition is out of bounds"))?;
+            let payload = FullPayload { store: self.store, cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?) };
+            match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                schema::BoolView::Not(value) => { condition = value.raw() as usize; when_true = !when_true; }
+                schema::BoolView::LiteralCompareSlot { op, slot: compared, value } => return Ok(compared == slot
+                    && matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+                    && value.materialize()? == LoweredValue::Null
+                    && (op == BinaryOp::Ne) == when_true),
+                _ => return Ok(false),
+            }
         }
     }
 
@@ -12273,7 +12328,7 @@ impl<'a> FullDecoder<'a> {
                         return Ok(false);
                     };
                     Ok(payload.as_ref() == expected_payload
-                        && (op == BinaryOp::Ne) == when_true)
+                        && self.checked_slot_null_condition_proves_nonnull(condition, when_true, slot)?)
                 }
                 _ => Ok(false),
             };

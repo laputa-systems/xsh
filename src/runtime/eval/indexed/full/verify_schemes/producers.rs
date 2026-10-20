@@ -59,6 +59,7 @@ struct ProducerOwner {
     #[cfg(test)]
     census_instruction_visits: usize,
     block_statements: BTreeMap<usize, Vec<usize>>,
+    block_can_complete: BTreeMap<usize, bool>,
     declarations: BTreeMap<usize, Vec<usize>>,
     following_declarations: BTreeMap<usize, Vec<usize>>,
     region_bindings: BTreeMap<(usize, usize), ProducerBinding>,
@@ -301,7 +302,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
                 for instruction in range.clone() {
@@ -356,6 +357,7 @@ impl GroundProducerIndex {
                     if reachable { reachable = !super::super::indexed_stmt_can_return_with_decoder(decoder.store, statement, Some(decoder))?; }
                     else { owner.unreachable_roots.insert(statement); }
                 }
+                owner.block_can_complete.insert(block, reachable);
                 owner.block_statements.insert(block, statements);
             }
         }
@@ -658,6 +660,7 @@ impl GroundProducerIndex {
                     + owner.parents.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
+                    + owner.block_can_complete.len() * size_of::<(usize, bool)>()
                     + owner.block_statements.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.block_declarations.len() * size_of::<((usize, usize), Vec<(usize, ProducerBinding)>)>()
                     + owner.block_declarations.values().map(|values| values.capacity() * size_of::<(usize, ProducerBinding)>()).sum::<usize>()
@@ -2131,6 +2134,63 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
+    fn optional_read_is_narrowed(&mut self, decoder: &FullDecoder<'a>, instruction: usize, actual: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!(actual.unvalidated(), Type::Optional(_)) { return Ok(false); }
+        let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { return Ok(false) };
+        let binding = self.binding(decoder.owner, instruction, slot)?;
+        let owner = &self.index.owners[&decoder.owner];
+        if !owner.pattern_sources.contains_key(&binding) || owner.writers.get(&binding).is_some_and(|writers| !writers.is_empty()) {
+            return Ok(false);
+        }
+        let mut at = instruction;
+        loop {
+            self.budget.charge(1)?;
+            if let Some(&(block, position)) = owner.statement_positions.get(&at) {
+                for &preceding in owner.block_statements[&block][..position].iter().rev() {
+                    self.budget.charge(1)?;
+                    let mut conditions = Vec::new();
+                    match decoder.statement_view(preceding)? {
+                        schema::StmtView::If { mut branches, .. } => {
+                            for branch in &mut branches {
+                                self.budget.charge(1)?;
+                                let (condition, body) = branch?;
+                                if owner.block_can_complete[&body.block_identity().index()] { break; }
+                                conditions.push((condition.raw() as usize, false));
+                            }
+                        }
+                        schema::StmtView::IfBool { mut branches, .. } => {
+                            for branch in &mut branches {
+                                self.budget.charge(1)?;
+                                let (condition, body) = branch?;
+                                if owner.block_can_complete[&body.block_identity().index()] { break; }
+                                conditions.push((condition.raw() as usize, true));
+                            }
+                        }
+                        _ => {}
+                    }
+                    for (condition, is_boolean) in conditions {
+                        self.budget.charge(1)?;
+                        if owner.visible_binding(self.store, decoder.owner, condition, slot)? != Some(binding) { continue; }
+                        if decoder.checked_slot_null_condition_proves_nonnull_with(condition, false, is_boolean, slot, |amount| self.budget.charge(amount))?
+                        { return Ok(true); }
+                    }
+                }
+            }
+            let Some(parent) = owner.parents[at - owner.range.start] else { return Ok(false) };
+            if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, at,
+                |child, roots| Ok(roots.contains(&child)), |amount| self.budget.charge(amount))?
+            {
+                for (condition, when_true, is_boolean) in conditions {
+                    self.budget.charge(1)?;
+                    if owner.visible_binding(self.store, decoder.owner, condition, slot)? == Some(binding)
+                        && decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| self.budget.charge(amount))?
+                    { return Ok(true); }
+                }
+            }
+            at = parent;
+        }
+    }
+
     fn verify_expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
         let decoder = self.owner(owner)?;
         self.budget.charge(1)?;
@@ -2168,7 +2228,14 @@ impl<'a> ProducerProof<'a> {
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && matches!(container, Type::List(_));
-            if !fits && !literal_list && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) {
+                match actual.unvalidated() {
+                    Type::Optional(payload) if payload.matches_expected(&expected)
+                        && super::initializer_type_matches_annotation(payload, &expected, &mut self.budget, 0)? => self.optional_read_is_narrowed(&decoder, instruction, actual)?,
+                    _ => false,
+                }
+            } else { false };
+            if !fits && !narrowed_read && !literal_list && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 return Err(IrVerifyError::new("ground producer value disagrees with its checked contract"));
             }
         }
@@ -2177,7 +2244,12 @@ impl<'a> ProducerProof<'a> {
             match expected.as_ref() { Type::Result(ok, _) => Arc::new((**ok).clone()), _ => expected }
         } else { expected };
         let expected = if let Type::Optional(payload) = expected.unvalidated()
-            && actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
+            && (actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
+                || (matches!(expected.as_ref(), Type::Optional(_))
+                    && matches!((decoder.expression_view(instruction)?, payload.as_ref()),
+                    (schema::ExprView::Record(_), Type::Record(_))
+                    | (schema::ExprView::List(_) | schema::ExprView::ListBuild(_), Type::List(_))
+                    | (schema::ExprView::MapLiteral(_), Type::Map(_, _)))))
         {
             self.budget.charge_clone(payload)?;
             Arc::new((**payload).clone())
