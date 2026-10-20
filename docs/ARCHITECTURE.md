@@ -104,7 +104,10 @@ Bool-or-Status control from strict Bool guards; scalar Bool slots independently
 prove their truth-converting storage. Membership shares the checker’s operand
 contract: list and set membership compare values, while map keys retain their
 checked domains. Scalar literal evidence borrows pooled text and bytes instead
-of allocating copies during verification.
+of allocating copies during verification. Scalar producer slots project their
+canonical lexical binding; native result projection uses argument shape only
+when all compatible signatures agree, while supplied operands are verified
+independently.
 
 Explicit discard bindings consume values without propagating Result errors.
 Static storage annotations use checked-value validation; a failed annotation is

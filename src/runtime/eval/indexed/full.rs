@@ -9473,11 +9473,29 @@ impl<'a> FullDecoder<'a> {
         {
             return Ok(Some(result));
         }
-        let signatures = crate::modules::signature::native_static_operation_signatures(op);
+        let signatures = crate::modules::signature::native_static_operation_signatures(op).collect::<Vec<_>>();
+        let mut shape_result = None;
+        let mut shape_ambiguous = false;
+        let mut shape_requires_types = false;
+        for signature in &signatures {
+            if !Self::module_call_signature_accepts_shape(signature, arguments) { continue; }
+            if signature.return_ty.contains_builtin_parameter()
+                || signature.params.iter().any(|parameter| parameter.ty.contains_builtin_parameter())
+            { shape_requires_types = true; continue; }
+            match &shape_result {
+                Some(previous) if previous != &signature.return_ty => shape_ambiguous = true,
+                Some(_) => {}
+                None => shape_result = Some(signature.return_ty.clone()),
+            }
+        }
+        if shape_requires_types { return Ok(None); }
+        if !shape_ambiguous && shape_result.is_some() {
+            return Ok(shape_result);
+        }
         let mut result = None;
         for signature in signatures {
-            if arguments.len() > signature.params.len() { continue; }
             if signature.return_ty.contains_builtin_parameter() || signature.params.iter().any(|parameter| parameter.ty.contains_builtin_parameter()) { continue; }
+            if !Self::module_call_signature_accepts_shape(signature, arguments) { continue; }
             let mut fits = true;
             for (index, parameter) in signature.params.iter().enumerate() {
                 match arguments.get(index).copied().flatten() {
@@ -9499,6 +9517,18 @@ impl<'a> FullDecoder<'a> {
             }
         }
         Ok(result)
+    }
+
+    fn module_call_signature_accepts_shape(
+        signature: &crate::modules::signature::ModuleFnSig,
+        arguments: &[Option<usize>],
+    ) -> bool {
+        if arguments.len() > signature.params.len() {
+            return false;
+        }
+        signature.params.iter().enumerate().all(|(index, parameter)| {
+            arguments.get(index).is_some_and(Option::is_some) || parameter.defaulted
+        })
     }
 
     fn registered_path_method_return_type(

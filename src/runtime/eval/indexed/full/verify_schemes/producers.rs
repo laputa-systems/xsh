@@ -965,6 +965,72 @@ impl<'a> ProducerProof<'a> {
         self.derive_unannotated_type(decoder, instruction)
     }
 
+    fn slot_context_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let binding = self.binding(decoder.owner, instruction, slot)?;
+        if let Some(source) = self.index.owners[&decoder.owner].pattern_sources.get(&binding) {
+            let (subject, pattern, preceding) = (source.source, source.pattern, source.preceding.clone());
+            let Some(subject) = self.need_context(decoder, subject)? else { return Ok(None) };
+            let mut subject = Some((*subject).clone());
+            for (pattern, guarded) in preceding { subject = decoder.subject_after_arm(pattern, guarded, subject)?; }
+            return decoder.checked_pattern_bound_type_with_budget(pattern, slot, subject.as_ref(), |amount| self.budget.charge(amount)).map(|ty| ty.map(Arc::new));
+        }
+        if let Some(&(comprehension, iter)) = self.index.owners[&decoder.owner].comprehension_sources.get(&binding) {
+            return self.comprehension_binding_type(decoder, comprehension, iter, slot);
+        }
+        if let Some(source) = self.index.owners[&decoder.owner].pipeline_sources.get(&binding).copied() {
+            return self.pipeline_binding_type(decoder, source);
+        }
+        if let ProducerBinding::ScopedDeclaration(declaration, _) = binding {
+            if let Some(ty) = self.statement_binding_type(decoder, declaration, slot)? { return Ok(Some(ty)); }
+            return match decoder.statement_view(declaration)? {
+                schema::StmtView::Let { annotation: Some(annotation), .. } => self.contract_type(annotation.id).map(Some),
+                schema::StmtView::Let { value, .. } => {
+                    let initial = self.declared_type(decoder, value.raw() as usize)?;
+                    if initial.is_some() && self.index.owners[&decoder.owner].writers.get(&binding).is_none_or(|writers| writers.len() <= 1) { return Ok(initial); }
+                    if let Some(ty) = initial
+                        && ty.contains_any()
+                    {
+                        ensure_closed_type(&ty)?;
+                        self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
+                        return Ok(Some(ty));
+                    }
+                    let Some(id) = decoder.checked_slot_type(slot)? else { return Ok(None) };
+                    let ty = self.contract_type(id)?;
+                    if ty.contains_any() { return Ok(None); }
+                    self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
+                    Ok(Some(ty))
+                }
+                schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
+                schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
+                schema::StmtView::With { mut bindings, else_param_slot, .. } => {
+                    if else_param_slot == Some(slot) {
+                        return Ok(self.index.owners[&decoder.owner].with_errors.get(&declaration).cloned().map(Arc::new));
+                    }
+                    for binding in &mut bindings {
+                        self.budget.charge(1)?;
+                        let (bound, value) = binding?;
+                        if bound != slot { continue; }
+                        return Ok(self.need_context(decoder, value.raw() as usize)?.map(|source| match source.unvalidated() {
+                            Type::Result(ok, _) => Arc::new((**ok).clone()),
+                            _ => source,
+                        }));
+                    }
+                    Ok(None)
+                }
+                _ => Ok(None),
+            };
+        }
+        if let ProducerBinding::HeaderParameter(parameter) = binding
+            && matches!(self.store.functions[function_index(decoder.owner)?].contract, FullCallableContract::Scheme(_))
+        { return self.scheme_parameter(decoder.owner, parameter); }
+        if let ProducerBinding::HeaderCapture(identity) = binding {
+            let source = self.index.owners[&decoder.owner].storage_bindings.get(&ProducerBinding::HeaderCapture(identity)).ok_or_else(|| IrVerifyError::new("capture contract is absent from its owner census"))?;
+            return self.contract_type(source.ty).map(Some);
+        }
+        if let Some(id) = decoder.checked_slot_type(slot)? { return self.contract_type(id).map(Some); }
+        Ok(None)
+    }
+
     fn derive_unannotated_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let literal = match decoder.expression_view(instruction)? {
             schema::ExprView::Null => Some(Type::Null),
@@ -1096,71 +1162,7 @@ impl<'a> ProducerProof<'a> {
                 FullDecoder::checked_binary_result_type(op, left.unvalidated(), right.unvalidated())
             }
             schema::ExprView::ListPipeline { .. } => return self.pipeline_type(decoder, instruction),
-            schema::ExprView::Param(slot) => {
-                let binding = self.binding(decoder.owner, instruction, slot)?;
-                if let Some(source) = self.index.owners[&decoder.owner].pattern_sources.get(&binding) {
-                    let (subject, pattern, preceding) = (source.source, source.pattern, source.preceding.clone());
-                    let Some(subject) = self.need_context(decoder, subject)? else { return Ok(None) };
-                    let mut subject = Some((*subject).clone());
-                    for (pattern, guarded) in preceding { subject = decoder.subject_after_arm(pattern, guarded, subject)?; }
-                    return decoder.checked_pattern_bound_type_with_budget(pattern, slot, subject.as_ref(), |amount| self.budget.charge(amount)).map(|ty| ty.map(Arc::new));
-                }
-                if let Some(&(comprehension, iter)) = self.index.owners[&decoder.owner].comprehension_sources.get(&binding) {
-                    return self.comprehension_binding_type(decoder, comprehension, iter, slot);
-                }
-                if let Some(source) = self.index.owners[&decoder.owner].pipeline_sources.get(&binding).copied() {
-                    return self.pipeline_binding_type(decoder, source);
-                }
-                if let ProducerBinding::ScopedDeclaration(declaration, _) = binding {
-                    if let Some(ty) = self.statement_binding_type(decoder, declaration, slot)? { return Ok(Some(ty)); }
-                    return match decoder.statement_view(declaration)? {
-                        schema::StmtView::Let { annotation: Some(annotation), .. } => self.contract_type(annotation.id).map(Some),
-                        schema::StmtView::Let { value, .. } => {
-                            let initial = self.declared_type(decoder, value.raw() as usize)?;
-                            if initial.is_some() && self.index.owners[&decoder.owner].writers.get(&binding).is_none_or(|writers| writers.len() <= 1) { return Ok(initial); }
-                            if let Some(ty) = initial
-                                && ty.contains_any()
-                            {
-                                ensure_closed_type(&ty)?;
-                                self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
-                                return Ok(Some(ty));
-                            }
-                            let Some(id) = decoder.checked_slot_type(slot)? else { return Ok(None) };
-                            let ty = self.contract_type(id)?;
-                            if ty.contains_any() { return Ok(None); }
-                            self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
-                            Ok(Some(ty))
-                        }
-                        schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
-                        schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
-                        schema::StmtView::With { mut bindings, else_param_slot, .. } => {
-                            if else_param_slot == Some(slot) {
-                                return Ok(self.index.owners[&decoder.owner].with_errors.get(&declaration).cloned().map(Arc::new));
-                            }
-                            for binding in &mut bindings {
-                                self.budget.charge(1)?;
-                                let (bound, value) = binding?;
-                                if bound != slot { continue; }
-                                return Ok(self.need_context(decoder, value.raw() as usize)?.map(|source| match source.unvalidated() {
-                                    Type::Result(ok, _) => Arc::new((**ok).clone()),
-                                    _ => source,
-                                }));
-                            }
-                            Ok(None)
-                        }
-                        _ => Ok(None),
-                    };
-                }
-                if let ProducerBinding::HeaderParameter(parameter) = binding
-                    && matches!(self.store.functions[function_index(decoder.owner)?].contract, FullCallableContract::Scheme(_))
-                { return self.scheme_parameter(decoder.owner, parameter); }
-                if let ProducerBinding::HeaderCapture(identity) = binding {
-                    let source = self.index.owners[&decoder.owner].storage_bindings.get(&ProducerBinding::HeaderCapture(identity)).ok_or_else(|| IrVerifyError::new("capture contract is absent from its owner census"))?;
-                    return self.contract_type(source.ty).map(Some);
-                }
-                if let Some(id) = decoder.checked_slot_type(slot)? { return self.contract_type(id).map(Some); }
-                return Ok(None);
-            }
+            schema::ExprView::Param(slot) => return self.slot_context_type(decoder, instruction, slot),
             schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => return self.contract_type(decoder.function_return_type_at(instruction, function.id.index())?).map(Some),
             schema::ExprView::SelfCall { .. } if super::super::driver_owner_index(decoder.owner).is_none() => return self.contract_type(decoder.function_return_type_at(instruction, function_index(decoder.owner)?)?).map(Some),
             schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
@@ -2728,7 +2730,10 @@ impl<'a> ProducerProof<'a> {
                 for (position, parameter) in signature.params.iter().enumerate() {
                     match arguments.get(position).copied().flatten() {
                         Some(argument) if parameter.ty != Type::Any => {
-                            if self.need_context(&decoder, argument)?.is_some_and(|actual| !actual.matches_expected(&parameter.ty)) {
+                            if let Some(actual) = self.need_context(&decoder, argument)?
+                                && !actual.matches_expected(&parameter.ty)
+                                && !Self::contextual_list_argument(&decoder, argument, &parameter.ty)?
+                            {
                                 fits = false;
                                 break;
                             }
@@ -2763,8 +2768,13 @@ impl<'a> ProducerProof<'a> {
                 Some(argument) => {
                     let expected = if parameter == Type::Any { Arc::new(parameter) }
                     else if let Some(actual) = self.need_context(&decoder, argument)? {
-                        if !actual.matches_expected(&parameter) { return Err(IrVerifyError::new("ground native argument disagrees with its operation contract")); }
-                        actual
+                        if actual.matches_expected(&parameter) {
+                            actual
+                        } else if Self::contextual_list_argument(&decoder, argument, &parameter)? {
+                            Arc::new(parameter)
+                        } else {
+                            return Err(IrVerifyError::new("ground native argument disagrees with its operation contract"));
+                        }
                     } else { Arc::new(parameter) };
                     self.expression(decoder.owner, argument, expected, false);
                 }
@@ -2773,6 +2783,20 @@ impl<'a> ProducerProof<'a> {
             }
         }
         Ok(())
+    }
+
+    fn contextual_list_argument(
+        decoder: &FullDecoder<'a>,
+        argument: usize,
+        expected: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        if !matches!(expected, &Type::List(_)) {
+            return Ok(false);
+        }
+        Ok(matches!(
+            decoder.expression_view(argument)?,
+            schema::ExprView::List(_) | schema::ExprView::ListBuild(_)
+        ))
     }
 
     fn native_signature(&mut self, decoder: &FullDecoder<'a>, signature: &'static crate::modules::signature::ModuleFnSig, arguments: &[Option<usize>], expected: Option<&Type>) -> Result<Option<std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
@@ -2894,8 +2918,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn verify_scalar_membership(&mut self, decoder: &FullDecoder<'a>, instruction: usize, slot: usize, needle: &Type) -> Result<(), IrVerifyError> {
-        let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar membership has no container contract"))?;
-        let container = self.contract_type(ty)?;
+        let container = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar membership has no container contract"))?;
         use crate::sema::types::MembershipCheck as M;
         match container.membership_needle_type(needle) {
             M::Expected(required) => {
@@ -2914,8 +2937,8 @@ impl<'a> ProducerProof<'a> {
             schema::InstructionKind::Int => match schema::IntView::decode_from_decoder(decoder, tag, payload)? {
                 schema::IntView::Slot(slot) => self.slot(decoder.owner, instruction, slot, Arc::new(Type::Int))?,
                 schema::IntView::StrByteLenSlot { slot, .. } | schema::IntView::StrCountLinesSlot { slot, .. } | schema::IntView::StrByteAtSlot { slot, .. } => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar string producer has no slot contract"))?;
-                    let ty = self.ground_type(ty)?;
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar string producer has no slot contract"))?;
+                    ensure_substitution_type(&ty)?;
                     if !matches!(ty.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scalar string producer has a non-string slot")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
@@ -2923,22 +2946,20 @@ impl<'a> ProducerProof<'a> {
             },
             schema::InstructionKind::Bool => match schema::BoolView::decode_from_decoder(decoder, tag, payload)? {
                 schema::BoolView::Slot(slot) => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar condition has no source contract"))?;
-                    let ty = self.contract_type(ty)?;
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar condition has no source contract"))?;
                     if !ConditionRole::Control.accepts(&ty) { return Err(IrVerifyError::new("scalar condition source is not truth-convertible")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 },
                 schema::BoolView::StrPredicateSlot { slot, needle, .. } | schema::BoolView::TrimStrPredicateSlot { slot, needle, .. } => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar string predicate has no slot contract"))?;
-                    let ty = self.ground_type(ty)?;
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar string predicate has no slot contract"))?;
+                    ensure_substitution_type(&ty)?;
                     if !matches!(ty.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scalar string predicate has a non-string slot")); }
                     if ty.unvalidated() == &Type::Str && std::str::from_utf8(needle).is_err() { return Err(IrVerifyError::new("scalar string predicate has a non-UTF8 text needle")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
                 schema::BoolView::StrContainsSlot { slot, .. } => self.verify_scalar_membership(decoder, instruction, slot, &Type::Str)?,
                 schema::BoolView::ContainsSlot { slot, needle, .. } => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar membership has no container contract"))?;
-                    let container = self.contract_type(ty)?;
+                    let container = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar membership has no container contract"))?;
                     needle.with_scalar_view(|amount| self.budget.charge(amount), |value| {
                         use crate::sema::types::MembershipCheck as M;
                         let needle_type = value.scalar_type().ok_or_else(|| IrVerifyError::new("scalar membership has a non-scalar literal needle"))?;
@@ -2952,14 +2973,14 @@ impl<'a> ProducerProof<'a> {
                     self.slot(decoder.owner, instruction, slot, container)?;
                 }
                 schema::BoolView::TrimEmptySlot { slot, .. } => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar string predicate has no slot contract"))?;
-                    let ty = self.ground_type(ty)?;
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar string predicate has no slot contract"))?;
+                    ensure_substitution_type(&ty)?;
                     if !matches!(ty.unvalidated(), Type::Str | Type::Bytes) { return Err(IrVerifyError::new("scalar string predicate has a non-string slot")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
                 schema::BoolView::LiteralCompareSlot { slot, .. } => {
-                    let ty = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("scalar predicate has no slot contract"))?;
-                    let ty = self.ground_type(ty)?;
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar predicate has no slot contract"))?;
+                    ensure_closed_type(&ty)?;
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
                 _ => {}
