@@ -354,6 +354,9 @@ mod collect;
 mod checked_declarations;
 mod callable_contract;
 pub use callable_contract::{CheckedCallableContract, ContractComparisonError};
+mod body_contract;
+pub use body_contract::{BodyContractError, BodyContractOwner};
+pub(crate) use body_contract::{BodyContractSite, CanonicalBodyContractSite, PendingBodyContracts, SemanticBodyContract};
 mod cli_contract;
 pub use cli_contract::{CheckedCliEntryContract, CliContractError};
 pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,

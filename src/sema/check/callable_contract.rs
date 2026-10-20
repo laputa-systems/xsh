@@ -59,17 +59,29 @@ impl Checker {
             definitions.extend(schema.instances.iter().map(|instance| instance.definition));
             schemas.extend(schema.children.values());
         }
-        Arc::new(definitions.into_iter().map(|definition| {
-            let name = program.arena.type_def(definition).name;
-            let namespace = self.record_constructors.namespace(definition);
-            assert_eq!(self.record_constructors.definition(namespace, name), Some(definition), "checked schema identity matches its declaration");
-            let module = namespace.map(|namespace| {
-                Arc::from(program.modules.iter().find(|module| module.name == namespace)
-                    .expect("checked schema belongs to a declared module").key.as_str())
-            });
-            (definition, SchemaIdentity { module, name })
-        }).collect())
+        schema_identities(program, &self.record_constructors, definitions)
     }
+}
+
+pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::sema::constants::RecordConstructors,
+    definitions: impl IntoIterator<Item = TypeDefId>) -> Arc<BTreeMap<TypeDefId, SchemaIdentity>>
+{
+    Arc::new(definitions.into_iter().map(|definition| {
+        let name = program.arena.type_def(definition).name;
+        let namespace = constructors.namespace(definition);
+        assert_eq!(constructors.definition(namespace, name), Some(definition), "checked schema identity matches its declaration");
+        let module = namespace.map(|namespace| {
+            Arc::from(program.modules.iter().find(|module| module.name == namespace)
+                .expect("checked schema belongs to a declared module").key.as_str())
+        });
+        (definition, SchemaIdentity { module, name })
+    }).collect())
+}
+
+pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
+    left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
+{
+    BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
 }
 
 impl CheckedCallableContract {

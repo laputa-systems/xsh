@@ -12,6 +12,7 @@ pub mod check {
     };
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
+        BodyContractError, BodyContractOwner,
         CheckBundleView, CheckSession, CheckOptions, CheckOutput, CheckedControlFlowFacts,
         CheckedCommandArgument, CheckedModuleCommand,
         CheckedCallableContract, ContractComparisonError, CheckedCliEntryContract, CliContractError,
