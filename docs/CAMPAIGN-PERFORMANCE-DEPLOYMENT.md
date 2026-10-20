@@ -28,7 +28,13 @@ including partial writes, nominal payloads and unsigned storage checks.
 Typed Proc factories and optional erased callable fields execute on both
 indexed routes. Corrupted kinds, signatures, payloads and writers remain rejected.
 Matching native products, generated documentation and broader qualification
-remain pending. Context and process producer repairs are the next baseline work.
+remain pending.
+
+Source `786080e95` integrates the reviewed context and process producer repair.
+Its four focused controls pass before integration. Context scopes authenticate
+their body and inputs. Process payloads use the pipeline head's checked run kind.
+The verifier also preserves driver exits followed by unreachable declarations.
+Matching native replay and the combined library check remain pending.
 
 The separate origin fix `16d7c4f15` preserves explicit Result discards as data
 and makes annotated storage violations fatal type errors. Explicit schema
@@ -71,8 +77,9 @@ Matching `1710bf2ff` tools reject documentation generation and all nine annotati
 behavior tests before execution. Two minimal explicit-Result repros fail:
 `Ok(ctx "rendering" { "page" })` lacks a physical producer proof, and
 `Ok(result.stdout)` after `run.capture --text` lacks a propagation result
-contract. Their implicit Result-lifting controls pass. These baseline defects
-remain open; the earlier annotation-test success does not qualify this source.
+contract. Their implicit Result-lifting controls pass. The repair at `786080e95`
+still needs matching native replay. The earlier annotation-test success does
+not qualify this source.
 CLI cleanup `401950302` removes an unused internal accessor and fixes a new
 test-only Clippy warning. Seven descriptor checks pass before integration,
 and warning-denied Clippy passes for xsh and xsht with all targets and features.
