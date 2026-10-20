@@ -3899,3 +3899,6 @@ mod tests {
         assert!(error.message.contains("semantic type materialization exceeds its work limit"));
     }
 }
+
+#[cfg(test)]
+mod import_contract_tests;

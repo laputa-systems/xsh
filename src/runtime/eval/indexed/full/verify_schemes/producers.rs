@@ -3526,10 +3526,26 @@ impl<'a> ProducerProof<'a> {
         let decoder = self.owner(owner)?;
         let driver = self.store.driver_steps[step];
         if driver.tag == super::super::FullDriverTag::Use {
-            let Type::Module(module) = expected.as_ref() else { return Err(IrVerifyError::new("ground import producer has no module contract")) };
-            for (name, binding) in self.index.module_exports.get(&owner).cloned().unwrap_or_default() {
-                let ty = module.exports.get(&name).and_then(crate::sema::types::ModuleExportType::field_value_type).ok_or_else(|| IrVerifyError::new("ground module export has no registered value contract"))?;
-                self.binding_writer(binding, Arc::new(ty))?;
+            if !matches!(expected.as_ref(), Type::Module(_) | Type::DynamicModule) {
+                return Err(IrVerifyError::new("ground import producer has no module contract"));
+            }
+            let exports = self.index.module_exports.get(&owner).cloned().ok_or_else(|| IrVerifyError::new("ground import producer has no verified export census"))?;
+            match TypeId::from_raw(driver.registered_module_type) {
+                Some(type_id) => {
+                    let actual = self.contract_type(type_id)?;
+                    let Type::Module(module) = actual.as_ref() else { return Err(IrVerifyError::new("ground import registration has no module contract")) };
+                    if *expected != Type::DynamicModule && !actual.matches_expected(&expected) {
+                        return Err(IrVerifyError::new("ground import registration disagrees with its read contract"));
+                    }
+                    for (name, binding) in exports {
+                        self.budget.charge(1)?;
+                        let ty = module.exports.get(&name).and_then(crate::sema::types::ModuleExportType::field_value_type).ok_or_else(|| IrVerifyError::new("ground module export has no registered value contract"))?;
+                        self.budget.charge_clone(&ty)?;
+                        self.binding_writer(binding, Arc::new(ty))?;
+                    }
+                }
+                None if *expected == Type::DynamicModule => {}
+                None => return Err(IrVerifyError::new("ground import producer has no registered module contract")),
             }
         }
         let mut payload = super::super::FullCursor::new(self.store.payload(driver.data.range())?);

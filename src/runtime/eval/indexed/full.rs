@@ -2021,6 +2021,12 @@ impl FullProgram {
                     child_program,
                     identity_writers,
                 )?;
+            } else {
+                for export in &exports {
+                    if let LoweredModuleExport::Value { name, binding: LoweredModuleExportBinding::Encoded(binding) } = export {
+                        decoder.registered_module_value_initializer(child_program, *name, *binding, identity_writers)?;
+                    }
+                }
             }
             producer_index.record_module_exports(&self.store, decoder.owner, &exports)?;
             registered_import = Some((namespace, module_type));
@@ -7632,6 +7638,17 @@ impl<'a> FullDecoder<'a> {
         expected: &Type,
         identity_writers: &[Option<(usize, usize, u32)>],
     ) -> Result<(), IrVerifyError> {
+        let (decoder, value) = self.registered_module_value_initializer(child, name, binding_identity, identity_writers)?;
+        decoder.checked_expression_matches_type(value, expected)
+    }
+
+    fn registered_module_value_initializer(
+        &self,
+        child: u32,
+        name: Name,
+        binding_identity: u32,
+        identity_writers: &[Option<(usize, usize, u32)>],
+    ) -> Result<(FullDecoder<'a>, usize), IrVerifyError> {
         let program_index = child
             .checked_sub(1)
             .map(|index| index as usize)
@@ -7733,7 +7750,7 @@ impl<'a> FullDecoder<'a> {
                 "module value export initializer belongs to another driver step",
             ));
         }
-        decoder.checked_expression_matches_type(value, expected)
+        Ok((decoder, value))
     }
 
     fn verify_registered_module_generic_callable(
