@@ -174,6 +174,12 @@ incompatible-selection negative reports an unresolved call instead of the
 required callable mismatch. These six failures remain mandatory work.
 Matching candidate replay is pending.
 
+Source `51b8cd899` extends the ground-capture witnesses to five tests.
+Protected `55032a7ee` products pass four, including optional erased Pure calls
+and rejection of direct calls without a checked signature. The checked-signature
+mutable capture fails with `typed callee slot has no checked type fact`.
+It remains a required capability. Matching candidate replay is pending.
+
 F4 adapter source `d5f7b6267` adds the documented `check_views.sh --frozen`
 invocation. Six focused controls pass before integration and on the merged source,
 including source, product, view, retained-class, retained-reason and no-skip
