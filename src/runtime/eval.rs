@@ -847,7 +847,7 @@ impl ProducerDemand {
     ) -> Self {
         if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty())
             || Self::checked_result_constructors(program, declarations).next().is_some()
-            || Self::operand_dependent_effect_calls(program, declarations).next().is_some()
+            || Self::native_producer_calls(program, declarations).next().is_some()
             || Self::erased_callable_calls(program, declarations).next().is_some()
             || Self::typed_callable_calls(program, declarations).next().is_some()
             || Self::condition_operations(program, declarations).next().is_some()
@@ -858,7 +858,7 @@ impl ProducerDemand {
         }
     }
 
-    fn operand_dependent_effect_calls<'a>(
+    fn native_producer_calls<'a>(
         program: &'a crate::syntax::arena::ArenaProgram,
         declarations: &'a crate::sema::check::CompactDeclOutput,
     ) -> impl Iterator<Item = Span> + 'a {

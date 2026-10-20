@@ -1402,6 +1402,21 @@ impl Type {
         )
     }
 
+    pub(crate) fn process_command_argv_item_type() -> &'static Self {
+        static ITEM: std::sync::OnceLock<Type> = std::sync::OnceLock::new();
+        ITEM.get_or_init(|| Self::Union(vec![Self::Str, Self::Path]))
+    }
+
+    pub(crate) fn can_be_process_command_argv_item(&self) -> bool {
+        match self {
+            Self::Union(members) => members.iter().all(Self::can_be_process_command_argv_item),
+            _ => {
+                let ty = self.unvalidated();
+                *ty == Self::Unknown || (!ty.is_recovery() && ty.matches_expected(Self::process_command_argv_item_type()))
+            }
+        }
+    }
+
     pub fn can_be_argv_item(&self) -> bool {
         match self {
             // Argv conversion reads the runtime value, so a union converts

@@ -62,17 +62,6 @@ fn call_instantiation_error_message(
     }
 }
 
-fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
-    match ty {
-        // A list built before the call has one element type; text and paths
-        // together make it a union, and each member is still an argv word.
-        Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
-        _ => matches!(
-            ty.unvalidated(),
-            Type::Str | Type::Path | Type::Unknown
-        ),
-    }
-}
 
 #[allow(dead_code)]
 /// A positional error-constructor argument and the field it fills.
@@ -2747,7 +2736,7 @@ impl Checker {
                 };
                 if item_ty == Type::Any {
                     self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
-                } else if !process_command_argv_item_type_is_valid(&item_ty) {
+                } else if !item_ty.can_be_process_command_argv_item() {
                     self.error(
                         arena.arena.expr(item.value).span,
                         "process.command_argv argv items must be Str or Path",
@@ -2760,7 +2749,7 @@ impl Checker {
 
         let actual = self.check_call_arg_arena(arena, source, arg, None);
         match actual.into_unvalidated() {
-            Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
+            Type::List(item) if item.can_be_process_command_argv_item() => {}
             Type::Any => self.reject_dynamic_use("an argv list", None, call_arg_span_arena(arena, arg)),
             Type::List(item) if *item == Type::Any => self.reject_dynamic_use("an argv word", None, call_arg_span_arena(arena, arg)),
             Type::Unknown => {}

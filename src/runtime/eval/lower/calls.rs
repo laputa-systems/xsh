@@ -1106,20 +1106,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             &self.checked_api_arguments(id, &args_vec)?,
                         )?;
                         let command = LoweredProcessCommandArgv {
-                            target: self.lower_call_argument(
+                            target: self.lower_producer_call_argument(
                                 &options.target,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
-                            argv: self.lower_call_argument(
+                            argv: self.lower_producer_call_argument(
                                 &options.argv,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
                             cwd: match options.cwd {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1128,7 +1128,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             env: match options.env {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1137,7 +1137,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdin: match options.stdin {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1146,7 +1146,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdout: match options.stdout {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1155,7 +1155,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stderr: match options.stderr {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1164,7 +1164,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stdout_append: match options.stdout_append {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1173,7 +1173,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             stderr_append: match options.stderr_append {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1182,7 +1182,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             timeout: match options.timeout {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1191,7 +1191,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             detach: match options.detach {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1200,7 +1200,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             new_session: match options.new_session {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1209,7 +1209,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             ignore_hup: match options.ignore_hup {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1218,7 +1218,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             cpu_max: match options.cpu_max {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1227,7 +1227,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             accept: match options.accept {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,
@@ -1236,7 +1236,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             same_group: match options.same_group {
-                                Some(expr) => Some(self.lower_call_argument(
+                                Some(expr) => Some(self.lower_producer_call_argument(
                                     &expr,
                                     slots,
                                     current_function,

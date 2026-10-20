@@ -410,6 +410,7 @@ pub(crate) fn native_method_effect_rule(name: &str) -> Option<NativeEffectRule> 
 
 pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceiver>, signature: &ModuleFnSig) -> bool {
     if signature.binding != ImplBinding::Native { return false; }
+    if signature.op == RuntimeOp::ProcessCommandArgv { return true; }
     match receiver {
         None | Some(MethodReceiver::PathConstructor) => native_static_operation_effect_rule(signature.op) == Some(NativeEffectRule::OperandDependent),
         Some(_) => native_method_effect_rules().operand_dependent.contains(&(signature as *const ModuleFnSig as usize)),

@@ -1334,7 +1334,7 @@ pub(super) fn compact_function_selection(
     }).collect();
     if producer_demand == super::ProducerDemand::Absent {
         let proof_operations = super::ProducerDemand::checked_result_constructors(program, declarations)
-            .chain(super::ProducerDemand::operand_dependent_effect_calls(program, declarations))
+            .chain(super::ProducerDemand::native_producer_calls(program, declarations))
             .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
             .chain(super::ProducerDemand::typed_callable_calls(program, declarations))
             .chain(super::ProducerDemand::condition_operations(program, declarations))

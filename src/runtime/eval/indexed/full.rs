@@ -21035,6 +21035,102 @@ assert hits == 2
     }
 
     #[test]
+    fn strict_result_producers_preserve_process_command_argv_roles() {
+        let program = Arc::new(fixture("strict-process-command-argv.xsh", r#"
+proc build_plan(target: Path, words: List[Union[Str, Path]], other: List[Int], delay: Duration) [process, error] -> Result[Command] {
+    let _ = other
+    Ok(process.command_argv(target, words, timeout: delay))
+}
+let descriptor = build_plan(p"/not-launched", [p"/not-launched", "--flag"], [1], 10ms)?
+let observed: Any = descriptor
+assert observed is Command
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "build_plan");
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprProcessCommandArgv).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::ExprView::ProcessCommandArgv(command) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        for argument in [command.target, command.argv, command.timeout.unwrap()] {
+            let argument = argument.raw() as usize;
+            assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(_)));
+            let mut wrong = (*program).clone();
+            let payload = wrong.store.data[argument].range().bounds(wrong.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            wrong.store.extra[payload.start] = 2;
+            let error = FullVerifier::verify(&wrong).expect_err("command target, argv and option roles must authenticate their actual formal producers");
+            assert!(error.message.contains("contract") || error.message.contains("domain"), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_process_command_arguments_without_result_demand() {
+        let program = Arc::new(fixture("process-command-without-result-demand.xsh", r#"
+pure build_plain(target: Path, words: List[Union[Str, Path]], other: List[Int], delay: Duration, erased: List[Any]) -> Command {
+    let _ = other
+    let _ = erased
+    process.command_argv(target, words, timeout: delay)
+}
+pure invoke_plain() -> Command { build_plain(p"/not-launched", [p"/not-launched", "--flag"], [1], 10ms, [true]) }
+"#));
+        assert!(program.store.registered_calls.is_empty());
+        assert!(!program.store.tags.iter().any(|tag| matches!(tag, FullTag::ExprOk | FullTag::ExprErr)));
+        let mut independent = (*program).clone();
+        independent.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&independent).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "invoke_plain")), LoweredFunctionKind::Pure,
+                &[], Span::new(program.store.source_id, 0, 0),
+            ).unwrap().unwrap();
+            assert!(matches!(result, Value::Command(_)));
+        }
+        let owner = scheme_fixture_root_function(&program, "build_plain");
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprProcessCommandArgv).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::ExprView::ProcessCommandArgv(command) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        for argument in [command.target, command.argv, command.timeout.unwrap()] {
+            let mut wrong = independent.clone();
+            let payload = wrong.store.data[argument.raw() as usize].range().bounds(wrong.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            wrong.store.extra[payload.start] = 2;
+            let error = FullVerifier::verify(&wrong).expect_err("physical command operand roles remain mandatory without Result demand or optional contexts");
+            assert!(error.message.contains("contract") || error.message.contains("domain"), "{error:?}");
+        }
+        let mut erased = independent.clone();
+        let payload = erased.store.data[command.argv.raw() as usize].range().bounds(erased.store.extra.len()).unwrap();
+        erased.store.extra[payload.start] = 4;
+        let error = FullVerifier::verify(&erased).expect_err("an erased list read cannot establish the command word domain");
+        assert!(error.message.contains("contract"), "{error:?}");
+        let caller = scheme_fixture_root_function(&program, "invoke_plain");
+        let caller_decoder = function_view_decoder(&program.store, caller);
+        let mut instructions = program.store.function_instruction_range(caller).unwrap();
+        let path_item = instructions.clone().find_map(|instruction| match caller_decoder.expression_view(instruction).ok()? {
+            schema::ExprView::List(mut values) => values.find_map(|value| {
+                let value = value.ok()?.raw() as usize;
+                (program.store.tags[value] == FullTag::ExprPath).then_some(value)
+            }),
+            _ => None,
+        }).unwrap();
+        let integer = instructions.find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let mut wrong_item = independent;
+        wrong_item.store.tags[path_item] = FullTag::ExprInt;
+        wrong_item.store.data[path_item] = program.store.data[integer];
+        let error = FullVerifier::verify(&wrong_item).expect_err("contextual heterogeneous list proof must authenticate every actual word");
+        assert!(error.message.contains("checked contract"), "{error:?}");
+    }
+
+    #[test]
     fn strict_result_producers_preserve_process_capture_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("strict-process-results.xsh", r#"

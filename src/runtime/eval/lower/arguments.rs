@@ -99,6 +99,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    pub(super) fn lower_producer_call_argument(
+        &mut self,
+        argument: &CallArgument,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        if let Some(value) = argument.lowered { return Some(value); }
+        match argument.source {
+            crate::sema::arguments::ArgumentValueSource::Expression(expr)
+            | crate::sema::arguments::ArgumentValueSource::PositionalSplice(expr) => {
+                self.lower_producer_input_expr(expr, slots, current_function, item_slot)
+            }
+            crate::sema::arguments::ArgumentValueSource::RecordField { .. }
+            | crate::sema::arguments::ArgumentValueSource::CheckedType => None,
+        }
+    }
+
     pub(super) fn lower_optional_call_argument(
         &mut self,
         argument: Option<&CallArgument>,

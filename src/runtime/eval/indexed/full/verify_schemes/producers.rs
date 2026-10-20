@@ -940,6 +940,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 Some(Type::Record(Arc::new(fields)))
             }
+            schema::ExprView::ProcessCommandArgv(_) => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
             schema::ExprView::RunCapture(run) => Type::run_capture_result(run.kind),
             schema::ExprView::RunPipeline { mut segments, .. } => {
                 let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
@@ -1730,7 +1731,10 @@ impl<'a> ProducerProof<'a> {
         let actual = self.declared_type(&decoder, instruction)?;
         if let Some(actual) = &actual {
             let fits = if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
-            if !fits {
+            let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
+            let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
+                && matches!(container, Type::List(_));
+            if !fits && !literal_list {
                 return Err(IrVerifyError::new("ground producer value disagrees with its checked contract"));
             }
         }
@@ -1767,6 +1771,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 Ok(())
             }
+            schema::ExprView::ProcessCommandArgv(command) => self.verify_process_command_argv(&decoder, instruction, command, &expected),
             schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
                 let arguments = args.map(|argument| argument.map(|value| value.map(|value| value.raw() as usize))).collect::<Result<Vec<_>, _>>()?;
                 let (result, parameters, effects, pure) = if let Some(bridge) = crate::stdlib::bridge_contract(op) {
@@ -2238,6 +2243,75 @@ impl<'a> ProducerProof<'a> {
         crate::sema::builtin_templates::checked_module_signature(signature, &actual, expected)
             .map(|signature| signature.map(std::borrow::Cow::Owned))
             .map_err(|_| IrVerifyError::new("native template instance disagrees with its checked contract"))
+    }
+
+    fn verify_process_command_argv(&mut self, decoder: &FullDecoder<'a>, instruction: usize, command: super::super::decode::ProcessCommandArgvView<'_>, expected: &Type) -> Result<(), IrVerifyError> {
+        let op = super::super::RuntimeOp::ProcessCommandArgv;
+        let result = FullDecoder::derive_registered_api_operation_return_type(op)?.ok_or_else(|| IrVerifyError::new("command constructor has no native result contract"))?;
+        if !result.matches_expected(expected) { return Err(IrVerifyError::new("command result disagrees with its native contract")); }
+        let Some(crate::modules::signature::NativeEffectRule::Uniform { effects, pure }) = crate::modules::signature::native_static_operation_effect_rule(op) else {
+            return Err(IrVerifyError::new("command constructor has no uniform native effect contract"));
+        };
+        self.require_native_effects(decoder, instruction, effects, pure)?;
+        if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
+        let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,
+            command.stdout, command.stderr, command.stdout_append, command.stderr_append, command.timeout,
+            command.detach, command.new_session, command.ignore_hup, command.cpu_max, command.accept, command.same_group];
+        let actual = arguments.iter().map(|argument| match argument {
+            Some(argument) => self.need_context(decoder, argument.raw() as usize),
+            None => Ok(None),
+        }).collect::<Result<Vec<_>, _>>()?;
+        if let Some(actual) = &actual[1] {
+            self.budget.charge_clone(actual)?;
+            ensure_closed_type(actual)?;
+        }
+        let argv = match &actual[1] {
+            Some(actual) if matches!(actual.unvalidated(), Type::List(item) if item.can_be_process_command_argv_item()) => Arc::clone(actual),
+            _ if matches!(decoder.expression_view(command.argv.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) => {
+                let word = Type::process_command_argv_item_type();
+                self.budget.charge_clone(word)?;
+                Arc::new(Type::List(Box::new(word.clone())))
+            }
+            _ => return Err(IrVerifyError::new("command argv has no concrete word list contract")),
+        };
+        let mut selected: Option<&crate::modules::signature::ModuleFnSig> = None;
+        for signature in crate::modules::signature::native_static_operation_signatures(op) {
+            self.budget.charge(1)?;
+            if signature.params.len() != arguments.len() { continue; }
+            let mut fits = true;
+            for (position, parameter) in signature.params.iter().enumerate() {
+                self.budget.charge(1)?;
+                match arguments[position] {
+                    Some(_) if position == 1 => {}
+                    Some(_) => {
+                        if let Some(actual) = actual[position].as_ref() {
+                            self.budget.charge_clone(actual)?;
+                            if !actual.matches_expected(&parameter.ty) { fits = false; break; }
+                        }
+                    }
+                    None if parameter.defaulted => {}
+                    None => { fits = false; break; }
+                }
+            }
+            if !fits { continue; }
+            if let Some(previous) = selected {
+                if previous.return_ty != signature.return_ty || previous.pure != signature.pure || previous.effects != signature.effects
+                    || previous.params.iter().zip(&signature.params).enumerate().any(|(position, (left, right))| left.name != right.name || left.label != right.label || left.defaulted != right.defaulted || (position != 1 && left.ty != right.ty))
+                { return Err(IrVerifyError::new("command argv has ambiguous native option contracts")); }
+            } else { selected = Some(signature); }
+        }
+        let signature = selected.ok_or_else(|| IrVerifyError::new("command operands disagree with their native contract"))?;
+        for (position, argument) in arguments.into_iter().enumerate() {
+            let Some(argument) = argument else { continue };
+            let ty = if position == 1 { Arc::clone(&argv) } else {
+                match actual[position].as_ref() {
+                    Some(actual) => Arc::clone(actual),
+                    None => { self.budget.charge_clone(&signature.params[position].ty)?; Arc::new(signature.params[position].ty.clone()) },
+                }
+            };
+            self.expression(decoder.owner, argument.raw() as usize, ty, false);
+        }
+        Ok(())
     }
 
     fn verify_registered_method(&mut self, decoder: &FullDecoder<'a>, instruction: usize, receiver: usize, name: &str, arguments: &[usize], expected: &Type) -> Result<(), IrVerifyError> {
