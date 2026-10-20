@@ -516,6 +516,7 @@ fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
         SchemeType::Map(_, _) => Some(LoweredReturnKind::Plain(LoweredType::Map)),
         SchemeType::Stream(_) => Some(LoweredReturnKind::Plain(LoweredType::Stream)),
         SchemeType::Set(_) => Some(LoweredReturnKind::Plain(LoweredType::Set)),
+        SchemeType::Optional(_) if ty.closed_ground_type().is_none() => Some(LoweredReturnKind::Erased),
         SchemeType::Optional(_) => Some(LoweredReturnKind::Plain(LoweredType::Any)),
         SchemeType::Union(_)
         | SchemeType::Validated(_, _) => None,
@@ -3142,8 +3143,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     values.push((condition, value));
                 }
                 let else_value = self.lower_scheme_value_block(else_block, slots, current_function, facts, visited, lowered_types)?;
-                let ty = lowered_types.get(&else_value)?.clone();
-                if values.iter().any(|(_, value)| !lowered_types.get(value).is_some_and(|value| value.matches_body_return(&ty))) { return None; }
+                let ty = facts.tail_types().get(&statement)?.clone();
                 let span = self.program.arena.stmt(statement).span;
                 let value = push_build_row!(self, expr, BuildExprRow::IfExpr { branches: values, else_value, span });
                 lowered_types.insert(value, ty);
@@ -3152,7 +3152,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Match { value, arms } => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 let mut lowered_arms = Vec::new();
-                let mut result = None;
                 for arm in self.program.arena.match_arms(arms).to_vec() {
                     self.consume_scheme_pattern(arm.pattern, facts, visited)?;
                     let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots, None, None)?;
@@ -3161,14 +3160,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         None => None,
                     };
                     let value = self.lower_scheme_value_block(arm.block, slots, current_function, facts, visited, lowered_types)?;
-                    let actual = lowered_types.get(&value)?.clone();
-                    if result.as_ref().is_some_and(|expected| !actual.matches_body_return(expected)) { return None; }
-                    result = Some(actual);
                     cleanup_lowered_pattern_slots(slots, cleanup);
                     lowered_arms.push((pattern, guard, value));
                 }
                 let value = push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered_arms, span: self.program.arena.stmt(statement).span });
-                lowered_types.insert(value, result?);
+                lowered_types.insert(value, facts.tail_types().get(&statement)?.clone());
                 Some(value)
             }
             _ => None,

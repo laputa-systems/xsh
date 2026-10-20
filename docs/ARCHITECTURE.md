@@ -104,6 +104,17 @@ Result guards prove the success producer and its error relation to the owning
 Result boundary independently. Unsigned key requirements retain their existing
 checked propagation path.
 
+Branch checking keeps a provisional candidate separate from a required
+context. Null supplies no contextual type to the opposite producer; the
+checked branch types determine the nullable envelope. The null-envelope rule
+is shared with return-shape joining without sharing recursive container or
+error joins. Checked value-producing statement tails retain their joined type
+in the same generalized tail facts as binding reads. Preparation uses that
+type and independently verifies every actual arm. Closed nullable returns
+serialize as ground types; unresolved nullable scheme returns use the existing
+erased return boundary so a Result payload stays data without runtime type
+inspection.
+
 `execution::evaluator::checked_body_contracts` consumes one check, captures its
 semantic selections, and prepares the program once without running initialization.
 It extracts actual validation rows and parameter and return gates from the verified

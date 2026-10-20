@@ -411,3 +411,42 @@ fn ordinary_generic_guarded_uint_map_keys_validate_only_present_receivers() {
         }
     }
 }
+
+#[test]
+fn nullable_branch_inference_executes_independent_payloads_after_frontend_disposal() {
+    for (expression, present_when_true) in [
+        ("if flag { value } else { null }", true),
+        ("if flag { null } else { value }", false),
+        ("match flag { true => value; false => null }", true),
+        ("match flag { true => null; false => value }", false),
+    ] {
+        for body in [format!("let joined = {expression}; joined"), expression.to_string()] {
+            let source = format!("pure plain(value: Any) -> Any {{ value }}\npure maybe(flag: Bool, value) {{ {body} }}\npure number(flag: Bool) -> Int? {{ maybe(flag, 7) }}\npure text(flag: Bool) -> Str? {{ maybe(flag, \"value\") }}\npure data(flag: Bool, value: Result[Int, Str]) -> Result[Int, Str]? {{ maybe(flag, value) }}\n");
+            let (program, sources, source_id) = guarded_program(&source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let plain = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("plain")));
+                let error = evaluator.call_indexed_direct(plain, LoweredFunctionKind::Pure, &[Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))))], Span::at(source_id, 0)).unwrap().unwrap_err();
+                assert_eq!(error.kind, "stream-stage-error");
+                for flag in [false, true] {
+                    let present = flag == present_when_true;
+                    for (name, args, expected) in [
+                        ("number", vec![Value::Bool(flag)], Value::Int(7)),
+                        ("text", vec![Value::Bool(flag)], Value::Str(Arc::from("value"))),
+                        ("data", vec![Value::Bool(flag), Value::Result(ResultValue::Ok(Box::new(Value::Int(9))))], Value::Result(ResultValue::Ok(Box::new(Value::Int(9))))),
+                        ("data", vec![Value::Bool(flag), Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("data")))))], Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("data")))))),
+                    ] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                        let actual = evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &args, Span::at(source_id, 0)).unwrap().unwrap();
+                        assert_eq!(actual, if present { expected } else { Value::Null }, "{expression} {name} frames={force_frames}");
+                    }
+                }
+            }
+        }
+    }
+}

@@ -5165,7 +5165,7 @@ fn scheme_return_kind(
             if store.scheme_type(inner)?.tag == schema::FullSchemeTypeTag::Result {
                 LoweredReturnKind::OptionalResult
             } else {
-                LoweredReturnKind::Plain(LoweredType::Any)
+                LoweredReturnKind::Erased
             }
         }
         _ => match scheme_type_physical_kind(store, type_id)? {

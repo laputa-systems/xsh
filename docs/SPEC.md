@@ -2388,10 +2388,14 @@ value (each ends in a control transfer, a binding, or nothing) is a statement
 even as the last statement of a block: it needs no `else` and gives the block
 no value, so `if done { return x }` may end a block.
 
-Without an expected type, an `if` expression may use an `Optional[T]` already
-provided by one reachable branch when every other branch value fits it,
-regardless of branch order. A plain `null` branch and plain `T` branch do not
-infer `T?`. Add an `Optional[T]` context or annotate the result.
+Without an expected type, a value-producing `if` or `match` joins a `null`
+branch and a concrete `T` branch as `Optional[T]`, regardless of branch order.
+An existing `Optional[T]` branch keeps one nullable envelope when the other
+values fit it. A generic payload retains the same type parameter in `T?`;
+each call still instantiates it independently. All-null branches supply no
+nonnull payload type. An explicit nonnullable context still rejects null,
+and nullable joins do not change invariant list elements or map-key domains.
+Unchecked `Any` does not establish a checked nullable type.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }

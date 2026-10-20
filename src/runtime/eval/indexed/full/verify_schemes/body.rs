@@ -865,4 +865,49 @@ mod tests {
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic propagated error disagrees with its owner boundary");
     }
 
+
+    #[test]
+    fn nullable_branch_inference_authenticates_the_actual_nonnull_payload() {
+        let program = prepare("pure keep(marker, flag: Bool, number: Int, wrong: Str) { let _ = marker; let _ = wrong; if flag { number } else { null } }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let branch = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::IfExpr { mut branches, .. }) => Some(branches.next().unwrap().unwrap().1.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(branch).unwrap() else { panic!("nonnull branch value block") };
+        let statements = body.map(|statement| statement.unwrap().raw() as usize).collect::<Vec<_>>();
+        let read = statements.iter().find_map(|instruction| match decoder.statement_view(*instruction).unwrap() {
+            schema::StmtView::Value { value } => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(read).unwrap(), schema::ExprView::Param(2)));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 3].ty.index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[read].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[payload.start] = 3;
+        for fact in &changed.store.scheme_body_facts {
+            if [branch, read].contains(&(fact.instruction as usize)) {
+                let ty = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(ty.tag, wrong.tag);
+                ty.first = wrong.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic branch value disagrees with its checked contract");
+    }
+
+
+    #[test]
+    fn nullable_branch_inference_preserves_required_optional_tail_contracts() {
+        for expression in [
+            "if flag { 7 } else { null }",
+            "if flag { null } else { 7 }",
+            "match flag { true => 7; false => null }",
+            "match flag { true => null; false => 7 }",
+        ] {
+            prepare(&format!("pure keep(marker, flag: Bool) -> Int? {{ let _ = marker; {expression} }}"));
+        }
+    }
+
 }

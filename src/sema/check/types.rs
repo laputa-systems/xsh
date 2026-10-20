@@ -844,6 +844,25 @@ impl Checker {
     }
 }
 
+fn null_branch_payload<'a>(left: &'a Type, right: &'a Type) -> Option<&'a Type> {
+    match (left, right) {
+        (Type::Null, payload) | (payload, Type::Null) => Some(payload),
+        _ => None,
+    }
+}
+
+fn null_branch_candidate(left: &Type, right: &Type) -> bool {
+    null_branch_payload(left, right).is_some_and(|payload| !matches!(payload, Type::Any | Type::Unknown | Type::Invalid))
+}
+
+pub(super) fn join_null_branches(left: &Type, right: &Type) -> Option<Type> {
+    let payload = null_branch_payload(left, right)?;
+    match payload {
+        Type::Null | Type::Optional(_) => Some(payload.clone()),
+        _ => Some(Type::Optional(Box::new(payload.clone()))),
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum TypeExpectation<'a> {
     Required(&'a Type),
@@ -866,7 +885,8 @@ impl<'a> TypeExpectation<'a> {
 
     pub(super) fn accepts_optional_branch(self, actual: &Type) -> bool {
         matches!(self, Self::BranchCandidate(previous)
-            if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual))
+            if null_branch_candidate(previous, actual)
+                || matches!(actual, Type::Optional(_)) && previous.matches_expected(actual))
     }
 }
 
@@ -890,15 +910,21 @@ pub(super) fn next_branch_expectation<'a>(
     }
 }
 
-pub(super) fn merge_branch_candidate(
+pub(super) fn merge_checked_branches(
     expectation: Option<TypeExpectation<'_>>,
     previous: &Type,
     actual: &Type,
 ) -> Option<Type> {
-    let TypeExpectation::BranchCandidate(candidate) = expectation? else {
-        return None;
+    let candidate = match expectation? {
+        TypeExpectation::Required(expected) => {
+            let joined = join_null_branches(previous, actual)?;
+            return joined.matches_expected(expected.result_ok().unwrap_or(expected)).then_some(joined);
+        }
+        TypeExpectation::BranchCandidate(candidate) => candidate,
     };
-    if actual.matches_expected(previous) {
+    if null_branch_candidate(previous, actual) {
+        join_null_branches(previous, actual)
+    } else if actual.matches_expected(previous) {
         Some(previous.clone())
     } else if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual) {
         Some(actual.clone())
@@ -929,3 +955,7 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
         _ => Type::Unknown,
     }
 }
+
+#[cfg(test)]
+#[path = "nullable_join_tests.rs"]
+mod nullable_join_tests;

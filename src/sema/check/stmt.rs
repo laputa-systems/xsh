@@ -6565,6 +6565,9 @@ impl Checker {
         expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
         let actual = self.check_tail_stmt_with_expectation_arena_inner(arena, source, id, expectation);
+        if matches!(arena.arena.stmt(id).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. }) {
+            self.expr_types.insert(arena.arena.stmt(id).span, actual.clone());
+        }
         self.record_checked_stream_tail(arena, id, &actual);
         self.advance_stream_flow(arena, id);
         actual
@@ -6863,7 +6866,7 @@ impl Checker {
                             && !infer_branches
                         {
                             inferred.as_ref().and_then(|previous| {
-                                super::types::merge_branch_candidate(
+                                super::types::merge_checked_branches(
                                     branch_expectation,
                                     previous,
                                     &actual,
@@ -6917,7 +6920,7 @@ impl Checker {
                             && !infer_branches
                         {
                             inferred.as_ref().and_then(|previous| {
-                                super::types::merge_branch_candidate(
+                                super::types::merge_checked_branches(
                                     else_expectation,
                                     previous,
                                     &actual,
@@ -6946,7 +6949,7 @@ impl Checker {
                 inferred.unwrap_or(Type::Unknown)
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.check_tail_match_arena(arena, source, value, arms, expected)
+                self.check_tail_match_arena(arena, source, value, arms, expectation)
             }
             ArenaStmtKind::Return(_)
             | ArenaStmtKind::Break { .. }
@@ -7001,13 +7004,13 @@ impl Checker {
         source: &str,
         value: ExprId,
         arms: ArenaRange,
-        expected: Option<&Type>,
+        expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
         let match_is_exhaustive =
             match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
-        let infer_branches = self.inferred_returns.is_some() && expected.is_none();
+        let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
         let mut inferred: Option<Type> = None;
         let initial_stream_state = self.stream_mutable_state();
         let mut stream_failure = initial_stream_state.clone();
@@ -7032,32 +7035,19 @@ impl Checker {
                 let guard_state = self.stream_mutable_state();
                 for (identity, origin) in guard_state { stream_failure.entry(identity).or_default().join(&origin); }
             }
-            let arm_ty = self.check_tail_block_arena(
-                arena,
-                source,
-                arm.block,
-                if infer_branches {
-                    None
-                } else {
-                    expected.or(inferred.as_ref())
-                },
-            );
+            let arm_expectation = if infer_branches { None } else { super::types::next_branch_expectation(expectation, inferred.as_ref()) };
+            let diagnostics_before = self.diagnostics.len();
+            let arm_ty = self.check_tail_block_with_expectation_arena(arena, source, arm.block, arm_expectation);
             if !infer_branches {
-                self.check_unit_branch_completion(
-                    arena,
-                    arm.block,
-                    expected.or(inferred.as_ref()).cloned(),
-                    &arm_ty,
-                );
+                self.check_unit_branch_completion(arena, arm.block, arm_expectation.map(super::types::TypeExpectation::context).cloned(), &arm_ty);
             }
             if arm_ty != Type::Unknown {
+                let merged = if !infer_branches && self.diagnostics.len() == diagnostics_before {
+                    inferred.as_ref().and_then(|previous| super::types::merge_checked_branches(arm_expectation, previous, &arm_ty))
+                } else { None };
                 inferred = Some(if infer_branches {
-                    inferred.map_or(arm_ty.clone(), |previous| {
-                        self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span))
-                    })
-                } else {
-                    inferred.unwrap_or(arm_ty)
-                });
+                    inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span)))
+                } else { merged.or(inferred).unwrap_or(arm_ty) });
             }
             if self.stream_block_may_complete(arena, arm.block) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();

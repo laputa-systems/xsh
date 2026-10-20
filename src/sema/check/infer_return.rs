@@ -827,16 +827,12 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     }
     match (left, right) {
         (Type::Unknown, other) | (other, Type::Unknown) => Some(other.clone()),
-        (Type::Null, Type::Optional(inner)) | (Type::Optional(inner), Type::Null) => {
-            Some(Type::Optional(inner.clone()))
-        }
-        // A failure-only `Err(..)` completion fixes the error type of a plain value.
         (Type::Result(ok, err), other) | (other, Type::Result(ok, err))
             if **ok == Type::Unknown && !matches!(other, Type::Result(_, _) | Type::Unit) =>
         {
             Some(Type::Result(Box::new(other.clone()), err.clone()))
         }
-        (Type::Null, other) | (other, Type::Null) => Some(Type::Optional(Box::new(other.clone()))),
+        (Type::Null, _) | (_, Type::Null) => super::types::join_null_branches(left, right),
         (Type::Error, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError)
         | (Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError, Type::Error) => {
             Some(Type::Error)

@@ -75,7 +75,7 @@ fn collect_body_type_facts(
             }
             ArenaChild::Stmt(id) if statements.insert((id, usage)) => {
                 let statement = arena.stmt(id);
-                if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_))
+                if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
                     && let Some(ty) = checked.get(&statement.span)
                 {
                     tail_types.insert(id, ty.clone());
