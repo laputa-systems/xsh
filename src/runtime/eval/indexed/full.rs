@@ -21292,7 +21292,6 @@ assert first([], [7])? == {key: "", text: "empty"}
             FullVerifier::verify(&program).unwrap();
             assert!(program.store.registered_calls.is_empty());
             assert!(!program.store.tags.iter().any(|tag| matches!(tag, FullTag::ExprOk | FullTag::ExprErr)));
-            assert!(program.store.checked_expr_types.iter().any(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))));
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.force_frames = force_frames;
@@ -21308,7 +21307,41 @@ assert first([], [7])? == {key: "", text: "empty"}
             assert!(FullVerifier::verify(&missing_payloads).unwrap_err().message.contains("instruction payload"));
             let mut missing_evidence = (*program).clone();
             missing_evidence.store.checked_expr_types.retain(|fact| fact.is_contract());
-            FullVerifier::verify(&missing_evidence).expect_err("physical mixed operations must demand operand proof even without source demand scratch");
+            FullVerifier::verify(&missing_evidence).expect("pipeline sources independently authenticate operands without optional producer contexts");
+            let leaf = Arc::new(fixture("physical-mixed-effect-formals.xsh", concat!(
+                "pure checksum_input(buffer: Bytes, location: Path) -> Int { let _ = location; let digest = hash.md5(buffer); 7 }\n",
+                "pure invoke_checksum() -> Int { checksum_input(b\"hello\", p\"/never-read\") }\n",
+            )));
+            FullVerifier::verify(&leaf).unwrap();
+            assert!(leaf.store.registered_calls.is_empty());
+            assert!(!leaf.store.tags.iter().any(|tag| matches!(tag, FullTag::ExprOk | FullTag::ExprErr)));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*leaf.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&leaf));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&leaf, "invoke_checksum")), LoweredFunctionKind::Pure,
+                    &[], Span::new(leaf.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, Value::Int(7));
+            }
+            let owner = scheme_fixture_root_function(&leaf, "checksum_input");
+            let decoder = function_view_decoder(&leaf.store, owner);
+            let instruction = leaf.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                leaf.store.tags[instruction] == FullTag::ExprModuleCall
+                    && verify_effects::needs_operand_proof(&leaf.store, instruction).unwrap()
+            }).unwrap();
+            let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            let argument = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(0)));
+            let mut forged = (*leaf).clone();
+            forged.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&forged).unwrap();
+            let payload = forged.store.data[argument].range().bounds(forged.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            forged.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&forged).expect_err("a Pure byte hash cannot become filesystem access by changing its actual operand");
+            assert!(error.message.contains("pure executable body contains an impure operation") || error.message.contains("requires effect fs"), "{error:?}");
         });
     }
 
