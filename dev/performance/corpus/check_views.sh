@@ -44,6 +44,48 @@ run_exact() {
   fi
 }
 
+run_interface_qualification() {
+  local project=$1
+  shift
+  local output=$scratch/interface.$project.stdout
+  local error=$scratch/interface.$project.stderr
+  local original_root=$views/original/$project
+  local candidate_root=$views/reduced/$project
+  local status=0
+  if (cd "$candidate_root" && "$xsht" check \
+    --compare-with "$original_root" --candidate-root "$candidate_root" "$@") >"$output" 2>"$error"; then
+    status=0
+  else
+    status=$?
+  fi
+  if ((status != 0)); then
+    cat "$output" "$error" >&2
+    return "$status"
+  fi
+  if grep -Eq '(^|[[:space:]])err\[[^]]+\]|(^|[[:space:]])error:' "$output" "$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+  local -a summaries=()
+  local summary_lines
+  summary_lines=$(grep -c '^xsht check interface qualification:' "$output" || true)
+  mapfile -t summaries < <(sed -nE 's/^xsht check interface qualification: ([0-9]+) callable, ([0-9]+) CLI$/\1 \2/p' "$output")
+  if [[ $summary_lines != 1 ]] || ((${#summaries[@]} != 1)); then
+    cat "$output" "$error" >&2
+    printf '%s %s interface qualification must emit exactly one count summary\n' "$project" "$candidate_root" >&2
+    return 1
+  fi
+  local callable_count cli_count
+  read -r callable_count cli_count <<<"${summaries[0]}"
+  if [[ $callable_count =~ ^0+$ && $cli_count =~ ^0+$ ]]; then
+    cat "$output" "$error" >&2
+    printf '%s %s interface qualification selected no contracts\n' "$project" "$candidate_root" >&2
+    return 1
+  fi
+  interface_callable_count=$((interface_callable_count + callable_count))
+  interface_cli_count=$((interface_cli_count + cli_count))
+}
+
 frozen_main() {
   if (($# < 13)); then
     printf 'usage: %s --frozen COMPILER_SOURCE COMPILER_REV XSH_SOURCE XSH_REV LAPUTA_SOURCE LAPUTA_REV XSH XSHT XSH_SHA256 XSHT_SHA256 RETAINED VIEWS [--selector PROJECT SELECTOR]...\n' "$0" >&2
@@ -108,37 +150,73 @@ frozen_main() {
   verify_checkout() {
     local root=$1
     local revision=$2
-    [[ $(git -C "$root" rev-parse --show-toplevel) == "$root" ]]
-    [[ $(git -C "$root" rev-parse --verify HEAD^{commit}) == "$revision" ]]
-    [[ -z $(git -C "$root" status --porcelain) ]]
+    [[ $(git -C "$root" rev-parse --show-toplevel) == "$root" && \
+      $(git -C "$root" rev-parse --verify HEAD^{commit}) == "$revision" && \
+      -z $(git -C "$root" status --porcelain) ]]
   }
   verify_source() {
-    verify_checkout "$compiler_source" "$compiler_revision"
-    verify_checkout "$xsh_source" "$xsh_revision"
-    verify_checkout "$laputa_source" "$laputa_revision"
+    local failed=0
+    if ! verify_checkout "$compiler_source" "$compiler_revision"; then failed=1; fi
+    if ! verify_checkout "$xsh_source" "$xsh_revision"; then failed=1; fi
+    if ! verify_checkout "$laputa_source" "$laputa_revision"; then failed=1; fi
+    return "$failed"
   }
   verify_products() {
+    local failed=0
     for product in "$xsh" "$xsht"; do
-      [[ -f $product && -x $product ]]
+      if [[ ! -f $product || ! -x $product ]]; then
+        failed=1
+        continue
+      fi
       case "$product" in
         "$compiler_source"/.work/*) ;;
-        *) printf 'product must be under the pinned compiler checkout .work/: %s\n' "$product" >&2; return 1 ;;
+        *) printf 'product must be under the pinned compiler checkout .work/: %s\n' "$product" >&2; failed=1 ;;
       esac
     done
-    [[ $(sha256sum "$xsh" | cut -d ' ' -f 1) == "$expected_xsh_sha256" ]]
-    [[ $(sha256sum "$xsht" | cut -d ' ' -f 1) == "$expected_xsht_sha256" ]]
+    if [[ -f $xsh ]] && [[ $(sha256sum "$xsh" | cut -d ' ' -f 1) != "$expected_xsh_sha256" ]]; then failed=1; fi
+    if [[ -f $xsht ]] && [[ $(sha256sum "$xsht" | cut -d ' ' -f 1) != "$expected_xsht_sha256" ]]; then failed=1; fi
+    return "$failed"
+  }
+  verify_views() {
+    local failed=0
+    for project in xsh laputa; do
+      if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+        "$scratch/archive/original/$project" "$views/original/$project"; then
+        printf 'original %s view changed during frozen paired checking\n' "$project" >&2
+        failed=1
+      fi
+      if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+        "$scratch/expected/reduced/$project" "$views/reduced/$project"; then
+        printf 'reduced %s view changed during frozen paired checking\n' "$project" >&2
+        failed=1
+      fi
+    done
+    return "$failed"
   }
   verify_source
   verify_products
 
   scratch=$(mktemp -d "$repo/.work/tmp/performance-corpus-frozen.XXXXXXXX")
   cleanup_frozen() {
-    local status=$?
+    local primary_status=$?
+    local cleanup_status=0
     trap - EXIT INT TERM
-    verify_source || status=1
-    verify_products || status=1
-    rm -rf "$scratch" || status=1
-    exit "$status"
+    if ! verify_source; then
+      printf 'source checkout changed during frozen paired checking\n' >&2
+      cleanup_status=1
+    fi
+    if ! verify_products; then
+      printf 'compiler product changed during frozen paired checking\n' >&2
+      cleanup_status=1
+    fi
+    if [[ -d $scratch/archive/original && -d $scratch/expected/reduced ]]; then
+      verify_views || cleanup_status=1
+    fi
+    rm -rf "$scratch" || cleanup_status=1
+    if ((primary_status != 0)); then
+      exit "$primary_status"
+    fi
+    exit "$cleanup_status"
   }
   trap cleanup_frozen EXIT
   trap 'exit 130' INT
@@ -219,12 +297,7 @@ PY
     cat "$scratch/candidate-validation.log" >&2
     return 1
   fi
-  for project in xsh laputa; do
-    python3 "$repo/dev/performance/corpus/compare_tree.py" \
-      "$scratch/archive/original/$project" "$views/original/$project"
-    python3 "$repo/dev/performance/corpus/compare_tree.py" \
-      "$scratch/expected/reduced/$project" "$views/reduced/$project"
-  done
+  verify_views
 
   export XSH_BIN=$xsh XSHT_BIN=$xsht
   export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
@@ -232,6 +305,8 @@ PY
     core/wc.xsh core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh
     core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
   )
+  interface_callable_count=0
+  interface_cli_count=0
   for view in original reduced; do
     run_check "$view" xsh 10 "${xsh_roots[@]}"
     run_check "$view" laputa 1 pm/plan_json.xsh
@@ -247,15 +322,13 @@ PY
     done
   done
 
-  for project in xsh laputa; do
-    python3 "$repo/dev/performance/corpus/compare_tree.py" \
-      "$scratch/archive/original/$project" "$views/original/$project"
-    python3 "$repo/dev/performance/corpus/compare_tree.py" \
-      "$scratch/expected/reduced/$project" "$views/reduced/$project"
-  done
+  run_interface_qualification xsh "${xsh_roots[@]}"
+  run_interface_qualification laputa pm/plan_json.xsh
+  verify_views
   verify_source
   verify_products
-  printf 'paired frozen corpus: 11 roots and %s exact selectors passed in both views\n' "${#selectors[@]}"
+  printf 'paired frozen corpus: 11 roots and %s exact selectors passed in both views; interface qualification: %s callable, %s CLI\n' \
+    "${#selectors[@]}" "$interface_callable_count" "$interface_cli_count"
 }
 
 if [[ ${1:-} == --frozen ]]; then

@@ -103,6 +103,21 @@ class FrozenViewAdapterTests(unittest.TestCase):
             "[[ ${XSH_BIN:-} == \"$(dirname \"$0\")/xsh\" ]]\n"
             "[[ ${XSHT_BIN:-} == \"$0\" ]]\n"
             "printf '%s\\n' \"$PWD $*\" >>\"$XSHT_CALLS\"\n"
+            "if [[ $1 == check && ${2:-} == --compare-with ]]; then\n"
+            "  if [[ -n ${XSHT_MUTATE_SOURCE:-} ]]; then printf '\\n' >>\"$XSHT_MUTATE_SOURCE\"; fi\n"
+            "  if [[ -n ${XSHT_MUTATE_PRODUCT:-} ]]; then printf '\\n' >>\"$XSHT_MUTATE_PRODUCT\"; fi\n"
+            "  if [[ -n ${XSHT_MUTATE_VIEW:-} ]]; then printf '\\n' >>\"$XSHT_MUTATE_VIEW\"; fi\n"
+            "  case ${XSHT_INTERFACE_MODE:-pass} in\n"
+            "    pass) printf 'xsht check interface qualification: 2 callable, 1 CLI\\n'; exit 0 ;;\n"
+            "    nonzero) printf 'xsht check interface qualification: 2 callable, 1 CLI\\n'; exit 23 ;;\n"
+            "    error) printf 'xsht check interface qualification: 2 callable, 1 CLI\\n'; printf 'err[check.interface-compare] rejected\\n' >&2; exit 0 ;;\n"
+            "    empty) printf 'xsht check interface qualification: 0 callable, 0 CLI\\n'; exit 0 ;;\n"
+            "    missing) printf 'xsht check completed\\n'; exit 0 ;;\n"
+            "    duplicate) printf 'xsht check interface qualification: 2 callable, 1 CLI\\n'; printf 'xsht check interface qualification: 2 callable, 1 CLI\\n'; exit 0 ;;\n"
+            "    malformed) printf 'xsht check interface qualification: many callable, 1 CLI\\n'; exit 0 ;;\n"
+            "  esac\n"
+            "  exit 2\n"
+            "fi\n"
             "if [[ $1 == check ]]; then\n"
             "  count=$(($# - 1))\n"
             "  printf 'xsht check: %s files in 0.01s (thread time by stage: check 0.001, lower 0.001)\\n' \"$count\" >&2\n"
@@ -176,8 +191,19 @@ class FrozenViewAdapterTests(unittest.TestCase):
         shutil.copytree(reduced / "xsh", cls.views / "reduced/xsh", symlinks=True)
         shutil.copytree(reduced / "laputa", cls.views / "reduced/laputa", symlinks=True)
 
-    def command(self, *, mode="pass", retained=None, views=None, xsh_hash=None, xsh_revision=None):
+    def command(
+        self, *, mode="pass", interface_mode="pass", retained=None, views=None,
+        xsh_hash=None, xsh_revision=None, mutate_source=None, mutate_product=None, mutate_view=None,
+    ):
         self.calls.unlink(missing_ok=True)
+        environment = {**os.environ, "XSHT_CALLS": str(self.calls), "XSHT_MODE": mode}
+        environment["XSHT_INTERFACE_MODE"] = interface_mode
+        if mutate_source is not None:
+            environment["XSHT_MUTATE_SOURCE"] = str(mutate_source)
+        if mutate_product is not None:
+            environment["XSHT_MUTATE_PRODUCT"] = str(mutate_product)
+        if mutate_view is not None:
+            environment["XSHT_MUTATE_VIEW"] = str(mutate_view)
         return subprocess.run(
             [
                 "bash", str(ADAPTER), "--frozen",
@@ -191,7 +217,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
                 "--selector", "xsh", SELECTOR,
             ],
             cwd=ROOT,
-            env={**os.environ, "XSHT_CALLS": str(self.calls), "XSHT_MODE": mode},
+            env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -217,9 +243,24 @@ class FrozenViewAdapterTests(unittest.TestCase):
         result = self.command()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.calls.read_text().splitlines()
-        self.assertEqual(sum(" check " in call for call in calls), 4)
+        self.assertEqual(sum(" check " in call and " --compare-with " not in call for call in calls), 4)
         self.assertEqual(sum(" test --exact " in call for call in calls), 2)
-        self.assertIn("paired frozen corpus: 11 roots and 1 exact selectors passed in both views", result.stdout)
+        xsh_roots = [
+            "core/wc.xsh", "core/cut.xsh", "core/tr.xsh", "core/date.xsh", "core/lib/date_parse.xsh",
+            "core/system-report.xsh", "dev/gates.xsh", "dev/internal.xsh", "dev/docker.xsh", "dev/main.xsh",
+        ]
+        interface_calls = [call for call in calls if " check --compare-with " in call]
+        self.assertEqual(interface_calls, [
+            f"{self.views / 'reduced/xsh'} check --compare-with {self.views / 'original/xsh'} "
+            f"--candidate-root {self.views / 'reduced/xsh'} {' '.join(xsh_roots)}",
+            f"{self.views / 'reduced/laputa'} check --compare-with {self.views / 'original/laputa'} "
+            f"--candidate-root {self.views / 'reduced/laputa'} pm/plan_json.xsh",
+        ])
+        self.assertIn(
+            "paired frozen corpus: 11 roots and 1 exact selectors passed in both views; "
+            "interface qualification: 4 callable, 2 CLI",
+            result.stdout,
+        )
 
     def test_rejects_a_mutated_candidate_view_before_running_xsht(self):
         path = self.views / "reduced/xsh/core/wc.xsh"
@@ -263,6 +304,51 @@ class FrozenViewAdapterTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(self.calls.exists())
         self.assertIn("test --exact", self.calls.read_text())
+
+    def test_rejects_failed_empty_missing_duplicate_and_malformed_interface_results(self):
+        for mode in ("nonzero", "error", "empty", "missing", "duplicate", "malformed"):
+            with self.subTest(mode=mode):
+                result = self.command(interface_mode=mode)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                interface_calls = [
+                    call for call in self.calls.read_text().splitlines()
+                    if " check --compare-with " in call
+                ]
+                self.assertEqual(len(interface_calls), 1)
+
+    def test_cleanup_runs_all_guards_after_success_and_preserves_primary_failure(self):
+        source = self.compiler_source / "Cargo.toml"
+        product = self.xsh
+        view = self.views / "reduced/xsh/core/wc.xsh"
+        originals = {path: path.read_bytes() for path in (source, product, view)}
+        try:
+            result = self.command(
+                mutate_source=source, mutate_product=product, mutate_view=view,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            for expected in (
+                "source checkout changed during frozen paired checking",
+                "compiler product changed during frozen paired checking",
+                "reduced xsh view changed during frozen paired checking",
+            ):
+                self.assertIn(expected, result.stderr)
+            for path, original in originals.items():
+                path.write_bytes(original)
+
+            result = self.command(
+                interface_mode="nonzero", mutate_source=source,
+                mutate_product=product, mutate_view=view,
+            )
+            self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
+            for expected in (
+                "source checkout changed during frozen paired checking",
+                "compiler product changed during frozen paired checking",
+                "reduced xsh view changed during frozen paired checking",
+            ):
+                self.assertIn(expected, result.stderr)
+        finally:
+            for path, original in originals.items():
+                path.write_bytes(original)
 
 
 if __name__ == "__main__":

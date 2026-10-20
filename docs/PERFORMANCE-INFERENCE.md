@@ -119,6 +119,31 @@ each view. Source and product checks run before and after execution. The single
 selector above illustrates invocation; it does not qualify the whole cohort.
 Adapter tests use controlled products and earn no compiler or removal credit.
 
+The adapter compares checked interfaces across the same eleven root entries.
+It runs `xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT PATH...`
+from each reduced project root. One invocation compares the ten XSH roots. The
+other compares Laputa `pm/plan_json.xsh`. Each invocation must exit successfully
+without an error diagnostic. It must emit exactly one stdout line in this form:
+
+```text
+xsht check interface qualification: N callable, M CLI
+```
+
+At least one count must be nonzero for each project. The callable count reports
+unique merged callable declarations. The CLI count reports unique merged CLI
+parsing declarations. The adapter rejects a nonzero command status, an error
+diagnostic, and missing, duplicate, malformed, or zero-count summaries. After
+either comparison succeeds or fails, the exit guard rechecks the source
+revisions, product hashes, and both complete accepted view trees. It preserves
+the comparison's status if a guard also fails. The comparison covers callable
+and CLI parsing interfaces. Separate checks cover help text, body behavior,
+operation and effect parity, and runtime witnesses.
+
+Run the controlled frozen-adapter tests with
+`XSH_LAPUTA_CORPUS="$LAPUTA_ROOT" python3 dev/performance/corpus/test_check_views.py`.
+The tests check command roots and entries, rejected results, and cleanup guards.
+They do not build or qualify compiler products.
+
 The practical current-source extension has two paths. `check.sh` remains a
 behavior-only check for the XSH utility roots, `wc`, `sort`, `awk`, and Laputa
 plan and generation modules. `inventory.sh`, `prepare_views.sh`, and
