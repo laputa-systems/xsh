@@ -6235,14 +6235,19 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_slot_type(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
         let fact = self.slot_type_fact(slot)?;
-        let fact = if fact.is_none() && self.producer_demand == crate::runtime::eval::ProducerDemand::Needed
-            && driver_owner_index(self.owner).is_none()
-        {
-            let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("capture read owner is invalid"))?;
-            let function = self.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("capture read owner is out of bounds"))?;
-            self.store.captures[function.captures.bounds(self.store.captures.len()).ok_or_else(|| IrVerifyError::new("capture read range is invalid"))?].iter()
-                .find(|capture| (capture.slot_and_flags & !(1 << 31)) as usize == slot && capture.slot_and_flags & (1 << 31) != 0)
-                .map(|capture| capture.type_id)
+        let fact = if fact.is_none() && self.producer_demand == crate::runtime::eval::ProducerDemand::Needed {
+            if let Some(step) = driver_owner_index(self.owner) {
+                let driver = self.store.driver_steps.get(step).ok_or_else(|| IrVerifyError::new("storage read driver owner is out of bounds"))?;
+                self.store.driver_slots[driver.slots.bounds(self.store.driver_slots.len()).ok_or_else(|| IrVerifyError::new("storage read driver range is invalid"))?].iter()
+                    .find(|binding| binding.slot as usize == slot && binding.flags & DRIVER_SLOT_MUTABLE != 0 && binding.flags & (DRIVER_SLOT_TEMPORARY | DRIVER_SLOT_DEFINITION) == 0 && binding.binding_identity != IR_NONE)
+                    .map(|binding| binding.type_id)
+            } else {
+                let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("capture read owner is invalid"))?;
+                let function = self.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("capture read owner is out of bounds"))?;
+                self.store.captures[function.captures.bounds(self.store.captures.len()).ok_or_else(|| IrVerifyError::new("capture read range is invalid"))?].iter()
+                    .find(|capture| (capture.slot_and_flags & !(1 << 31)) as usize == slot && capture.slot_and_flags & (1 << 31) != 0)
+                    .map(|capture| capture.type_id)
+            }
         } else { fact };
         if driver_owner_index(self.owner).is_some()
             && self.is_temporary_slot(slot, &mut |_| Ok(()))?
@@ -21345,6 +21350,122 @@ assert first([], [7])? == {key: "", text: "empty"}
         let program = fixture("indexed-erased-pure.xsh", "pure apply(handles: List[Pure], other: List[Proc]) -> Any { handles[0].call() }\n");
         FullVerifier::verify(&program).unwrap();
         assert_erased_pure_projection_rejects_proc_receiver(&program);
+    }
+
+    #[test]
+    fn monomorphic_storage_preserves_typed_callable_capture_updates() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("typed-mutable-capture-updates.xsh", r#"
+type GroundScale = pure(value: Int) -> Int
+type GroundScaleState = {operation: GroundScale, label: Str}
+pure first(value: Int) -> Int { value + 1 }
+pure second(value: Int) -> Int { value + 2 }
+type BadScale = pure(value: Int) -> Str
+type ProcScale = proc(value: Int) [] -> Int
+pure wrong_result(value: Int) -> Str { "wrong" }
+proc wrong_kind(value: Int) [] -> Int { value }
+let wrong_result_witness: BadScale = wrong_result
+let wrong_kind_witness: ProcScale = wrong_kind
+var state: GroundScaleState = {operation: first, label: "initial"}
+pure read_scale(value: Int) -> Int { state.operation(value) }
+proc replace_operation() [] -> Unit { state.operation = second; state.label = "field" }
+let before = read_scale(40)
+replace_operation()
+let after_field_write = read_scale(40)
+let field_label = state.label
+state = {operation: first, label: "whole"}
+let after_whole_write = read_scale(40)
+let whole_label = state.label
+assert before == 41
+assert after_field_write == 42
+assert field_label == "field"
+assert after_whole_write == 41
+assert whole_label == "whole"
+"#));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let mut without_contexts = (*program).clone();
+            without_contexts.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&without_contexts).unwrap();
+            let decoder = stage_view_decoder(&program.store);
+            let references = |name| program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprFunctionRef { return None; }
+                let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                matches!(function, decode::FunctionNameView::Name(found) if found.as_str().as_str() == name).then_some(instruction)
+            }).collect::<Vec<_>>();
+            let wrong_result = references("wrong_result")[0];
+            let wrong_kind = references("wrong_kind")[0];
+            let initializers = references("first");
+            assert!(initializers.len() >= 2);
+            for initializer in initializers {
+                let mut forged = without_contexts.clone();
+                forged.store.data[initializer] = program.store.data[wrong_result];
+                FullVerifier::verify(&forged).expect_err("initial and whole-record writers must retain the callable signature");
+            }
+            let writer = scheme_fixture_root_function(&program, "replace_operation");
+            let decoder = function_view_decoder(&program.store, writer);
+            let assignment = program.store.function_instruction_range(writer).unwrap().find(|&instruction| {
+                matches!(decoder.statement_view(instruction), Ok(schema::StmtView::AssignField { field: "operation", .. }))
+            }).unwrap();
+            let schema::StmtView::AssignField { value, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+            assert_eq!(program.store.tags[value.raw() as usize], FullTag::ExprFunctionRef);
+            let mut forged_proc = without_contexts.clone();
+            forged_proc.store.data[value.raw() as usize] = program.store.data[wrong_kind];
+            FullVerifier::verify(&forged_proc).expect_err("a replacement Proc cannot enter Pure callable storage");
+            let label = scheme_fixture_string(&program, "label");
+            let mut forged_path = without_contexts.clone();
+            let words = forged_path.store.data[assignment].range().bounds(forged_path.store.extra.len()).unwrap();
+            forged_path.store.extra[words.start + 1] = label;
+            FullVerifier::verify(&forged_path).expect_err("partial writers must project their target from the actual storage root");
+            let read = scheme_fixture_root_function(&program, "read_scale");
+            let decoder = function_view_decoder(&program.store, read);
+            let call = program.store.function_instruction_range(read).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprTypedCall).unwrap();
+            let schema::ExprView::TypedCall { callee, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+            assert_eq!(program.store.tags[callee.raw() as usize], FullTag::ExprField);
+            let mut forged_callee = without_contexts.clone();
+            let words = forged_callee.store.data[callee.raw() as usize].range().bounds(forged_callee.store.extra.len()).unwrap();
+            forged_callee.store.extra[words.start + 1] = label;
+            FullVerifier::verify(&forged_callee).expect_err("call sites must authenticate the actual projected callable");
+        });
+    }
+
+    #[test]
+    fn monomorphic_storage_preserves_mutable_typed_factory_sources() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("mutable-typed-factory-sources.xsh", r#"
+type Scale = pure(value: Int) -> Int
+type Factory = proc() [] -> Scale
+pure first(value: Int) -> Int { value + 1 }
+pure second(value: Int) -> Int { value + 2 }
+proc make_first() [] -> Scale { first }
+proc make_second() [] -> Scale { second }
+var factory: Factory = make_first
+var operation: Scale = first
+proc update() [] -> Unit { operation = factory() }
+pure apply(value: Int) -> Int { operation(value) }
+assert apply(40) == 41
+factory = make_second
+update()
+assert apply(40) == 42
+"#));
+            let mut without_contexts = (*program).clone();
+            without_contexts.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&without_contexts).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
     }
 
     #[test]

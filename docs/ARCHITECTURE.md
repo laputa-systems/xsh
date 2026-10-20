@@ -83,7 +83,7 @@ result proofs do not require a caller to supply a concrete function identity.
 Closed Result constructor contracts use the existing ground producer proof for
 payloads, including contextual collections and lexical writers. Verification
 derives producer demand from selected operations, constructor facts, and mutable
-captures. Its owner indexes and loop analysis share that transient demand.
+storage reads. Its owner indexes and loop analysis share that transient demand.
 Context proofs preserve body values, completing Unit bodies, and return
 transfers. Process capture proofs share the checker's RunKind result shapes;
 a pipeline takes its capture shape from the head segment.
@@ -93,8 +93,9 @@ Static storage annotations use checked-value validation; a failed annotation is
 a fatal type error. Explicit schema requirements retain their Result transport.
 Module storage checks include the selected callable export contracts.
 
-Monomorphic capture reads use one storage proof per binding and contract. The
-proof anchors the contract in the defining writer, then checks replacement and
+Monomorphic driver and capture reads use one storage proof per binding and
+contract. Typed mutable callees use this authenticated storage contract without
+requiring one immutable function identity. The proof anchors the contract in the defining writer, then checks replacement and
 partial writers across driver steps and functions. Destructuring projects the
 binding's contract from the actual source and target. Runtime storage validators
 discharge complete checks. Typed callable signatures and nominal payloads retain

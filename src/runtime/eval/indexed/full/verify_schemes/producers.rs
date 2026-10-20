@@ -14,7 +14,7 @@ pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     demand: crate::runtime::eval::ProducerDemand,
     result_constructors: Vec<usize>,
     effect_operations: Vec<usize>,
-    capture_reads: Vec<(u32, usize, TypeId)>,
+    storage_reads: Vec<(u32, usize, TypeId)>,
     effect_demand_work: usize,
     owners: BTreeMap<u32, ProducerOwner>,
     starts: BTreeMap<usize, u32>,
@@ -31,6 +31,13 @@ enum StorageWriter {
     DriverAssign { step: usize },
 }
 
+#[derive(Clone, Copy)]
+struct StorageBinding {
+    identity: u32,
+    ty: TypeId,
+    mutable: bool,
+}
+
 struct ProducerOwner {
     prepared_constant_work: usize,
     work: Rc<RefCell<SchemeInstantiationBudget>>,
@@ -38,7 +45,7 @@ struct ProducerOwner {
     children: Vec<u32>,
     siblings: Vec<u32>,
     writers: BTreeMap<ProducerBinding, Vec<usize>>,
-    capture_types: BTreeMap<u32, TypeId>,
+    storage_bindings: BTreeMap<ProducerBinding, StorageBinding>,
     parents: Vec<Option<usize>>,
     statement_positions: BTreeMap<usize, (usize, usize)>,
     block_declarations: BTreeMap<(usize, usize), Vec<(usize, ProducerBinding)>>,
@@ -165,11 +172,12 @@ impl GroundProducerIndex {
                 if super::super::verify_effects::needs_operand_proof(store, instruction)? { effect_demand = true; break; }
             }
         }
-        let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 });
+        let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
+            || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
         let demand = if storage_demand || effect_demand || !store.registered_calls.is_empty() || !result_constructors.is_empty() {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, result_constructors, effect_operations: Vec::new(), capture_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, result_constructors, effect_operations: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
@@ -185,7 +193,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), capture_types: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
                 for instruction in range.clone() {
@@ -430,12 +438,16 @@ impl GroundProducerIndex {
             }
         }
         let mut storage_roots = BTreeMap::new();
-        let mut mutable_captures = BTreeSet::new();
+        let mut has_mutable_storage = false;
         if let Some(step) = super::super::driver_owner_index(decoder.owner) {
             let driver = decoder.store.driver_steps[step];
             for slot in bounded(driver.slots, &decoder.store.driver_slots, "storage writer slot range is invalid")? {
                 work.borrow_mut().charge(1)?;
-                storage_roots.insert(ProducerBinding::DriverBinding(slot.slot as usize), (slot.binding_identity, slot.slot as usize, slot.type_id));
+                let binding = ProducerBinding::DriverBinding(slot.slot as usize);
+                storage_roots.insert(binding, (slot.binding_identity, slot.slot as usize, slot.type_id));
+                let mutable = slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE;
+                owner.storage_bindings.insert(binding, StorageBinding { identity: slot.binding_identity, ty: slot.type_id, mutable });
+                has_mutable_storage |= mutable;
             }
             if driver.tag == super::super::FullDriverTag::Assign {
                 let mut payload = super::super::FullCursor::new(decoder.store.payload(driver.data.range())?);
@@ -450,20 +462,19 @@ impl GroundProducerIndex {
                 work.borrow_mut().charge(1)?;
                 let slot = (capture.slot_and_flags & !(1 << 31)) as usize;
                 storage_roots.insert(ProducerBinding::HeaderCapture(capture.binding_identity), (capture.binding_identity, slot, capture.type_id));
-                owner.capture_types.insert(capture.binding_identity, capture.type_id);
-                if capture.slot_and_flags & (1 << 31) != 0 { mutable_captures.insert(capture.binding_identity); }
+                let mutable = capture.slot_and_flags & (1 << 31) != 0;
+                owner.storage_bindings.insert(ProducerBinding::HeaderCapture(capture.binding_identity), StorageBinding { identity: capture.binding_identity, ty: capture.type_id, mutable });
+                has_mutable_storage |= mutable;
             }
         }
-        if !mutable_captures.is_empty() {
-        for (instruction, slot) in slot_reads {
-            work.borrow_mut().charge(1)?;
-            if let ProducerBinding::HeaderCapture(identity) = owner.binding(decoder.store, decoder.owner, instruction, slot)?
-                && mutable_captures.contains(&identity)
-            {
-                let ty = *owner.capture_types.get(&identity).ok_or_else(|| IrVerifyError::new("capture read has no declaration type"))?;
-                self.capture_reads.push((decoder.owner, instruction, ty));
+        if has_mutable_storage {
+            for (instruction, slot) in slot_reads {
+                work.borrow_mut().charge(1)?;
+                let binding = owner.binding(decoder.store, decoder.owner, instruction, slot)?;
+                if let Some(source) = owner.storage_bindings.get(&binding) && source.mutable {
+                    self.storage_reads.push((decoder.owner, instruction, source.ty));
+                }
             }
-        }
         }
         for (binding, writers) in &owner.writers {
             let Some(&(identity, slot, root_type)) = storage_roots.get(binding) else { continue };
@@ -515,7 +526,7 @@ impl GroundProducerIndex {
         use std::mem::size_of;
         size_of::<Self>()
             + self.result_constructors.capacity() * size_of::<usize>()
-            + self.effect_operations.capacity() * size_of::<usize>() + self.capture_reads.capacity() * size_of::<(u32, usize, TypeId)>()
+            + self.effect_operations.capacity() * size_of::<usize>() + self.storage_reads.capacity() * size_of::<(u32, usize, TypeId)>()
             + self.work.as_ref().map_or(0, |_| size_of::<RefCell<SchemeInstantiationBudget>>() + 2 * size_of::<usize>())
             + self.starts.len() * size_of::<(usize, u32)>()
             + self.binding_writers.capacity() * size_of::<Option<(usize, usize, u32)>>()
@@ -525,7 +536,7 @@ impl GroundProducerIndex {
             + self.module_exports.values().map(|values| values.capacity() * size_of::<(Name, u32)>()).sum::<usize>()
             + self.owners.values().map(|owner| {
                 size_of::<(u32, ProducerOwner)>()
-                    + owner.capture_types.len() * size_of::<(u32, TypeId)>()
+                    + owner.storage_bindings.len() * size_of::<(ProducerBinding, StorageBinding)>()
                     + owner.children.capacity() * size_of::<u32>() + owner.siblings.capacity() * size_of::<u32>()
                     + owner.parents.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
@@ -628,7 +639,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
     let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), expressions: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
-    for &(owner, instruction, ty) in &index.capture_reads {
+    for &(owner, instruction, ty) in &index.storage_reads {
         let ty = proof.contract_type(ty)?;
         proof.budget.charge_clone(&ty)?;
         if ty.contains_typed_callable() { proof.expression(owner, instruction, ty, false); }
@@ -956,8 +967,8 @@ impl<'a> ProducerProof<'a> {
                     };
                 }
                 if let ProducerBinding::HeaderCapture(identity) = binding {
-                    let id = *self.index.owners[&decoder.owner].capture_types.get(&identity).ok_or_else(|| IrVerifyError::new("capture contract is absent from its owner census"))?;
-                    return self.contract_type(id).map(Some);
+                    let source = self.index.owners[&decoder.owner].storage_bindings.get(&ProducerBinding::HeaderCapture(identity)).ok_or_else(|| IrVerifyError::new("capture contract is absent from its owner census"))?;
+                    return self.contract_type(source.ty).map(Some);
                 }
                 if let Some(id) = decoder.checked_slot_type(slot)? { return self.contract_type(id).map(Some); }
                 return Ok(None);
@@ -1111,11 +1122,20 @@ impl<'a> ProducerProof<'a> {
         Ok(Some(remaining))
     }
 
+    fn mutable_storage_contract_source(&mut self, owner: u32, binding: ProducerBinding) -> Result<bool, IrVerifyError> {
+        let Some(source) = self.index.owners[&owner].storage_bindings.get(&binding).copied().filter(|source| source.mutable) else { return Ok(false) };
+        let ty = self.contract_type(source.ty)?;
+        self.budget.charge_clone(&ty)?;
+        if !ty.contains_typed_callable() { return Ok(false); }
+        self.binding_writer(source.identity, ty)?;
+        Ok(true)
+    }
+
     fn function_targets(&mut self, owner: u32, instruction: usize) -> Result<BTreeSet<usize>, IrVerifyError> {
         let mut visited = BTreeSet::new();
         let mut pending = vec![(owner, CallableProducer::Expression(instruction), Vec::<FunctionProjection>::new())];
         let mut targets = BTreeSet::new();
-        let mut parameter_contracts = BTreeSet::new();
+        let mut has_contract_source = false;
         while let Some((owner, source, mut path)) = pending.pop() {
             self.budget.charge(1 + path.len())?;
             if !visited.insert((owner, source, path.clone())) { continue; }
@@ -1170,6 +1190,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::Param(slot) => {
                     let binding = self.index.owners[&owner].binding(self.store, owner, instruction, slot)?;
+                    if self.mutable_storage_contract_source(owner, binding)? { has_contract_source = true; continue; }
                     for writer in self.index.owners[&owner].writers.get(&binding).cloned().unwrap_or_default() {
                         self.budget.charge(1)?;
                         let (written, value) = match decoder.statement_view(writer)? {
@@ -1288,7 +1309,7 @@ impl<'a> ProducerProof<'a> {
                             };
                             let (_, parameter_type, _) = self.store.semantic.signature_param(signature, parameter)?;
                             if self.contract_type(parameter_type)?.contains_typed_callable() {
-                                parameter_contracts.insert((owner, parameter));
+                                has_contract_source = true;
                             }
 
                             for caller in self.incoming.get(&function).cloned().unwrap_or_default() {
@@ -1479,7 +1500,7 @@ impl<'a> ProducerProof<'a> {
                 _ => return Err(IrVerifyError::new(format!("ground callable has no resolved lexical function identity for {:?}", self.store.tags[instruction]))),
             }
         }
-        if targets.is_empty() && parameter_contracts.is_empty() { return Err(IrVerifyError::new("ground callable has no executable function target")); }
+        if targets.is_empty() && !has_contract_source { return Err(IrVerifyError::new("ground callable has no executable function target")); }
         Ok(targets)
     }
 
@@ -1953,7 +1974,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             _ if actual.is_some() => self.verify_operands(&decoder, instruction),
-            _ => Err(IrVerifyError::new("ground producer form has no executable type proof")),
+            _ => Err(IrVerifyError::new(format!("ground producer form has no executable type proof: {:?} at instruction {instruction}, owner {owner}", self.store.tags[instruction]))),
         }
     }
 
