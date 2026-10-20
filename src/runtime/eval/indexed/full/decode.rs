@@ -332,6 +332,30 @@ pub(in crate::runtime::eval) struct ValueRef<'a> {
     context: DecodeContext<'a>,
 }
 impl ValueRef<'_> {
+    pub(in crate::runtime::eval) fn with_scalar_view<R>(self, mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>, inspect: impl FnOnce(crate::runtime::eval::type_view::ValueView<'_>) -> Result<R, IrVerifyError>) -> Result<R, IrVerifyError> {
+        use super::FullValueTag as V;
+        use crate::map_key::MapKeyRef;
+        use crate::runtime::eval::type_view::ValueView;
+        let tag = *self.context.store.values.get(self.raw as usize).ok_or_else(|| IrVerifyError::new("value id is out of bounds"))?;
+        let data = *self.context.store.value_data.get(self.raw as usize).ok_or_else(|| IrVerifyError::new("value payload is out of bounds"))?;
+        let words = self.context.store.payload(data.range())?;
+        charge(1 + words.len())?;
+        match tag {
+            V::Str if words.len() == 1 => inspect(ValueView::Key(MapKeyRef::Str(self.context.store.string(*words.first().ok_or_else(|| IrVerifyError::new("scalar string payload is absent"))?)?))),
+            V::Bytes if words.len() == 1 => inspect(ValueView::Key(MapKeyRef::Bytes(self.context.store.bytes(*words.first().ok_or_else(|| IrVerifyError::new("scalar byte payload is absent"))?)?))),
+            V::Null | V::Unit | V::Int | V::Float | V::Duration | V::Bool => {
+                let value = self.materialize()?;
+                inspect(ValueView::Lowered(&value))
+            }
+            V::Path => {
+                charge(self.context.store.bytes(*words.first().ok_or_else(|| IrVerifyError::new("scalar path payload is absent"))?)?.len())?;
+                let value = self.materialize()?;
+                inspect(ValueView::Lowered(&value))
+            }
+            _ => Err(IrVerifyError::new("literal value is not scalar")),
+        }
+    }
+
     pub(in crate::runtime::eval) fn materialize(self) -> Result<LoweredValue, IrVerifyError> {
         LoweredValue::decode(&self.context.decoder(), &mut FullCursor::new(&[self.raw]))
     }

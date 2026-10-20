@@ -3537,7 +3537,7 @@ impl Checker {
             self.expect_type(&Type::Bool, &condition_ty, condition_span);
             return ConditionNarrowings::default();
         }
-        if matches!(condition_ty, Type::Bool | Type::Status | Type::Unknown) {
+        if crate::sema::types::ConditionRole::Control.accepts(&condition_ty) || condition_ty == Type::Unknown {
             return self.infer_condition_narrowings_arena(arena, condition);
         }
         self.report_non_bool_condition(

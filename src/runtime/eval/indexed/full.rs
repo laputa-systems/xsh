@@ -9448,13 +9448,16 @@ impl<'a> FullDecoder<'a> {
                 crate::runtime::eval::ModuleCallPlan::CommandArguments(command) => command.signature.return_ty.clone(),
             }));
         }
-        if let Some(result) = Self::derive_registered_api_operation_return_type(op)? {
+        if let Some(result) = Self::derive_registered_api_operation_return_type(op)?
+            && !result.contains_builtin_parameter()
+        {
             return Ok(Some(result));
         }
         let signatures = crate::modules::signature::native_static_operation_signatures(op);
         let mut result = None;
         for signature in signatures {
             if arguments.len() > signature.params.len() { continue; }
+            if signature.return_ty.contains_builtin_parameter() || signature.params.iter().any(|parameter| parameter.ty.contains_builtin_parameter()) { continue; }
             let mut fits = true;
             for (index, parameter) in signature.params.iter().enumerate() {
                 match arguments.get(index).copied().flatten() {
@@ -20574,6 +20577,18 @@ run true
             FullVerifier::verify(&program).unwrap();
             let function = scheme_fixture_root_function(&program, "select");
             let decoder = function_view_decoder(&program.store, function);
+            let condition = program.store.function_instruction_range(function).unwrap().find_map(|instruction| {
+                match decoder.expression_view(instruction).ok()? {
+                    schema::ExprView::IfExpr { mut branches, .. } => branches.next().transpose().unwrap().map(|(condition, _)| condition.raw() as usize),
+                    _ => None,
+                }
+            }).unwrap();
+            let mut forged_context = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let status = semantic.intern_type(&mut forged_context.store.semantic, &Type::Status).unwrap();
+            let at = forged_context.store.checked_expr_types.binary_search_by_key(&(condition as u32), |fact| fact.instruction).unwrap_err();
+            forged_context.store.checked_expr_types.insert(at, FullCheckedExprType { instruction: condition as u32, type_id: status, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(function).unwrap())) });
+            FullVerifier::verify(&forged_context).expect_err("condition context cannot replace the scheme's actual Bool formal");
             let mut branch_slots = Vec::new();
             for instruction in program.store.function_instruction_range(function).unwrap() {
                 if program.store.tags[instruction] != FullTag::ExprValueBlock { continue; }
@@ -26992,6 +27007,563 @@ proc main() {
         forged.store.data[replacement] = program.store.data[wrong];
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_destructured_loop_predicates() {
+        let source = "type Row = {name: Str}\ntype Wrong = {name: Int}\npure labels(rows: List[Row], wrong: List[Wrong]) -> Result[Str] { let _ = wrong; var text = \"\"; for {name} in rows { if name.starts_with(\"x\") { text = text + f\"{name}\" } }; Ok(text) }\nassert labels([{name: \"x\"}], [{name: 1}])? == \"x\"\n";
+        let program = Arc::new(fixture("destructured-loop-producer.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "labels");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let loop_instruction = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtForRecord).unwrap();
+        let schema::StmtView::ForRecord { iter, .. } = decoder.statement_view(loop_instruction).unwrap() else { unreachable!() };
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[iter.raw() as usize] = program.store.data[wrong];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("ground binding writer disagrees with its slot contract"), "{}", error.message);
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_standalone_scalar_conditions() {
+        let source = r#"
+pure text_case(value: Str, number: Int) -> Bool {
+    let _ = number
+    if !value.starts_with("x") and value.ends_with("z") { return true }
+    false
+}
+pure scalar_case(value: Str, number: Int) -> Bool {
+    let _ = number
+    var found = false
+    if value.starts_with("x") { found = true }
+    found
+}
+pure loop_case(value: Str, number: Int) -> Bool {
+    let _ = number
+    var once = true
+    while once and value.starts_with("x") { once = false }
+    !once
+}
+pure byte_case(data: Bytes) -> Bool {
+    var found = false
+    if data.starts_with(b"\xff") { found = true }
+    found
+}
+pure path_case(value: Path) -> Bool {
+    if value.starts_with(p"/tmp") { return true }
+    false
+}
+pure shadow_case(value: Int) -> Bool {
+    let _ = value
+    if true {
+        let value = "x"
+        if value.starts_with("x") { return true }
+    }
+    false
+}
+assert text_case("az", 1)
+assert !text_case("xz", 1)
+assert scalar_case("x", 1)
+assert !scalar_case("a", 1)
+assert loop_case("x", 1)
+assert !loop_case("a", 1)
+assert byte_case(b"\xffx")
+assert path_case(p"/tmp/item")
+assert shadow_case(9)
+"#;
+        let program = Arc::new(fixture("standalone-condition-producers.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let predicate = |name| {
+            let owner = scheme_fixture_root_function(&program, name);
+            program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::BoolStrPredicateSlot).unwrap_or_else(|| panic!("predicate {name}: {:?}", program.store.function_instruction_range(owner).unwrap().map(|instruction| program.store.tags[instruction]).collect::<Vec<_>>()))
+        };
+        for name in ["scalar_case", "loop_case"] {
+            let instruction = predicate(name);
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.extra[words.start] = 1;
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "scalar string predicate has a non-string slot");
+        }
+        let text = predicate("scalar_case");
+        let bytes = predicate("byte_case");
+        let text_words = program.store.data[text].range().bounds(program.store.extra.len()).unwrap();
+        let byte_words = program.store.data[bytes].range().bounds(program.store.extra.len()).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.extra[text_words.start + 2] = program.store.extra[byte_words.start + 2];
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "scalar string predicate has a non-UTF8 text needle");
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_generic_predicate_domains() {
+        let source = r#"
+type TextBox = {value: Str}
+type ByteBox = {value: Bytes}
+pure text_case(box: TextBox, needle: Str, wrong: Bytes) -> Bool {
+    let _ = wrong
+    if box.value.starts_with(needle) { return true }
+    false
+}
+pure byte_case(box: ByteBox, needle: Bytes, wrong: Str) -> Bool {
+    let _ = wrong
+    if box.value.ends_with(needle) { return true }
+    false
+}
+assert text_case({value: "xyz"}, "x", b"x")
+assert byte_case({value: b"x\xff"}, b"\xff", "x")
+"#;
+        let program = Arc::new(fixture("generic-predicate-domain-producers.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        for name in ["text_case", "byte_case"] {
+            let owner = scheme_fixture_root_function(&program, name);
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let needle = range.clone().find_map(|instruction| {
+                let Ok(schema::ExprView::StrPredicate { needle, .. }) = decoder.expression_view(instruction) else { return None };
+                Some(needle.raw() as usize)
+            }).unwrap();
+            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.data[needle] = program.store.data[wrong];
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("contract") || error.message.contains("signature"), "{}", error.message);
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_literal_membership_domains() {
+        let source = r#"
+pure has(values: List[Str]) -> Bool { if "x" in values { return true }; false }
+const negative: Int = -1
+pure list_uint(values: List[UInt], keys: Map[UInt, Str]) -> Bool { let _ = keys; var found = false; if negative in values { found = true }; found }
+pure scalar_key(values: List[Int], keys: Map[UInt, Str]) -> Bool { let _ = keys; var found = false; if 1 in values { found = true }; found }
+pure map_uint(values: Map[UInt, Str]) -> Bool { if 1 in values { return true }; false }
+pure set_member(values: Set[Str]) -> Bool { if "x" in values { return true }; false }
+pure record_member(values: Record) -> Bool { if "x" in values { return true }; false }
+pure dynamic_member(value: Any, values: List[Int]) -> Bool { if value in values { return true }; false }
+assert has(["x"])
+assert !has(["y"])
+assert !list_uint([1], {[1]: "one"})
+let fields: Map[UInt, Str] = {[1]: "one"}
+assert map_uint(fields)
+assert scalar_key([1], fields)
+let members: Set[Str] = set.from(["x"])
+assert set_member(members)
+assert record_member({x: 1})
+assert dynamic_member(1, [1])
+assert !dynamic_member("x", [1])
+"#;
+        let program = Arc::new(fixture("literal-membership-condition-producers.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let contains = |name| {
+            let owner = scheme_fixture_root_function(&program, name);
+            program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::BoolContainsSlot).unwrap()
+        };
+        let negative = contains("scalar_key");
+        let words = program.store.data[negative].range().bounds(program.store.extra.len()).unwrap();
+        let mut wrong = (*program).clone();
+        wrong.store.extra[words.start] = 1;
+        let value = program.store.extra[words.start + 1] as usize;
+        let payload = program.store.value_data[value].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.values[value], FullValueTag::Int);
+        assert_eq!(payload.len(), 2);
+        wrong.store.extra[payload.start] = u32::MAX;
+        wrong.store.extra[payload.start + 1] = u32::MAX;
+        let error = FullVerifier::verify(&wrong).expect_err("stored UInt keys retain nonnegative validation while List comparison accepts Int");
+        assert!(error.message.contains("scalar membership needle disagrees"), "{error:?}");
+
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_dynamic_sibling_storage_writers() {
+        let program = Arc::new(fixture("dynamic-sibling-storage-writers.xsh", r#"
+type Counts = {blanks: Int, children: Map[Any]}
+pure fresh() -> Counts { {blanks: 0, children: map.empty()} }
+pure measured() -> Int {
+    let _ = "wrong"
+    var own = fresh()
+    own.blanks = 1
+    if own.blanks > 0 { return own.blanks }
+    0
+}
+assert measured() == 1
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "measured");
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut rows = program.store.function_instruction_range(owner).unwrap();
+        let (statement, slot, writer) = rows.clone().find_map(|instruction| match decoder.statement_view(instruction).ok()? {
+            schema::StmtView::AssignFieldInt { slot, value, .. } => Some((instruction, slot, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let wrong_value = rows.find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let mut wrong = (*program).clone();
+        wrong.store.tags[statement] = FullTag::StmtAssignField;
+        wrong.store.tags[writer] = FullTag::ExprStr;
+        wrong.store.data[writer] = program.store.data[wrong_value];
+        let _symbols = program.symbol_owner().enter();
+        let erased = Type::Record(std::collections::BTreeMap::from([
+            (Name::intern("blanks"), Type::Any),
+            (Name::intern("children"), Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
+        ]).into());
+        let id = SemanticPoolBuilder::default().intern_type(&mut wrong.store.semantic, &erased).unwrap();
+        let facts = wrong.store.functions[owner].slot_type_facts.bounds(wrong.store.slot_type_facts.len()).unwrap();
+        wrong.store.slot_type_facts[facts.start + slot] = id.raw();
+        let error = FullVerifier::verify(&wrong).expect_err("a dynamic sibling cannot erase the independently derived partial-writer contract");
+        assert!(error.message.contains("ground producer value disagrees") || error.message.contains("storage contract"), "{error:?}");
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_contextual_fallback_values() {
+        let program = Arc::new(fixture("contextual-fallback-values.xsh", r#"
+type Report = {count: Int, reports: List[Str]}
+pure missing(values: Map[Report]) -> Bool {
+    let _ = "wrong"
+    let report = values.get("key") ?? {count: 0, reports: []}
+    if report.reports.is_empty() { return true }
+    false
+}
+assert missing({})
+assert !missing({key: {count: 1, reports: ["kept"]}})
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "missing");
+        let mut instructions = program.store.function_instruction_range(owner).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let field = instructions.clone().find_map(|instruction| match decoder.expression_view(instruction).ok()? {
+            schema::ExprView::Record(mut fields) => fields.find_map(|field| {
+                let decode::RecordEntryView::Field(name, value) = field.ok()? else { return None };
+                (name.as_str().as_str() == "count").then_some(value.raw() as usize)
+            }),
+            _ => None,
+        }).unwrap();
+        assert_eq!(program.store.tags[field], FullTag::ExprInt);
+        let wrong_value = instructions.find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let mut wrong = (*program).clone();
+        wrong.store.tags[field] = FullTag::ExprStr;
+        wrong.store.data[field] = program.store.data[wrong_value];
+        let error = FullVerifier::verify(&wrong).expect_err("fallback payload context must authenticate the actual fallback fields");
+        assert!(error.message.contains("ground producer value disagrees"), "{error:?}");
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_returned_fallback_payloads() {
+        let program = Arc::new(fixture("returned-fallback-payloads.xsh", r#"
+pure recovered(values: Map[Int]) -> Result[Int] { values.get("key") ?? 0 }
+pure nested(values: Map[Result[Int]]) -> Result[Int] { values.get("key") ?? Ok(0) }
+assert nested({})? == 0
+assert nested({key: Ok(7)})? == 7
+assert recovered({})? == 0
+assert recovered({key: 7})? == 7
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_contextual_native_templates() {
+        let program = Arc::new(fixture("contextual-native-template-producers.xsh", r#"
+type Box = {values: Map[Int, Str]}
+type Erased = {values: Map[Any]}
+pure boxed() -> Box { {values: map.empty()} }
+pure erased() -> Erased { {values: map.empty()} }
+assert boxed().values.is_empty()
+assert erased().values.is_empty()
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "boxed");
+        let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprModuleCall).unwrap();
+        let mut wrong = (*program).clone();
+        wrong.store.extra[program.store.data[call].range().start as usize] = RuntimeOp::NumericLongDoublePrecision as u32;
+        FullVerifier::verify(&wrong).expect_err("a native result context cannot replace the actual operation contract");
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_dynamic_mutable_pattern_inputs() {
+        let program = Arc::new(fixture("dynamic-mutable-pattern-inputs.xsh", r#"
+pure contains(value: Any) -> Result[Bool] {
+    var current = value
+    for index in [0] {
+        match current {
+            entries is Map[Any] => { return Ok("key" in entries) }
+            _ => { current = {} }
+        }
+    }
+    Ok(false)
+}
+let data: Map[Any] = {key: 1}
+assert contains(data)?
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_verify_flat_pipeline_without_stage_recursion() {
+        std::thread::Builder::new().stack_size(512 * 1024).spawn(|| {
+            let mut source = String::from("pure limited(values: List[Int]) -> List[Int] { values");
+            for _ in 0..256 { source.push_str(" |> take(1)"); }
+            source.push_str(" |> collect() }\nassert limited([1, 2]) == [1]\n");
+            let program = fixture("flat-pipeline-proof.xsh", &source);
+            FullVerifier::verify(&program).unwrap();
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_pipeline_condition_inputs() {
+        let program = Arc::new(fixture("pipeline-condition-inputs.xsh", r#"
+type Row = {text: Str}
+pure labels(rows: List[Row]) -> List[Str] {
+    rows |> map { |row| {text: row.text} }
+         |> where .text.starts_with("x")
+         |> map { |row| row.text }
+         |> collect()
+}
+assert labels([{text: "x"}, {text: "y"}]) == ["x"]
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "labels");
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut slots = Vec::new();
+        for instruction in program.store.function_instruction_range(owner).unwrap() {
+            if let Ok(schema::ExprView::Field { base, .. }) = decoder.expression_view(instruction)
+                && let schema::ExprView::Param(slot) = decoder.expression_view(base.raw() as usize).unwrap()
+            { slots.push((base.raw() as usize, slot)); }
+        }
+        let &(read, slot) = slots.get(1).unwrap();
+        let other = slots.iter().find(|(_, other)| *other != slot).unwrap().1;
+        let mut wrong = (*program).clone();
+        wrong.store.extra[program.store.data[read].range().start as usize] = other as u32;
+        FullVerifier::verify(&wrong).expect_err("pipeline conditions cannot read another stage's scoped callback slot");
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_unsigned_set_comparison() {
+        let program = Arc::new(fixture("unsigned-set-membership.xsh", r#"
+pure has(values: Set[UInt], needle: Int, wrong: Str) -> Bool { let _ = wrong; if needle in values { return true }; false }
+let values: Set[UInt] = set.from([1])
+assert has(values, 1, "wrong")
+assert !has(values, -1, "wrong")
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "has");
+        let read = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            program.store.tags[instruction] == FullTag::ExprParam && program.store.payload(program.store.data[instruction].range()).unwrap().first() == Some(&1)
+        }).unwrap();
+        let mut wrong = (*program).clone();
+        wrong.store.extra[program.store.data[read].range().start as usize] = 2;
+        FullVerifier::verify(&wrong).expect_err("set comparison still authenticates its scalar needle domain");
+
+    }
+
+    #[test]
+    fn strict_result_producers_authenticate_unsigned_membership_guards() {
+        let program = fixture("unsigned-membership-guard.xsh", r#"
+pure has(fields: Map[UInt, Str], needle: Int) -> Bool {
+    if needle in fields { return true }
+    false
+}
+assert has({[1]: "one"}, 1)
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let executable = Arc::new(program.clone());
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executable.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&executable));
+            for step in 0..executable.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(executable.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "has");
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRequire).unwrap();
+        let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        let mut wrong = program.clone();
+        let mut semantic = SemanticPoolBuilder::default();
+        let signed = semantic.intern_type(&mut wrong.store.semantic, &Type::Int).unwrap();
+        wrong.store.extra[words.start + 1] = signed.raw();
+        let error = FullVerifier::verify(&wrong).expect_err("generic membership must retain its unsigned key guard");
+        assert!(error.message.contains("membership key producer does not preserve"), "{error:?}");
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_scalar_truth_conversions() {
+        let program = fixture("scalar-truth-conversion-producers.xsh", r#"
+pure both(first: Bool, second: Bool, status: Status, number: Int) -> Bool {
+    let _ = status
+    let _ = number
+    var found = false
+    if first and second { found = true }
+    found
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "both");
+        let slot = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            program.store.tags[instruction] == FullTag::BoolSlot && program.store.payload(program.store.data[instruction].range()).unwrap().first() == Some(&0)
+        }).unwrap();
+        let words = program.store.data[slot].range().bounds(program.store.extra.len()).unwrap();
+        let mut converted = program.clone();
+        converted.store.extra[words.start] = 2;
+        FullVerifier::verify(&converted).unwrap();
+        let converted = Arc::new(converted);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*converted.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&converted));
+            for status in [0, 1] {
+                let args = [Value::Bool(false), Value::Bool(true), Value::Status(crate::runtime::process::ProcessStatus::exited(status)), Value::Int(7)];
+                let value = converted.symbol_owner().with_current(|| evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(Name::intern("both")), LoweredFunctionKind::Pure, &args, Span::new(converted.store.source_id, 0, 0),
+                )).unwrap().unwrap();
+                assert_eq!(value, Value::Bool(status == 0));
+            }
+        }
+        let mut wrong = program.clone();
+        wrong.store.extra[words.start] = 3;
+        FullVerifier::verify(&wrong).expect_err("scalar truth conversion requires actual Bool or Status storage");
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_large_scalar_membership_needles() {
+        let needle = "x".repeat(16 * 1024);
+        let source = format!("pure has(data: Bytes) -> Bool {{ var found = false; if b\"{needle}\" in data {{ found = true }}; found }}\nassert has(b\"{needle}\")\n");
+        let program = Arc::new(fixture("large-membership-needle-producer.xsh", &source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_status_condition_roles() {
+        let source = r#"
+pure status_value(status: Status) -> Status { status }
+pure scalar(status: Status) -> Bool { if status { return true }; false }
+pure generic(status: Status) -> Bool { if status_value(status) { return true }; false }
+pure selected(status: Status) -> List[Int] { [1 for item in [1] if status] }
+pure assertion(value: Bool, status: Status) -> Result[Unit] { let _ = status; assert value; Ok() }
+"#;
+        let program = Arc::new(fixture("status-condition-producers.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for status in [0, 1] {
+                for name in ["scalar", "generic", "selected"] {
+                    let value = Value::Status(crate::runtime::process::ProcessStatus::exited(status));
+                    let result = program.symbol_owner().with_current(|| evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure, &[value], Span::new(program.store.source_id, 0, 0),
+                    )).unwrap().unwrap();
+                    let expected = if name == "selected" { Value::List(if status == 0 { vec![Value::Int(1)] } else { Vec::new() }) } else { Value::Bool(status == 0) };
+                    assert_eq!(result, expected);
+                }
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "assertion");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let value = range.clone().find_map(|instruction| {
+            let Ok(schema::StmtView::Assert { value, .. }) = decoder.statement_view(instruction) else { return None };
+            Some(value.raw() as usize)
+        }).unwrap();
+        let status = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = (*program).clone();
+        forged.store.data[value] = program.store.data[status];
+        FullVerifier::verify(&forged).expect_err("assertions require Bool even when ordinary conditions accept Status");
     }
 
     #[test]

@@ -2292,7 +2292,7 @@ impl Checker {
                     let ty = self.check_expr_arena(arena, source, condition, None);
                     if ty == Type::Any {
                         self.expect_type(&Type::Bool, &ty, arena.arena.expr(condition).span);
-                    } else if !matches!(ty, Type::Bool | Type::Status | Type::Unknown) {
+                    } else if !(crate::sema::types::ConditionRole::Control.accepts(&ty) || ty == Type::Unknown) {
                         self.error(
                             arena.arena.expr(condition).span,
                             "comprehension condition must be Bool or Status",
@@ -2781,7 +2781,7 @@ impl Checker {
         let span = arena.arena.expr(inner).span;
         match op {
             UnaryOp::Not => {
-                if !matches!(ty, Type::Bool | Type::Status | Type::Unknown) {
+                if !(crate::sema::types::ConditionRole::Control.accepts(&ty) || ty == Type::Unknown) {
                     self.expect_type(&Type::Bool, &ty, span);
                 }
                 Type::Bool
@@ -3176,66 +3176,19 @@ impl Checker {
                             .into_unvalidated();
                         (left_ty, right_ty)
                     };
-                if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
-                    self.reject_dynamic_use("a membership operand", None, left_span);
-                }
-                match &right_ty {
-                    Type::Map(key, _) | Type::Set(key) => {
-                        self.expect_type(key, &left_ty, left_span);
+                use crate::sema::types::MembershipCheck as M;
+                match right_ty.membership_needle_type(&left_ty) {
+                    M::Expected(expected) | M::Compared(expected) => self.expect_type(expected, &left_ty, left_span),
+                    M::DynamicOperand => self.reject_dynamic_use("a membership operand", None, left_span),
+                    M::DynamicContainer => self.reject_dynamic_use("a membership container", None, right_span),
+                    M::DynamicOperandAndContainer => {
+                        self.reject_dynamic_use("a membership operand", None, left_span);
+                        self.reject_dynamic_use("a membership container", None, right_span);
                     }
-                    // List membership is equality with each element, which
-                    // is defined for every pair of values, as `==` is.
-                    Type::List(item) => {
-                        if left_ty != Type::Any {
-                            // The member is compared, not stored, so it
-                            // need not pass a validation the elements carry.
-                            self.expect_type(item.unvalidated(), &left_ty, left_span);
-                        }
-                    }
-                    Type::Str => {
-                        self.expect_type(&Type::Str, &left_ty, left_span);
-                    }
-                    Type::Bytes => {
-                        self.expect_type(&Type::Bytes, &left_ty, left_span);
-                    }
-                    Type::ErasedRecord | Type::Record(_) => {
-                        self.expect_type(&Type::Str, &left_ty, left_span);
-                    }
-                    Type::Path => {
-                        if !matches!(
-                            left_ty.unvalidated(),
-                            Type::Str | Type::Path | Type::Any | Type::Unknown
-                        ) {
-                            self.error(
-                                left_span,
-                                "Path membership requires Str or Path",
-                                DiagnosticCode::CheckMembershipType,
-                            );
-                        }
-                    }
-                    // env.PATH entries are exact Path values. A string
-                    // literal was checked as a Path above; any other text is
-                    // rejected instead of being compared against paths.
-                    Type::EnvPathList => {
-                        if left_ty == Type::Any {
-                            self.expect_type(&Type::Path, &left_ty, left_span);
-                        } else if !matches!(left_ty.unvalidated(), Type::Path | Type::Unknown) {
-                            self.error(
-                                left_span,
-                                "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"",
-                                DiagnosticCode::CheckMembershipType,
-                            );
-                        }
-                    }
-                    Type::Any => {
-                        self.reject_dynamic_use("a membership container", None, right_span)
-                    }
-                    Type::Unknown => {}
-                    _ => self.error(
-                        right_span,
-                        "membership requires List, Set, Map, Record, Str, Bytes, Path, or env.PATH",
-                        DiagnosticCode::CheckMembershipType,
-                    ),
+                    M::PathPartMismatch => self.error(left_span, "Path membership requires Str or Path", DiagnosticCode::CheckMembershipType),
+                    M::EnvironmentPathMismatch => self.error(left_span, "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"", DiagnosticCode::CheckMembershipType),
+                    M::Recovery => {},
+                    M::UnsupportedContainer => self.error(right_span, "membership requires List, Set, Map, Record, Str, Bytes, Path, or env.PATH", DiagnosticCode::CheckMembershipType),
                 }
                 Type::Bool
             }

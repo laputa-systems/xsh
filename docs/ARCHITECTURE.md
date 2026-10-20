@@ -98,6 +98,14 @@ Context proofs preserve body values, completing Unit bodies, and return
 transfers. Process capture proofs share the checker's RunKind result shapes;
 a pipeline takes its capture shape from the head segment.
 
+The same bounded producer census authenticates control predicates even when a
+body has no generic calls or Result constructors. Source roles distinguish
+Bool-or-Status control from strict Bool guards; scalar Bool slots independently
+prove their truth-converting storage. Membership shares the checker’s operand
+contract: list and set membership compare values, while map keys retain their
+checked domains. Scalar literal evidence borrows pooled text and bytes instead
+of allocating copies during verification.
+
 Explicit discard bindings consume values without propagating Result errors.
 Static storage annotations use checked-value validation; a failed annotation is
 a fatal type error. Explicit schema requirements retain their Result transport.

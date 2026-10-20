@@ -24,6 +24,41 @@ pub enum CallableKind {
     Stream,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum ConditionRole {
+    Control,
+    Boolean,
+}
+
+impl ConditionRole {
+    pub(crate) fn accepts(self, ty: &Type) -> bool {
+        matches!((self, ty), (_, Type::Bool) | (Self::Control, Type::Status))
+    }
+}
+
+pub(crate) enum MembershipCheck<'a> {
+    Expected(&'a Type),
+    Compared(&'a Type),
+    DynamicOperand,
+    DynamicContainer,
+    DynamicOperandAndContainer,
+    PathPartMismatch,
+    EnvironmentPathMismatch,
+    Recovery,
+    UnsupportedContainer,
+}
+
+impl MembershipCheck<'_> {
+    pub(crate) fn accepts_producer(&self, actual: &Type) -> bool {
+        match self {
+            Self::Expected(required) => actual.matches_expected(required)
+                && (**required != Type::UInt || actual.unvalidated() == &Type::UInt),
+            Self::Compared(required) => actual.matches_expected(required),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
     BuiltinParameter(BuiltinTypeParameter),
@@ -561,6 +596,32 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn membership_needle_type<'a>(&'a self, needle: &'a Type) -> MembershipCheck<'a> {
+        use MembershipCheck as M;
+        match self.unvalidated() {
+            Self::Map(key, _) => M::Expected(key),
+            Self::Set(key) => M::Compared(key),
+            Self::List(_) if needle == &Self::Any => M::Compared(&Self::Any),
+            Self::List(item) => M::Compared(item.unvalidated()),
+            Self::Str | Self::ErasedRecord | Self::Record(_) => M::Expected(&Self::Str),
+            Self::Bytes => M::Expected(&Self::Bytes),
+            Self::Path => match needle.unvalidated() {
+                Self::Str | Self::Path | Self::Unknown => M::Expected(needle.unvalidated()),
+                Self::Any => M::DynamicOperand,
+                _ => M::PathPartMismatch,
+            },
+            Self::EnvPathList => match needle.unvalidated() {
+                Self::Any => M::Expected(&Self::Path),
+                Self::Path | Self::Unknown => M::Expected(needle.unvalidated()),
+                _ => M::EnvironmentPathMismatch,
+            },
+            Self::Any if needle == &Self::Any => M::DynamicOperandAndContainer,
+            Self::Any => M::DynamicContainer,
+            Self::Unknown => M::Recovery,
+            _ => M::UnsupportedContainer,
+        }
+    }
+
     pub(crate) fn can_be_env_value(&self) -> bool {
         self.can_be_argv_item()
             || matches!(self.unvalidated(), Self::List(item) if matches!(**item, Self::Path | Self::Unknown))
@@ -968,6 +1029,15 @@ impl Type {
 
     pub fn is_dynamic(&self) -> bool {
         matches!(self, Self::Any)
+    }
+
+    pub(crate) fn contains_builtin_parameter(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            if matches!(ty, Self::BuiltinParameter(_)) { return true; }
+            ty.for_each_child(|child| pending.push(child));
+        }
+        false
     }
 
     /// Transient variables must be substituted before publishing signatures,

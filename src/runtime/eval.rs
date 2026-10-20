@@ -850,6 +850,7 @@ impl ProducerDemand {
             || Self::operand_dependent_effect_calls(program, declarations).next().is_some()
             || Self::erased_callable_calls(program, declarations).next().is_some()
             || Self::typed_callable_calls(program, declarations).next().is_some()
+            || Self::condition_operations(program, declarations).next().is_some()
         {
             Self::Needed
         } else {
@@ -887,6 +888,23 @@ impl ProducerDemand {
             let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
             matches!(declarations.bodies.expr_types.get(&callee), Some(Type::Callable(_))).then_some(expression.span)
         })
+    }
+
+    fn condition_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        use crate::syntax::arena::{ArenaExprKind as E, ArenaStmtKind as S, StmtId};
+        let statements = (0..program.arena.stmt_tags.len()).filter_map(move |index| {
+            let statement = program.arena.stmt(StmtId::from_index(index));
+            matches!(statement.kind, S::If { .. } | S::While { .. } | S::Match { .. } | S::Assert { .. }).then_some(statement.span)
+        });
+        statements.chain(declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            matches!(expression.kind, E::If { .. } | E::Match { .. } | E::PatternTest { .. }
+                | E::ListComp { .. } | E::MapComp { .. } | E::SetComp { .. }
+                | E::Pipeline { .. } | E::StructuredPipeline { .. }).then_some(expression.span)
+        }))
     }
 
     fn checked_result_constructors<'a>(
@@ -1799,6 +1817,12 @@ enum ReduceByOp {
 enum LoweredStrPredicate {
     StartsWith,
     EndsWith,
+}
+
+impl LoweredStrPredicate {
+    fn method_name(self) -> &'static str {
+        match self { Self::StartsWith => "starts_with", Self::EndsWith => "ends_with" }
+    }
 }
 
 #[derive(Clone, Debug)]

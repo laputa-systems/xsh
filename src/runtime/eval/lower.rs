@@ -1337,6 +1337,7 @@ pub(super) fn compact_function_selection(
             .chain(super::ProducerDemand::operand_dependent_effect_calls(program, declarations))
             .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
             .chain(super::ProducerDemand::typed_callable_calls(program, declarations))
+            .chain(super::ProducerDemand::condition_operations(program, declarations))
             .collect::<std::collections::BTreeSet<_>>();
         let contains_proof_operation = |statement| {
             let span = program.arena.stmt(statement).span;

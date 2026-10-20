@@ -61,7 +61,7 @@ impl<'a> ValueView<'a> {
         Ok(())
     }
 
-    fn scalar_type(self) -> Option<Type> {
+    pub(super) fn scalar_type(self) -> Option<Type> {
         Some(match self {
             Self::Int(_) | Self::Key(MapKeyRef::Int(_)) => Type::Int,
             Self::Str | Self::Key(MapKeyRef::Str(_)) => Type::Str,

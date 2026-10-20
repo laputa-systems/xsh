@@ -740,10 +740,7 @@ pub(super) fn lowered_str_predicate_value(
     // A receiver typed only at run time can hold a Path, whose predicates
     // compare components rather than bytes.
     if let LoweredValue::Path(path) = value {
-        let name = match predicate {
-            LoweredStrPredicate::StartsWith => "starts_with",
-            LoweredStrPredicate::EndsWith => "ends_with",
-        };
+        let name = predicate.method_name();
         return path_component_predicate(path, name, needle, span);
     }
     if let Some(bytes) = lowered_bytes_value(value) {

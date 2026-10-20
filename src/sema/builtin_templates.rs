@@ -112,6 +112,26 @@ impl BuiltinInstantiation {
     }
 }
 
+pub(crate) fn checked_module_signature(
+    signature: &ModuleFnSig,
+    arguments: &[Option<Type>],
+    expected: Option<&Type>,
+) -> Result<Option<ModuleFnSig>, ConstraintConflict> {
+    let span = Span::at(crate::source::SourceId::new(0), 0);
+    let mut constraints = TypeConstraints::default();
+    let mut instance = BuiltinInstantiation::new(signature, None, None, &mut constraints, span)?;
+    for (parameter, actual) in instance.signature.params.iter().zip(arguments) {
+        if let Some(actual) = actual { constraints.constrain(&parameter.ty, actual, span)?; }
+    }
+    if let Some(expected) = expected { instance.constrain_result(expected, &mut constraints, span)?; }
+    instance.resolve(&constraints);
+    if instance.signature.return_ty.contains_inference()
+        || instance.signature.params.iter().any(|parameter| parameter.ty.contains_inference())
+        || instance.invalid_map_key().is_some()
+    { return Ok(None); }
+    Ok(Some(instance.signature))
+}
+
 fn instantiate_type(
     ty: &Type,
     parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
