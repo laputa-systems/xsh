@@ -48,4 +48,79 @@ if ! eval "exec ${lock_fd}>&-"; then
   printf '%s\n' 'cargo test runner: failed to close the inherited Cargo lock descriptor' >&2
   exit 125
 fi
-exec "$@"
+
+test_executable=$1
+shift
+
+test_filter=0
+passthrough_request=0
+unsupported_option=0
+expects_option_value=0
+for argument do
+  if [ "$expects_option_value" -eq 1 ]; then
+    expects_option_value=0
+    continue
+  fi
+
+  case "$argument" in
+    --help|-h|--version|-V|--list|--list=*)
+      passthrough_request=1
+      ;;
+    --format|--color|--logfile|--shuffle-seed|--skip|--test-threads|-Z)
+      expects_option_value=1
+      ;;
+    --format=*|--color=*|--logfile=*|--report-time=*|--shuffle-seed=*|--skip=*|--test-threads=*)
+      ;;
+    --bench)
+      passthrough_request=1
+      ;;
+    --exact|--ignored|--include-ignored|--nocapture|--no-capture|--show-output|--quiet|-q|--shuffle|--test|--fail-fast|--exclude-should-panic|--force-run-in-process|--report-time|--ensure-time)
+      ;;
+    --)
+      ;;
+    --*)
+      unsupported_option=1
+      ;;
+    -*)
+      unsupported_option=1
+      ;;
+    '')
+      ;;
+    *)
+      test_filter=1
+      ;;
+  esac
+done
+
+if [ "$passthrough_request" -eq 1 ] || [ "$test_filter" -eq 0 ]; then
+  exec "$test_executable" "$@"
+fi
+
+if [ "$unsupported_option" -eq 1 ]; then
+  printf '%s\n' 'cargo test runner: cannot verify a filter with an unsupported harness option' >&2
+  exit 125
+fi
+
+listing=$("$test_executable" --list "$@")
+case "$listing" in
+  *': test'*)
+    ;;
+  *)
+    if printf '%s\n' "$listing" | grep -Eq '"event"[[:space:]]*:[[:space:]]*"discovered"'; then
+      :
+    else
+      case "$listing" in
+        *'0 tests, 0 benchmarks'*|*'0 test, 0 benchmarks'*)
+          printf '%s\n' 'cargo test runner: no tests selected by forwarded filter' >&2
+          exit 125
+          ;;
+        *)
+          printf '%s\n' 'cargo test runner: could not verify selected tests' >&2
+          exit 125
+          ;;
+      esac
+    fi
+    ;;
+esac
+
+exec "$test_executable" "$@"
