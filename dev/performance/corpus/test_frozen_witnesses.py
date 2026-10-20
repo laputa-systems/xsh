@@ -64,11 +64,35 @@ class FrozenWitnessTests(unittest.TestCase):
             corpus.classification(candidate, b"Map[Str]", b"var labels: Map[Str] = {}"),
             ("empty-map-record-selection", "one-site-source-meaning-control"),
         )
+        explicit_key = site(kind="local-type", owner="var snippets")
+        self.assertEqual(
+            corpus.classification(
+                explicit_key,
+                b"Map[Str, Snippet]",
+                b"var snippets: Map[Str, Snippet] = {}",
+            ),
+            ("empty-map-record-selection", "one-site-source-meaning-control"),
+        )
+        with self.assertRaises(ValueError):
+            corpus.classification(candidate, b"Map[Str]", b"var labels: Map[Str] = Map[Str]()")
         pending = corpus.Site(**{**candidate.__dict__, "reason": "joint check check.local-inference in var labels"})
         self.assertEqual(
             corpus.classification(pending, b"Map[Str]", b"var labels: Map[Str] = {x: \"x\"}"),
             ("historical-diagnostic-only-pending", "declaration-group-recheck"),
         )
+
+    def test_nonempty_map_selector_requires_a_map_literal(self):
+        candidate = site(site_id=3598, kind="local-type", owner="const fence_labels")
+        self.assertEqual(
+            corpus.classification(
+                candidate,
+                b"Map[Str]",
+                b'const fence_labels: Map[Str] = {xsh: "xsh"}',
+            ),
+            ("map-literal-selection", "one-site-source-meaning-control"),
+        )
+        with self.assertRaises(ValueError):
+            corpus.classification(candidate, b"Map[Str]", b"const fence_labels: Map[Str] = {}")
 
     def test_interpolation_source_fact_does_not_assign_a_concrete_type_cause(self):
         input_site = site(site_id=2850)

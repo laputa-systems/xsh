@@ -540,11 +540,20 @@ def classification(site, annotation, owner):
     if site.kind == "effect-list" and site.reason == EFFECT_REASON:
         return "effect-joint-proof-pending", "all-202-effects-joint"
     if site.site == 3598:
-        if annotation.strip() != b"Map[Str]" or b"fence_labels" not in owner:
+        suffix = owner.split(annotation, 1)[1] if owner.count(annotation) == 1 else b""
+        initializer = suffix.strip()
+        if (
+            annotation.strip() != b"Map[Str]"
+            or b"fence_labels" not in owner
+            or not initializer.startswith(b"= {")
+            or not initializer.endswith(b"}")
+            or not initializer[3:-1].strip()
+        ):
             raise ValueError("frozen nonempty Map selector at site 3598 changed")
         return "map-literal-selection", "one-site-source-meaning-control"
-    if site.kind == "local-type" and annotation.startswith(b"Map[") and re.search(rb"=\s*\{\s*\}", owner):
-        return "empty-map-record-selection", "one-site-source-meaning-control"
+    if site.kind == "local-type" and annotation.startswith(b"Map["):
+        if owner.count(annotation) == 1 and owner.split(annotation, 1)[1].strip() == b"= {}":
+            return "empty-map-record-selection", "one-site-source-meaning-control"
     if site.site in {3599, 3665}:
         if annotation.strip() != b"Str" or b".replace(" not in owner:
             raise ValueError(f"frozen ambiguous replace control changed at site {site.site}")

@@ -252,16 +252,42 @@ to test the adapter's qualification guards and exact-output parser.
 
 The denominator remains the frozen 9,194-site inventory at `15243e97`. Its
 1,843 retained eligible rows are the exact `retained.tsv` at that checkpoint;
-the current 877 table is not a substitute. The rows include 758 Proc signature
-restrictions (549 non-default parameter types and 209 explicit non-Unit
-returns), 149 purposeful empty-Map annotations, the local annotation at site
-3598, and 202 private effect clauses. The 149 empty Maps preserve the requested
-distinction between a Map and an empty record. Site 3598 is a local type
-annotation for a nonempty Map literal; the eligibility inventory records it as
-`eligible-local`, and its source evidence says erasure leaves an unchecked
-dynamic Record. It is a local Map-selection requirement. The accepted 1,040
+the current 877 table is not a substitute. The rows include 758 historically
+retained Proc annotations (549 non-default parameter types and 209 explicit
+non-Unit returns), 150 local Map selectors, two `replace` ambiguity controls, one
+interpolation observation, 17 source-context observations, 713 rows with
+historical diagnostics only, and 202 effect clauses. These classes partition
+the denominator:
+
+| Retained class | Rows | Evidence and current status |
+|---|---:|---|
+| Historical Proc inference frontier | 758 | The checker at `15243e97` retained these parameter and explicit value-return annotations. They are an in-scope implementation frontier for the current campaign, not a permanent annotation floor; classify intentional contracts separately from missing inference. |
+| Local Map selector | 150 | 149 annotations select a Map for an empty literal; site 3598 selects a Map for a nonempty literal. The exact type annotation remains in the existing witness output. |
+| `replace` ambiguity control | 2 | The `Str` receiver distinguishes string replacement from Regex replacement; retain as negative controls. |
+| Interpolation observation | 1 | The body uses the parameter only in interpolation; whether a generalized display relationship suffices remains open. |
+| Source-context observations | 17 | The source shapes below are known; the cause for each retained annotation remains open. |
+| Historical diagnostics only | 713 | Diagnostic families and source shapes identify the old failure context, not the missing inference relationship. |
+| Joint effect proof pending | 202 | All clauses remain in the source; individual lint suggestions do not prove simultaneous removal. |
+| **Total** | **1,843** | |
+
+For the 149 empty Maps, the annotation bytes encode 145 single-argument forms
+and four explicit key/value forms.
+[XSH Map type syntax](SPEC.md#45-lists-maps-and-records) defines `Map[V]` as
+`Map[Str, V]`; the four two-argument forms use three `Str` keys and one `Int`
+key. Site 3598 is `Map[Str]` on a nonempty literal,
+also meaning `Map[Str, Str]`. Nineteen other retained parameter annotations
+are Maps: ten Proc parameters already counted among the 758 Proc rows, and
+nine pure-function parameters in the 713 diagnostic-only rows. These source
+shapes preserve Map-versus-record and key/value meaning; they do not show that
+a future inference rule could not select the same type. The frozen retained
+reason for site 3598 says erasure leaves an unchecked dynamic Record; that
+historical reason is not a current qualification result. The accepted 1,040
 README at `15243e97:dev/consolidation/typing-corpus/README.md` gives the source
 context.
+The current source records assign no historical diagnostic-only row to absent
+information, higher-rank use, or a missing in-scope relationship. Those causes
+remain unassigned within the 713 rows; the 17 source-context rows and site 2850
+also remain open, and no effect clause has joint-removal credit.
 
 Source review gives specific context for 19 retained sites. Of these, 17
 remain pending cause review; sites 3599 and 3665 are `replace` negative
@@ -637,8 +663,8 @@ establishes none. The exact list of the 142 historical lint findings is at
 `15243e97` in
 `dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv`.
 
-The accounting is 910 source contract and selection records (758 Proc
-contracts, 149 empty Maps, site 3598, and the two `replace` negative
+The accounting is 910 source and selection records (758 historically retained
+Proc annotations, 149 empty Maps, site 3598, and the two `replace` negative
 controls), one interpolation-only source observation pending contract review,
 730 checker-restored rows pending cause review, and 202 pending effects: 1,843
 retained eligible sites. The 17 source-context records and 713
@@ -680,11 +706,12 @@ the 17 source-context rows and the 713 diagnostic-only rows by source
 structure. The effect component field records only the spelling candidates
 described above; it does not resolve calls or change the all-202 joint group.
 
-These are source observations and witness selections. The 758 Proc rows still
-need capability-specific rechecks. The 17 source-context rows still need cause
-review, and the 713 diagnostic-only rows remain unclassified by cause. A
-historical diagnostic family does not establish why an annotation stays. The
-site records earn no removal or behavior-equivalence credit.
+These are source observations and witness selections. The 758 Proc rows remain
+in scope for capability-specific rechecks under the current inference rules.
+The 17 source-context rows still need cause review, and the 713
+diagnostic-only rows remain unclassified by cause. A historical diagnostic
+family does not establish why an annotation stays. The site records earn no
+removal or behavior-equivalence credit.
 
 Run the focused Python tests with:
 
@@ -777,14 +804,15 @@ functional-close receipt; its SHA-256 is
 probe ran through the pinned offline adapter
 with two CPUs and 4 GiB of memory. No build or suite ran for these probes.
 
-The frozen local target cannot be reached while preserving the 149 required
-empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
-removed, even if every other retained local became inferable. The 758 required
-Proc signatures cap internal removals at 1,432 of 2,190 (65.39%), below 85%;
-retaining all 202 effect clauses pending joint proof lowers that ceiling to
-1,230 of 2,190 (56.16%). These ceilings preserve the frozen denominator and
-make the existing 95% local and 85% internal goals unattainable under the
-established contract restrictions.
+If all 150 Map selectors remain annotated, at most 543 of 693 locals (78.35%)
+could be removed, even if every other retained local became inferable. If all
+758 historical Proc annotations remain, at most 1,432 of 2,190 internal sites
+(65.39%) could be removed. Retaining all 202 effect clauses pending joint
+proof would lower that conditional internal ceiling to 1,230 of 2,190
+(56.16%). These are conditional accounting scenarios, not language limits:
+the Proc annotations are in-scope for inference, and source meaning at Map
+selectors must be classified separately. The frozen denominator and historical
+95% local and 85% internal targets remain unchanged.
 
 ## Practical source-view preparation
 
@@ -816,17 +844,38 @@ these exact behavior selectors in both original and reduced views:
 core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes
 core/tests/test-sort.xsh::test_sort_general_numeric_orders_past_double_precision
 core/tests/test-awk.xsh::test_awk_arrays_functions_and_loops
+core/tests/test-awk.xsh::test_awk_matrix_program_files_and_includes_shard_001
 tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
 tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
 ```
+
+The changed-path selectors are the sort numeric-order test for
+`padded_decimal`, the awk program-files/includes shard for `directive_operand`
+and `newlines`, and the two generation tests for `generation_sorted_unique`.
+The awk shard covers directive parsing and source-line preservation after
+includes. The first generation test covers root sorting and deduplication; the
+JSON test exercises single-root plan creation and identity validation. The awk
+arrays/functions selector executes the no-directive path through
+`directive_operand`, but does not cover a parsed directive or include line
+preservation. The `wc` selector is an unrelated retained behavior control.
+
+The matching `d2c820629` per-root diagnostic replay ran only the original 12
+XSH roots: `date_parse` and `dev/docker` passed, and the other ten failed. It
+did not run reduced XSH, Laputa, interface, body, or runtime checks. A separate
+full practical replay with matching `e0f8cbfac` products passed source-view
+validation, then failed the original XSH check with six
+`compact.indexed-build` diagnostics; later stages did not run. Neither replay
+qualifies a selected erasure or the current six-selector matrix. Later accepted
+source updates do not yet have a matching product pair.
 
 `inventory.sh`, `prepare_views.sh`, and `check_views.sh` take explicit source
 revisions and reject dirty or mismatched checkouts. The adapter test's isolated
 Laputa revision `639184e65a712b9d33fa5033e045f8913cd04a5a` is a separate test
 input; it is not the practical generation corpus. F1 added no practical
-erasures and claims no new removal credit.
+erasures and claims no new removal credit. The four-return I1 experiment below
+is a separate historical candidate.
 
-The selected reduced view removes only four private pure-function return
+The earlier selected reduced view removes only four private pure-function return
 annotations for which `lint.prefer-inferred-pure-return` provided individual
 proofs:
 
@@ -834,15 +883,16 @@ proofs:
 SITE_IDS='xsh|core/awk.xsh|return|154|pure directive_operand return,xsh|core/awk.xsh|return|166|pure newlines return,xsh|core/sort.xsh|return|183|pure padded_decimal return,laputa|pm/generation.xsh|return|76|pure generation_sorted_unique return'
 ```
 
-No `wc` annotation is removed. `byte_count` and `generation_plan_dto` remain
-unchanged signature probes; all six probed callable signatures, including
-those for the four selected functions, matched between the original and
-reduced views. The original and reduced views each passed checks for 12 XSH
-files and 3 Laputa files, plus all five exact runtime selectors described
-below. Removing only `data`'s parameter annotation from `wc.continuation`,
-`wc.within`, or `wc.byte_words` produces both `check.ambiguous-overload` and
-`check.result-fallback`. `wc.sequence_width.data` remains reserved and
-untouched.
+In that candidate, no `wc` annotation is removed. `byte_count` and
+`generation_plan_dto` remain unchanged signature probes. All six probed
+callable signatures, including those for the four selected functions, matched
+between the original and reduced views. The earlier five-selector F1 replay
+passed checks for 12 XSH and 3 Laputa files in each view. The current
+adapter adds the awk program-files/includes shard listed above; this selector
+is not covered by that historical five-selector result. Removing only `data`'s parameter
+annotation from `wc.continuation`, `wc.within`, or `wc.byte_words` produces
+both `check.ambiguous-overload` and `check.result-fallback`.
+`wc.sequence_width.data` remains reserved and untouched.
 
 The signature probes cover `byte_count`, `padded_decimal`,
 `directive_operand`, `newlines`, `generation_sorted_unique`, and
@@ -857,21 +907,17 @@ annotation at a time in disposable copies produces both `check.ambiguous-overloa
 and `check.result-fallback`. Keep `wc.sequence_width.data` separate because
 typed helper calls may constrain it; it remains unclassified and untouched.
 
-The runtime pair is `test_wc_characters_and_invalid_bytes`,
-`test_sort_general_numeric_orders_past_double_precision`,
-`test_awk_arrays_functions_and_loops`,
-`test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates`,
-and `test_generation_plan_json_round_trips_and_rejects_changed_identity`.
-Run each exact selector against both source views; a pass is useful only when it
-selects one test and reports zero failures and skips. This pairs inferred
-signatures with retained diagnostics and observable command behavior without
-changing the frozen 48-file accounting.
+The current runtime pair uses the six exact selectors above against both
+source views; a pass is useful only when it selects one test and reports zero
+failures and skips. This pairs inferred signatures with retained diagnostics
+and observable command behavior without changing the frozen 48-file
+accounting.
 
 To reproduce the practical run from exact source commits, first write the AST
 inventory to `.work/tmp`, then build original and selected reduced trees with
 `prepare_views.sh`. `check_views.sh` recreates both trees from the pinned
 archives, verifies the selected spans byte-for-byte, runs the same checker and
-five exact runtime selectors on each view, and compares all six revealed
+six exact runtime selectors on each view, and compares all six revealed
 signatures. It also checks each of the three `wc` diagnostic controls after
 removing only that parameter annotation, and restores temporary probe lines
 before returning. Tree comparisons include symlink targets without following
@@ -1163,11 +1209,12 @@ The following obligations are the minimum acceptance floor for a port:
 - Keep frontend-drop execution on both ordinary and lowered routes. A
   successful check alone does not establish that the indexed artifact owns
   enough scheme and capture evidence to execute after frontend state is gone.
-- Preserve Proc entry decoding, required Proc parameter types, non-Unit Proc
-  return rules, declared effect restrictions, and every `Map[...] = {}` record
-  interpretation. Individual effect-clause redundancy results do not prove
-  simultaneous removal through declared-call cycles; no one of the 202 effect
-  clauses is authorized for elision by this checkpoint.
+- Preserve Proc entry decoding and required/default/rest input behavior while
+  inferring parameter types where source determines them. Preserve non-Unit
+  return behavior, declared effect restrictions, and every `Map[...] = {}`
+  record interpretation. Individual effect-clause redundancy results do not
+  prove simultaneous removal through declared-call cycles; no one of the 202
+  effect clauses is authorized for elision by this checkpoint.
 
 The compact Rust selector names and their raw results are in
 `dev/consolidation/evidence/typing-host-obligations/README.md` and its
