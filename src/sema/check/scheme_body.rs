@@ -3,7 +3,7 @@ use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
 #[derive(Clone, Copy)]
-pub(super) enum BodyCompletion { Function, Value }
+pub(super) enum BodyCompletion { Function, Value, Statement }
 
 pub(super) fn supports_generalized_body(
     program: &ArenaProgram,
@@ -23,15 +23,65 @@ pub(super) fn supports_generalized_body(
     let block = program.arena.block(body);
     if !program.arena.block_params(block.params).is_empty() { return false; }
     let statements = program.arena.stmt_ids(block.statements).collect::<Vec<_>>();
-    let Some((&tail, prefix)) = statements.split_last() else { return false };
+    let Some((&tail, prefix)) = statements.split_last() else { return matches!(completion, BodyCompletion::Statement) };
     let mut available = parameters.clone();
+    let prefix = if matches!(completion, BodyCompletion::Statement) { statements.as_slice() } else { prefix };
     for &statement in prefix {
-        let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = program.arena.stmt(statement).kind else { return false };
-        let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return false };
-        if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value) { return false; }
-        let Some(binding) = bindings.declaration_sites.get(&(program.arena.stmt(statement).span, name)) else { return false };
-        available.insert(*binding);
+        let node = program.arena.stmt(statement);
+        match node.kind {
+            ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. }
+            | ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(value), .. } => {
+                let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return false };
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value) { return false; }
+                if name.as_str() != "_" {
+                    let Some(binding) = bindings.declaration_sites.get(&(node.span, name)) else { return false };
+                    available.insert(*binding);
+                }
+            }
+            ArenaStmtKind::Assign { target, value: ArenaExprOrRun::Expr(value), .. } => {
+                let crate::syntax::arena::ArenaAssignTargetKind::Name(name) = program.arena.assign_target(target).kind else { return false };
+                if !bindings.value_sites.get(&(node.span, name)).is_some_and(|binding| available.contains(binding))
+                    || !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)
+                { return false; }
+            }
+            ArenaStmtKind::Expr(expression) => {
+                let supported = if let ArenaExprKind::ValueBlock(block) = program.arena.expr(expression).kind {
+                    supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)
+                } else { is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression) };
+                if !supported { return false; }
+            }
+            ArenaStmtKind::Break { value } => {
+                if value.is_some_and(|value| !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)) { return false; }
+            }
+            ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => {
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value) { return false; }
+            }
+            ArenaStmtKind::If { branches, else_block } => {
+                if !program.arena.if_branches(branches).iter().all(|branch| {
+                    is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, branch.condition)
+                        && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)
+                }) || else_block.is_some_and(|block| !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)) { return false; }
+            }
+            ArenaStmtKind::Match { value, arms } => {
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)
+                    || !program.arena.match_arms(arms).iter().all(|arm| {
+                        let available = pattern_bindings(program, bindings, &available, arm.pattern);
+                        arm.guard.is_none_or(|guard| is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, guard))
+                            && supports_generalized_body(program, arm.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)
+                    }) { return false; }
+            }
+            ArenaStmtKind::Loop { block } => {
+                if !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement) { return false; }
+            }
+            ArenaStmtKind::While { condition, block } => {
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, condition)
+                    || !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement) { return false; }
+            }
+            ArenaStmtKind::Continue => {}
+            _ => return false,
+        }
     }
+    if matches!(completion, BodyCompletion::Statement) { return true; }
     let tail_statement = program.arena.stmt(tail);
     if positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
         match tail_statement.kind {
@@ -50,8 +100,34 @@ pub(super) fn supports_generalized_body(
                     && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, completion)
             }) && supports_generalized_body(program, else_block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, completion)
         }
+        ArenaStmtKind::Match { value, arms } => {
+            is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)
+                && program.arena.match_arms(arms).iter().all(|arm| {
+                    let available = pattern_bindings(program, bindings, &available, arm.pattern);
+                    arm.guard.is_none_or(|guard| is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, guard))
+                        && supports_generalized_body(program, arm.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, completion)
+                })
+        }
         _ => false,
     }
+}
+
+fn pattern_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, available: &FxHashSet<BindingId>, pattern: crate::syntax::arena::PatternId) -> FxHashSet<BindingId> {
+    use crate::syntax::arena::{ArenaChild, ArenaPatternKind};
+    let mut available = available.clone();
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        let node = program.arena.pattern(pattern);
+        let declaration = match node.kind {
+            ArenaPatternKind::Binding(name) | ArenaPatternKind::TestName { name, .. } => Some((program.arena.span(node.span), name)),
+            ArenaPatternKind::Type { binding: Some(name), .. } | ArenaPatternKind::TextHole { binding: Some(name), .. } => Some((program.arena.span(node.span), name)),
+            ArenaPatternKind::Alias { name, name_span, .. } => Some((program.arena.span(name_span), name)),
+            _ => None,
+        };
+        if let Some(site) = declaration && let Some(binding) = bindings.declaration_sites.get(&site) { available.insert(*binding); }
+        program.arena.for_each_pattern_child(pattern, |child| if let ArenaChild::Pattern(pattern) = child { pending.push(pattern); });
+    }
+    available
 }
 
 fn is_body_expression(
@@ -97,6 +173,18 @@ fn is_body_expression(
                     tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Value)
                 { return false; }
             }
+            ArenaExprKind::Loop { block } => {
+                if !supports_generalized_body(program, block, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement) { return false; }
+            }
+            ArenaExprKind::Match { value, arms } => {
+                pending.push(value);
+                for arm in program.arena.match_expr_arms(arms) {
+                    let available = pattern_bindings(program, bindings, available, arm.pattern);
+                    if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, arm.value)
+                        || arm.guard.is_some_and(|guard| !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, guard))
+                    { return false; }
+                }
+            }
 
             ArenaExprKind::Call { callee, args } => {
                 if let Some(plan) = registered_calls.get(&expression) {
@@ -117,6 +205,121 @@ fn is_body_expression(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod ordinary_body_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn accepts(definition: &str, calls: &str) {
+        let source = format!("{definition}\n{calls}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn generic_match_results_reuse_the_selected_parameter() {
+        accepts(
+            "pure choose(flag: Bool, value) { match flag { true => value; false => value } }",
+            "let number: Int = choose(true, 7)\nlet text: Str = choose(false, \"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_loop_results_reuse_the_break_payload() {
+        accepts(
+            "pure keep(value) { let result = loop { break value }; result }",
+            "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_local_mutation_preserves_the_slot_parameter() {
+        accepts(
+            "proc keep(value) [] { var result = value; { result = value }; result }",
+            "let number: Int = keep(7)?\nlet text: Str = keep(\"value\")?",
+        );
+    }
+
+    #[test]
+    fn generic_nested_bindings_retain_their_lexical_identity() {
+        accepts(
+            "pure keep(value) { let result = { let copy = value; copy }; result }",
+            "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_discarded_values_do_not_require_a_named_binding() {
+        accepts(
+            "pure keep(value) { let _ = \"value\".starts_with(\"v\"); value }",
+            "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_loop_results_exclude_nested_loop_payloads() {
+        accepts(
+            "pure keep(value) { let result = loop { let inner = loop { break 1 }; let _ = inner; break value }; result }",
+            "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
+        );
+    }
+
+    #[test]
+    fn generic_body_results_reject_incompatible_consumers() {
+        for definition in [
+            "pure keep(value) { match true { true => value; false => value } }",
+            "pure keep(value) { let result = loop { break value }; result }",
+            "proc keep(value) [] { var result = value; result = value; result }",
+        ] {
+            let unwrap = if definition.starts_with("proc ") { "?" } else { "" };
+            let source = format!("{definition}\nlet wrong: Str = keep(7){unwrap}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_mutable_slots_remain_monomorphic_within_each_call() {
+        let source = "pure keep(value) { var result = value; result = 7; result }\nlet wrong: Str = keep(\"value\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_immutable_bindings_cannot_be_reassigned() {
+        let source = "pure keep(value) { let result = value; result = value; result }\nlet number: Int = keep(7)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckAssignLet)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_branch_writers_share_one_activation_local_contract() {
+        accepts(
+            "pure choose(flag: Bool, left, right) { var result = left; if flag { result = right }; result }",
+            "let number: Int = choose(true, 1, 7)\nlet text: Str = choose(false, \"value\", \"other\")",
+        );
+    }
+
+    #[test]
+    fn generic_match_bindings_remain_local_to_the_selected_arm() {
+        accepts(
+            "pure keep(value) { match value { selected => selected } }",
+            "let number: Int = keep(7)\nlet text: Str = keep(\"value\")",
+        );
+    }
 }
 
 #[cfg(test)]

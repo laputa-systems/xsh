@@ -1372,7 +1372,7 @@ impl Checker {
                 expr.span,
             ),
             ArenaExprKind::Loop { block } => {
-                self.check_loop_arena(arena, source, *block, expr.span)
+                self.check_loop_arena(arena, source, *block, expected, expr.span)
             }
             ArenaExprKind::Collect { block } => {
                 self.check_collect_arena(arena, source, *block, expected, expr.span)
@@ -2404,11 +2404,18 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         block: BlockId,
+        expected: Option<&Type>,
         span: Span,
     ) -> Type {
         self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
         self.boundary.loop_depth += 1;
+        self.boundary.value_loops.push(super::ValueLoopResult {
+            depth: self.boundary.loop_depth,
+            expected: expected.cloned(),
+            values: Vec::new(),
+        });
         self.check_block_arena(arena, source, block);
+        let result = self.boundary.value_loops.pop().expect("value loop owns its result");
         self.boundary.loop_depth -= 1;
         self.leave_stream_loop(arena, block);
         if !self.block_has_exit_point_arena(arena, block) {
@@ -2418,7 +2425,14 @@ impl Checker {
                 DiagnosticCode::CheckLoopNoBreak,
             );
         }
-        Type::Unknown
+        let mut values = result.values.into_iter();
+        let Some((first, contribution)) = values.next() else { return Type::Unknown };
+        if let Some(expected) = &result.expected { self.expect_type(expected, &first, contribution); }
+        let result = result.expected.unwrap_or(first);
+        for (actual, contribution) in values {
+            self.expect_type(&result, &actual, contribution);
+        }
+        result
     }
 
     fn check_capture_arena(

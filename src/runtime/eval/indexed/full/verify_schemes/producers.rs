@@ -19,6 +19,7 @@ pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     storage_reads: Vec<(u32, usize, TypeId)>,
     effect_demand_work: usize,
     owners: BTreeMap<u32, ProducerOwner>,
+    scheme_return_analyses: BTreeMap<u32, Rc<super::super::IndexedReturnAnalysis>>,
     starts: BTreeMap<usize, u32>,
     binding_writers: Vec<Option<(usize, usize, u32)>>,
     storage_writers: BTreeMap<u32, Vec<StorageWriter>>,
@@ -262,7 +263,7 @@ impl GroundProducerIndex {
         let demand = if storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty() {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, checked_producers, effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, checked_producers, effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_return_analyses: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
@@ -270,14 +271,27 @@ impl GroundProducerIndex {
         self.demand
     }
 
+    pub(super) fn scheme_return_analysis(&self, function: IrFunctionId) -> Result<Rc<super::super::IndexedReturnAnalysis>, IrVerifyError> {
+        self.scheme_return_analyses.get(&function.raw()).map(Rc::clone)
+            .ok_or_else(|| IrVerifyError::new("generic body has no authenticated return analysis"))
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn record(&mut self, decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
+        if IrFunctionId::from_raw(decoder.owner).and_then(|owner| decoder.store.functions.get(owner.index())).is_some_and(|function| matches!(function.contract, FullCallableContract::Scheme(_))) {
+            let analysis = decoder.share_return_analysis()?;
+            if self.demand == crate::runtime::eval::ProducerDemand::Absent {
+                let work = self.work.get_or_insert_with(|| Rc::new(RefCell::new(SchemeInstantiationBudget::new(decoder.store))));
+                work.borrow_mut().charge(decoder.instruction_range.len() + analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
+            }
+            if self.scheme_return_analyses.insert(decoder.owner, analysis).is_some() { return Err(IrVerifyError::new("generic return analysis has multiple owners")); }
+        }
         if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
         if self.function_signatures.is_none() { self.function_signatures.clone_from(&decoder.function_signature_index); }
         let work = Rc::clone(self.work.get_or_insert_with(|| Rc::new(RefCell::new(SchemeInstantiationBudget::new(decoder.store)))));
         work.borrow_mut().charge(std::mem::take(&mut self.effect_demand_work))?;
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
-        work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()))?;
+        work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
         let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
@@ -626,6 +640,8 @@ impl GroundProducerIndex {
             + self.storage_writers.values().map(|writers| writers.capacity() * size_of::<StorageWriter>()).sum::<usize>()
             + self.module_exports.len() * size_of::<(u32, Vec<(Name, u32)>)>()
             + self.module_exports.values().map(|values| values.capacity() * size_of::<(Name, u32)>()).sum::<usize>()
+            + self.scheme_return_analyses.len() * size_of::<(u32, Rc<super::super::IndexedReturnAnalysis>)>()
+            + self.scheme_return_analyses.iter().filter(|(owner, _)| !self.owners.contains_key(owner)).map(|(_, analysis)| analysis.temporary_payload_bytes()).sum::<usize>()
             + self.owners.values().map(|owner| {
                 size_of::<(u32, ProducerOwner)>()
                     + owner.storage_bindings.len() * size_of::<(ProducerBinding, StorageBinding)>()
@@ -653,11 +669,7 @@ impl GroundProducerIndex {
                     + owner.callback_returns.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.callback_returns.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.pipeline_groups.len() * size_of::<((usize, usize, bool), usize)>()
-                    + size_of::<super::super::IndexedReturnAnalysis>()
-                    + 2 * size_of::<usize>()
-                    + owner.return_analysis.uncaught_try_roots.capacity() * size_of::<usize>()
-                    + owner.return_analysis.loop_transfers.capacity() * size_of::<(usize, u8)>()
-                    + owner.return_analysis.loop_values.as_ref().map_or(0, |values| values.capacity() * size_of::<(usize, Vec<usize>)>() + values.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>())
+                    + owner.return_analysis.temporary_payload_bytes()
                     + owner.pipeline_stages.len() * size_of::<(usize, Vec<u32>)>()
                     + owner.pipeline_stages.values().map(|values| values.capacity() * size_of::<u32>()).sum::<usize>()
             }).sum::<usize>()

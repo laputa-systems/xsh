@@ -3319,10 +3319,17 @@ impl Checker {
                     );
                 }
                 self.check_loop_control(stmt.span, true);
-                if let Some(expr_id) = value {
-                    self.check_expr_arena(arena, source, expr_id, None);
-                }
+                let expected = self.boundary.value_loops.last()
+                    .filter(|result| result.depth == self.boundary.loop_depth)
+                    .and_then(|result| result.expected.clone());
+                let actual = value.map_or(Type::Unit, |expr_id| self.check_expr_arena(arena, source, expr_id, expected.as_ref()));
                 if value.is_none_or(|value| self.stream_expr_may_complete(arena, value)) {
+                    if self.boundary.stream_flow == super::stream_origins::StreamFlow::Live
+                        && let Some(result) = self.boundary.value_loops.last_mut()
+                        && result.depth == self.boundary.loop_depth
+                    {
+                        result.values.push((actual, stmt.span));
+                    }
                     self.record_stream_loop_control(super::stream_origins::StreamLoopTransfer::Break);
                 }
             }
@@ -5875,6 +5882,7 @@ impl Checker {
             cleanup.with_initializer_errors = None;
             cleanup.in_defer_block = true;
             cleanup.loop_depth = 0;
+            cleanup.value_loops.clear();
             cleanup.stream_loops.clear();
             cleanup.stream_flow = super::stream_origins::StreamFlow::Live;
             let enclosing_boundary = std::mem::replace(&mut self.boundary, cleanup);

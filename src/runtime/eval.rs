@@ -1116,6 +1116,15 @@ impl BuildScratch {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemeLocalMutability { Immutable, Mutable }
+
+#[derive(Clone, Debug)]
+struct SchemeLocalDeclaration {
+    ty: SchemeType,
+    mutability: SchemeLocalMutability,
+}
+
 #[derive(Clone, Debug)]
 struct FunctionBuild {
     callable_kind: crate::sema::types::CallableKind,
@@ -1138,6 +1147,7 @@ struct FunctionBuild {
     scheme: Option<Arc<TypeScheme>>,
     scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
+    scheme_local_declarations: BTreeMap<BuildStmtId, SchemeLocalDeclaration>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 

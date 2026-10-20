@@ -70,6 +70,21 @@ Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.
 
+Each prepared generic local declaration carries its checked storage type and
+an immutable or mutable role, tied to its actual owner and declaration
+instruction. The verifier authenticates the initializer before making the
+binding visible, checks every assignment against that storage type, and
+requires explicit mutable permission. Header and pattern bindings are
+intrinsically immutable. Missing, duplicate, foreign, or escaped declaration
+evidence is rejected; multiple writers never grant mutation permission.
+
+Generic body verification uses an explicit obligation stack and an arena of
+lexical frames linked by parent indices. Child obligations finish before a
+parent continuation can publish later bindings. The existing indexed return
+analysis supplies reachable loop exits, including bare `Unit` exits, even
+when ordinary producer demand is absent. Preparation retains no frontend tree
+for execution and performs no runtime type solving.
+
 `execution::evaluator::checked_body_contracts` consumes one check, captures its
 semantic selections, and prepares the program once without running initialization.
 It extracts actual validation rows and parameter and return gates from the verified

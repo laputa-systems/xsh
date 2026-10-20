@@ -77,6 +77,8 @@ pub(super) enum FullCallableContract {
 pub(super) enum FullSchemeBodyFactKind {
     Expression,
     Tail,
+    LocalImmutable,
+    LocalMutable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

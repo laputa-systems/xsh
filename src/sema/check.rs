@@ -1658,9 +1658,13 @@ impl ReturnContext {
     }
 }
 
-/// State whose lifetime belongs to the body being checked. Crossing a callable
-/// boundary replaces and restores this value whole, so a producer's yields or
-/// an enclosing loop cannot become control targets in another body.
+#[derive(Clone)]
+struct ValueLoopResult {
+    depth: usize,
+    expected: Option<Type>,
+    values: Vec<(Type, Span)>,
+}
+
 #[derive(Clone, Default)]
 struct BoundaryContext {
     current_return: Option<ReturnContext>,
@@ -1681,6 +1685,7 @@ struct BoundaryContext {
     /// A producer cannot suspend while its deadline remains open.
     within_block_depth: usize,
     loop_depth: usize,
+    value_loops: Vec<ValueLoopResult>,
     stream_loops: Vec<stream_origins::StreamLoopFrame>,
     stream_flow: stream_origins::StreamFlow,
     block_depth: usize,
@@ -1873,6 +1878,7 @@ impl Checker {
         callback.current_yield = None;
         callback.collect_scope = None;
         callback.loop_depth = 0;
+        callback.value_loops.clear();
         callback.stream_loops.clear();
         callback.stream_flow = stream_origins::StreamFlow::Live;
         std::mem::replace(&mut self.boundary, callback)

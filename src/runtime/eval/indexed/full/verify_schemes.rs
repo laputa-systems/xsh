@@ -1,4 +1,5 @@
 mod producers;
+mod body;
 pub(super) use producers::ProducerContexts;
 pub(super) use producers::GroundProducerIndex;
 
@@ -156,7 +157,7 @@ struct SchemaCoverage {
 pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, contexts: producers::ProducerContexts<'_>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     let scopes = verify_function_schemes(store)?;
     verify_scheme_tables(store, &scopes)?;
-    verify_scheme_body_facts(store, &scopes)?;
+    verify_scheme_body_facts(store, &scopes, producer_index)?;
     verify_call_instantiations(store, &scopes)?;
     producers::verify(store, producer_index, contexts)
 }
@@ -897,6 +898,7 @@ fn verify_schema_expectation(
 fn verify_scheme_body_facts(
     store: &FullStore,
     scopes: &[Option<SchemeScope>],
+    producer_index: &GroundProducerIndex,
 ) -> Result<(), IrVerifyError> {
     let mut covered = vec![false; store.scheme_body_facts.len()];
     let mut registered_coverage = BTreeSet::new();
@@ -919,17 +921,24 @@ fn verify_scheme_body_facts(
         let mut budget = SchemeInstantiationBudget::new(store);
         let mut types = BTreeMap::new();
         let mut tails = BTreeMap::new();
+        let mut declarations = BTreeMap::new();
         for (offset, fact) in store.scheme_body_facts[facts_range.clone()].iter().enumerate() {
             covered[facts_range.start + offset] = true;
             let instruction = fact.instruction as usize;
             if fact.function != function_id || !instruction_range.contains(&instruction) || fact.reserved != [0; 3] { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
             let ty = decode_scheme_type(store, scope, fact.ty, &mut budget, 0)?;
-            let target = match fact.kind {
-                FullSchemeBodyFactKind::Expression if store.tags[instruction].kind() == schema::InstructionKind::Expr => &mut types,
-                FullSchemeBodyFactKind::Tail if store.tags[instruction] == FullTag::StmtReturn => &mut tails,
+            match fact.kind {
+                FullSchemeBodyFactKind::Expression if store.tags[instruction].kind() == schema::InstructionKind::Expr => {
+                    if types.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body expression fact is duplicated")); }
+                }
+                FullSchemeBodyFactKind::Tail if store.tags[instruction] == FullTag::StmtReturn => {
+                    if tails.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body tail fact is duplicated")); }
+                }
+                FullSchemeBodyFactKind::LocalImmutable | FullSchemeBodyFactKind::LocalMutable if store.tags[instruction] == FullTag::StmtLet => {
+                    if declarations.insert(instruction, (ty, fact.kind == FullSchemeBodyFactKind::LocalMutable)).is_some() { return Err(IrVerifyError::new("generic local declaration fact is duplicated")); }
+                }
                 _ => return Err(IrVerifyError::new("generic body fact has an invalid instruction kind")),
-            };
-            if target.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body fact is duplicated")); }
+            }
         }
         let decoder = decoder_for_function(store, function_index)?;
         let mut slots = BTreeMap::new();
@@ -949,27 +958,9 @@ fn verify_scheme_body_facts(
         let body_id = IrBlockId::from_raw(function.body).ok_or_else(|| IrVerifyError::new("generic body block is invalid"))?;
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
         let statements = store.payload(block.instructions)?;
-        let mut visited = BTreeSet::new();
-        let mut writers = slots.clone();
-        let mut returned = false;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
-        for (position, &raw) in statements.iter().skip(1).enumerate() {
-            let instruction = raw as usize;
-            match decoder.statement_view(instruction)? {
-                schema::StmtView::Let { slot, value, annotation } if !returned => {
-                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut writers, &mut visited, &mut registered_coverage, &mut budget)?;
-                    let stored = scheme_stored_type(ty, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
-                    if slot >= function.slot_count as usize || writers.insert(slot, stored.clone()).is_some() || slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic body slot has multiple writers or is out of bounds")); }
-                }
-                schema::StmtView::Return { value } if !returned && position + 2 == statements.len() => {
-                    let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut writers, &mut visited, &mut registered_coverage, &mut budget)?;
-                    if !ty.matches_body_return(&expected_return) { return Err(IrVerifyError::new("generic body return does not match its scheme return")); }
-                    if tails.remove(&instruction).is_some_and(|tail| !tail.matches_body_return(&expected_return)) { return Err(IrVerifyError::new("generic body tail does not match its scheme return")); }
-                    returned = true;
-                }
-                _ => return Err(IrVerifyError::new("generic body is outside immutable sequencing and terminal return")),
-            }
-        }
+        let analysis = producer_index.scheme_return_analysis(function_id)?;
+        let (visited, writers, visited_statements) = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -981,16 +972,33 @@ fn verify_scheme_body_facts(
             };
             if !equal { return Err(IrVerifyError::new("generic slot type fact disagrees with its initialized value")); }
         }
-        if !returned || !tails.is_empty() || visited.len() != types.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
-        let encoded = instruction_range.filter(|instruction| store.tags[*instruction].kind() == schema::InstructionKind::Expr).collect::<BTreeSet<_>>();
-        if visited != encoded { return Err(IrVerifyError::new("generic body contains an unchecked expression")); }
+        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
+        let mut encoded_expressions = BTreeSet::new();
+        let mut encoded_statements = BTreeSet::new();
+        for instruction in instruction_range {
+            budget.charge(1)?;
+            match store.tags[instruction].kind() {
+                schema::InstructionKind::Expr => { encoded_expressions.insert(instruction); }
+                schema::InstructionKind::Stmt => { encoded_statements.insert(instruction); }
+                _ => return Err(IrVerifyError::new("generic body contains an unchecked scalar instruction")),
+            }
+        }
+        if visited != encoded_expressions || visited_statements != encoded_statements { return Err(IrVerifyError::new("generic body contains an unchecked instruction")); }
     }
     if covered.iter().any(|covered| !covered) || store.registered_calls.keys().any(|instruction| !registered_coverage.contains(instruction)) { return Err(IrVerifyError::new("generic body metadata contains unowned rows")); }
     Ok(())
 }
 
-fn body_type_matches(actual: &SchemeType, expected: &SchemeType) -> bool {
-    actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected))
+fn body_types_equal(actual: &SchemeType, expected: &SchemeType) -> bool {
+    actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected)
+}
+
+fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    if actual == expected { return Ok(true); }
+    match (actual.closed_ground_type(), expected.closed_ground_type()) {
+        (Some(actual), Some(expected)) => initializer_type_matches_annotation(&actual, &expected, budget, 0),
+        _ => Ok(false),
+    }
 }
 
 fn body_type_matches_ground(actual: &SchemeType, expected: &Type) -> bool {
@@ -1014,8 +1022,9 @@ fn verify_body_expression(
     decoder: &FullDecoder<'_>,
     instruction: usize,
     types: &BTreeMap<usize, SchemeType>,
-    slots: &BTreeMap<usize, SchemeType>,
-    writers: &mut BTreeMap<usize, SchemeType>,
+    slots: &body::LexicalScope,
+    scopes: &body::LexicalScopes,
+    pending: &mut Vec<usize>,
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
     budget: &mut SchemeInstantiationBudget,
@@ -1023,9 +1032,19 @@ fn verify_body_expression(
     budget.charge(1)?;
     if !visited.insert(instruction) { return Err(IrVerifyError::new("generic body expression is shared or cyclic")); }
     let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic expression has no checked body fact"))?;
-    let mut child = |value: super::decode::ExprInstructionId<'_>| verify_body_expression(store, decoder, value.raw() as usize, types, slots, writers, visited, registered_coverage, budget);
+    let mut child = |value: super::decode::ExprInstructionId<'_>, budget: &mut SchemeInstantiationBudget| {
+        let instruction = value.raw() as usize;
+        let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic child has no checked body fact"))?;
+        budget.charge_scheme_clone(ty)?;
+        pending.push(instruction);
+        Ok::<SchemeType, IrVerifyError>(ty.clone())
+    };
     let expected = match decoder.expression_view(instruction)? {
-        schema::ExprView::Param(slot) => slots.get(&slot).cloned().ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?,
+        schema::ExprView::Param(slot) => {
+            let ty = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic body reads an uninitialized slot"))?;
+            budget.charge_scheme_clone(ty)?;
+            ty.clone()
+        },
         schema::ExprView::Null => SchemeType::Ground(Type::Null),
         schema::ExprView::Unit => SchemeType::Ground(Type::Unit),
         schema::ExprView::Bool(_) => SchemeType::Ground(Type::Bool),
@@ -1040,7 +1059,7 @@ fn verify_body_expression(
         schema::ExprView::List(mut values) => {
             let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
             for value in &mut values {
-                if !body_type_matches(&child(value?)?, item) { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
+                if !body_type_matches(&child(value?, budget)?, item, budget)? { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
             }
             ty.clone()
         }
@@ -1048,51 +1067,32 @@ fn verify_body_expression(
             let mut fields = BTreeMap::new();
             for entry in &mut entries {
                 let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("generic record producer has an unsupported spread")); };
-                if fields.insert(name, child(value)?).is_some() { return Err(IrVerifyError::new("generic record producer repeats a field")); }
+                if fields.insert(name, child(value, budget)?).is_some() { return Err(IrVerifyError::new("generic record producer repeats a field")); }
             }
             SchemeType::Record { fields, tail: SchemeRowTail::Closed }
         }
         schema::ExprView::Ok(value) => {
             let SchemeType::Result(ok, _) = ty else { return Err(IrVerifyError::new("generic success producer has no result contract")); };
-            if !body_type_matches(&child(value)?, ok) { return Err(IrVerifyError::new("generic success payload disagrees with its checked contract")); }
+            if !body_type_matches(&child(value, budget)?, ok, budget)? { return Err(IrVerifyError::new("generic success payload disagrees with its checked contract")); }
             ty.clone()
         }
         schema::ExprView::Err { value, cause } => {
             let SchemeType::Result(_, error) = ty else { return Err(IrVerifyError::new("generic failure producer has no result contract")); };
-            if !body_type_matches(&child(value)?, error) { return Err(IrVerifyError::new("generic failure payload disagrees with its checked contract")); }
-            if let Some(cause) = cause && !body_type_matches_ground(&child(cause)?, &Type::Error) { return Err(IrVerifyError::new("generic failure cause is not an error")); }
+            if !body_type_matches(&child(value, budget)?, error, budget)? { return Err(IrVerifyError::new("generic failure payload disagrees with its checked contract")); }
+            if let Some(cause) = cause && !body_type_matches_ground(&child(cause, budget)?, &Type::Error) { return Err(IrVerifyError::new("generic failure cause is not an error")); }
             ty.clone()
         }
         schema::ExprView::IfExpr { mut branches, else_value, .. } => {
             for branch in &mut branches {
                 let (condition, value) = branch?;
-                if !matches!(child(condition)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("generic branch condition has no checked boolean contract")); }
-                if !body_type_matches(&child(value)?, ty) { return Err(IrVerifyError::new("generic branch value disagrees with its checked contract")); }
+                if !matches!(child(condition, budget)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("generic branch condition has no checked boolean contract")); }
+                if !body_type_matches(&child(value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic branch value disagrees with its checked contract")); }
             }
-            if !body_type_matches(&child(else_value)?, ty) { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
+            if !body_type_matches(&child(else_value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
             ty.clone()
         }
-        schema::ExprView::ValueBlock { body, .. } => {
-            let mut local_slots = slots.clone();
-            let mut result = None;
-            let count = body.len();
-            for (index, statement) in body.enumerate() {
-                match decoder.statement_view(statement?.raw() as usize)? {
-                    schema::StmtView::Let { slot, value, annotation } if result.is_none() => {
-                        let actual = verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, writers, visited, registered_coverage, budget)?;
-                        let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
-                        if writers.insert(slot, stored.clone()).is_some() || local_slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic value block rewrites an initialized slot")); }
-                    }
-                    schema::StmtView::Value { value } if index + 1 == count && result.is_none() => {
-                        result = Some(verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, writers, visited, registered_coverage, budget)?);
-                    }
-                    _ => return Err(IrVerifyError::new("generic value block requires immutable bindings and a terminal value")),
-                }
-            }
-            result.ok_or_else(|| IrVerifyError::new("generic value block has no terminal value"))?
-        }
         schema::ExprView::Field { base, name, .. } => {
-            let base = child(base)?;
+            let base = child(base, budget)?;
             match base {
                 SchemeType::Record { fields, .. } => fields.get(&Name::intern(name)).cloned(),
                 SchemeType::Ground(Type::Record(fields)) => fields.get(&Name::intern(name)).cloned().map(SchemeType::Ground),
@@ -1103,7 +1103,7 @@ fn verify_body_expression(
             let mut arguments = Vec::new();
             for argument in args {
                 let super::decode::CallArgView::Single(value) = argument? else { return Err(IrVerifyError::new("generic body call requires explicit fixed arguments")) };
-                arguments.push(child(value)?);
+                arguments.push(child(value, budget)?);
             }
             let target = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
             if store.function_metadata[function.id.index()].flags & 1 != 0 {
@@ -1142,13 +1142,13 @@ fn verify_body_expression(
             }
         }
         schema::ExprView::CheckedValue { value, check, .. } => {
-            let actual = child(value)?;
+            let actual = child(value, budget)?;
             let expected = check.ty.materialize()?;
             if check.schema.is_some() || !expected.has_unsigned_constraint() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic unsigned argument check is not a complete checked contract")); }
             SchemeType::Ground(expected)
         }
         schema::ExprView::Require { value, check, .. } => {
-            let actual = child(value)?;
+            let actual = child(value, budget)?;
             let expected = check.ty.materialize()?;
             if check.schema.is_some() || expected.contains_any() || expected.contains_inference() || expected.contains_recovery() || expected.may_hold_resource() || !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic storage check has an invalid ground contract")); }
             SchemeType::Result(Box::new(SchemeType::Ground(expected)), Box::new(SchemeType::Ground(Type::Error)))
@@ -1156,15 +1156,15 @@ fn verify_body_expression(
         schema::ExprView::Try { value, .. } => {
             let schema::ExprView::Require { check, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(IrVerifyError::new("generic propagation has no checked unsigned storage")) };
             if check.schema.is_some() || check.ty.materialize()?.may_hold_resource() { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
-            let actual = child(value)?;
+            let actual = child(value, budget)?;
             let SchemeType::Result(ok, error) = actual else { return Err(IrVerifyError::new("generic unsigned storage check is not a result")) };
             if *error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic unsigned storage error contract is invalid")); }
             *ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
-            let receiver = child(receiver)?;
+            let receiver = child(receiver, budget)?;
             let mut arguments = Vec::new();
-            for argument in args { arguments.push(Some(child(argument?)?)); }
+            for argument in args { arguments.push(Some(child(argument?, budget)?)); }
             let plan = store.registered_calls.get(&(instruction as u32)).ok_or_else(|| IrVerifyError::new("generic host method has no selected registry plan"))?;
             if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
             let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
@@ -1174,7 +1174,7 @@ fn verify_body_expression(
         }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
             let mut arguments = Vec::new();
-            for argument in args { arguments.push(argument?.map(&mut child).transpose()?); }
+            for argument in args { arguments.push(argument?.map(|argument| child(argument, budget)).transpose()?); }
             let plan = store.registered_calls.get(&(instruction as u32)).ok_or_else(|| IrVerifyError::new("generic module call has no selected registry plan"))?;
             let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
             if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
@@ -1183,7 +1183,7 @@ fn verify_body_expression(
         }
         _ => return Err(IrVerifyError::new("generic body contains an unsupported executable expression")),
     };
-    if ty != &expected && !matches!((ty.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected) { return Err(IrVerifyError::new("generic body expression disagrees with its checked type")); }
+    if !body_types_equal(ty, &expected) { return Err(IrVerifyError::new("generic body expression disagrees with its checked type")); }
     Ok(ty.clone())
 }
 
@@ -1990,7 +1990,8 @@ fn verify_symbolic_call_arguments(
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
         let expected = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
         let expected = substitute_scheme_type(&expected, callee_scope, substitution, budget, 0)?;
-        if !body_type_matches(&actual, &expected) { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
+        let matches = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
+        if !matches { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
     }
     Ok(())
 }

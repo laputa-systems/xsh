@@ -3796,38 +3796,45 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure` declaration may omit its type annotation. The
-checker infers that type from the declaration body. An explicit `Any` remains a
-dynamic type and is never treated as a type variable; it may appear beside
-quantified parameters. Required parameters in `proc` and `stream` declarations,
-callable types, and module contracts still need annotations.
+A required parameter in a `pure` or `proc` declaration may omit its type
+annotation. The checker infers that type from the declaration body. An explicit
+`Any` remains a dynamic type and is never treated as a type variable; it may
+appear beside quantified parameters. A quantified proc requires a finite
+checked effect contract. Required parameters in `stream` declarations, callable types, and module contracts still need annotations.
 
-When a checked pure signature retains quantified type or row variables, its
-executable body may contain immutable `let` bindings followed by one value
-tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, ground immutable runtime captures, required `.field` projections,
-list literals without splices, records with named fields, `Ok` and `Err`
-constructors, value blocks, value-producing `if` branches, or statically
-selected pure calls. Conditions constrain unannotated parameters to `Bool`;
-branch results share constraints from the declaration body. Branches evaluate
-only the selected value, in ordinary source order. User function calls must
-supply every fixed required parameter, by position or name. Registered calls must have a selected pure
-signature with no host effects; their receiver domain and argument layout are
-fixed while checking the declaration. A caller never supplies type evidence
-for choosing that declaration's operations. Unsigned argument and map-key
-contracts keep the ordinary checked conversions and failure propagation.
+A checked quantified body can use lexical `let` and `var` bindings, nested
+blocks, simple assignment, `if`, `match`, `while`, and `loop`, with `break`,
+`continue`, and explicit value returns. Each mutable local has one type within
+an activation: every assignment must fit the same type, even when different
+calls instantiate that type differently. A nested binding cannot escape its
+scope. Pattern bindings belong to their own match arm; guards retain the
+ordinary strict `Bool` contract. Value-loop results share constraints from
+reachable breaks belonging to that loop, including `Unit` for a bare break.
+Breaks in an inner loop do not determine an outer loop's result.
 
-This body subset excludes mutation, destructuring, operators, loops,
+Values may be scalar literals, parameter or local reads, ground immutable
+runtime captures, required `.field` projections, list literals without splices,
+records with named fields, `Ok` and `Err` constructors, value blocks,
+value-producing `if` and `match` branches, loops, or statically selected pure
+calls. A quantified proc may also call a selected finite proc whose effects fit
+its own checked ceiling. Branches evaluate only the selected value, in ordinary source order.
+User function calls must supply every fixed required parameter, by position or
+name. Registered calls must have a selected pure signature with no host
+effects; their receiver domain and argument layout are fixed while checking
+the declaration. A caller never supplies type evidence for choosing that
+declaration's operations. Unsigned argument and map-key contracts keep the
+ordinary checked conversions and failure propagation.
+
+Quantified body preparation still reports `check.local-inference` for
+unsupported shapes, including destructuring declarations, `for`, operators,
 optional field access, indexing, map and set literals, record spreads,
-interpolated text, dynamically selected calls, expression statements before
-the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
-quantified body subset. Registered calls
-with specialized argument rules, script implementations, or resource receiver
-domains are outside this subset. A registered method may omit only trailing
-defaulted parameters. Calls to user functions with defaulted or rest
-parameters remain outside this body subset. The checker reports
-`check.local-inference` for unsupported quantified body shapes. A fully
-concrete inferred signature has no such body restriction.
+interpolated text, dynamically selected calls, and captured mutable or resource
+state. Compile-time constant bindings and registered calls with specialized
+argument rules, script implementations, or resource receiver domains are not
+yet supported in these bodies. A registered method may omit only trailing
+defaulted parameters. Calls to user functions with defaulted or rest parameters
+remain unsupported within a quantified body. A fully concrete inferred
+signature has no such body restriction.
 
 Ordinary ground pure helpers called from a quantified body keep their usual
 syntax, including branches, loops, mutation, patterns, defaults, rest arguments,
@@ -3856,9 +3863,12 @@ Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
 kind is itself a bare quantified parameter retains the constructor's checked
 `Ok` or `Err` envelope without a runtime payload type guess. Statement
-assertion or discard elaboration is outside this quantified body subset;
-annotated `Unit` returns are supported when their terminal checked value is
-already `Unit`.
+assertion elaboration remains unsupported in quantified bodies. Explicit
+`let _ = value` discards preserve `Result` values as data without propagating
+their errors. Annotated `Unit` returns are supported when their terminal
+checked value is already `Unit`. A generic proc's early value return uses the
+same success-envelope rule as its terminal value. Instantiating that value
+with a `Result` preserves the nested result as data.
 
 At a direct call to an inferred quantified pure declaration, supply all fixed
 required parameters first. Zero or more trailing rest items or list splices may

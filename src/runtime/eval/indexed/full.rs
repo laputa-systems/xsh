@@ -2938,6 +2938,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     active_scheme: Option<FullSchemeId>,
     active_scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     active_scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
+    active_scheme_local_declarations: BTreeMap<BuildStmtId, crate::runtime::eval::SchemeLocalDeclaration>,
 }
 
 impl FullBuilder {
@@ -3745,12 +3746,14 @@ impl FullBuilder {
         self.active_scheme = scheme;
         self.active_scheme_body_types = body.scheme_body_types.clone();
         self.active_scheme_tail_types = body.scheme_tail_types.clone();
+        self.active_scheme_local_declarations = body.scheme_local_declarations.clone();
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
         self.active_scratch = None;
         self.active_scheme = None;
         self.active_scheme_body_types.clear();
         self.active_scheme_tail_types.clear();
+        self.active_scheme_local_declarations.clear();
         if let Err(error) = encoded {
             self.recycle_payload(words);
             return Err(error);
@@ -12999,13 +13002,28 @@ impl<'a> FullDecoder<'a> {
         subject_type: Option<&Type>,
         initial_projection: P,
         mut project: impl FnMut(&P, CheckedValueProjection) -> P,
+        visit: impl FnMut(usize, Option<&Type>, &P) -> Result<(), IrVerifyError>,
+        charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<(), IrVerifyError> {
+        self.visit_pattern_evidence(root, subject_type, initial_projection, |path, step| Ok(project(path, step)), visit, |_, _, _| Ok(()), charge)
+    }
+
+    fn visit_pattern_evidence<P: Clone>(
+        &self,
+        root: u32,
+        subject_type: Option<&Type>,
+        initial_projection: P,
+        mut project: impl FnMut(&P, CheckedValueProjection) -> Result<P, IrVerifyError>,
         mut visit: impl FnMut(usize, Option<&Type>, &P) -> Result<(), IrVerifyError>,
+        mut test: impl FnMut(&schema::PatternView<'_>, Option<&Type>, &P) -> Result<(), IrVerifyError>,
         mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<(), IrVerifyError> {
         let mut pending = vec![(root, subject_type.cloned(), initial_projection)];
         while let Some((pattern, subject_type, projection)) = pending.pop() {
             charge(1)?;
-            match self.checked_pattern_view(pattern)? {
+            let view = self.checked_pattern_view(pattern)?;
+            test(&view, subject_type.as_ref(), &projection)?;
+            match view {
                 schema::PatternView::Alias { pattern, slot } => {
                     visit(slot, subject_type.as_ref(), &projection)?;
                     pending.push((pattern.raw(), subject_type, projection));
@@ -13021,7 +13039,7 @@ impl<'a> FullDecoder<'a> {
                 } => {
                     let item_type = subject_type.as_ref().and_then(Type::iteration_item_type);
                     for pattern in &mut elements {
-                        pending.push((pattern?.raw(), item_type.clone(), project(&projection, CheckedValueProjection::Element)));
+                        pending.push((pattern?.raw(), item_type.clone(), project(&projection, CheckedValueProjection::Element)?));
                     }
                     if let Some(rest) = rest {
                         let rest_type = item_type.map(|item| Type::List(Box::new(item)));
@@ -13036,7 +13054,7 @@ impl<'a> FullDecoder<'a> {
                     for field in &mut fields {
                         let (name, pattern) = field?;
                         let field_type = writer_fields.and_then(|fields| fields.get(&name)).cloned();
-                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::Field(name))));
+                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::Field(name))?));
                     }
                 }
                 schema::PatternView::ResultTest { ok, inner } => {
@@ -13044,7 +13062,7 @@ impl<'a> FullDecoder<'a> {
                         subject_type.as_ref(),
                         ok,
                     );
-                    pending.push((inner.raw(), payload_type, project(&projection, CheckedValueProjection::ResultPayload(ok))));
+                    pending.push((inner.raw(), payload_type, project(&projection, CheckedValueProjection::ResultPayload(ok))?));
                 }
                 schema::PatternView::TagTest {
                     type_name,
@@ -13066,7 +13084,7 @@ impl<'a> FullDecoder<'a> {
                     for pattern in &mut fields {
                         let pattern = pattern?;
                         let field_type = self.pattern_variant_field_type(key, field_index)?;
-                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::TagField { type_name, name, field: field_index })));
+                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::TagField { type_name, name, field: field_index })?));
                         field_index += 1;
                     }
                     if declared_count.is_some_and(|count| count != field_index) {
@@ -13093,7 +13111,7 @@ impl<'a> FullDecoder<'a> {
                     for field in &mut fields {
                         let (name, pattern) = field?;
                         let Some(schema) = self.store.checked_pattern_variants.get(&key) else {
-                            pending.push((pattern.raw(), None, project(&projection, CheckedValueProjection::Field(name))));
+                            pending.push((pattern.raw(), None, project(&projection, CheckedValueProjection::Field(name))?));
                             continue;
                         };
                         let field_index = schema
@@ -13106,7 +13124,7 @@ impl<'a> FullDecoder<'a> {
                                 )
                             })?;
                         let field_type = self.pattern_variant_field_type(key, field_index)?;
-                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::Field(name))));
+                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::Field(name))?));
                     }
                 }
                 schema::PatternView::Bind { slot } => {
@@ -13127,14 +13145,14 @@ impl<'a> FullDecoder<'a> {
                     if let Some(slot) = slot {
                         let payload_type =
                             Self::checked_result_payload_type(subject_type.as_ref(), true);
-                        visit(slot, payload_type.as_ref(), &project(&projection, CheckedValueProjection::ResultPayload(true)))?;
+                        visit(slot, payload_type.as_ref(), &project(&projection, CheckedValueProjection::ResultPayload(true))?)?;
                     }
                 }
                 schema::PatternView::ResultErr { slot, .. } => {
                     if let Some(slot) = slot {
                         let payload_type =
                             Self::checked_result_payload_type(subject_type.as_ref(), false);
-                        visit(slot, payload_type.as_ref(), &project(&projection, CheckedValueProjection::ResultPayload(false)))?;
+                        visit(slot, payload_type.as_ref(), &project(&projection, CheckedValueProjection::ResultPayload(false))?)?;
                     }
                 }
                 schema::PatternView::Tag {
@@ -13157,7 +13175,7 @@ impl<'a> FullDecoder<'a> {
                     for slot in slots {
                         if let Some(slot) = slot? {
                             let field_type = self.pattern_variant_field_type(key, field_index)?;
-                            visit(slot, field_type.as_ref(), &project(&projection, CheckedValueProjection::TagField { type_name, name, field: field_index }))?;
+                            visit(slot, field_type.as_ref(), &project(&projection, CheckedValueProjection::TagField { type_name, name, field: field_index })?)?;
                         }
                         field_index += 1;
                     }
@@ -14096,6 +14114,7 @@ struct IndexedReturnAnalysis {
     uncaught_try_roots: rustc_hash::FxHashSet<usize>,
     loop_transfers: FxHashMap<usize, u8>,
     loop_values: Option<FxHashMap<usize, Vec<usize>>>,
+    loop_unit_exits: Option<rustc_hash::FxHashSet<usize>>,
     #[cfg(test)]
     node_visits: usize,
     #[cfg(test)]
@@ -14105,6 +14124,16 @@ struct IndexedReturnAnalysis {
 }
 
 impl IndexedReturnAnalysis {
+    #[cfg(test)]
+    fn temporary_payload_bytes(&self) -> usize {
+        use std::mem::size_of;
+        size_of::<Self>() + 2 * size_of::<usize>()
+            + self.uncaught_try_roots.capacity() * size_of::<usize>()
+            + self.loop_transfers.capacity() * size_of::<(usize, u8)>()
+            + self.loop_values.as_ref().map_or(0, |values| values.capacity() * size_of::<(usize, Vec<usize>)>() + values.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>())
+            + self.loop_unit_exits.as_ref().map_or(0, |exits| exits.capacity() * size_of::<usize>())
+    }
+
     fn build(decoder: &FullDecoder<'_>) -> Result<Self, IrVerifyError> {
         let range = decoder.instruction_range.clone();
         let node_count = range.len();
@@ -14233,7 +14262,10 @@ impl IndexedReturnAnalysis {
         }
 
         let mut loop_transfers = FxHashMap::default();
-        let mut loop_values = (decoder.producer_demand == crate::runtime::eval::ProducerDemand::Needed).then(FxHashMap::<usize, Vec<usize>>::default);
+        let collect_values = decoder.producer_demand == crate::runtime::eval::ProducerDemand::Needed
+            || IrFunctionId::from_raw(decoder.owner).and_then(|owner| decoder.store.functions.get(owner.index())).is_some_and(|function| matches!(function.contract, FullCallableContract::Scheme(_)));
+        let mut loop_values = collect_values.then(FxHashMap::<usize, Vec<usize>>::default);
+        let mut loop_unit_exits = collect_values.then(rustc_hash::FxHashSet::default);
         let mut reached = vec![false; node_count];
         let mut flow_stack = roots
             .into_iter()
@@ -14257,6 +14289,10 @@ impl IndexedReturnAnalysis {
                 if reachable {
                     *loop_transfers.entry(loop_instruction).or_insert(0) |=
                         RETURN_ANALYSIS_BREAK;
+                    if tag == FullTag::StmtBreak
+                        && decoder.store.tags[loop_instruction] == FullTag::ExprLoop
+                        && let Some(exits) = &mut loop_unit_exits
+                    { exits.insert(loop_instruction); }
                     if let Some(values) = &mut loop_values
                         && decoder.store.tags[loop_instruction] == FullTag::ExprLoop
                         && let schema::StmtView::BreakValue { value } = decoder.statement_view(instruction)?
@@ -14308,6 +14344,7 @@ impl IndexedReturnAnalysis {
             uncaught_try_roots,
             loop_transfers,
             loop_values,
+            loop_unit_exits,
             #[cfg(test)]
             node_visits,
             #[cfg(test)]
@@ -18610,6 +18647,7 @@ fn verify_node_metadata(
 trait SchemeBodyFactId: Copy {
     fn scheme_expression_type(self, builder: &FullBuilder) -> Option<SchemeType>;
     fn scheme_tail_type(self, builder: &FullBuilder) -> Option<SchemeType>;
+    fn scheme_local_declaration(self, _: &FullBuilder) -> Option<crate::runtime::eval::SchemeLocalDeclaration> { None }
 }
 
 impl SchemeBodyFactId for BuildExprId {
@@ -18629,6 +18667,10 @@ impl SchemeBodyFactId for BuildStmtId {
 
     fn scheme_tail_type(self, builder: &FullBuilder) -> Option<SchemeType> {
         builder.active_scheme_tail_types.get(&self).cloned()
+    }
+
+    fn scheme_local_declaration(self, builder: &FullBuilder) -> Option<crate::runtime::eval::SchemeLocalDeclaration> {
+        builder.active_scheme_local_declarations.get(&self).cloned()
     }
 }
 
@@ -18740,6 +18782,7 @@ macro_rules! impl_build_id_codec {
                 }
                 let scheme_body_type = (*self).scheme_expression_type(builder);
                 let scheme_tail_type = (*self).scheme_tail_type(builder);
+                let scheme_local_declaration = (*self).scheme_local_declaration(builder);
                 let transfers_resource = if $resource_transfer {
                     *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
                         IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
@@ -18754,7 +18797,8 @@ macro_rules! impl_build_id_codec {
                     || checked_call_result.is_some()
                     || registered_call.is_some()
                     || scheme_body_type.is_some()
-                    || scheme_tail_type.is_some();
+                    || scheme_tail_type.is_some()
+                    || scheme_local_declaration.is_some();
                 let output_start = output.len();
                 row.encode(builder, output)?;
                 let instruction = emitted_build_instruction(
@@ -18931,6 +18975,16 @@ macro_rules! impl_build_id_codec {
                         &ty,
                         schemes::FullSchemeBodyFactKind::Tail,
                     )?;
+                }
+                if let Some(declaration) = scheme_local_declaration {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_local_declaration_instruction", None, 0, self.index()))?;
+                    let scheme = builder.active_scheme.ok_or_else(|| IrBuildError::format("scheme_local_declaration_scheme", None, 0, instruction))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("scheme_local_declaration_owner", None, 0, instruction))?;
+                    let kind = match declaration.mutability {
+                        crate::runtime::eval::SchemeLocalMutability::Immutable => schemes::FullSchemeBodyFactKind::LocalImmutable,
+                        crate::runtime::eval::SchemeLocalMutability::Mutable => schemes::FullSchemeBodyFactKind::LocalMutable,
+                    };
+                    builder.record_scheme_body_fact(function, scheme, instruction, &declaration.ty, kind)?;
                 }
                 Ok(())
             }
@@ -30051,6 +30105,7 @@ proc main() [env, error] -> Result[Unit] {
                 scheme: None,
                 scheme_body_types: BTreeMap::new(),
                 scheme_tail_types: BTreeMap::new(),
+                scheme_local_declarations: BTreeMap::new(),
                 params: SmallVec::from_vec(vec![Name::intern("flag")]),
                 param_kinds: SmallVec::from_vec(vec![LoweredParamKind::Typed(LoweredType::Bool)]),
                 param_checks: SmallVec::from_vec(vec![None]),
@@ -42666,6 +42721,7 @@ proc local() [env, error] -> Int {
                     scheme: None,
                     scheme_body_types: BTreeMap::new(),
                     scheme_tail_types: BTreeMap::new(),
+                    scheme_local_declarations: BTreeMap::new(),
                     scratch,
                 };
                 let unit = LoweredFunctionUnit {
