@@ -128,12 +128,23 @@ wrappers and the existing verification work caps remain intact.
 Ground and generic try-capture transport, ordinary generic-body frontiers,
 matching products and complete capability/corpus qualification remain pending.
 
+Practical replay with matching `e0f8cbfac` products passes exact source-view
+validation, then fails the original twelve-root XSH check with six
+`compact.indexed-build` diagnostics. They cover an implicit discard without a
+value contract, module import and effect contracts, and a Result constructor
+without a physical producer. The reduced view, three Laputa roots, signature
+and body comparison, and runtime selectors do not run. The four selected
+annotation removals receive no new parity credit. The cohort remains XSH
+`4233e34ee` and Laputa `a81760724`, separate from the historical 1,040 result.
+Container-generated views preserve the pinned archive modes. Earlier setup
+failures ran no cohort checks.
+
 Practical corpus adapter `b84a128ef` now applies semantic interface and body
 comparison to the same 12 XSH and three Laputa roots used by paired checking.
 Its sixth runtime selector covers AWK include diagnostics and both changed
 parser helpers. Shell syntax and all eight existing adapter controls pass;
-those controls exercise frozen mode with stub products. Practical replay with
-matching compiler products remains pending. Historical wc diagnostic probes
+those controls exercise frozen mode with stub products. Matching-product practical
+replay is blocked at the original XSH check above. Historical wc diagnostic probes
 and exact revealed-signature comparisons still need qualification against the
 new inference behavior.
 
