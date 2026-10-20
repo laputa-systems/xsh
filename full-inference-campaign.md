@@ -71,6 +71,8 @@ check. Split verification only across disjoint inputs and output directories.
 Poll owned jobs at least every 60 seconds while active, consume completions
 immediately, and inspect every lane at least every 15 minutes. Do not end a
 coordinating turn with an unattended job and no active completion owner.
+Use `followup_task` when a lane must answer or perform work; `send_message`
+does not wake an idle or completed lane. Reserve it for updates needing no reply.
 F0 must also enforce completion ownership in the existing launcher path:
 retain the child handle until status and cleanup are consumed, and chain a
 dependent stage only from an observed successful terminal result. Reproduce
