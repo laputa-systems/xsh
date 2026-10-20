@@ -21,7 +21,16 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `3c92adfb3` passes the combined targeted boundary: 407 passed, zero
+Source `cf1d47637` passes the combined targeted boundary: 414 passed, zero
+failed and zero ignored. Driver projections prove their actual source,
+envelope and every writer, including unused bindings and zero-output patterns.
+Fresh command-word lists retain contextual typing only through authenticated
+compiler-created bindings. Native process-option projection preserves every
+other registered contract. Wide destructuring stays within the existing proof
+work limits. Matching verification products are building; actual native runner
+bodies and corpus parity remain unqualified at this source.
+
+Source `3c92adfb3` passes the earlier combined targeted boundary: 407 passed, zero
 failed and zero ignored. Generic bodies prepare unguarded list indexing and
 slicing, literal record-key indexing through compiler-created temporaries,
 from-end literal indexing, and concrete arithmetic and list concatenation.
@@ -35,6 +44,14 @@ Guarded postfix access remains mandatory work. The next witness,
 checking but fails preparation at the Optional parameter representation.
 Matching verification products remain at `934eab3b1`; no new corpus or native
 acceptance follows from the targeted source checks.
+
+Two faithful frozen-corpus reducers confirm the next nullable-join class:
+site 3476 joins an `env.get` string with null, and site 7427 joins null with
+a parsed integer. Each annotated version passes with the `934eab3b1` products;
+each erased version fails despite its optional destination contract. A separate
+site 2483 reducer infers its forwarded source schema in both versions. These
+reducers identify relationships to repair; they supply no original-corpus
+qualification or annotation-removal credit.
 
 Source `934eab3b1` passes the earlier combined targeted boundary: 389 passed, zero
 failed and zero ignored. Generic bodies now prepare lexical mutable and
