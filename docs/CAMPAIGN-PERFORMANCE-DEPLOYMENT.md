@@ -21,6 +21,32 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Source `1eeacf2e9` passes the combined targeted boundary: 333 passed, zero
+failed and zero ignored. It includes canonical environment assignment and
+managed-resource release contracts, both indexed execution routes, wrong-value
+and wrong-resource mutations, effect ceilings, and generated resource-scope
+Bool and Result payload writer proofs. Internal descriptors reuse the existing
+conversion policy and resource registry. Matching products and full acceptance
+remain required.
+
+Constructor correction `7b22689ef` replaces implicit recoverable validation
+with the specified typed storage boundary. Negative UInt fields now stop with
+`type-error`, run cleanup and escape `try`; explicit `.require(UInt)` still
+returns validation errors as data. Three focused controls pass. A broader
+346-test replay has 345 passes and one existing dynamic-module-call failure.
+That exact failure also reproduces before the correction at `f3e4eb405`:
+`ExprDynamicCall` has an unknown effect contract. It remains mandatory work;
+it is not waived by the targeted boundary above.
+
+Acceleration now runs six workstreams: ordinary generic bodies, runtime
+contracts, scalar slot proofs, imported module proofs, verification speed and
+corpus qualification. Lease change `b1c1b886d` permits at most two ordinary
+Cargo builds with disjoint output directories. Existing exclusive builds and
+performance windows still exclude them. Nineteen real-process controls pass,
+including same-output exclusion, module-alias safety and interruption cleanup.
+No lockfiles or job registry were added. The focused launcher rejects an exact
+test filter that selects zero tests. Final gates retain their existing scope.
+
 ## Current checkpoint
 
 Source `cac5a2ef9` passes the combined immutable replay: 323 passed, zero
