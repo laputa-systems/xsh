@@ -200,9 +200,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         usage: &[&[
             UsagePart::Opt("--summary"),
             UsagePart::Opt("--annotate"),
+            UsagePart::Opt("--compare-with"),
+            UsagePart::Opt("--candidate-root"),
             UsagePart::Args,
         ]],
         options: &[
+            OptionSpec {
+                names: &["--compare-with"],
+                arg: OptionArg::value_or_equals("ORIGINAL_ROOT"),
+                repeatable: false,
+                description: "Qualify candidate callable interfaces against original sources",
+            },
+            OptionSpec {
+                names: &["--candidate-root"],
+                arg: OptionArg::value_or_equals("CANDIDATE_ROOT"),
+                repeatable: false,
+                description: "Map candidate entries and imports to the original root",
+            },
             OptionSpec {
                 names: &["--summary"],
                 arg: OptionArg::Flag,
@@ -809,7 +823,7 @@ mod tests {
         assert_eq!(
             usage("check"),
             [
-                "xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]"
+                "xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [--compare-with ORIGINAL_ROOT] [--candidate-root CANDIDATE_ROOT] [PATH...]"
             ]
         );
         assert_eq!(

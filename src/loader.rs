@@ -671,20 +671,37 @@ pub fn parse_load_entry_source_arena_only_with_linkage(
     module_roots: Vec<PathBuf>,
     linkage: StdlibLinkage,
 ) -> (SourceMap, ArenaParseOutput) {
+    parse_load_entry_source_arena_only_with_overrides(file, entry_source, module_roots, linkage, Vec::new(), || false)
+        .expect("unconditional entry loading cannot be cancelled")
+}
+
+/// Loads replacement module bytes at their existing canonical paths, keeping
+/// entry parsing and standard-library linkage identical to ordinary loading.
+/// Returns `LoadCancelled` when the callback requests cancellation between
+/// sources or recursive imports.
+pub fn parse_load_entry_source_arena_only_with_overrides(
+    file: &str,
+    entry_source: EntrySource,
+    module_roots: Vec<PathBuf>,
+    linkage: StdlibLinkage,
+    source_overrides: Vec<(String, Vec<u8>)>,
+    mut cancellation_requested: impl FnMut() -> bool,
+) -> Result<(SourceMap, ArenaParseOutput), LoadCancelled> {
+    check_load_cancellation(&mut cancellation_requested)?;
     let EntrySource {
         mut sources,
         source_id,
         diagnostics,
     } = entry_source;
     if !diagnostics.is_empty() {
-        return (
+        return Ok((
             sources,
             ArenaParseOutput {
                 arena: Default::default(),
                 cst: LazyCst::empty(source_id),
                 diagnostics,
             },
-        );
+        ));
     }
     let text = sources
         .get(source_id)
@@ -693,13 +710,17 @@ pub fn parse_load_entry_source_arena_only_with_linkage(
     let token_capacity = text.len() / 4 + 1;
     let mut builder = ArenaProgramBuilder::with_token_capacity(token_capacity);
     let root = Parser::parse_source_into_arena_builder(source_id, text, &mut builder);
+    check_load_cancellation(&mut cancellation_requested)?;
     let cst = root.cst;
     let mut diagnostics = root.diagnostics;
     let root_statements = root.statements;
     let mut loaded = FxHashSet::default();
     if diagnostics.is_empty() {
         let mut loader = ModuleLoader::new(&mut sources, &mut builder);
-        let imports = loader.load_imports(Path::new(file), root_statements, &module_roots);
+        for (key, bytes) in source_overrides {
+            loader.set_source_override(key, bytes);
+        }
+        let imports = loader.load_imports_with_cancellation(Path::new(file), root_statements, &module_roots, &mut cancellation_requested)?;
         runtime_import_diagnostics(&imports, &loader.finish(), &mut loaded, &mut diagnostics);
         if linkage == StdlibLinkage::Prepare {
             let mut embedded = EmbeddedModuleLoader::new(&mut sources, &mut builder);
@@ -707,16 +728,17 @@ pub fn parse_load_entry_source_arena_only_with_linkage(
             diagnostics.extend(embedded.diagnostics);
         }
     }
+    check_load_cancellation(&mut cancellation_requested)?;
     let mut arena = builder.finish_with_statements(root_statements);
     arena.modules.retain(|module| module.internal || loaded.contains(&module.key));
-    (
+    Ok((
         sources,
         ArenaParseOutput {
             arena,
             cst,
             diagnostics,
         },
-    )
+    ))
 }
 
 /// Arena-only load into a shared source map (no old `Program`). Used by tooling
@@ -1599,6 +1621,26 @@ mod tests {
 
         assert!(matches!(result, Err(LoadCancelled)));
         assert_eq!(polls, 7, "cancellation is polled at the nested import");
+    }
+
+    #[test]
+    fn entry_source_overlays_propagate_cancellation_during_recursive_imports() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let entry = root.path().join("entry.xsh");
+        let shared = root.path().join("shared.xsh");
+        fs::write(&shared, "const original = 1\n").unwrap();
+        fs::write(root.path().join("nested.xsh"), "const nested = 2\n").unwrap();
+        let file = entry.to_str().unwrap();
+        let mut polls = 0;
+        let result = parse_load_entry_source_arena_only_with_overrides(
+            file, entry_source_from_text(file, "use shared\n".into()), Vec::new(), StdlibLinkage::Prepare,
+            vec![(module_key(&shared), b"use nested\n".to_vec())],
+            || { polls += 1; polls == 7 },
+        );
+        assert!(matches!(result, Err(LoadCancelled)));
+        assert_eq!(polls, 7);
     }
 
     #[test]

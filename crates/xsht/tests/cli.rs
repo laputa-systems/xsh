@@ -1001,3 +1001,284 @@ fn native_test_route_witness_environment_fake_transport_does_not_activate_captur
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stdout));
     assert!(!output_root.path().join("route-witness.json").exists());
 }
+
+fn compare_fixture(original: &[(&str, &str)], candidate: &[(&str, &str)]) -> std::process::Output {
+    let root = cli_tempdir();
+    let old = root.path().join("original");
+    let new = root.path().join("candidate");
+    fs::create_dir_all(&old).unwrap();
+    fs::create_dir_all(&new).unwrap();
+    for (directory, sources) in [(&old, original), (&new, candidate)] {
+        for (name, source) in sources {
+            let path = directory.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, source).unwrap();
+        }
+    }
+    let output = Command::new(test_bin!("xsht"))
+        .args(["check", "--compare-with"])
+        .arg(&old)
+        .arg("--candidate-root")
+        .arg(&new)
+        .arg(new.join("main.xsh"))
+        .output().expect("compare interfaces");
+    for (directory, sources) in [(&old, original), (&new, candidate)] {
+        for (name, source) in sources {
+            assert_eq!(fs::read_to_string(directory.join(name)).unwrap(), *source);
+        }
+    }
+    output
+}
+
+#[test]
+fn xsht_check_compare_preserves_imported_nominal_identity_and_candidate_bytes() {
+    let original = [
+        ("main.xsh", "use model as original\npure keep(value: original.Item) -> original.Item { value }\n"),
+        ("model.xsh", "##! Model values.\n## A model record.\nexport type Item = {value: Int}\n## Construct a record.\nexport pure make() -> Item { Item(value: 1) }\n"),
+    ];
+    let candidate = [
+        ("main.xsh", "use model as renamed\npure keep(value: renamed.Item) -> renamed.Item { value }\n"),
+        ("model.xsh", "##! Model values.\n## A model record.\nexport type Item = {value: Int}\n## Construct a record.\nexport pure make() -> Item { Item(value: 2) }\n"),
+    ];
+    let output = compare_fixture(&original, &candidate);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"xsht check interface qualification: 2 callable, 0 CLI\n");
+    let invalid_import = [candidate[0], ("model.xsh", "##! Model values.\n## A model record.\nexport type Item = {value: Int}\n## Construct a record.\nexport pure make() -> Item { Item(value: \"invalid candidate bytes\") }\n")];
+    let output = compare_fixture(&original, &invalid_import);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("model.xsh"));
+}
+
+#[test]
+fn xsht_check_compare_qualifies_generic_equivalence_and_concrete_instances() {
+    for (original, candidate) in [
+        ("pure identity(value) { value }\n", "pure identity(value) { value }\n"),
+        ("pure identity(value: Int) -> Int { value }\n", "pure identity(value) { value }\n"),
+    ] {
+        let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, b"xsht check interface qualification: 1 callable, 0 CLI\n");
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_declaration_and_contract_mutations() {
+    for (original, candidate, diagnostic) in [
+        ("pure keep(value: Int) -> Int { value }\npure removed() -> Int { 1 }\n", "pure keep(value: Int) -> Int { value }\n", "missing candidate declaration"),
+        ("pure keep(value: Int) -> Int { value }\n", "pure keep(value: Int) -> Int { value }\npure extra() -> Int { 1 }\n", "extra candidate declaration"),
+        ("pure keep(value: Int) -> Int { value }\n", "let value = 1\n", "missing candidate declaration"),
+        ("pure choose(left, right) { left }\n", "pure choose(left, right) { right }\n", "contract mismatch"),
+        ("pure keep(value: Int) -> Int { value }\n", "proc keep(value: Int) -> Int { return value }\n", "contract mismatch"),
+        ("proc perform() [] {}\n", "proc perform() [io] { print \"changed effect\" }\n", "contract mismatch"),
+        ("pure keep(value: Int) -> Int { value }\n", "pure keep(value: Int) -> Int { \"wrong\" }\n", "qualification failed"),
+        ("pure choose(value: Str) -> Int { 1 }\n", "pure choose(value) { value }\n", "cannot establish interface compatibility"),
+        ("let value = 1\n", "let value = 1\n", "must contain callable declarations"),
+    ] {
+        let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+        assert_eq!(output.status.code(), Some(2), "{original} => {candidate}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_unpaired_sources() {
+    for (original, candidate, diagnostic) in [
+        (vec![("main.xsh", "use helper\npure keep() -> Int { helper.value() }\n"), ("helper.xsh", "##! Integer values.\n## Return an integer.\nexport pure value() -> Int { 1 }\n")], vec![("main.xsh", "use helper\npure keep() -> Int { helper.value() }\n")], "missing candidate source"),
+        (vec![("main.xsh", "pure keep() -> Int { 1 }\n")], vec![("main.xsh", "pure keep() -> Int { 1 }\n"), ("extra.xsh", "pure extra() -> Int { 2 }\n")], "extra.xsh"),
+    ] {
+        let output = compare_fixture(&original, &candidate);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_incomplete_or_mutating_options() {
+    for args in [
+        vec!["check", "--compare-with", "."],
+        vec!["check", "--candidate-root", "."],
+        vec!["check", "--compare-with", ".", "--candidate-root", "."],
+        vec!["check", "--compare-with", ".", "--candidate-root", ".", "--annotate", "main.xsh"],
+        vec!["check", "--compare-with", ".", "--candidate-root", ".", "--summary", "main.xsh"],
+    ] {
+        let output = Command::new(test_bin!("xsht")).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+    }
+}
+
+#[test]
+fn xsht_check_compare_skips_irrelevant_symlinks_and_rejects_external_imports() {
+    use std::os::unix::fs::symlink;
+    let root = cli_tempdir();
+    let original = root.path().join("original");
+    let candidate = root.path().join("candidate");
+    fs::create_dir_all(&original).unwrap();
+    fs::create_dir_all(&candidate).unwrap();
+    for directory in [&original, &candidate] {
+        fs::write(directory.join("main.xsh"), "pure keep() -> Int { 1 }\n").unwrap();
+    }
+    symlink("absent", candidate.join("broken")).unwrap();
+    symlink(".", candidate.join("loop")).unwrap();
+    let compare = || Command::new(test_bin!("xsht"))
+        .args(["check", "--compare-with"])
+        .arg(&original).arg("--candidate-root").arg(&candidate)
+        .arg(candidate.join("main.xsh"))
+        .output().expect("compare source trees with symlinks");
+    let output = compare();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let external = root.path().join("external.xsh");
+    fs::write(&external, "##! Integer values.\n## Return an integer.\nexport pure value() -> Int { 1 }\n").unwrap();
+    for directory in [&original, &candidate] {
+        symlink(&external, directory.join("external.xsh")).unwrap();
+        fs::write(directory.join("main.xsh"), "use external\npure keep() -> Int { external.value() }\n").unwrap();
+    }
+    let output = compare();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("must be a file inside"), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn xsht_check_compare_qualifies_cli_parsing_contracts() {
+    let original = "cli main build(jobs: Int = 4, ...files: List[Str]) [] {}\ncli main status() [] {}\n";
+    let candidate = "type Unrelated = Int\ncli main status() [] {}\ncli main build(jobs = 4, ...files: List[Str]) [] {}\n";
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"xsht check interface qualification: 0 callable, 2 CLI\n");
+}
+
+#[test]
+fn xsht_check_compare_rejects_cli_parsing_mutations() {
+    let original = "cli main build(jobs: Int = 4, ...files: List[Str]) [] {}\n";
+    for candidate in [
+        "cli main build(jobs: Int = 5, ...files: List[Str]) [] {}\n",
+        "cli main build(jobs: UInt = 4, ...files: List[Str]) [] {}\n",
+        "cli main build(workers: Int = 4, ...files: List[Str]) [] {}\n",
+        "cli main build(jobs: Int = 4, files: List[Str] = []) [] {}\n",
+        "cli main check(jobs: Int = 4, ...files: List[Str]) [] {}\n",
+        "cli main build(jobs: Int = 4, ...files: List[Str]) [io] {}\n",
+    ] {
+        let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("CLI parsing contract") || stderr.contains("missing candidate declaration"), "{stderr}");
+    }
+    let original = "pure jobs() -> Int { 4 }\ncli main(count: Int = jobs()) [] {}\n";
+    let candidate = "pure jobs() -> Int { 4 }\ncli main(count: Int = jobs() + 0) [] {}\n";
+    let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CLI parsing contract"));
+}
+
+#[test]
+fn xsht_check_compare_accepts_equivalent_stream_and_nested_schema_contracts() {
+    for source in [
+        "stream numbers() [] -> Stream[Int] { yield 1 }\n",
+        "type Item = {value: Int}\ntype Make = pure(value: Int) -> Item\npure keep(make: Make) -> Make { make }\n",
+    ] {
+        let shifted = format!("type Unrelated = Int\n{source}");
+        let output = compare_fixture(&[("main.xsh", source)], &[("main.xsh", &shifted)]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_export_visibility_changes() {
+    for (original, candidate) in [
+        ("export pure keep() -> Int { 1 }\n", "pure keep() -> Int { 1 }\n"),
+        ("pure keep() -> Int { 1 }\n", "export pure keep() -> Int { 1 }\n"),
+    ] {
+        let control = compare_fixture(&[("main.xsh", original)], &[("main.xsh", original)]);
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+        let output = compare_fixture(&[("main.xsh", original)], &[("main.xsh", candidate)]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("export visibility mismatch"));
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_retargeted_reachable_symlinks() {
+    use std::os::unix::fs::symlink;
+    for directory_link in [false, true] {
+        let root = cli_tempdir();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        for directory in [&original, &candidate] {
+            fs::create_dir_all(directory).unwrap();
+            if directory_link {
+                fs::create_dir_all(directory.join("a")).unwrap();
+                fs::create_dir_all(directory.join("b")).unwrap();
+                fs::write(directory.join("a/item.xsh"), "##! Integer values.\n## Return an integer.\nexport pure value() -> Int { 1 }\n").unwrap();
+                fs::write(directory.join("b/item.xsh"), "##! String values.\n## Return a string.\nexport pure value() -> Str { \"wrong target\" }\n").unwrap();
+                fs::write(directory.join("main.xsh"), "use helper.item as h\nuse a.item as a\nuse b.item as b\npure keep() -> Int { h.value() }\n").unwrap();
+            } else {
+                fs::write(directory.join("a.xsh"), "##! Integer values.\n## Return an integer.\nexport pure value() -> Int { 1 }\n").unwrap();
+                fs::write(directory.join("b.xsh"), "##! String values.\n## Return a string.\nexport pure value() -> Str { \"wrong target\" }\n").unwrap();
+                fs::write(directory.join("main.xsh"), "use helper as h\nuse a\nuse b\npure keep() -> Int { h.value() }\n").unwrap();
+            }
+        }
+        if directory_link {
+            symlink("a", original.join("helper")).unwrap();
+            symlink("a", candidate.join("helper")).unwrap();
+        } else {
+            symlink("a.xsh", original.join("helper.xsh")).unwrap();
+            symlink("a.xsh", candidate.join("helper.xsh")).unwrap();
+        }
+        let compare = || Command::new(test_bin!("xsht"))
+            .args(["check", "--compare-with"]).arg(&original)
+            .arg("--candidate-root").arg(&candidate).arg(candidate.join("main.xsh"))
+            .output().expect("compare retargeted import symlinks");
+        let control = compare();
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+        if directory_link {
+            fs::remove_file(candidate.join("helper")).unwrap();
+            symlink("b", candidate.join("helper")).unwrap();
+        } else {
+            fs::remove_file(candidate.join("helper.xsh")).unwrap();
+            symlink("b.xsh", candidate.join("helper.xsh")).unwrap();
+        }
+        let output = compare();
+        assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("candidate import resolution differs"), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn xsht_check_compare_rejects_retargeted_entry_symlinks() {
+    use std::os::unix::fs::symlink;
+    for directory_link in [false, true] {
+        let root = cli_tempdir();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        for directory in [&original, &candidate] {
+            fs::create_dir_all(directory).unwrap();
+            if directory_link {
+                fs::create_dir_all(directory.join("a")).unwrap();
+                fs::create_dir_all(directory.join("b")).unwrap();
+                fs::write(directory.join("a/main.xsh"), "pure value() -> Int { 1 }\n").unwrap();
+                fs::write(directory.join("b/main.xsh"), "pure value() -> Str { \"other entry\" }\n").unwrap();
+                symlink("a", directory.join("entry")).unwrap();
+            } else {
+                fs::write(directory.join("a.xsh"), "pure value() -> Int { 1 }\n").unwrap();
+                fs::write(directory.join("b.xsh"), "pure value() -> Str { \"other entry\" }\n").unwrap();
+                symlink("a.xsh", directory.join("main.xsh")).unwrap();
+            }
+        }
+        let selected = candidate.join(if directory_link { "entry/main.xsh" } else { "main.xsh" });
+        let compare = || Command::new(test_bin!("xsht"))
+            .args(["check", "--compare-with"]).arg(&original)
+            .arg("--candidate-root").arg(&candidate).arg(&selected)
+            .output().expect("compare entry symlinks");
+        let control = compare();
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+        if directory_link {
+            fs::remove_file(candidate.join("entry")).unwrap();
+            symlink("b", candidate.join("entry")).unwrap();
+        } else {
+            fs::remove_file(candidate.join("main.xsh")).unwrap();
+            symlink("b.xsh", candidate.join("main.xsh")).unwrap();
+        }
+        let output = compare();
+        assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("candidate entry resolution differs"));
+    }
+}

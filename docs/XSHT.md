@@ -45,6 +45,39 @@ lowerability produce no diagnostics. Its default classes are defaulted
 parameters, inferred returns, and exported bindings; `locals` is opt-in. A
 bare `--annotate` uses `[check] annotate` when configured.
 
+`xsht check --compare-with ORIGINAL_ROOT --candidate-root CANDIDATE_ROOT
+CANDIDATE_PATH...` qualifies callable interfaces and CLI parsing contracts without writing either tree.
+Candidate entries must be existing `.xsh` files inside the explicit candidate
+root; directories are not entry selectors. Relative paths are relative to the
+working directory. Candidate sources map by their relative path to existing
+original files. Both complete programs use the original configuration and module
+roots, with candidate entry and import bytes loaded at the original canonical
+paths. This preserves nominal schema identity across the pair.
+
+Qualification requires equal nonempty declaration sets keyed by logical source
+path and name, preserving export visibility. Candidate imports must resolve to
+the same corresponding files, including through symlinks and configured module roots. Original generic contracts must remain equivalent; original
+concrete contracts must be instances of candidate contracts under the checker's
+canonical comparison. Missing, extra, mismatched, unresolved, or unsupported
+contracts fail with status 2 and a declaration diagnostic. CLI comparison covers
+command paths, parameter parser domains, defaults, rest parameters, and declared
+effect bounds. Help text and runtime behavior require separate paired tests.
+Internal host declarations
+are excluded from both sides. The command checks and validates lowerability of
+both programs; it does not establish runtime behavior equivalence.
+
+Both roots bound the source view: reachable user imports must stay inside the
+original root and have candidate files. Every candidate `.xsh` file must have
+an original counterpart; module additions and deletions are unsupported. Source
+discovery skips symlinks, `.git`, `.work`, `target`, and `node_modules`.
+Reachable module paths must resolve inside their respective roots.
+Candidate import validation fails when the current `XSH_MODULE_PATH` resolves
+a module outside `CANDIDATE_ROOT`. Embedded standard-library modules load
+normally. Successful comparison prints `xsht check interface qualification: N callable, M CLI`,
+counting unique declaration keys. At least one count must be nonzero.
+Comparison requires explicit entries and cannot combine with
+`--annotate` or `--summary`.
+
 The frontend facade exposes `CheckedCallableContract` through
 `CheckedFunctionDeclaration::callable_contract()` and
 `CheckOutput::callable_contract_at(span)`. These immutable views share the

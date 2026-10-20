@@ -80,6 +80,10 @@ pub struct CheckedFunctionDeclaration {
     pub parameter_spans: Vec<Span>,
 }
 
+impl CheckedFunctionDeclaration {
+    pub fn is_exported(&self) -> bool { self.exported }
+}
+
 /// Declaration data selected by the checker, before execution preparation.
 /// Projection into the compact tables neither resolves types nor emits errors.
 #[derive(Clone, Debug, Default)]

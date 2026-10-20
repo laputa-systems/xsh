@@ -1,3 +1,6 @@
+mod compare;
+pub use compare::compare_paths_timed;
+
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
     CliOutput, ConfigCache, DiscoveryFor, cancellation_output, discover_scripts,

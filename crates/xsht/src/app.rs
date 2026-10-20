@@ -1,7 +1,7 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
     AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
-    api_command, ast_script, check_paths_timed, desugar_script, format_files, grep_scripts,
+    api_command, ast_script, check_paths_timed, compare_paths_timed, desugar_script, format_files, grep_scripts,
     highlight_script, lint_files_timed, refactor_scripts, trace_script,
 };
 use crate::xsht::commands::{self, ParsedArgs};
@@ -57,6 +57,9 @@ pub fn main() -> ExitCode {
             print!("{text}");
             ExitCode::SUCCESS
         }
+        Ok(Command::Compare { original_root, candidate_root, paths }) => finish_timed("check", |timings| {
+            compare_paths_timed(&original_root, &candidate_root, &paths, timings)
+        }),
         Ok(Command::Check {
             paths,
             annotation_selection,
@@ -109,6 +112,11 @@ enum Command {
     Help(String),
     /// Static listing output, such as `xsht lint --list`.
     Text(String),
+    Compare {
+        original_root: String,
+        candidate_root: String,
+        paths: Vec<String>,
+    },
     Check {
         paths: Vec<String>,
         annotation_selection: Option<AnnotationSelection>,
@@ -287,6 +295,23 @@ fn parse_command(
 
 fn parse_check(args: &[String]) -> Result<Command, String> {
     parse_command("check", args, |parsed| {
+        match (parsed.value("--compare-with"), parsed.value("--candidate-root")) {
+            (Some(original_root), Some(candidate_root)) => {
+                if parsed.flag("--summary") || !parsed.occurrences("--annotate").is_empty() {
+                    return Err("`--compare-with` cannot be combined with `--annotate` or `--summary`".into());
+                }
+                if parsed.positionals.is_empty() {
+                    return Err("`--compare-with` requires candidate entry paths".into());
+                }
+                return Ok(Command::Compare {
+                    original_root: original_root.into(),
+                    candidate_root: candidate_root.into(),
+                    paths: parsed.positionals,
+                });
+            }
+            (None, None) => {}
+            _ => return Err("`--compare-with` and `--candidate-root` must be supplied together".into()),
+        }
         let annotation_selection = match parsed.occurrences("--annotate").last() {
             None => None,
             Some(None) => Some(AnnotationSelection::Configured),
