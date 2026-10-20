@@ -23,6 +23,19 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `f854ea6e2` passes the combined immutable replay: 295 passed, zero
+failed and zero ignored. Independent review approves canonical Path receiver
+contracts and physical Method and ModuleCall operand checks. Wrong receivers,
+destinations and filesystem bounds reject. Pure module signatures now carry
+empty effect metadata, while Path filesystem methods retain `fs`. The shared
+integer-mode and Path executable operation selects its actual contract.
+One generated dispatch table distinguishes public call support from executable
+internal routes. Method-only opcode forgeries reject. Legitimate JSON bridges
+pass, while a forged declaration contract or escaped instruction owner rejects.
+The 253-test focused replay includes unchanged public-support assertions and
+all signature controls. Matching products and actual docs and corpus replays
+remain required.
+
 Source `a320fbac9` passes the combined immutable replay: 287 passed, zero
 failed and zero ignored. Independent review approves source Stream-origin
 diagnostics and inferred Capture errors through returns, projections, bindings
