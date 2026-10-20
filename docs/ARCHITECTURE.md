@@ -122,7 +122,9 @@ independent producer proof. Generic shared-state restrictions remain separate.
 Quantified proc effects must be finite and include each selected callee's
 checked effect contract. `FullVerifier` derives ground owner requirements from
 physical operations and selected native contracts. Operations with different
-overload effects require proof of their actual operands. Unknown callee contracts
+overload effects require proof of their actual operands. For dynamic calls through
+module fields, `FullVerifier` proves arguments, results, and effects against the
+actual module's required export contract. Unknown callee contracts
 cannot satisfy finite effect bounds. Callable kind must match the prepared entry
 and return boundary. Pure body restrictions remain independent of capability
 sets, and captured errors remove only the Error requirement within their actual

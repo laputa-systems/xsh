@@ -5,7 +5,7 @@ use super::{
     decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
     merge_list_item_types,
 };
-use crate::sema::types::ConditionRole;
+use crate::sema::types::{ConditionRole, ModuleExportType, TypedCallable};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 #[cfg(test)]
 use std::cell::Cell;
@@ -278,11 +278,7 @@ impl GroundProducerIndex {
                 for instruction in range.clone() {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
-            if super::super::verify_effects::needs_operand_proof(decoder.store, instruction)?
-                && (decoder.store.tags[instruction] != FullTag::ExprDynamicCall
-                    || super::super::IrFunctionId::from_raw(decoder.owner).filter(|_| super::super::driver_owner_index(decoder.owner).is_none())
-                        .is_some_and(|id| decoder.store.function_metadata[id.index()].callable_kind == crate::sema::types::CallableKind::Pure))
-            { self.effect_operations.push(instruction); }
+            if super::super::verify_effects::needs_operand_proof(decoder.store, instruction)? { self.effect_operations.push(instruction); }
             if has_condition_inputs(decoder.store.tags[instruction]) {
                 record_condition_inputs(decoder, instruction, &mut self.conditions, |amount| work.borrow_mut().charge(amount))?;
             }
@@ -710,7 +706,7 @@ struct ProducerProof<'a> {
     index: &'a GroundProducerIndex,
     pending: Vec<Obligation>,
     functions: BTreeSet<usize>,
-    capture_owners: BTreeSet<u32>,
+    contract_owners: BTreeSet<u32>,
     expressions: BTreeMap<(u32, usize), Vec<(Arc<Type>, bool)>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: BTreeSet<(u32, usize)>,
@@ -735,7 +731,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), capture_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
     for &(owner, instruction, ty) in &index.storage_reads {
         let ty = proof.contract_type(ty)?;
@@ -748,7 +744,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     }
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
-        if store.tags[instruction] == FullTag::ExprCapture { proof.capture_owner_contract(owner)?; }
+        if store.tags[instruction] == FullTag::ExprCapture { proof.producer_owner_contract(owner)?; }
         proof.expression(owner, instruction, Arc::new(Type::Any), false);
     }
     for &fact_index in &index.checked_producers {
@@ -834,7 +830,7 @@ fn call_parts(decoder: &FullDecoder<'_>, instruction: usize) -> Result<(usize, V
 
 fn call_values(decoder: &FullDecoder<'_>, instruction: usize) -> Result<Vec<ProducerArgument>, IrVerifyError> {
     let arguments = match decoder.expression_view(instruction)? {
-        schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } | schema::ExprView::TypedCall { args, .. } => args,
+        schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } | schema::ExprView::TypedCall { args, .. } | schema::ExprView::DynamicCall { args, .. } => args,
         _ => return Err(IrVerifyError::new("ground producer has no callable argument row")),
     };
     let mut result = Vec::new();
@@ -849,12 +845,30 @@ fn call_values(decoder: &FullDecoder<'_>, instruction: usize) -> Result<Vec<Prod
 }
 
 impl<'a> ProducerProof<'a> {
-    fn require_native_effects(&self, decoder: &FullDecoder<'_>, instruction: usize, effects: &[crate::syntax::node::Effect], pure: bool) -> Result<(), IrVerifyError> {
-        super::super::verify_effects::require_native(decoder, instruction, effects, pure, |at| {
-            let owner = self.index.owners.get(&decoder.owner).ok_or_else(|| IrVerifyError::new("native effect proof has no executable owner"))?;
-            let offset = at.checked_sub(owner.range.start).ok_or_else(|| IrVerifyError::new("native effect proof leaves its owner"))?;
-            owner.parents.get(offset).copied().ok_or_else(|| IrVerifyError::new("native effect proof parent is out of bounds"))
+    fn require_callable_effects(&self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
+        super::super::verify_effects::require_callable(decoder, instruction, effects, pure, |at| {
+            let owner = self.index.owners.get(&decoder.owner).ok_or_else(|| IrVerifyError::new("callable effect proof has no executable owner"))?;
+            let offset = at.checked_sub(owner.range.start).ok_or_else(|| IrVerifyError::new("callable effect proof leaves its owner"))?;
+            owner.parents.get(offset).copied().ok_or_else(|| IrVerifyError::new("callable effect proof parent is out of bounds"))
         })
+    }
+
+    fn module_callable(&mut self, decoder: &FullDecoder<'a>, callee: usize) -> Result<Option<(usize, Arc<Type>, TypedCallable)>, IrVerifyError> {
+        let schema::ExprView::Field { base, name, .. } = decoder.expression_view(callee)? else { return Ok(None) };
+        let base = base.raw() as usize;
+        let Some(receiver) = self.need_context(decoder, base)? else { return Ok(None) };
+        let Type::Module(module) = receiver.unvalidated() else { return Ok(None) };
+        let (pure, signature) = match module.exports.get(&Name::intern(name)) {
+            Some(ModuleExportType::Pure { sig, optional: false }) => (true, sig),
+            Some(ModuleExportType::Proc { sig, optional: false }) => (false, sig),
+            _ => return Ok(None),
+        };
+        ensure_closed_type(&receiver)?;
+        self.budget.charge(signature.params.len() + signature.effects.as_ref().map_or(0, Vec::len) + 1)?;
+        self.budget.charge_clone(&signature.return_ty)?;
+        for parameter in &signature.params { self.budget.charge_clone(&parameter.ty)?; }
+        let callable = TypedCallable { pure, sig: signature.clone() };
+        Ok(Some((base, receiver, callable)))
     }
 
     fn ground_type(&mut self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
@@ -1182,6 +1196,10 @@ impl<'a> ProducerProof<'a> {
                 };
                 self.budget.charge_clone(&callable.sig.return_ty)?;
                 Some((*callable.sig.return_ty).clone())
+            }
+            schema::ExprView::DynamicCall { callee, .. } => {
+                let Some((_, _, callable)) = self.module_callable(decoder, callee.raw() as usize)? else { return Ok(None) };
+                Some(*callable.sig.return_ty)
             }
 
             schema::ExprView::Index { base, .. } | schema::ExprView::IndexFromEnd { base, .. } => {
@@ -1869,11 +1887,20 @@ impl<'a> ProducerProof<'a> {
         if super::super::driver_owner_index(decoder.owner).is_none() && matches!(self.store.functions[function_index(decoder.owner)?].contract, FullCallableContract::Scheme(_)) { return Ok(()); }
         let FullCallableContract::Ground(signature) = self.store.functions[function].contract else { return Ok(()) };
         let count = self.store.semantic.signature_param_count(signature)?;
+        let store = self.store;
+        self.call_arguments_with(decoder, arguments, count,
+            |position| store.semantic.signature_param(signature, position).map(|(_, _, flags)| flags),
+            |proof, position| proof.contract_type(store.semantic.signature_param(signature, position)?.1))
+    }
+
+    fn call_arguments_with(&mut self, decoder: &FullDecoder<'a>, arguments: &[ProducerArgument], count: usize,
+        flags_at: impl Fn(usize) -> Result<u32, IrVerifyError>,
+        mut type_at: impl FnMut(&mut Self, usize) -> Result<Arc<Type>, IrVerifyError>) -> Result<(), IrVerifyError> {
         let mut position = 0;
         for &argument in arguments {
             if position >= count { return Err(IrVerifyError::new("ground producer call has excess arguments")); }
-            let (_, expected, flags) = self.store.semantic.signature_param(signature, position)?;
-            let expected = self.contract_type(expected)?;
+            let flags = flags_at(position)?;
+            let expected = type_at(self, position)?;
             let rest = flags & 2 != 0;
             match argument {
                 ProducerArgument::Default(slot) => {
@@ -1894,7 +1921,7 @@ impl<'a> ProducerProof<'a> {
             if !rest { position += 1; }
         }
         for index in position..count {
-            let (_, _, flags) = self.store.semantic.signature_param(signature, index)?;
+            let flags = flags_at(index)?;
             if flags & 3 == 0 { return Err(IrVerifyError::new("ground producer call omits a required argument")); }
         }
         Ok(())
@@ -2078,10 +2105,28 @@ impl<'a> ProducerProof<'a> {
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, predicate.method_name(), &[needle.raw() as usize], &expected)
             }
             schema::ExprView::DynamicCall { callee, .. } => {
+                if let Some((base, receiver, callable)) = self.module_callable(&decoder, callee.raw() as usize)? {
+                    self.require_callable_effects(&decoder, instruction, callable.sig.effects.as_deref(), callable.pure)?;
+                    if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("module callable result disagrees with its export contract")); }
+                    self.expression(owner, base, receiver, false);
+                    self.producer_owner_contract(owner)?;
+                    let arguments = call_values(&decoder, instruction)?;
+                    return self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(),
+                        |position| {
+                            let parameter = &callable.sig.params[position];
+                            Ok(u32::from(parameter.defaulted) | (u32::from(parameter.rest) << 1))
+                        },
+                        |proof, position| {
+                            let ty = &callable.sig.params[position].ty;
+                            proof.budget.charge_clone(ty)?;
+                            Ok(Arc::new(ty.clone()))
+                        });
+                }
                 if expected.as_ref() != &Type::Any { return Err(IrVerifyError::new("erased callable result has no concrete producer contract")); }
-                if super::super::driver_owner_index(owner).is_none()
-                    && self.store.function_metadata[function_index(owner)?].callable_kind == crate::sema::types::CallableKind::Pure
-                {
+                let pure = super::super::driver_owner_index(owner).is_none()
+                    && self.store.function_metadata[function_index(owner)?].callable_kind == crate::sema::types::CallableKind::Pure;
+                self.require_callable_effects(&decoder, instruction, None, pure)?;
+                if pure {
                     self.expression(owner, callee.raw() as usize, Arc::new(Type::Pure), false);
                 }
                 Ok(())
@@ -2352,8 +2397,8 @@ impl<'a> ProducerProof<'a> {
         }
     }
 
-    fn capture_owner_contract(&mut self, owner: u32) -> Result<(), IrVerifyError> {
-        if !self.capture_owners.insert(owner) { return Ok(()); }
+    fn producer_owner_contract(&mut self, owner: u32) -> Result<(), IrVerifyError> {
+        if !self.contract_owners.insert(owner) { return Ok(()); }
         self.budget.charge(1)?;
         let Some(step) = super::super::driver_owner_index(owner) else {
             self.function(function_index(owner)?);
@@ -2710,7 +2755,7 @@ impl<'a> ProducerProof<'a> {
             };
             (result, signature.params.iter().map(|parameter| (parameter.ty.clone(), parameter.defaulted)).collect::<Vec<_>>(), signature.effects.to_vec(), signature.pure)
         };
-        self.require_native_effects(&decoder, instruction, &effects, pure)?;
+        self.require_callable_effects(&decoder, instruction, Some(&effects), pure)?;
         if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground native result disagrees with its operation contract")); }
         if arguments.len() > parameters.len() { return Err(IrVerifyError::new("ground native operation has excess arguments")); }
         for (position, (parameter, defaulted)) in parameters.into_iter().enumerate() {
@@ -2761,7 +2806,7 @@ impl<'a> ProducerProof<'a> {
         let Some(crate::modules::signature::NativeEffectRule::Uniform { effects, pure }) = crate::modules::signature::native_static_operation_effect_rule(op) else {
             return Err(IrVerifyError::new("command constructor has no uniform native effect contract"));
         };
-        self.require_native_effects(decoder, instruction, effects, pure)?;
+        self.require_callable_effects(decoder, instruction, Some(effects), pure)?;
         if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
         let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,
             command.stdout, command.stderr, command.stdout_append, command.stderr_append, command.timeout,
@@ -2838,7 +2883,7 @@ impl<'a> ProducerProof<'a> {
             if selected.replace(signature).is_some() { return Err(IrVerifyError::new("ground method parameter contract is ambiguous")); }
         }
         let signature = selected.ok_or_else(|| IrVerifyError::new("ground method arguments do not match a registered contract"))?;
-        self.require_native_effects(decoder, instruction, signature.effects, signature.pure)?;
+        self.require_callable_effects(decoder, instruction, Some(signature.effects), signature.pure)?;
         let result = decoder.checked_method_return_type(receiver_type.as_ref(), name, arguments)?
             .ok_or_else(|| IrVerifyError::new("ground method has no resolved return contract"))?;
         if !result.matches_expected(expected) {

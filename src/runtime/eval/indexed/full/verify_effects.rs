@@ -81,13 +81,13 @@ pub(super) fn function_effects(store: &FullStore, index: usize) -> Result<Option
     Ok(OwnerEffects::for_function(store, index)?.effects)
 }
 
-pub(super) fn require_native(decoder: &FullDecoder<'_>, instruction: usize, effects: &[Effect], pure: bool, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<(), IrVerifyError> {
+pub(super) fn require_callable(decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[Effect]>, pure: bool, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<(), IrVerifyError> {
     let Some(function) = super::IrFunctionId::from_raw(decoder.owner) else { return Ok(()) };
     if super::driver_owner_index(decoder.owner).is_some() { return Ok(()); }
     let owner = OwnerEffects::for_function(decoder.store, function.index())?;
-    let captured = owner.kind != CallableKind::Pure && effects.contains(&Effect::Error)
+    let captured = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
         && captures_error(decoder, instruction, &mut BTreeMap::new(), parent_of)?;
-    owner.require(Some(effects), pure, captured)
+    owner.require(effects, pure, captured)
 }
 
 pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<(), IrVerifyError> {
@@ -150,9 +150,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
                 let effects = decoder.store.semantic.signature_effects(signature)?;
                 require(instruction, effects.as_deref().or(if pure { Some(&[]) } else { None }), pure, &mut captured)?;
             }
-            FullTag::ExprDynamicCall => {
-                require(instruction, None, owner.kind == CallableKind::Pure, &mut captured)?;
-            }
+            FullTag::ExprDynamicCall => {}
             FullTag::ExprExternalCall => require(instruction, None, false, &mut captured)?,
             FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
                 require(instruction, Some(&[Effect::Fs]), false, &mut captured)?;
