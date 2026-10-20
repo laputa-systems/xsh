@@ -9853,6 +9853,7 @@ impl<'a> FullDecoder<'a> {
                 Box::new(check.ty.materialize()?),
                 Box::new(Type::Error),
             ))),
+            schema::ExprView::CheckedValue { check, .. } => Ok(Some(check.ty.materialize()?)),
             schema::ExprView::ValueBlock { mut body, .. } => {
                 match self.derive_checked_block_tail_expression(&mut body)? {
                     Some(value) => self.derive_checked_expression_type(value),
@@ -13563,7 +13564,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
             | schema::ExprView::Require { .. }
-            | schema::ExprView::CheckedValue { .. }
             | schema::ExprView::RunCapture(_)
             | schema::ExprView::RunPipeline { .. }
             | schema::ExprView::SpawnRun(_)
@@ -20803,6 +20803,49 @@ assert first([], [7])? == {key: "", text: "empty"}
     }
 
     #[test]
+    fn typed_record_storage_preserves_empty_effect_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("typed-record-storage-effects.xsh", concat!(
+                "type Row = { label: Str, value: Int }\n",
+                "proc stored() [] -> Int { let row: Row = { label: \"kept\", value: 7 }; row.value }\n",
+                "assert stored() == 7\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn explicit_local_discards_preserve_result_values_as_data() {
+        run_with_large_stack(|| {
+            let program = fixture("local-discard-results.xsh", concat!(
+                "pure failure() -> Result[Unit, Str] { Err(\"dropped\") }\n",
+                "proc discard() [] -> Int { let _ = failure(); 7 }\n",
+                "proc propagate() [error] -> Result[Int, Str] { let _ = failure()?; Ok(7) }\n",
+                "assert discard() == 7\n",
+                "let expected: Result[Int, Str] = Err(\"dropped\")\n",
+                "assert propagate() == expected\n",
+            ));
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
     fn generic_proc_results_preserve_symbolic_success_after_frontend_disposal() {
         run_with_large_stack(|| {
             let program = fixture("generic-proc-results.xsh", concat!(
@@ -24753,8 +24796,8 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             )
             .expect("annotated list caller exists")
             .unwrap_err();
-        assert_eq!(error.kind, "schema");
-        assert!(error.message.contains("expected List[Int]"), "{}", error.message);
+        assert_eq!(error.kind, "type-error");
+        assert!(error.message.contains("List[Int]"), "{}", error.message);
     }
 
     #[test]
@@ -28069,7 +28112,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     fn generic_pure_unsigned_boundaries_preserve_failure_transport_and_spans() {
         run_with_large_stack(|| {
             for (return_type, body, helper, failure, local) in [
-                ("Int", "let key: UInt = minus(row.key); key", "", "schema", true),
+                ("Int", "let key: UInt = minus(row.key); key", "", "type-error", true),
                 ("Result[UInt]", "minus(row.key)", "", "type-error", false),
                 ("Output", "make(row.key)", "type SourceOutput = {key: Int}\ntype Output = {key: UInt}\npure make(value: Int) -> SourceOutput { {key: value - 1} }\n", "type-error", false),
             ] {

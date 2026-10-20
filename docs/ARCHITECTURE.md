@@ -85,6 +85,11 @@ payloads, including contextual collections and lexical writers. Verification
 derives producer demand once from selected operations and constructor facts;
 its owner indexes and loop analysis share that transient demand.
 
+Explicit discard bindings consume values without propagating Result errors.
+Static storage annotations use checked-value validation; a failed annotation is
+a fatal type error. Explicit schema requirements retain their Result transport.
+Module storage checks include the selected callable export contracts.
+
 Quantified proc effects must be finite and include each selected callee's
 checked effect contract. Ground callable effect clauses remain an existing
 trust boundary. Reconstructing language effects from indexed ground bodies,

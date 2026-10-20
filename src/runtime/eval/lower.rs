@@ -4503,8 +4503,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(push_build_row!(
                         self,
                         stmt,
-                        BuildStmtRow::Expr {
-                            value: self.lower_expr(value, slots, current_function, item_slot)?,
+                        BuildStmtRow::LetRecord {
+                            source: self.lower_expr(value, slots, current_function, item_slot)?,
+                            target: LoweredCompTarget::Discard,
                             span: self.program.arena.stmt(id).span,
                         }
                     ));
@@ -4595,13 +4596,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(push_build_row!(
                         self,
                         stmt,
-                        BuildStmtRow::Expr {
-                            value: self.lower_run_binding_value(
+                        BuildStmtRow::LetRecord {
+                            source: self.lower_run_binding_value(
                                 run,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
+                            target: LoweredCompTarget::Discard,
                             span: self.program.arena.stmt(id).span,
                         }
                     ));

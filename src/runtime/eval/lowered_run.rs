@@ -3852,15 +3852,23 @@ pub(in crate::runtime::eval) fn bind_indexed_comp_target(
     )
 }
 
-fn checked_unsigned_value(
+fn checked_storage_value(
+    evaluator: &Evaluator,
     value: &LoweredValue,
     check: &super::LoweredTypeCheck,
     span: Span,
 ) -> Result<(), RuntimeError> {
+    if let Some(checked) = super::require::require_module_contract(evaluator, value, &check.ty, "$", span) {
+        return checked;
+    }
     if !value_matches_static_type(ValueView::Lowered(value), &check.ty) {
         return Err(RuntimeError::new(
             "type-error",
-            format!("value violates UInt constraint in {}", check.name),
+            if check.ty.has_unsigned_constraint() {
+                format!("value violates UInt constraint in {}", check.name)
+            } else {
+                format!("value violates {} constraint in {}", check.ty, check.name)
+            },
         )
         .with_span(span));
     }
@@ -8648,5 +8656,38 @@ mod stream_item_attribution_tests {
                 && error.kind == "division-by-zero"
                 && error.message == "division by zero"
         ));
+    }
+}
+
+#[cfg(test)]
+mod checked_storage_tests {
+    use super::*;
+
+    #[test]
+    fn module_storage_checks_captured_callable_signatures() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _symbols = owner.enter();
+        let name = Name::intern("item");
+        let function = crate::runtime::value::FunctionName::name(name);
+        let signature = |return_ty| crate::sema::types::CallableType {
+            params: Vec::new(), return_ty: Box::new(return_ty), effects: None,
+        };
+        let check = super::super::LoweredTypeCheck {
+            schema: None,
+            ty: Type::Module(Arc::new(crate::sema::types::ModuleType::open(BTreeMap::from([
+                (name, crate::sema::types::ModuleExportType::Pure { sig: signature(Type::Int), optional: false }),
+            ])))),
+            name: Arc::from("Service"),
+        };
+        let value = LoweredValue::Module(Arc::new(BTreeMap::from([
+            (Arc::from("item"), LoweredValue::Pure(function)),
+        ])));
+        let mut evaluator = Evaluator::new(Vec::new());
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { pure: true, sig: signature(Type::Int) });
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        checked_storage_value(&evaluator, &value, &check, span).unwrap();
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { pure: true, sig: signature(Type::Str) });
+        let error = checked_storage_value(&evaluator, &value, &check, span).unwrap_err();
+        assert!(error.message.contains("mismatched export `item`"), "{}", error.message);
     }
 }

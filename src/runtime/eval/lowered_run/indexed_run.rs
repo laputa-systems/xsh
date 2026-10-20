@@ -1722,7 +1722,7 @@ impl Evaluator {
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
-                        super::checked_unsigned_value(&value, &check, span)?;
+                        super::checked_storage_value(self, &value, &check, span)?;
                         ControlFlow::Continue(value)
                     }
                     ControlFlow::Break(value) => ControlFlow::Break(value),

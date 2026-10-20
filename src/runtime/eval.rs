@@ -1524,6 +1524,7 @@ pub(in crate::runtime::eval) fn driver_annotation_requires_validation(
     runtime_type: LoweredType,
     annotation: &Type,
 ) -> bool {
+    if *annotation == Type::Any { return false; }
     matches!(
         runtime_type,
         LoweredType::Error

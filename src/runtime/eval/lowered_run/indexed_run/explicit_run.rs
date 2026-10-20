@@ -9489,7 +9489,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::CheckedValue { check, span, next } => match value {
                 FrameValue::Value(value) => {
-                    super::super::checked_unsigned_value(&value, &check, span)?;
+                    super::super::checked_storage_value(self.evaluator, &value, &check, span)?;
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),

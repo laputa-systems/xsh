@@ -1761,7 +1761,15 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::PreparedConstant(value) => decoder.verify_prepared_constant_type(value, &expected, &mut |amount| self.budget.charge(amount)),
-            schema::ExprView::Require { check, .. } | schema::ExprView::CheckedValue { check, .. } => {
+            schema::ExprView::CheckedValue { check, value, .. } => {
+                let checked = self.contract_type(check.ty.id)?;
+                if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
+                if check.schema.is_some() || !super::runtime_complete_storage_check_type(&checked, &mut self.budget)? {
+                    self.expression(owner, value.raw() as usize, checked, false);
+                }
+                Ok(())
+            }
+            schema::ExprView::Require { check, .. } => {
                 let checked = check.ty.materialize()?;
                 if !checked.matches_expected(&expected) && !matches!(expected.as_ref(), Type::Result(ok, _) if checked.matches_expected(ok)) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 Ok(())

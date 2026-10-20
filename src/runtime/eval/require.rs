@@ -390,7 +390,7 @@ impl PreparedSchema {
 /// The contract check for a module value required as a module contract, or
 /// `None` when the pair is not a module and a contract and the ordinary type
 /// test applies.
-fn require_module_contract(
+pub(super) fn require_module_contract(
     evaluator: &Evaluator,
     value: &LoweredValue,
     ty: &Type,

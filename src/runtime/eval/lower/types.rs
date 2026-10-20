@@ -500,18 +500,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::Try {
-                    value: push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Require {
-                            value: lowered,
-                            check,
-                            span,
-                        }
-                    ),
-                    span
-                }
+                BuildExprRow::CheckedValue { value: lowered, check, span }
             ))
         } else {
             Some(lowered)

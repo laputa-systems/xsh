@@ -1141,7 +1141,7 @@ fn verify_body_expression(
         schema::ExprView::CheckedValue { value, check, .. } => {
             let actual = child(value)?;
             let expected = check.ty.materialize()?;
-            if check.schema.is_some() || !expected.has_unsigned_constraint() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_unsigned_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic unsigned argument check is not a complete checked contract")); }
+            if check.schema.is_some() || !expected.has_unsigned_constraint() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic unsigned argument check is not a complete checked contract")); }
             SchemeType::Ground(expected)
         }
         schema::ExprView::Require { value, check, .. } => {
@@ -2540,9 +2540,7 @@ fn checked_argument_type_inner(
             .semantic
             .to_type_with_budget(check.ty.id, &mut materialization.semantic_types)?;
         ensure_closed_type(&checked_type)?;
-        if !checked_type.has_unsigned_constraint()
-            || !runtime_complete_unsigned_check_type(&checked_type, materialization, 0)?
-        {
+        if !runtime_complete_value_check_type(&checked_type, materialization, 0)? {
             return Ok(None);
         }
         return Ok(Some(CheckedArgumentType::Known(checked_type)));
@@ -3048,10 +3046,19 @@ fn initializer_types_match_invariant(
     }
 }
 
-fn runtime_complete_unsigned_check_type(
+fn runtime_complete_value_check_type(ty: &Type, materialization: &mut SchemeInstantiationBudget, depth: usize) -> Result<bool, IrVerifyError> {
+    runtime_complete_check_type(ty, materialization, depth, false)
+}
+
+fn runtime_complete_storage_check_type(ty: &Type, materialization: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    runtime_complete_check_type(ty, materialization, 0, true)
+}
+
+fn runtime_complete_check_type(
     ty: &Type,
     materialization: &mut SchemeInstantiationBudget,
     depth: usize,
+    allow_dynamic: bool,
 ) -> Result<bool, IrVerifyError> {
     if depth > 128 {
         return Err(IrVerifyError::new(
@@ -3075,9 +3082,6 @@ fn runtime_complete_unsigned_check_type(
         | Type::Status
         | Type::EnvPathList
         | Type::Error
-        | Type::ErrorFamily(_)
-        | Type::ErrorVariant { .. }
-        | Type::ErrorFacet(_)
         | Type::ProcessError
         | Type::Pure
         | Type::Proc
@@ -3087,26 +3091,26 @@ fn runtime_complete_unsigned_check_type(
         | Type::FsRoot
         | Type::FsLock
         | Type::Unit
-        | Type::Tag(_) => true,
+        => true,
         Type::List(item) | Type::Optional(item) => {
-            runtime_complete_unsigned_check_type(item, materialization, depth + 1)?
+            runtime_complete_check_type(item, materialization, depth + 1, allow_dynamic)?
         }
         Type::Map(key, value) => {
             key.is_map_key()
-                && runtime_complete_unsigned_check_type(value, materialization, depth + 1)?
+                && runtime_complete_check_type(value, materialization, depth + 1, allow_dynamic)?
         }
         Type::Set(item) => item.is_map_key(),
         Type::Record(fields) => {
             let mut complete = true;
             for field_type in fields.values() {
                 complete &=
-                    runtime_complete_unsigned_check_type(field_type, materialization, depth + 1)?;
+                    runtime_complete_check_type(field_type, materialization, depth + 1, allow_dynamic)?;
             }
             complete
         }
         Type::Result(success, error) => {
-            runtime_complete_unsigned_check_type(success, materialization, depth + 1)?
-                && runtime_complete_unsigned_check_type(error, materialization, depth + 1)?
+            runtime_complete_check_type(success, materialization, depth + 1, allow_dynamic)?
+                && runtime_complete_check_type(error, materialization, depth + 1, allow_dynamic)?
         }
         Type::Union(members) => {
             if members.is_empty() {
@@ -3115,28 +3119,33 @@ fn runtime_complete_unsigned_check_type(
                 let mut complete = true;
                 for member in members {
                     complete &=
-                        runtime_complete_unsigned_check_type(member, materialization, depth + 1)?;
+                        runtime_complete_check_type(member, materialization, depth + 1, allow_dynamic)?;
                 }
                 complete
             }
         }
         Type::Validated(validated) => match validated.validation() {
             Validation::Nominal(_) => false,
-            _ => runtime_complete_unsigned_check_type(
+            _ => runtime_complete_check_type(
                 validated.base(),
                 materialization,
                 depth + 1,
+                allow_dynamic,
             )?,
         },
+        Type::Any => allow_dynamic,
         Type::BuiltinParameter(_)
         | Type::Inference(_)
-        | Type::Any
         | Type::Unknown
         | Type::Invalid
         | Type::Stream(_)
         | Type::Module(_)
         | Type::DynamicModule
-        | Type::Callable(_) => false,
+        | Type::Callable(_)
+        | Type::Tag(_)
+        | Type::ErrorFamily(_)
+        | Type::ErrorVariant { .. }
+        | Type::ErrorFacet(_) => false,
     })
 }
 
