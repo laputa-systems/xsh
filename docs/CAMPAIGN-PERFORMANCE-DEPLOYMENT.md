@@ -23,6 +23,17 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `0a948eab4` passes the combined immutable replay: 213 passed, zero
+failed and zero ignored. Independent review approves command-argument
+verification. Command constructors authenticate targets, argument words and
+every supplied option against native contracts, including without Result
+constructors or optional type hints. Known word lists retain their invariant
+storage contract; heterogeneous literals prove each element. Dynamic list
+reads, incompatible operands and forged literal elements reject. Validation
+wrappers and the existing verification work caps remain intact.
+Ground and generic try-capture transport, ordinary generic-body frontiers,
+matching products and complete capability/corpus qualification remain pending.
+
 Practical corpus adapter `b84a128ef` now applies semantic interface and body
 comparison to the same 12 XSH and three Laputa roots used by paired checking.
 Its sixth runtime selector covers AWK include diagnostics and both changed
@@ -41,7 +52,7 @@ writer corruption rejects. Canonical builtin templates preserve contextual
 empty-container types. Returned fallbacks preserve implicit scalar lifting
 and nested Result data. The mixed-effect regression now corrupts an actual
 operand instead of requiring optional type evidence.
-Process argument-vector and try-capture transport remain required repairs.
+Try-capture transport remains a required repair.
 Matching products, native replay and complete capability/corpus qualification
 remain pending.
 
