@@ -32044,11 +32044,11 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/typed-causes.xsh");
         let program = fixture("typed-causes.xsh", source);
         FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "translated_cause");
         let row = program
             .store
-            .tags
-            .iter()
-            .position(|tag| *tag == FullTag::ExprErr)
+            .function_instruction_range(owner).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprErr)
             .unwrap();
         let range = program.store.data[row]
             .range()
@@ -32063,30 +32063,42 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         let mut cycle = program.clone();
         cycle.store.extra[range.start + 2] = row as u32;
         assert!(FullVerifier::verify(&cycle).is_err());
+        let unrelated = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let cause = program.store.extra[range.start + 2] as usize;
+        let mut wrong_cause = program.clone();
+        wrong_cause.store.tags[cause] = FullTag::ExprInt;
+        wrong_cause.store.data[cause] = program.store.data[unrelated];
+        let failure = FullVerifier::verify(&wrong_cause).unwrap_err();
+        assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
         let program = Arc::new(program);
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-        evaluator.indexed_program = Some(Arc::clone(&program));
-        let result = evaluator
-            .call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "translated_cause")),
-                LoweredFunctionKind::Pure,
-                &[],
-                Span::at(program.store.source_id, 0),
-            )
-            .expect("typed constructor function exists")
-            .unwrap();
-        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else {
-            panic!("constructor returns Result data")
-        };
-        let Value::Error(outer) = error.as_ref() else {
-            panic!("nominal outer error")
-        };
-        assert_eq!(outer.family, "OuterCauseError");
-        let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else {
-            panic!("typed cause")
-        };
-        assert_eq!(inner.family, "InnerCauseError");
-        assert_eq!(inner.span, None);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "translated_cause")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::at(program.store.source_id, 0),
+                )
+                .expect("typed constructor function exists")
+                .unwrap();
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else {
+                panic!("constructor returns Result data")
+            };
+            let Value::Error(outer) = error.as_ref() else {
+                panic!("nominal outer error")
+            };
+            assert_eq!(outer.family, "OuterCauseError");
+            assert_eq!(outer.message, "outer");
+            let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else {
+                panic!("typed cause")
+            };
+            assert_eq!(inner.family, "InnerCauseError");
+            assert_eq!(inner.message, "inner");
+            assert_eq!(inner.span, None);
+        }
     }
 
     #[test]

@@ -5706,8 +5706,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let contract_producer = if let Some(selected) = checked_result_constructor {
             let scratch = self.scratch.borrow();
             let mut producer = lowered;
-            while let Some(BuildExprRow::CheckedValue { value, .. }) = scratch.expressions.get(producer.index()) {
-                producer = *value;
+            for _ in 0..scratch.expressions.len() {
+                producer = match scratch.expressions.get(producer.index()) {
+                    Some(BuildExprRow::CheckedValue { value, .. }) => *value,
+                    Some(BuildExprRow::MatchExpr { arms, .. }) => match arms.as_slice() {
+                        [(pattern, None, value)] if matches!(scratch.patterns.get(pattern.index()), Some(BuildPatternRow::Bind { .. })) => *value,
+                        _ => break,
+                    },
+                    _ => break,
+                };
             }
             if !matches!((selected, scratch.expressions.get(producer.index())),
                 (crate::sema::check::CheckedResultConstructor::Ok, Some(BuildExprRow::Ok(_)))
