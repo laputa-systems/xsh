@@ -163,13 +163,15 @@ immutable list's outer type relationship; it requires no per-element forall.
 Matching `1710bf2ff` products reproduce those two passes and one
 `check.call-target` failure, with zero skips.
 
-Source `b36ea9e40` adds ten default and callable-relay witnesses. Protected
+Source `b36ea9e40` adds default and callable-relay witnesses. Source `0c0eb1b6b`
+splits imported Proc and Stream aliases into independent tests, giving eleven
+witnesses. Protected
 reference products pass five controls: conflicting default arguments, nested
 row projection and its missing-field rejection, lazy stream defaults and their
 creation-site IO obligation. Two inferred-rest cases remain red. Imported
 Proc/Stream aliases and generic callable selection also remain red. The
 incompatible-selection negative reports an unresolved call instead of the
-required callable mismatch. These five failures remain mandatory work.
+required callable mismatch. These six failures remain mandatory work.
 Matching candidate replay is pending.
 
 F4 adapter source `d5f7b6267` adds the documented `check_views.sh --frozen`
