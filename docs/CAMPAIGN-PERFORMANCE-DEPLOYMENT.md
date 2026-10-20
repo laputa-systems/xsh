@@ -20,7 +20,7 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `b7dc8f73c` passes 101 focused runtime, verifier, loader and interface
+Source `77bd52859` passes 102 focused runtime, verifier, loader and interface
 controls after local integration. The mutable typed-storage repair at
 `152859aa2` has independent review and positive and corruption controls.
 Physical operations now authenticate callable kinds and finite effect bounds.
@@ -45,7 +45,11 @@ and the full library check remain pending.
 
 Documentation generation at `4f58546f2` stops before writing files because
 the verifier cannot find the canonical effect contract for `FsRoot.host_path()`.
-The method already requires `fs`. Repair must preserve that registered contract.
+Repair `77bd52859` preserves that registered `fs` contract and authenticates
+receiver operands independently of constructor demand. The original implicit
+return passes, while wrong receivers and forged effect ceilings reject.
+Independent review and the merged check pass. Matching documentation replay
+remains pending.
 Source review also identifies Glob, last-status and try-capture producer forms
 that need focused strict-demand proofs. These remain open until reproduced
 and repaired.
