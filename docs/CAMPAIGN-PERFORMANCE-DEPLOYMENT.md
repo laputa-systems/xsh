@@ -55,7 +55,10 @@ Independent review and the merged check pass. Matching documentation replay
 gets past that failure, then rejects a ground match without a subject contract
 before writing files. A focused Rust replay traces the generated match to
 `take_list` in `tour_html`, reading a scoped local through `ExprParam`. The
-origin repair remains open.
+origin repair at `4a12cc8a8` passes the real tour import and a mutable-list
+writer control on both indexed routes. Its merged replay has 130 passes and
+one failure: the embedded `template` module rejects a producer contract.
+That regression remains open. No matching documentation generation pass is claimed.
 Glob, last-status and try-capture strict-demand regressions also reproduce.
 Their repairs remain open.
 
