@@ -852,6 +852,7 @@ impl ProducerDemand {
             || Self::typed_callable_calls(program, declarations).next().is_some()
             || Self::condition_operations(program, declarations).next().is_some()
             || Self::capture_operations(program, declarations).next().is_some()
+            || Self::process_operations(program, declarations).next().is_some()
         {
             Self::Needed
         } else {
@@ -866,6 +867,17 @@ impl ProducerDemand {
         declarations.bodies.expr_types.keys().filter_map(move |expression| {
             let expression = program.arena.expr(*expression);
             matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_)).then_some(expression.span)
+        })
+    }
+
+    fn process_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+            let expression = program.arena.expr(*expression);
+            (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Spawn(_) | crate::syntax::arena::ArenaExprKind::Wait(_))
+                || (*ty == Type::Command && matches!(expression.kind, crate::syntax::arena::ArenaExprKind::BuilderCall { .. }))).then_some(expression.span)
         })
     }
 

@@ -105,6 +105,12 @@ enum StreamProducer {
     ResultSuccess(usize),
 }
 
+enum ProcessWordRole {
+    Argument,
+    Environment,
+    Redirection(crate::syntax::node::RedirectionKind),
+}
+
 #[derive(Clone, Default, Eq, PartialEq)]
 struct ProducerTargets {
     functions: BTreeSet<usize>,
@@ -744,7 +750,9 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     }
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
-        if store.tags[instruction] == FullTag::ExprCapture { proof.producer_owner_contract(owner)?; }
+        if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand
+            | FullTag::ExprWait | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder)
+        { proof.producer_owner_contract(owner)?; }
         proof.expression(owner, instruction, Arc::new(Type::Any), false);
     }
     for &fact_index in &index.checked_producers {
@@ -1020,9 +1028,15 @@ impl<'a> ProducerProof<'a> {
                 _ => Ok(None),
             };
         }
-        if let ProducerBinding::HeaderParameter(parameter) = binding
-            && matches!(self.store.functions[function_index(decoder.owner)?].contract, FullCallableContract::Scheme(_))
-        { return self.scheme_parameter(decoder.owner, parameter); }
+        if let ProducerBinding::HeaderParameter(parameter) = binding {
+            return match self.store.functions[function_index(decoder.owner)?].contract {
+                FullCallableContract::Scheme(_) => self.scheme_parameter(decoder.owner, parameter),
+                FullCallableContract::Ground(signature) => {
+                    let (_, ty, _) = self.store.semantic.signature_param(signature, parameter)?;
+                    self.contract_type(ty).map(Some)
+                }
+            };
+        }
         if let ProducerBinding::HeaderCapture(identity) = binding {
             let source = self.index.owners[&decoder.owner].storage_bindings.get(&ProducerBinding::HeaderCapture(identity)).ok_or_else(|| IrVerifyError::new("capture contract is absent from its owner census"))?;
             return self.contract_type(source.ty).map(Some);
@@ -1069,7 +1083,9 @@ impl<'a> ProducerProof<'a> {
                 let errors = self.captured_error_types(decoder, instruction)?;
                 Some(Type::Result(Box::new((*ok).clone()), Box::new(self.join_captured_errors(&errors)?)))
             }
-            schema::ExprView::ProcessCommandArgv(_) => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
+            schema::ExprView::ProcessCommandArgv(_) | schema::ExprView::ProcessCommandBuilder { .. } => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
+            schema::ExprView::SpawnRun(_) | schema::ExprView::SpawnCommand { .. } => Some(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError))),
+            schema::ExprView::Wait { target, .. } => Some(self.process_wait_contract(decoder, target.raw() as usize)?.1),
             schema::ExprView::RunCapture(run) => Type::run_capture_result(run.kind),
             schema::ExprView::RunPipeline { mut segments, .. } => {
                 let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
@@ -2252,6 +2268,29 @@ impl<'a> ProducerProof<'a> {
                 if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground capture kind disagrees with its result contract")); }
                 self.verify_operands(&decoder, instruction)
             }
+            schema::ExprView::SpawnRun(run) => {
+                self.verify_spawn_result(&expected)?;
+                self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Process]), false)?;
+                if !self.operand_expansions.insert((owner, instruction)) { return Ok(()); }
+                if self.verify_process_run_operands(&decoder, run.operands)? {
+                    self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Error]), false)?;
+                }
+                Ok(())
+            }
+            schema::ExprView::SpawnCommand { command, .. } => {
+                self.verify_spawn_result(&expected)?;
+                self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Process]), false)?;
+                self.expression(owner, command.raw() as usize, Arc::new(Type::Command), false);
+                Ok(())
+            }
+            schema::ExprView::Wait { target, .. } => {
+                let (target_type, result) = self.process_wait_contract(&decoder, target.raw() as usize)?;
+                if !result.matches_expected(&expected) { return Err(IrVerifyError::new("wait result disagrees with its actual handle contract")); }
+                self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Process]), false)?;
+                self.expression(owner, target.raw() as usize, target_type, false);
+                Ok(())
+            }
+            schema::ExprView::ProcessCommandBuilder { entries, .. } => self.verify_process_command_builder(&decoder, instruction, entries, &expected),
             schema::ExprView::RunPipeline { mut segments, .. } => {
                 let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
                 let result = Type::run_capture_result(first.kind).ok_or_else(|| IrVerifyError::new("ground pipeline head has no capture contract"))?;
@@ -2823,14 +2862,176 @@ impl<'a> ProducerProof<'a> {
             .map_err(|_| IrVerifyError::new("native template instance disagrees with its checked contract"))
     }
 
-    fn verify_process_command_argv(&mut self, decoder: &FullDecoder<'a>, instruction: usize, command: super::super::decode::ProcessCommandArgvView<'_>, expected: &Type) -> Result<(), IrVerifyError> {
+    fn verify_process_command_contract(&self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<(), IrVerifyError> {
         let op = super::super::RuntimeOp::ProcessCommandArgv;
         let result = FullDecoder::derive_registered_api_operation_return_type(op)?.ok_or_else(|| IrVerifyError::new("command constructor has no native result contract"))?;
         if !result.matches_expected(expected) { return Err(IrVerifyError::new("command result disagrees with its native contract")); }
         let Some(crate::modules::signature::NativeEffectRule::Uniform { effects, pure }) = crate::modules::signature::native_static_operation_effect_rule(op) else {
             return Err(IrVerifyError::new("command constructor has no uniform native effect contract"));
         };
-        self.require_callable_effects(decoder, instruction, Some(effects), pure)?;
+        self.require_callable_effects(decoder, instruction, Some(effects), pure)
+    }
+
+    fn verify_spawn_result(&self, expected: &Type) -> Result<(), IrVerifyError> {
+        let result = Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError));
+        if !result.matches_expected(expected) { return Err(IrVerifyError::new("spawn result disagrees with its process handle contract")); }
+        Ok(())
+    }
+
+    fn process_wait_contract(&mut self, decoder: &FullDecoder<'a>, target: usize) -> Result<(Arc<Type>, Type), IrVerifyError> {
+        let target_type = match self.need_context(decoder, target)? {
+            Some(ty) => ty,
+            None if matches!(decoder.expression_view(target)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) => Arc::new(Type::List(Box::new(Type::ProcessHandle))),
+            None => return Err(IrVerifyError::new("wait target has no executable handle contract")),
+        };
+        self.budget.charge_clone(&target_type)?;
+        ensure_substitution_type(&target_type)?;
+        let payload = match target_type.unvalidated() {
+            Type::ProcessHandle => Type::Status,
+            Type::List(item) if item.unvalidated() == &Type::ProcessHandle => Type::List(Box::new(Type::Status)),
+            _ => return Err(IrVerifyError::new("wait target is neither ProcessHandle nor List[ProcessHandle]")),
+        };
+        Ok((target_type, Type::Result(Box::new(payload), Box::new(Type::ProcessError))))
+    }
+
+    fn process_option_contract(&mut self, name: &str, actual: Option<&Type>) -> Result<Arc<Type>, IrVerifyError> {
+        let mut signatures = crate::modules::signature::native_static_operation_signatures(super::super::RuntimeOp::ProcessCommandArgv);
+        let first = signatures.next().ok_or_else(|| IrVerifyError::new("process command has no canonical option contracts"))?;
+        let position = match first.params.iter().position(|parameter| parameter.name == name) {
+            Some(position) => { self.budget.charge(position + 1)?; position }
+            None => {
+                self.budget.charge(first.params.len())?;
+                return Err(IrVerifyError::new("process option has no canonical parameter"));
+            }
+        };
+        let mut selected: Option<&Type> = None;
+        for signature in std::iter::once(first).chain(signatures) {
+            self.budget.charge(1)?;
+            let parameter = signature.params.get(position).filter(|parameter| parameter.name == name)
+                .ok_or_else(|| IrVerifyError::new("process option changes position across canonical contracts"))?;
+            if let Some(actual) = actual {
+                self.budget.charge_clone(actual)?;
+                if !actual.matches_expected(&parameter.ty) { continue; }
+            }
+            if selected.is_some_and(|previous| previous != &parameter.ty) {
+                return Err(IrVerifyError::new("process option has ambiguous canonical contracts"));
+            }
+            selected = Some(&parameter.ty);
+        }
+        let selected = selected.ok_or_else(|| IrVerifyError::new("process option disagrees with its canonical contract"))?;
+        self.budget.charge_clone(selected)?;
+        Ok(Arc::new(selected.clone()))
+    }
+
+    fn verify_process_word(&mut self, decoder: &FullDecoder<'a>, argument: super::super::decode::RunArgView<'_>, role: ProcessWordRole) -> Result<bool, IrVerifyError> {
+        use super::super::decode::RunArgKindView as A;
+        use crate::syntax::node::RedirectionKind as R;
+        self.budget.charge(1)?;
+        let (value, spliced, optional_splice) = match argument.kind {
+            A::Single(value) => (value.raw() as usize, false, false),
+            A::SingleOrSplice(value) => (value.raw() as usize, false, true),
+            A::Splice(value) => (value.raw() as usize, true, false),
+        };
+        let ty = match self.need_context(decoder, value)? {
+            Some(ty) => ty,
+            None if (spliced || optional_splice) && matches!(decoder.expression_view(value)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) => Arc::new(Type::List(Box::new(Type::Str))),
+            None => return Err(IrVerifyError::new("process word has no executable conversion contract")),
+        };
+        self.budget.charge_clone(&ty)?;
+        ensure_substitution_type(&ty)?;
+        let bytes_input = matches!(role, ProcessWordRole::Redirection(R::StdinRead)) && !spliced && ty.unvalidated() == &Type::Bytes;
+        let fits = match role {
+            ProcessWordRole::Argument => match ty.unvalidated() {
+                Type::List(item) if spliced || optional_splice => item.can_be_argv_item(),
+                _ => !spliced && ty.can_be_argv_item(),
+            },
+            ProcessWordRole::Environment => !spliced && (ty.can_be_env_value()
+                || (optional_splice && matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()))),
+            ProcessWordRole::Redirection(kind) => !spliced && (bytes_input || match kind {
+                R::StdinDup | R::StdoutDup => matches!(ty.unvalidated(), Type::Int | Type::Str),
+                _ => matches!(ty.unvalidated(), Type::Path | Type::Str),
+            }),
+        };
+        if !fits { return Err(IrVerifyError::new("process word disagrees with its physical conversion role")); }
+        self.expression(decoder.owner, value, ty, false);
+        Ok(bytes_input)
+    }
+
+    fn verify_process_run_operands(&mut self, decoder: &FullDecoder<'a>, operands: super::super::decode::RunOperandsView<'_>) -> Result<bool, IrVerifyError> {
+        use super::super::decode::{RunOptionView as O, RunTailOperandView as T};
+        self.budget.charge(1 + operands.options.len() + operands.env.len() + operands.tail.len())?;
+        let mut accepts = false;
+        for option in operands.options {
+            let (name, value) = match option? {
+                O::Timeout(value) => ("timeout", value),
+                O::CpuMax(value) => ("cpu_max", value),
+                O::Accept(value) => { accepts = true; ("accept", value) },
+            };
+            let expected = self.process_option_contract(name, None)?;
+            self.expression(decoder.owner, value.raw() as usize, expected, false);
+        }
+        for assignment in operands.env { self.verify_process_word(decoder, assignment?.value, ProcessWordRole::Environment)?; }
+        self.verify_process_word(decoder, operands.target, ProcessWordRole::Argument)?;
+        let mut stdin_sources = 0usize;
+        let mut bytes_input = false;
+        for operand in operands.tail {
+            match operand? {
+                T::Argument(argument) => { self.verify_process_word(decoder, argument, ProcessWordRole::Argument)?; }
+                T::Redirection(redirection) => {
+                    stdin_sources += usize::from(matches!(redirection.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup));
+                    bytes_input |= self.verify_process_word(decoder, redirection.target, ProcessWordRole::Redirection(redirection.kind))?;
+                }
+            }
+        }
+        if bytes_input && stdin_sources > 1 { return Err(IrVerifyError::new("process Bytes input competes with another stdin source")); }
+        Ok(accepts)
+    }
+
+    fn verify_process_command_builder(&mut self, decoder: &FullDecoder<'a>, instruction: usize, entries: super::super::decode::ListView<'_, crate::runtime::eval::LoweredProcessCommandBuilderEntry>, expected: &Type) -> Result<(), IrVerifyError> {
+        use super::super::decode::ProcessCommandBuilderEntryView as E;
+        self.verify_process_command_contract(decoder, instruction, expected)?;
+        if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
+        self.budget.charge(1 + entries.len())?;
+        let mut fields = BTreeSet::new();
+        let mut runs = 0usize;
+        let mut field_accepts = false;
+        let mut run_accepts = false;
+        for entry in entries {
+            match entry? {
+                E::Run { mut operands, .. } => {
+                    runs += 1;
+                    let position = operands.tail.position();
+                    for operand in &mut operands.tail {
+                        self.budget.charge(1)?;
+                        if matches!(operand?, super::super::decode::RunTailOperandView::Redirection(_)) {
+                            return Err(IrVerifyError::new("command builder run contains a redirection"));
+                        }
+                    }
+                    operands.tail.resume(position)?;
+                    run_accepts |= self.verify_process_run_operands(decoder, operands)?;
+                }
+                E::Field { name, value, .. } => {
+                    if !fields.insert(name) { return Err(IrVerifyError::new("command builder repeats an option field")); }
+                    let name = name.as_str();
+                    if matches!(name.as_str(), "target" | "argv") { return Err(IrVerifyError::new("command builder has an unknown option field")); }
+                    field_accepts |= name.as_str() == "accept";
+                    let actual = self.need_context(decoder, value.raw() as usize)?;
+                    let parameter = self.process_option_contract(name.as_str(), actual.as_deref())?;
+                    let ty = actual.unwrap_or(parameter);
+                    self.budget.charge_clone(&ty)?;
+                    ensure_substitution_type(&ty)?;
+                    self.expression(decoder.owner, value.raw() as usize, ty, false);
+                }
+            }
+        }
+        if runs != 1 { return Err(IrVerifyError::new("command builder does not contain exactly one run entry")); }
+        if field_accepts && run_accepts { return Err(IrVerifyError::new("command builder repeats its completion policy")); }
+        Ok(())
+    }
+
+    fn verify_process_command_argv(&mut self, decoder: &FullDecoder<'a>, instruction: usize, command: super::super::decode::ProcessCommandArgvView<'_>, expected: &Type) -> Result<(), IrVerifyError> {
+        let op = super::super::RuntimeOp::ProcessCommandArgv;
+        self.verify_process_command_contract(decoder, instruction, expected)?;
         if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
         let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,
             command.stdout, command.stderr, command.stdout_append, command.stderr_append, command.timeout,

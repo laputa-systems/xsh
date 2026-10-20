@@ -133,6 +133,9 @@ and return boundary. Pure body restrictions remain independent of capability
 sets, and captured errors remove only the Error requirement within their actual
 runtime boundary.
 
+`FullVerifier` proves spawn and wait result envelopes from actual handle and
+command operands and checks command options against canonical registry contracts.
+
 Indexed IDs refer to program-owned tables. `SymbolOwner` owns dynamic names.
 The installed program retains its source map, but not the CST, arena program,
 or checker output.

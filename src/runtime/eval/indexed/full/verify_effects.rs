@@ -246,7 +246,8 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
 
 pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store.tags[instruction];
-    if matches!(tag, FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprCapture) { return Ok(true); }
+    if matches!(tag, FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder
+        | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand | FullTag::ExprWait | FullTag::ExprCapture) { return Ok(true); }
     if !matches!(tag, FullTag::ExprModuleCall | FullTag::ExprMethod) { return Ok(false); }
     let data = store.data.get(instruction).ok_or_else(|| IrVerifyError::new("native operation has no instruction payload"))?;
     let payload = store.payload(data.range())?;
