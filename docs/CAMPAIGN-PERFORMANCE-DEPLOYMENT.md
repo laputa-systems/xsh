@@ -34,8 +34,13 @@ owner. Failed Result iteration preserves its original payload and propagates
 through cleanup to the nearest capture.
 
 The compiler lane's focused group passes all 20 controls. Runtime controls
-exercise normal and forced indexed routes. Matching verification products and
-native annotation, resource and documentation replay are next.
+exercise normal and forced indexed routes. Matching verification products build.
+All nine native annotation cases, three hidden-resource cases and two docs
+fixture cases pass with zero failures or skips. The actual repository docs
+check fails in `docs/snippets/tour/19-par-map.xsh`: a ground match subject
+produced by `ExprModuleCall` has no independently derived contract. Repair and
+replay remain required. A rejected two-filter invocation ran no docs tests;
+both exact fixture selectors subsequently pass separately.
 Source-origin diagnostics remain mandatory: consumed fallible streams can still
 pass a narrow source Capture contract before physical verification rejects it.
 The combined stream fixture also exceeds the unchanged proof-work budget when
