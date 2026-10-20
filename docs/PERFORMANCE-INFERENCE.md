@@ -144,6 +144,85 @@ Run the controlled frozen-adapter tests with
 The tests check command roots and entries, rejected results, and cleanup guards.
 They do not build or qualify compiler products.
 
+### Proposed 758 Proc paired-behavior selection
+
+This source-reviewed list identifies exact selectors for a paired run of the
+proposed 758 Proc-signature view against the original through the frozen adapter.
+The list is not an execution result and earns no parity or removal credit. The
+accepted 1,040 evidence above remains historical. It records the R9 paired
+selection and the targeted `meminfo_issue` witness. Those executions do not
+count as runs of the proposed 758 view, even when a selector overlaps. All 21
+selector names below were checked against exact test definitions in the frozen
+original tree.
+
+Append these exact arguments to the frozen adapter command above. The adapter
+runs each selector once in each view.
+
+The `wc` selectors reach `posix_mode`, `read_file`, `files0_input`,
+`count_input`, and `count_one`. The `cut` selectors reach `bound`, `ranges`, and
+`charset`. The `tr` selectors reach `warnings`, `parse_set`, `set_error`,
+`repeat_count`, and `validate_classes`. The `date` selectors reach `parse_date`,
+`date_parse.relative`, `format_date`, `format_text`, `format_directive`,
+`format_nanoseconds`, and `locale_name`:
+
+```sh
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes'
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_files0_processes_each_name_before_list_eof'
+  --selector xsh 'core/tests/test-wc.xsh::test_wc_words_follow_unicode_white_space_unless_posix'
+  --selector xsh 'core/tests/test-cut.xsh::test_cut_keeps_adjacent_range_boundaries'
+  --selector xsh 'core/tests/test-cut.xsh::test_cut_unicode_field_delimiter'
+  --selector xsh 'core/tests/test-tr.xsh::test_tr_octal_warning_preserves_gnu_layout_and_precedes_set_errors'
+  --selector xsh 'core/tests/test-tr.xsh::test_tr_repeat_leaves_room_for_suffix_and_rejects_misaligned_classes'
+  --selector xsh 'core/tests/test-date.xsh::test_date_negative_relative_offset'
+  --selector xsh 'core/tests/test-date.xsh::test_date_format_modifiers_and_width_bounds'
+```
+
+The identity selector reaches `collect_identity`. The CPU selector reaches
+`collect_cpu`, `read_cpu_info`, `collect_frequency_policies`, and
+`read_effective_cgroup_cpuset`. The meminfo and cgroup selectors reach
+`collect_memory`, `read_value`, and `collect_cgroups`. The storage selector
+reaches `collect_storage`. The sensor and power selector reaches
+`collect_sensors` and `collect_power`. The process selector reaches
+`collect_processes` and `read_process`. The USB selector reaches `collect_usb`.
+The network-device selector reaches `link_network_device_sources`. The capture
+selector reaches `capture_metadata_bytes`, `replay_mountinfo_bundle`,
+`encode_replayed_report`, and the production storage collector:
+
+```sh
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_live_collection_uses_explicit_root_and_redacts_by_default'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_memory_reports_malformed_and_oversized_meminfo_fields'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_sensor_units_and_powercap_ranges_are_bounded'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_process_collection_scales_pages_and_omits_private_sources'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes'
+  --selector xsh 'tests/xsh/system-report.xsh::test_system_report_network_device_links_keep_absence_separate_from_failures'
+  --selector xsh 'dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_capture_replays_production_storage_collector'
+```
+
+The plan JSON selector reaches `plan_json_write_dto`, `plan_json_from_dto`,
+`plan_json_node`, and `plan_json_dependency`. The recipe selector reaches
+`decode_filetree` and `decode_filetree_entry` for path validation:
+
+```sh
+  --selector laputa 'tests/pm/pm_plan.xsh::test_build_plan_json_round_trip_and_detects_corruption'
+  --selector laputa 'tests/pm/pm_recipe.xsh::test_recipe_rejects_parent_filetree_traversal'
+```
+
+The plan JSON round-trip uses an empty remote snapshot. It does not exercise
+`plan_json_remote` or non-null remote retrieval serialization. The
+network-device test checks fixture symlink resolution. It does not exercise
+`collect_network` or live host network collection. The identity test also uses a
+temporary root. The dev selector covers mountinfo capture and replay. It does
+not cover dev CLI dispatch, gates, stage execution, or cargo orchestration.
+
+The `pm/generation.xsh` JSON selector in the practical current-source extension
+tests `GenerationPlanDto`. It does not exercise Laputa `pm/plan_json.xsh`. The
+extension's `sort` and `awk` selectors are unchanged by proposed 758. They are
+excluded from this proposed 758 selection only. Their practical-extension
+results do not qualify the proposed frozen view.
+
 The practical current-source extension has two paths. `check.sh` remains a
 behavior-only check for the XSH utility roots, `wc`, `sort`, `awk`, and Laputa
 plan and generation modules. `inventory.sh`, `prepare_views.sh`, and
