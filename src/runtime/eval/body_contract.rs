@@ -46,14 +46,17 @@ impl CheckedBodyContract {
     pub fn preserved_by(&self, candidate: &Self) -> bool {
         let _symbols = self.symbols.enter();
         if !self.semantic.preserved_by(&candidate.semantic) { return false; }
-        let interface = match (&self.interface, &candidate.interface) {
-            (Some(original), Some(candidate)) => original.equivalent_to(candidate) || original.is_instance_of(candidate) == Ok(true),
-            (None, None) => true,
-            _ => false,
+        let interface_proven = match (&self.interface, &candidate.interface) {
+            (Some(original), Some(candidate)) => {
+                if !original.equivalent_to(candidate) && original.is_instance_of(candidate) != Ok(true) { return false; }
+                true
+            }
+            (None, None) => false,
+            _ => return false,
         };
-        if !interface || self.validations.len() != candidate.validations.len() { return false; }
+        if self.validations.len() != candidate.validations.len() { return false; }
         self.validations.iter().all(|(site, original)| candidate.validations.get(site).is_some_and(|candidate| {
-            original == candidate || original.len() == candidate.len() && original.iter().zip(candidate).all(|(original, candidate)| original.interface_gate() && candidate.interface_gate())
+            original == candidate || interface_proven && original.len() == candidate.len() && original.iter().zip(candidate).all(|(original, candidate)| original.interface_gate() && candidate.interface_gate())
         }))
     }
 }

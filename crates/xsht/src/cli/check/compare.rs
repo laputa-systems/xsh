@@ -475,6 +475,44 @@ proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
     }
 
     #[test]
+    fn public_cli_body_contracts_preserve_emitted_header_gates() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let entry = root.path().join("main.xsh");
+        let capture = |source: &str| {
+            fs::write(&entry, source).unwrap();
+            let file = entry.to_str().unwrap();
+            let input = loader::entry_source_from_bytes(file, fs::read(&entry).unwrap());
+            let source_id = input.source_id;
+            let (sources, parsed) = loader::parse_load_entry_source_arena_only(file, input, Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let program = Arc::new(parsed.arena);
+            let sources = Arc::new(sources);
+            let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
+            let view = session.view_for_root(program.statements, source_id);
+            let checked = session.check_view(&view, CheckOptions::for_check_cli());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let contracts = checked_body_contracts(checked, &program, &sources, source_id)
+                .unwrap_or_else(|error| panic!("cannot capture CLI body {source:?}: {error:?}"));
+            program.symbol_owner().with_current(|| contracts.into_iter().map(|body| {
+                let owner = match body.owner() {
+                    BodyContractOwner::Entry => BodyOwner::Entry,
+                    BodyContractOwner::Declaration(name) => BodyOwner::Declaration(name.as_str().to_string()),
+                };
+                ((body.source_name().to_owned(), owner), body)
+            }).collect::<BTreeMap<_, _>>())
+        };
+        let original = capture("cli main build(value: Str) [] {}\n");
+        let candidate = capture("cli main build(value: Int) [] {}\n");
+        assert!(!original.is_empty());
+        assert_eq!(original.keys().collect::<Vec<_>>(), candidate.keys().collect::<Vec<_>>());
+        assert!(original.values().all(|body| body.preserved_by(body)));
+        assert!(candidate.values().all(|body| body.preserved_by(body)));
+        assert!(!original.iter().all(|(owner, body)| body.preserved_by(&candidate[owner])));
+    }
+
+    #[test]
     fn checked_body_keys_preserve_loaded_module_resolution_contexts() {
         let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
         fs::create_dir_all(&scratch).unwrap();
