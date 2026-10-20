@@ -3310,7 +3310,7 @@ impl Checker {
                 self.check_propagation(
                     &Type::Result(
                         Box::new(Type::Unit),
-                        Box::new(Type::ErrorFamily(Name::intern("AssertionError"))),
+                        Box::new(Type::ErrorFamily(Type::assertion_error_family())),
                     ),
                     stmt.span,
                 );

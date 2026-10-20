@@ -9036,6 +9036,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::ForItems { target, body, span } => match value {
+                FrameValue::Value(value @ LoweredValue::ResultErr(_)) => {
+                    let Err(value) = self.evaluator.indexed_question_value(value, span)? else {
+                        unreachable!("a Result error retains its propagation");
+                    };
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
                 FrameValue::Value(value) => {
                     let value = match value {
                         LoweredValue::Stream(stream)

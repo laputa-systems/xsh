@@ -113,7 +113,7 @@ impl Evaluator {
 pub(super) fn assertion_error(message: impl Into<String>, span: Option<Span>) -> RuntimeError {
     let message = message.into();
     let mut error = RuntimeError::structured(
-        "AssertionError",
+        crate::sema::types::Type::assertion_error_family().as_str().as_str(),
         "Failed",
         RecordMap::from([("message".into(), Value::Str(message.as_str().into()))]),
         Vec::new(),

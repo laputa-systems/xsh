@@ -24,6 +24,13 @@ pub enum CallableKind {
     Stream,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CalleeErrorFlow {
+    None,
+    Immediate,
+    Latent,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum ConditionRole {
     Control,
@@ -639,6 +646,45 @@ impl Type {
                 _ => false,
             },
         }
+    }
+
+    pub(crate) fn core_command_result(command: crate::syntax::node::CoreCommand) -> Self {
+        match command {
+            crate::syntax::node::CoreCommand::Print | crate::syntax::node::CoreCommand::Eprint => Self::Unit,
+            crate::syntax::node::CoreCommand::Cd | crate::syntax::node::CoreCommand::Env => Self::Result(Box::new(Self::Unit), Box::new(Self::Error)),
+        }
+    }
+
+    pub(crate) fn run_statement_result() -> Self {
+        Self::Result(Box::new(Self::Status), Box::new(Self::ProcessError))
+    }
+
+    pub(crate) fn callee_error_flow(&self, effects: Option<&[Effect]>) -> CalleeErrorFlow {
+        if !effects.is_some_and(|effects| effects.contains(&Effect::Error)) { return CalleeErrorFlow::None; }
+        if matches!(self.unvalidated(), Self::Stream(_)) { CalleeErrorFlow::Latent }
+        else if self.is_result() { CalleeErrorFlow::None }
+        else { CalleeErrorFlow::Immediate }
+    }
+
+    pub(crate) fn assertion_error_family() -> Name {
+        Name::intern("AssertionError")
+    }
+
+    pub(crate) fn captured_error_type(errors: impl IntoIterator<Item = Self>) -> Self {
+        let mut inferred = None;
+        for error in errors {
+            inferred = Some(match inferred {
+                None => error,
+                Some(current) if error.matches_expected(&current) => current,
+                Some(current) if current.matches_expected(&error) => error,
+                Some(current) => match (&current, &error) {
+                    (Self::ErrorVariant { family: left, .. } | Self::ErrorFamily(left),
+                     Self::ErrorVariant { family: right, .. } | Self::ErrorFamily(right)) if left == right => Self::ErrorFamily(*left),
+                    _ => Self::Error,
+                },
+            });
+        }
+        inferred.unwrap_or(Self::Error)
     }
 
     pub(crate) fn run_capture_result(kind: crate::syntax::node::RunKind) -> Option<Self> {

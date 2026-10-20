@@ -205,9 +205,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         ))
     }
 
-    /// A retry attempt has its own lexical scope. Its implicit tail uses the
-    /// distinct value flow so explicit returns and loop transfers keep their
-    /// enclosing targets, while propagation failures remain retryable.
     pub(super) fn lower_retry_block(
         &mut self,
         block: BlockId,
@@ -218,12 +215,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if !self.program.arena.block(block).params.is_empty() {
             return Some(Vec::new());
         }
+        let transfers_resource = self
+            .bodies
+            .resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block))?;
         let saved = slots.enter();
         let result = (|| {
             let statements = self.program.arena.block(block).statements;
             let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
             let Some((&tail, prefix)) = ids.split_last() else {
-                return Some(Vec::new());
+                return (!transfers_resource).then(Vec::new);
             };
             let mut lowered = Vec::with_capacity(ids.len());
             for stmt in prefix {
@@ -237,12 +237,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let tail_stmt = if self.bodies.statement_positions.get(&tail)
                 == Some(&crate::sema::check::StatementPosition::Statement)
             {
+                if transfers_resource {
+                    return None;
+                }
                 self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
             } else if let Some(value) =
                 self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)
             {
-                push_build_row!(self, stmt, BuildStmtRow::Value { value })
+                let stmt = push_build_row!(self, stmt, BuildStmtRow::Value { value });
+                if transfers_resource {
+                    self.scratch.borrow_mut().mark_resource_transfer(stmt);
+                }
+                stmt
             } else {
+                if transfers_resource {
+                    return None;
+                }
                 self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
             };
             lowered.push(tail_stmt);

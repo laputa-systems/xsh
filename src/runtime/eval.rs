@@ -851,11 +851,22 @@ impl ProducerDemand {
             || Self::erased_callable_calls(program, declarations).next().is_some()
             || Self::typed_callable_calls(program, declarations).next().is_some()
             || Self::condition_operations(program, declarations).next().is_some()
+            || Self::capture_operations(program, declarations).next().is_some()
         {
             Self::Needed
         } else {
             Self::Absent
         }
+    }
+
+    fn capture_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.keys().filter_map(move |expression| {
+            let expression = program.arena.expr(*expression);
+            matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_)).then_some(expression.span)
+        })
     }
 
     fn native_producer_calls<'a>(

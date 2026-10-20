@@ -3641,6 +3641,12 @@ when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
 type.
 
+Preparation checks the normal value and each propagated error against the
+capture's `Result` contract. Nested captures, retry attempts, and handled
+`with` initializers intercept their own failures. Saving a stream does not
+consume it; iteration includes failures from its actual producers, including
+streams passed through callable returns and `Result` values.
+
 `try` directly before a run form captures that one form: `try run.text cmd`
 is the form's `Result` as a value (11.1). A run form inside a `try` block
 fails into the block like any other failure, so `try { run.text cmd }` is a

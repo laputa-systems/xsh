@@ -145,33 +145,12 @@ impl Checker {
             .boundary.error_boundary_errors
             .pop()
             .expect("checked error boundary");
-        let mut inferred = expected.cloned();
-        for (error, span) in errors {
-            if let Some(current) = &inferred {
-                if error.matches_expected(current) {
-                    continue;
-                }
-                if expected.is_none() && current.matches_expected(&error) {
-                    inferred = Some(error);
-                    continue;
-                }
-                if expected.is_none() {
-                    let family = match (current, &error) {
-                        (
-                            Type::ErrorVariant { family: left, .. } | Type::ErrorFamily(left),
-                            Type::ErrorVariant { family: right, .. } | Type::ErrorFamily(right),
-                        ) if left == right => Some(*left),
-                        _ => None,
-                    };
-                    inferred = Some(family.map(Type::ErrorFamily).unwrap_or(Type::Error));
-                } else {
-                    self.expect_type(current, &error, span);
-                }
-            } else {
-                inferred = Some(error);
-            }
+        if let Some(expected) = expected {
+            for (error, span) in errors { self.expect_type(expected, &error, span); }
+            expected.clone()
+        } else {
+            Type::captured_error_type(errors.into_iter().map(|(error, _)| error))
         }
-        inferred.unwrap_or(Type::Error)
     }
 
     pub(super) fn record_callee_propagation(
@@ -180,17 +159,16 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
-        let may_error = effects
-            .as_ref()
-            .is_some_and(|effects| effects.contains(&Effect::Error));
-        if may_error && matches!(return_ty.unvalidated(), Type::Stream(_)) {
-            self.latent_stream_error_spans.insert(span);
-        } else if may_error && !return_ty.is_result() {
-            self.propagating_error_spans.insert(span);
-            if self.boundary.retry_attempt_depth > 0
-                && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
-            {
-                errors.push((Type::Error, span));
+        match return_ty.callee_error_flow(effects.as_deref()) {
+            crate::sema::types::CalleeErrorFlow::None => {}
+            crate::sema::types::CalleeErrorFlow::Latent => { self.latent_stream_error_spans.insert(span); }
+            crate::sema::types::CalleeErrorFlow::Immediate => {
+                self.propagating_error_spans.insert(span);
+                if self.boundary.retry_attempt_depth > 0
+                    && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
+                {
+                    errors.push((Type::Error, span));
+                }
             }
         }
     }

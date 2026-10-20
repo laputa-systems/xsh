@@ -35527,20 +35527,47 @@ pure selected() -> Str {
     #[test]
     fn try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes() {
         run_with_large_stack(|| {
-            let program = fixture(
-                "try-capture.xsh",
-                "proc capture() [error] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n",
-            );
-            let instruction = program
-                .store
-                .tags
-                .iter()
-                .position(|tag| *tag == FullTag::ExprCapture)
-                .expect("capture instruction");
-            let payload = program.store.data[instruction]
-                .range()
-                .bounds(program.store.extra.len())
-                .unwrap();
+            let program = fixture("try-capture.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+error QuietFailure = Missing
+pure quiet() -> Result[Int, QuietFailure] { try { 7 } }
+pure quiet_local() -> Result[Int, QuietFailure] { let stored: Result[Int, QuietFailure] = try { 7 }; stored }
+proc capture() [error] -> Result[Int] {
+    let nested = try { Ok(7) }?
+    nested
+}
+pure success(value: Int, other: Str) -> Result[Result[Int]] {
+    let _ = other
+    Ok(try { value })
+}
+pure captured(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) -> Result[Result[Int, CaptureFailure]] {
+    let _ = other
+    Ok(try { value? })
+}
+pure kept_data(value: Result[Int, CaptureFailure]) -> Result[Result[Result[Int, CaptureFailure]]] {
+    Ok(try { value })
+}
+pure nearest(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) -> Result[Result[Int, CaptureFailure]] {
+    Ok(try { let _ = try { other? }; value? })
+}
+assert quiet()? == 7
+assert quiet_local()? == 7
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, CaptureFailure] = Err(CaptureFailure.Failed(message: "failure"))
+let different: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+let successful_capture: Result[Int] = success(7, "unused")?
+assert successful_capture? == 7
+assert captured(good, different)? == good
+assert captured(bad, different)? == bad
+let carried: Result[Result[Int, CaptureFailure]] = kept_data(bad)?
+assert carried? == bad
+assert nearest(good, different)? == good
+assert nearest(bad, different)? == bad
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).expect("capture instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
             let mut missing_body = program.clone();
             missing_body.store.extra[payload.start] = u32::MAX;
             assert!(FullVerifier::verify(&missing_body).is_err());
@@ -35549,22 +35576,661 @@ pure selected() -> Str {
             wrong_kind.store.blocks[block.index()].flags = BLOCK_LIST;
             assert!(FullVerifier::verify(&wrong_kind).is_err());
             let program = Arc::new(program);
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "capture")),
-                    LoweredFunctionKind::Proc,
-                    &[],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("capture function exists");
-            assert_eq!(
-                result.unwrap(),
-                Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(
-                    Value::Int(7)
-                )))
-            );
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("capture function exists").unwrap();
+                assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            }
+            let mut independent = (*program).clone();
+            independent.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&independent).unwrap();
+            for name in ["success", "captured"] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let decoder = function_view_decoder(&program.store, owner);
+                let value = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                    matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+                }).unwrap();
+                let mut wrong = independent.clone();
+                let payload = wrong.store.data[value].range().bounds(wrong.store.extra.len()).unwrap();
+                assert_eq!(payload.len(), 1);
+                wrong.store.extra[payload.start] = 1;
+                let error = FullVerifier::verify(&wrong).expect_err("capture authenticates its actual success payload and nearest nominal error family");
+                assert!(error.message.contains("contract") || error.message.contains("capture"), "{error:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_formal_payloads_without_constructor_demand() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-formals.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+pure captured(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) -> Result[Int, CaptureFailure] {
+    let _ = other
+    try { value? }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            assert!(!program.store.tags.iter().any(|tag| matches!(tag, FullTag::ExprOk | FullTag::ExprErr)));
+            assert!(program.store.registered_calls.is_empty());
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "captured");
+            let decoder = function_view_decoder(&program.store, owner);
+            let value = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+            }).unwrap();
+            let mut wrong = program.clone();
+            let payload = wrong.store.data[value].range().bounds(wrong.store.extra.len()).unwrap();
+            wrong.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&wrong).expect_err("capture error proof does not depend on constructors or optional contexts");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "captured")), LoweredFunctionKind::Pure,
+                    &[value.clone(), value.clone()], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, value);
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_its_declared_driver_error_contract() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-driver.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+let value: Result[Int, CaptureFailure] = Err(CaptureFailure.Failed(message: "failure"))
+let other: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+let captured: Result[Int, CaptureFailure] = try { let _ = other; value? }
+assert captured == value
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let capture = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).unwrap();
+            let step = (0..program.store.driver_steps.len()).find(|&step| {
+                program.store.driver_instruction_range(step).unwrap().contains(&capture)
+            }).unwrap();
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            let slots = program.store.driver_steps[step].slots.bounds(program.store.driver_slots.len()).unwrap();
+            let named = |name: &str| program.store.driver_slots[slots.clone()].iter().position(|slot| program.store.string(slot.name).unwrap() == name).unwrap();
+            let from = named("value");
+            let to = named("other");
+            let value = program.store.driver_instruction_range(step).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot == from)
+            }).unwrap();
+            let mut wrong = program.clone();
+            let payload = wrong.store.data[value].range().bounds(wrong.store.extra.len()).unwrap();
+            wrong.store.extra[payload.start] = to as u32;
+            let error = FullVerifier::verify(&wrong).expect_err("driver capture proves its actual source against the declared storage contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_non_result_callee_error_contracts() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-callee.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+proc safe(n: Int) [] -> Int { n }
+proc failing(n: Int) [error] -> Int {
+    let failure: Result[Unit, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+    failure?
+    n
+}
+proc captured(value: Result[Int, CaptureFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { let _ = safe(1); value? }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let call = scheme_fixture_call_in_function(&program, "safe", "captured");
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+            wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+            let error = FullVerifier::verify(&wrong).expect_err("non-Result Error-effect calls contribute their canonical captured error contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))));
+                assert_eq!(evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "captured")), LoweredFunctionKind::Proc,
+                    &[value.clone()], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap(), value);
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_stream_errors_only_when_consumed() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-stream.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [] -> Stream[Int] {
+    let _ = value
+    let _ = other
+    yield 7
+}
+stream failing(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Stream[Int] {
+    let _ = value
+    yield other?
+}
+proc saved(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { let _ = safe(value, other); value? }
+}
+proc consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in safe(value, other) { let _ = item }; value? }
+}
+pure relay(items: Stream[Int]) -> Stream[Int] { items }
+proc relayed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in relay(safe(value, other)) { let _ = item }; value? }
+}
+proc wrapped(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Stream[Int], CaptureFailure] {
+    Ok(safe(value, other))
+}
+pure wrap_items(items: Stream[Int]) -> Result[Stream[Int], CaptureFailure] { Ok(items) }
+proc wrapped_items_consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in wrap_items(safe(value, other)) { let _ = item }; value? }
+}
+proc wrapped_consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in wrapped(value, other) { let _ = item }; value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert saved(good, bad)? == 7
+assert consumed(good, bad)? == 7
+assert wrapped_consumed(good, bad)? == 7
+assert relayed(good, bad)? == 7
+assert wrapped_items_consumed(good, bad)? == 7
+let _ = relay(failing(good, bad))
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let retarget = |name: &str| {
+                let call = scheme_fixture_call_in_function(&program, "safe", name);
+                let mut wrong = program.clone();
+                wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+                wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+                wrong
+            };
+            let saved = retarget("saved");
+            FullVerifier::verify(&saved).expect("saving a Stream does not pull its fallible body");
+            let consumed = retarget("consumed");
+            let error = FullVerifier::verify(&consumed).expect_err("pulling an Error-capable Stream must authenticate the capture error contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let relayed = retarget("relayed");
+            let error = FullVerifier::verify(&relayed).expect_err("a pure Stream relay preserves its actual input's latent errors");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let wrapped_items = retarget("wrapped_items_consumed");
+            let error = FullVerifier::verify(&wrapped_items).expect_err("a no-effect Result wrapper preserves actual Stream provenance");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let wrapped = retarget("wrapped");
+            let error = FullVerifier::verify(&wrapped).expect_err("Result iteration authenticates the independent latent Stream payload contract");
+            assert!(error.message.contains("contract"), "{error:?}");
+            for program in [program, saved] {
+                let program = Arc::new(program);
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_typed_stream_relays() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-typed-relay.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [] -> Stream[Int] { let _ = value; let _ = other; yield 7 }
+stream failing(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Stream[Int] { let _ = value; yield other? }
+pure relay(items: Stream[Int]) -> Stream[Int] { items }
+type Relay = pure(items: Stream[Int]) -> Stream[Int]
+let action: Relay = relay
+proc captured(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in action(safe(value, other)) { let _ = item }; value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert captured(good, bad)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let call = scheme_fixture_call_in_function(&program, "safe", "captured");
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+            wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+            let error = FullVerifier::verify(&wrong).expect_err("typed Pure relays preserve actual latent Stream errors");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_explicit_result_stream_projection() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-projected-stream.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [] -> Stream[Int] { let _ = value; let _ = other; yield 7 }
+stream failing(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Stream[Int] { let _ = value; yield other? }
+pure wrap_items(items: Stream[Int]) -> Result[Stream[Int], CaptureFailure] { Ok(items) }
+proc captured(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in wrap_items(safe(value, other))? { let _ = item }; value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert captured(good, bad)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let call = scheme_fixture_call_in_function(&program, "safe", "captured");
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+            wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+            let error = FullVerifier::verify(&wrong).expect_err("explicit Result propagation preserves actual latent Stream errors");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_preserves_recursive_stream_relays() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-recursive-relay.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe() [] -> Stream[Int] { yield 7 }
+pure chain(n: Int, items: Stream[Int]) -> Stream[Int] {
+    if n == 0 { items } else { chain(n - 1, items) }
+}
+stream failing() [error] -> Stream[Int] {
+    let failure: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+    yield failure?
+}
+pure rotate(n: Int, a: Stream[Int], b: Stream[Int], c: Stream[Int]) -> Stream[Int] {
+    if n == 0 { a } else { rotate(n - 1, b, c, a) }
+}
+proc rotated(value: Result[Int, CaptureFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in rotate(2, safe(), safe(), safe()) { let _ = item }; value? }
+}
+proc captured(value: Result[Int, CaptureFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { for item in chain(1, safe()) { let _ = item }; value? }
+}
+let value: Result[Int, CaptureFailure] = Ok(7)
+assert captured(value)? == 7
+assert rotated(value)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "rotated");
+            let safe = IrFunctionId::new(scheme_fixture_root_function(&program, "safe")).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let calls = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) if function.id == safe)
+            }).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 3);
+            let call = *calls.last().unwrap();
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.extra[wrong.store.data[call].range().start as usize] = target.raw();
+            wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction as usize == call).unwrap().function = target;
+            let error = FullVerifier::verify(&wrong).expect_err("recursive permutation closes over every returned formal dependency");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_preserves_host_stream_sources() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-host-streams.xsh", r#"
+proc files(root: Path, wrong: Str, flag: Bool) [fs, error] -> Result[Int] {
+    let _ = wrong
+    try { for item in fs.files(root, hidden: flag)? { let _ = item }; 7 }
+}
+proc walk(root: Path) [fs, error] -> Result[Int] {
+    try { for item in fs.walk(root)? { let _ = item }; 7 }
+}
+proc files_result(root: Path) [fs, error] -> Result[Int] {
+    try { for item in fs.files(root) { let _ = item }; 7 }
+}
+proc walk_result(root: Path) [fs, error] -> Result[Int] {
+    try { for item in fs.walk(root) { let _ = item }; 7 }
+}
+proc mounts() [fs, error] -> Result[Int] {
+    try { for mount in fs.mounts() { let _ = mount }; 7 }
+}
+proc lines(root: Path) [fs, error] -> Result[Int] {
+    try { for line in root.lines()? { let _ = line }; 7 }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "files");
+            let decoder = function_view_decoder(&program.store, owner);
+            for slot in [0, 2] {
+                let leaf = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                    matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(found)) if found == slot)
+                        || (program.store.tags[instruction] == FullTag::BoolSlot && program.store.payload(program.store.data[instruction].range()).unwrap() == [slot as u32])
+                }).unwrap();
+                let mut wrong = program.clone();
+                let payload = wrong.store.data[leaf].range().bounds(wrong.store.extra.len()).unwrap();
+                assert_eq!(payload.len(), 1);
+                wrong.store.extra[payload.start] = 1;
+                let error = FullVerifier::verify(&wrong).expect_err("filesystem stream root and option producers obey canonical native contracts");
+                assert!(error.message.contains("contract") || error.message.contains("truth-convertible"), "{error:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_immediate_host_stream_failures() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-host-failure.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+proc outside_files(root: Path) [fs] -> Unit { let _ = fs.files(root) }
+proc outside_walk(root: Path) [fs] -> Unit { let _ = fs.walk(root) }
+proc files(root: Path, value: Result[Int, CaptureFailure]) [fs, error] -> Result[Int, CaptureFailure] {
+    try { let _ = fs.files(root); value? }
+}
+proc walk(root: Path, value: Result[Int, CaptureFailure]) [fs, error] -> Result[Int, CaptureFailure] {
+    try { let _ = fs.walk(root); value? }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            for (tag, name, captured) in [(FullTag::ExprFsFiles, "outside_files", false), (FullTag::ExprFsWalk, "outside_walk", false), (FullTag::ExprFsFiles, "files", true), (FullTag::ExprFsWalk, "walk", true)] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == tag).unwrap();
+                let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(payload.len(), 7);
+                assert_eq!(&program.store.extra[payload.start + 1..payload.start + 5], &[0, 0, 0, 0]);
+                assert_eq!(program.store.extra[payload.start + 5], 1);
+                let mut wrong = program.clone();
+                wrong.store.extra[payload.start + 5] = 0;
+                let decoder = function_view_decoder(&wrong.store, owner);
+                assert!(matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FsFiles { result_wrapped: false, .. } | schema::ExprView::FsWalk { result_wrapped: false, .. })));
+                let error = FullVerifier::verify(&wrong).expect_err("unwrapped filesystem setup failures belong to the nearest capture");
+                assert!(if captured { error.message.contains("contract") } else { error.message.contains("requires effect error") }, "{error:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_preserves_nonfallible_range_sources() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-range.xsh", r#"proc ranged(limit: Int, wrong: Str) [error] -> Result[Int] { let _ = wrong; try { for item in range(0, limit) { let _ = item }; 7 } }
+assert ranged(2, "wrong")? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "ranged");
+            let decoder = function_view_decoder(&program.store, owner);
+            let leaf = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+                    || (program.store.tags[instruction] == FullTag::IntSlot && program.store.payload(program.store.data[instruction].range()).unwrap() == [0])
+            }).unwrap();
+            let mut wrong = program.clone();
+            let payload = wrong.store.data[leaf].range().bounds(wrong.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            wrong.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&wrong).expect_err("nonfallible Range retains its actual Int bounds proof");
+            assert!(error.message.contains("contract") || error.message.contains("signature"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_unknown_impure_call_errors() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-unknown-call.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+type Action = proc(value: Int) -> Int
+proc safe(value: Int) [] -> Int { value }
+proc captured(action: Action, value: Result[Int, CaptureFailure]) -> Result[Int] {
+    try { let _ = action(1); value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+assert captured(safe, good)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "captured");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground capture") };
+            assert!(program.store.semantic.signature_effects(signature).unwrap().is_none());
+            let count = program.store.semantic.signature_param_count(signature).unwrap();
+            let parameters = (0..count).map(|index| {
+                let (name, ty, flags) = program.store.semantic.signature_param(signature, index).unwrap();
+                SignatureParamParts { name, ty, defaulted: flags & 1 != 0, rest: flags & 2 != 0 }
+            }).collect::<Vec<_>>();
+            let narrowed = parameters[1].ty;
+            let mut builder = FullBuilder::new(program.store.source_id);
+            builder.store.semantic = program.store.semantic.clone();
+            let signature = builder.semantic.intern_signature_parts(&mut builder.store.semantic, &parameters, narrowed, None).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.semantic = builder.store.semantic;
+            wrong.store.functions[owner].contract = FullCallableContract::Ground(signature);
+            wrong.store.functions[owner].checked_return_type = narrowed.raw();
+            let error = FullVerifier::verify(&wrong).expect_err("unknown impure non-Result calls cannot certify a narrow captured error family");
+            assert!(error.message.contains("contract"), "{error:?}");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_preserves_stream_body_carriers() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-stream-bodies.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+stream safe(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [] -> Stream[Int] { let _ = value; let _ = other; yield 7 }
+stream failing(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Stream[Int] { let _ = value; yield other? }
+proc nested_streams(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { let inner: Result[Stream[Int], CaptureFailure] = try { safe(value, other) }; for item in inner { let _ = item }; value? }
+}
+proc context_streams(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    try { let rows = ctx "rows" { safe(value, other) }; for item in rows { let _ = item }; value? }
+}
+proc blocked_stream_rows() [error] -> Result[Int] {
+    try { let inner: Result[Stream[Int]] = try { assert false }; for item in inner { let _ = item }; 7 }
+}
+proc uncaught_stream_rows(items: Result[Stream[Int]]) [error] -> Int {
+    for item in items { let _ = item }; 7
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert nested_streams(good, bad)? == 7
+assert context_streams(good, bad)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
+            for name in ["nested_streams", "context_streams"] {
+                let call = scheme_fixture_call_in_function(&program, "safe", name);
+                let mut wrong = program.clone();
+                wrong.store.extra[wrong.store.data[call as usize].range().start as usize] = target.raw();
+                wrong.store.checked_call_targets.iter_mut().find(|fact| fact.instruction == call).unwrap().function = target;
+                let error = FullVerifier::verify(&wrong).expect_err("transparent body carriers retain actual Stream payload provenance");
+                assert!(error.message.contains("contract"), "{error:?}");
+            }
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let stopped = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "blocked_stream_rows")), LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert!(matches!(stopped, Value::Result(crate::runtime::value::ResultValue::Err(_))));
+                let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "uncaught_stream_rows")), LoweredFunctionKind::Proc, &[stopped], Span::new(program.store.source_id, 0, 0)).unwrap().expect_err("Result iteration outside Capture remains a propagated failure");
+                assert_eq!(error.family, "AssertionError");
+                assert_eq!(error.variant, "Failed");
+                assert!(error.propagated);
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_preserves_flat_retry_delay_lists() {
+        run_with_large_stack(|| {
+            for count in [64, 128] {
+                let delays = std::iter::repeat_n("1ms", count).collect::<Vec<_>>().join(", ");
+                let source = format!("proc captured() [time, error] -> Result[Int] {{ try {{ let _ = retry [{delays}] {{ 7 }}; 7 }} }}\nassert captured()? == 7\n");
+                let program = Arc::new(fixture("capture-retry-delays.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_authenticates_only_demanded_pipeline_errors() {
+        run_with_large_stack(|| {
+            let mut program = fixture("capture-pipeline.xsh", r#"
+error CaptureFailure = Failed(message: Str)
+error OtherFailure = Changed(message: Str)
+proc skipped(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    let _ = other
+    try { let _ = [value] |> map { |failure| failure? } |> take(0) |> collect(); value? }
+}
+proc consumed(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {
+    let _ = other
+    try { let _ = [value] |> map { |failure| failure? } |> take(1) |> collect(); value? }
+}
+let good: Result[Int, CaptureFailure] = Ok(7)
+let bad: Result[Int, OtherFailure] = Err(OtherFailure.Changed(message: "other"))
+assert skipped(good, bad)? == 7
+assert consumed(good, bad)? == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let replace_callback_source = |name: &str| {
+                let owner = scheme_fixture_root_function(&program, name);
+                let decoder = function_view_decoder(&program.store, owner);
+                let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+                    let Ok(schema::ExprView::Try { value, .. }) = decoder.expression_view(instruction) else { return None };
+                    matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(slot)) if slot >= 2).then_some(value.raw() as usize)
+                }).unwrap();
+                let mut wrong = program.clone();
+                let payload = wrong.store.data[value].range().bounds(wrong.store.extra.len()).unwrap();
+                wrong.store.extra[payload.start] = 1;
+                wrong
+            };
+            let skipped = replace_callback_source("skipped");
+            FullVerifier::verify(&skipped).expect("a Never-demanded callback does not propagate its error");
+            let consumed = replace_callback_source("consumed");
+            let error = FullVerifier::verify(&consumed).expect_err("a demanded callback authenticates its actual nominal error family");
+            assert!(error.message.contains("contract"), "{error:?}");
+            for program in [program, skipped] {
+                let program = Arc::new(program);
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+            }
         });
     }
 

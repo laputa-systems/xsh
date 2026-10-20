@@ -248,9 +248,7 @@ impl Evaluator {
         {
             value = *inner;
         }
-        if (propagate
-            || (matches!(kind, RunKind::Status | RunKind::Plain)
-                && invocation.accepted_exit_codes.is_some()))
+        if (crate::runtime::run::RunErrorBoundary::Capture { kind, propagate }).propagates(invocation.accepted_exit_codes.is_some())
             && matches!(value, LoweredValue::ResultErr(_))
         {
             let value = self.lowered_question_propagation_value(value, span)?;
@@ -307,10 +305,7 @@ impl Evaluator {
             .unwrap_or_else(|| ProcessStatus::exited(1));
         if let Some(error) = validation_error {
             let value = lowered_process_run_error(error.with_span(span));
-            if invocations
-                .iter()
-                .any(|invocation| invocation.accepted_exit_codes.is_some())
-            {
+            if (crate::runtime::run::RunErrorBoundary::Pipeline { head }).propagates(invocations.iter().any(|invocation| invocation.accepted_exit_codes.is_some())) {
                 let value = self.lowered_question_propagation_value(value, span)?;
                 return Ok(self.preserve_lexical_expression_flow(
                     super::StmtFlow::Propagate(value),

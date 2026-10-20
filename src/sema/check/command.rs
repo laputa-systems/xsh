@@ -631,7 +631,7 @@ impl Checker {
                     }
                     self.check_command_arg_arena_print_tail(arena, source, arg);
                 }
-                Type::Unit
+                Type::core_command_result(name)
             }
             CoreCommand::Cd => {
                 self.require_effect(Effect::Env, span, "`cd`");
@@ -648,7 +648,7 @@ impl Checker {
                 if let Some(block) = block {
                     self.check_block_arena(arena, source, block);
                 }
-                Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
+                Type::core_command_result(name)
             }
             CoreCommand::Env => {
                 self.require_effect(Effect::Env, span, "`env`");
@@ -665,7 +665,7 @@ impl Checker {
                 if let Some(block) = block {
                     self.check_block_arena(arena, source, block);
                 }
-                Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
+                Type::core_command_result(name)
             }
         }
     }
@@ -768,7 +768,7 @@ impl Checker {
             RunKind::Plain | RunKind::Status => {
                 if run.propagate {
                     self.check_propagation(
-                        &Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+                        &Type::run_statement_result(),
                         run_span,
                     )
                 } else {

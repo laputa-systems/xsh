@@ -52,6 +52,15 @@ impl OwnerEffects {
     }
 }
 
+pub(super) fn captures_child_error(decoder: &FullDecoder<'_>, parent: usize, child: usize) -> Result<bool, IrVerifyError> {
+    Ok(match decoder.store.tags[parent] {
+        FullTag::ExprCapture => true,
+        FullTag::ExprRetry => decoder.store.tags[child].kind() != schema::InstructionKind::Expr,
+        FullTag::StmtWith => decoder.store.tags[child].kind() == schema::InstructionKind::Expr,
+        _ => false,
+    })
+}
+
 fn captures_error(decoder: &FullDecoder<'_>, instruction: usize, cache: &mut BTreeMap<usize, bool>, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<bool, IrVerifyError> {
     if let Some(&captured) = cache.get(&instruction) { return Ok(captured); }
     let mut path = Vec::new();
@@ -60,27 +69,16 @@ fn captures_error(decoder: &FullDecoder<'_>, instruction: usize, cache: &mut BTr
         if let Some(&captured) = cache.get(&child) { break captured; }
         let Some(parent) = parent_of(child)? else { break false };
         path.push(child);
-        match decoder.store.tags[parent] {
-            FullTag::ExprCapture => break true,
-            FullTag::ExprRetry => {
-                let schema::ExprView::Retry { delays, .. } = decoder.expression_view(parent)? else { unreachable!() };
-                let mut delay = false;
-                for value in delays { delay |= value?.raw() as usize == child; }
-                if !delay { break true; }
-            }
-            FullTag::StmtWith => {
-                let schema::StmtView::With { bindings, .. } = decoder.statement_view(parent)? else { unreachable!() };
-                let mut captures = false;
-                for binding in bindings { captures |= binding?.1.raw() as usize == child; }
-                if captures { break true; }
-            }
-            _ => {}
-        }
+        if captures_child_error(decoder, parent, child)? { break true; }
         child = parent;
     };
     for child in path { cache.insert(child, captured); }
     cache.insert(instruction, captured);
     Ok(captured)
+}
+
+pub(super) fn function_effects(store: &FullStore, index: usize) -> Result<Option<Vec<Effect>>, IrVerifyError> {
+    Ok(OwnerEffects::for_function(store, index)?.effects)
 }
 
 pub(super) fn require_native(decoder: &FullDecoder<'_>, instruction: usize, effects: &[Effect], pure: bool, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<(), IrVerifyError> {
@@ -156,7 +154,12 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
                 require(instruction, None, owner.kind == CallableKind::Pure, &mut captured)?;
             }
             FullTag::ExprExternalCall => require(instruction, None, false, &mut captured)?,
-            FullTag::ExprGlob | FullTag::ExprFsFiles | FullTag::ExprFsWalk | FullTag::ExprFsList | FullTag::ExprFsTempDir
+            FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
+                require(instruction, Some(&[Effect::Fs]), false, &mut captured)?;
+                let (schema::ExprView::FsFiles { result_wrapped, .. } | schema::ExprView::FsWalk { result_wrapped, .. }) = decoder.expression_view(instruction)? else { unreachable!() };
+                if !result_wrapped { require(instruction, Some(&[Effect::Error]), false, &mut captured)?; }
+            }
+            FullTag::ExprGlob | FullTag::ExprFsList | FullTag::ExprFsTempDir
             | FullTag::ExprFsMkdir | FullTag::ExprFsRemove | FullTag::ExprPathReadText | FullTag::ExprPathReadBytes
             | FullTag::ExprPathExists | FullTag::ExprPathExecutable | FullTag::ExprPathDu | FullTag::ExprPathMetadata
             | FullTag::ExprPathReadlink | FullTag::ExprPathResolve | FullTag::ExprPathWrite | FullTag::ExprPathMkdir
@@ -242,7 +245,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
 
 pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store.tags[instruction];
-    if matches!(tag, FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv) { return Ok(true); }
+    if matches!(tag, FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprCapture) { return Ok(true); }
     if !matches!(tag, FullTag::ExprModuleCall | FullTag::ExprMethod) { return Ok(false); }
     let data = store.data.get(instruction).ok_or_else(|| IrVerifyError::new("native operation has no instruction payload"))?;
     let payload = store.payload(data.range())?;
