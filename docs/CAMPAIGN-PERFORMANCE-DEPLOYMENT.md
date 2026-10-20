@@ -21,7 +21,26 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `0b33e84bf` passes the combined targeted boundary: 342 passed, zero
+Source `ae9793745` passes the combined targeted boundary: 357 passed, zero
+failed and zero ignored. Scalar slots now use canonical lexical projections;
+native overload shape determines a result only with unambiguous authority,
+and actual operands remain independently checked. Fold accumulator proposals
+must prove the actual seed, callback and every writer, including with optional
+facts removed. Spawn, Wait and Command rows prove operands, canonical options,
+result envelopes and their owner's return contract. Opaque Record environments
+retain the existing API boundary. Two corruption tests now require the earlier
+scalar predicate rejection instead of the later writer rejection. No invalid
+program was admitted to make the replay pass. Matching products are building;
+full corpus, docs, native and performance qualification remain open.
+
+Guard `6bfb3ca22` rejects an unmatched focused Cargo test filter with exit 125.
+The actual pinned Rust test binary passes one exact test, rejects a typo before
+body execution, and lists its tests without running them. The inherited Cargo
+lock is released before discovery and execution. Three XSH runner tests remain
+blocked on command-argument proof with the older matching products; they must
+be replayed with the new pair.
+
+Source `0b33e84bf` passes the earlier combined targeted boundary: 342 passed, zero
 failed and zero ignored, including the previously failing dynamic-module-call
 selector. Dynamic calls through required Module exports prove actual arguments,
 defaults, results and effects. Runtime-loaded module calls execute on both
