@@ -30,15 +30,28 @@ facts removed. Spawn, Wait and Command rows prove operands, canonical options,
 result envelopes and their owner's return contract. Opaque Record environments
 retain the existing API boundary. Two corruption tests now require the earlier
 scalar predicate rejection instead of the later writer rejection. No invalid
-program was admitted to make the replay pass. Matching products are building;
-full corpus, docs, native and performance qualification remain open.
+program was admitted to make the replay pass. Matching verification products
+build in `.work/wt/full-inference-process-contract`. The `xsh` is 35,587,984
+bytes, SHA-256 `a4dcdc98ca6841493879f2316547865a8ef76e038320cb14bb245afb74983636`.
+The `xsht` is 43,577,840 bytes, SHA-256
+`1acbfb4fda8368b2f7940aeb8c952888a7c33d07546a54e4ee3f7cebe91a0666`.
+Both are under `.work/target/x86_64-unknown-linux-musl/verification`.
+Full corpus, docs, native and performance qualification remain open.
+
+The matching-product replay checks the original and joint 202-effect-removal
+views once each. Both Laputa checks pass. Both ten-root XSH checks fail with
+identical diagnostics: implicit discard in `cut` and `tr`, Abort in `date`,
+a missing record contract in `system-report`, and a missing match-subject
+contract in `dev/main`. Scalar failures are gone. Interface comparison remains
+unrun, and these checks supply no annotation-removal credit.
 
 Guard `6bfb3ca22` rejects an unmatched focused Cargo test filter with exit 125.
 The actual pinned Rust test binary passes one exact test, rejects a typo before
 body execution, and lists its tests without running them. The inherited Cargo
 lock is released before discovery and execution. Three XSH runner tests remain
-blocked on command-argument proof with the older matching products; they must
-be replayed with the new pair.
+blocked on command-argument proof. The first selector still fails preparation
+with the matching `ae9793745` pair, before its body runs. The other two selectors
+remain unrun. Runner diagnosis must identify the actual failing producer.
 
 Source `0b33e84bf` passes the earlier combined targeted boundary: 342 passed, zero
 failed and zero ignored, including the previously failing dynamic-module-call
@@ -88,9 +101,9 @@ That exact failure also reproduces before the correction at `f3e4eb405`:
 `ExprDynamicCall` has an unknown effect contract. It remains mandatory work;
 it is not waived by the targeted boundary above.
 
-Acceleration now runs six workstreams: ordinary generic bodies, runtime
-contracts, scalar slot proofs, imported module proofs, verification speed and
-corpus qualification. Lease change `b1c1b886d` permits at most two ordinary
+Acceleration now runs six workstreams: ordinary generic bodies, driver
+projections, discard and noncompletion proofs, verification speed, corpus
+qualification, and independent generic-body review. Lease change `b1c1b886d` permits at most two ordinary
 Cargo builds with disjoint output directories. Existing exclusive builds and
 performance windows still exclude them. Nineteen real-process controls pass,
 including same-output exclusion, module-alias safety and interruption cleanup.
