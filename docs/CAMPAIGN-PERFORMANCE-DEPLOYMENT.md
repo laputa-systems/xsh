@@ -23,7 +23,18 @@ The deliverables are:
 
 ## Current checkpoint
 
-Source `052b13165` passes 184 focused runtime, verifier, loader, semantic-body
+Source `07ff1bbbd` integrates the reviewed resource-specialization repair.
+Its immutable merged replay passes 64 focused body, callable and resource
+controls with zero failures. One existing manual attribution test is ignored.
+Body comparison specializes transfer operands through the same solved header
+instance. Missing evidence, crossed binders and removed UInt guards reject.
+Record and tag types may retain resources, including hidden payloads.
+Canonical run-value sites preserve propagation selections.
+Generic tail matches, break-valued loops and mutable proc bodies still fail
+checker probes and remain required compiler work. Corpus comparison and fresh
+native ownership replay remain pending.
+
+Previous checkpoint `052b13165` passes 184 focused runtime, verifier, loader, semantic-body
 and interface controls after local integration. The repaired public body
 comparison rejects lost UInt checks, accepts proven Int annotation removal,
 and preserves checker-only commands. Broader qualification remains open. The mutable typed-storage repair at
@@ -78,8 +89,8 @@ descends its checked scrutinee before applying the original unchecked-slot
 corruption; its rejection requirement is unchanged.
 Expanded docs preparation advances to a process-command argument-vector
 producer; no matching documentation generation pass is claimed. Try-capture
-transport, condition-only producer authentication and resource specialization
-remain mandatory open repairs.
+transport and condition-only producer authentication remain mandatory open
+repairs. Combined corpus qualification remains pending.
 Optional-record literals also fail to propagate a typed callable field context.
 Using an already typed callable isolates the verifier tests but does not close
 that checker case.
@@ -105,14 +116,15 @@ Public API regression `9dbde9ebe` rejects a CLI parameter change from `Str` to
 `Int` that previously passed body comparison. Owners without a callable
 interface proof preserve exact header validations; normalization requires the
 existing canonical equivalence or instance proof. The public regression and
-all six existing composite controls pass. The separate generic identity
-comparison still fails and remains a resource-specialization requirement.
+all six existing composite controls pass. The library identity regression now
+passes with the resource-specialization repair above. Public command replay
+still needs matching rebuilt products.
 
 Three native ownership controls at `f73caaa92` establish that record validation
 retains extra fields, including hidden resources, and nominal variant payloads
 retain resources until owner exit. Runtime replay passes with the matching
-`3594b4969` products. Canonical resource classification and safe scheme
-specialization remain open.
+`3594b4969` products. These controls still need matching products for the
+resource-classification repair above.
 
 The separate origin fix `16d7c4f15` preserves explicit Result discards as data
 and makes annotated storage violations fatal type errors. Explicit schema
