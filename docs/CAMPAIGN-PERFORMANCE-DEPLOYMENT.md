@@ -21,7 +21,21 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `1eeacf2e9` passes the combined targeted boundary: 333 passed, zero
+Source `12f65d5ee` passes the combined targeted boundary: 338 passed, zero
+failed and zero ignored. Imported module reads use the actual verified Use
+origin and registered export contracts, including reads with erased precision.
+Five portable regressions cover execution after frontend disposal on both
+routes, wrong-child exports, forged registrations and member-context forgery.
+The broad-read regression fails under the old gate and passes with the fix.
+The process-contract lane now owns the remaining Spawn and Wait proofs.
+
+Corpus update `3f2535d9b` preserves the frozen denominator and validates exact
+Map initializer shapes. All fourteen focused witness controls pass after
+integration. The 758 historical Proc annotations remain an in-scope inference
+frontier; conditional retention ceilings do not make them language limits.
+No new annotation-removal or practical-runtime credit follows.
+
+Source `1eeacf2e9` passes the earlier combined targeted boundary: 333 passed, zero
 failed and zero ignored. It includes canonical environment assignment and
 managed-resource release contracts, both indexed execution routes, wrong-value
 and wrong-resource mutations, effect ceilings, and generated resource-scope
