@@ -23,14 +23,44 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `e0f8cbfac` passes the combined immutable replay: 238 passed, zero
+failed and zero ignored. Independent review approves contextual verification
+through an exact identity-match binding. The actual subject still proves the
+expected contract through its canonical native operation. The minimal inline
+fold and typed-seed controls produce the expected map on both indexed routes.
+Changing MapEmpty to SetEmpty, removing the binding or returning another slot
+rejects. The focused producer and Capture group passes all 61 controls.
+Matching verification products build. Actual repository docs replay passes the
+former parallel-map failure, then stops at `tour/30-cancel.xsh`: ExprSpawnRun
+has no executable type proof. A source-only batch checks all 221 snippet files
+and reports 17 preparation failures. Some batch locations name the wrong file;
+per-file diagnosis must establish the actual failing examples. Full docs
+qualification remains open.
+
+The repair removes optional native-subject hints in its regression. It retains
+and independently checks the concrete match and accumulator claim. Three proof
+completeness failures remain required work in
+`strict_result_producers_ground_contextual_fold_seeds_inside_capture`:
+removing all optional facts reaches a propagation with no derived Result
+contract; adding `result?.get("k")` reaches a method with no registered
+parameter contract; removing the identity match's concrete claim leaves the
+mutable accumulator writer with no declared collection. These cases do not
+receive qualification from the narrower repair.
+
 Source `55da2de13` passes the combined immutable replay: 237 passed, zero
 failed and zero ignored. Independent review approves the shared source checker
 repair for actual Stream pulls in loops and comprehensions. Known fallible
 pulls now contribute their error through the existing nearest propagation
 boundary. Safe pulls and saved streams remain valid. Seven source cases check
 the accepted forms and exact diagnostic code, message and failing-call span.
-Source provenance through relays and Result wrappers remains open.
-Matching products below remain at `18c920910`; their native results do not
+Source provenance through relays and Result wrappers remains open. A fifteen-case
+source matrix accepts all nine controls but incorrectly accepts all six narrow
+fallible cases: direct relay, Result wrapper, projected wrapper, selected
+returned input, alias and typed alias. The repair must jointly settle stream
+origins and effects in the existing file probe loop before final checking.
+A nominal-seeded capture must infer Error for a fallible relay and retain the
+nominal family for a safe relay, independently of declaration order.
+The earlier native results below remain bound to `18c920910`; they do not
 qualify this newer source. The reduced docs regression is a Capture around
 `fold(map.empty())`. A typed seed passes, as does the fold outside Capture.
 Repair its generated identity-match contract before rebuilding products.
