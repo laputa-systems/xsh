@@ -1042,6 +1042,9 @@ pub fn generate_problem(seed: u64) -> SeededProblem {
     let mut problem = Problem::new();
     let outer = problem.fresh_type(2);
     let inner = problem.fresh_type(3);
+    let generic = problem.fresh_type(3);
+    let environment = problem.fresh_type(0);
+    let linked = problem.fresh_type(3);
     let left_name = format!("left_{seed}");
     let right_name = format!("right_{seed}");
     let left_tail = problem.fresh_row(2, ["common".to_owned(), left_name.clone()]);
@@ -1064,6 +1067,7 @@ pub fn generate_problem(seed: u64) -> SeededProblem {
     problem.equate(outer.clone(), outer_type.clone());
     problem.equate(inner.clone(), Type::Atom(atom));
     problem.equate(left_row.clone(), right_row.clone());
+    problem.equate(linked.clone(), environment.clone());
     let satisfiable = !seed.is_multiple_of(7);
     if !satisfiable {
         problem.equate(outer.clone(), Type::Atom(conflict_atom));
@@ -1072,6 +1076,9 @@ pub fn generate_problem(seed: u64) -> SeededProblem {
     problem.observe(inner);
     problem.observe(left_row);
     problem.observe(right_row);
+    problem.observe(generic);
+    problem.observe(environment);
+    problem.observe(linked);
     SeededProblem {
         seed,
         problem,
@@ -1152,6 +1159,11 @@ mod tests {
                     std::slice::from_ref(&observations[2]),
                     std::slice::from_ref(&observations[3])
                 ));
+                let scheme = solution.generalize(generated.problem.observations(), 0).unwrap();
+                assert_eq!(scheme.type_parameters.len(), 1);
+                assert!(matches!(scheme.types[4], SchemeType::Parameter(_)));
+                assert!(matches!(scheme.types[5], SchemeType::Free(_)));
+                assert_eq!(scheme.types[5], scheme.types[6]);
             }
         }
     }

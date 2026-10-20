@@ -4,7 +4,7 @@ mod inference_oracle;
 use inference_oracle as oracle;
 use super::{
     ConstraintConflict, ConstraintResolutionError, ConstraintType, GeneralizedTypes, RowShape,
-    RowTail, TypeConstraints, TypeVariableId,
+    RowTail, SchemeOperationError, TypeConstraints, TypeVariableId,
 };
 use crate::sema::schemes::{
     SchemeBuildError, SchemeParameter, SchemeRowParameter,
@@ -485,6 +485,59 @@ fn actual_trial(actual: &mut ActualProblem) -> Result<bool, ConstraintResolution
     })
 }
 
+fn has_environment_variable(ty: &oracle::SchemeType) -> bool {
+    match ty {
+        oracle::SchemeType::Free(_) => true,
+        oracle::SchemeType::Ground(_) | oracle::SchemeType::Parameter(_) => false,
+        oracle::SchemeType::List(inner) | oracle::SchemeType::Optional(inner) => {
+            has_environment_variable(inner)
+        }
+        oracle::SchemeType::Result(ok, err) => {
+            has_environment_variable(ok) || has_environment_variable(err)
+        }
+        oracle::SchemeType::Record { fields, tail } => {
+            fields.values().any(has_environment_variable)
+                || matches!(tail, oracle::SchemeRowTail::Free(_))
+        }
+    }
+}
+
+fn assert_generalization_matches(
+    problem: &oracle::Problem,
+    actual: &mut ActualProblem,
+    seed: u64,
+) -> (oracle::Scheme, oracle::Scheme) {
+    let solution = problem.solve().unwrap();
+    let mut ids = OutputIds::new(problem, actual);
+    let roots = actual_generalization_roots(actual).unwrap();
+    let mut eligible_observations = Vec::new();
+    let mut eligible_roots = Vec::new();
+    for (index, (observation, root)) in problem.observations().iter().zip(roots).enumerate() {
+        let expected = solution.generalize(std::slice::from_ref(observation), 0).unwrap();
+        if expected.types.iter().any(has_environment_variable) {
+            let result = actual.constraints.generalize_types(std::slice::from_ref(&root), 0);
+            assert!(
+                matches!(result, Err(SchemeOperationError::Build(
+                    SchemeBuildError::UnresolvedType | SchemeBuildError::UnresolvedRow
+                ))),
+                "environment-dependent root {index} was published at seed {seed}: {result:?}",
+            );
+        } else {
+            eligible_observations.push(observation.clone());
+            eligible_roots.push(root);
+        }
+    }
+    let expected = solution.generalize(&eligible_observations, 0).unwrap();
+    let generalized = actual.constraints.generalize_types(&eligible_roots, 0)
+        .unwrap_or_else(|error| panic!("eligible roots failed to generalize at seed {seed}: {error:?}"));
+    let generalized = model_generalized_types(&generalized, &mut ids);
+    assert!(
+        oracle::schemes_equivalent(&expected, &generalized),
+        "generalization differs at seed {seed}: {expected:?} vs {generalized:?}",
+    );
+    (expected, generalized)
+}
+
 #[test]
 fn callable_scheme_rejects_record_fields_missing_from_row_lacks() {
     let symbols = SymbolOwner::new();
@@ -543,17 +596,8 @@ fn production_constraints_match_independent_generated_type_and_row_problems() {
                     .unwrap_or_else(|error| panic!("production resolution at seed {seed}: {error:?}"));
                 assert!(oracle::types_equivalent(&expected_outputs, &actual_outputs), "resolved outputs differ at seed {seed}: {expected_outputs:?} vs {actual_outputs:?}");
 
-                let expected_scheme = solution
-                    .generalize(generated.problem.observations(), 0)
-                    .unwrap();
-                let roots = actual_generalization_roots(&mut actual)
-                    .unwrap_or_else(|error| panic!("production record root at seed {seed}: {error:?}"));
-                let actual_scheme = actual
-                    .constraints
-                    .generalize_types(&roots, 0)
-                    .unwrap_or_else(|error| panic!("production generalization at seed {seed}: {error:?}"));
-                let actual_scheme = model_generalized_types(&actual_scheme, &mut ids);
-                assert!(oracle::schemes_equivalent(&expected_scheme, &actual_scheme), "generalized schemes differ at seed {seed}: {expected_scheme:?} vs {actual_scheme:?}");
+                let (expected_scheme, actual_scheme) =
+                    assert_generalization_matches(&generated.problem, &mut actual, seed);
 
                 if seed == 1 {
                     let mut mutant = actual_outputs.clone();
@@ -561,6 +605,9 @@ fn production_constraints_match_independent_generated_type_and_row_problems() {
                     assert!(!oracle::types_equivalent(&expected_outputs, &mutant));
                     let mut mutant_scheme = actual_scheme.clone();
                     mutant_scheme.types[0] = oracle::SchemeType::Ground(oracle::Atom::Str);
+                    assert!(!oracle::schemes_equivalent(&expected_scheme, &mutant_scheme));
+                    let mut mutant_scheme = actual_scheme.clone();
+                    mutant_scheme.types[4] = oracle::SchemeType::Ground(oracle::Atom::Str);
                     assert!(!oracle::schemes_equivalent(&expected_scheme, &mutant_scheme));
                 }
             }
@@ -586,6 +633,93 @@ fn production_constraints_match_independent_generated_type_and_row_problems() {
             )
             .unwrap_or_else(|error| panic!("production rollback resolution at seed {seed}: {error:?}"));
             assert_eq!(actual_after_trial, original_observations, "production trial failed to roll back at seed {seed}");
+        }
+    });
+}
+
+#[test]
+fn production_trials_restore_generalization_and_row_continuations() {
+    let symbols = SymbolOwner::new();
+    symbols.with_current(|| {
+        for seed in 0_u64..128 {
+            let mut baseline = oracle::Problem::new();
+            let generic = baseline.fresh_type(3);
+            let environment = baseline.fresh_type(0);
+            let linked = baseline.fresh_type(3);
+            let reserved = format!("reserved_{seed}");
+            let blocked = format!("blocked_{seed}");
+            let environment_tail = baseline.fresh_row(0, [reserved.clone()]);
+            let local_tail = baseline.fresh_row(3, [blocked.clone()]);
+            let environment_row = oracle::Type::Record(oracle::Row::open(
+                BTreeMap::new(), environment_tail,
+            ));
+            let local_row = oracle::Type::Record(oracle::Row::open(
+                BTreeMap::new(), local_tail,
+            ));
+            for ty in [&generic, &environment, &linked, &environment_row, &local_row] {
+                baseline.observe(ty.clone());
+            }
+            let mut problem = baseline.clone();
+            problem.equate(linked.clone(), environment.clone());
+            problem.equate(local_row.clone(), environment_row.clone());
+            if seed.is_multiple_of(7) {
+                problem.equate(
+                    oracle::Type::Atom(oracle::Atom::Int),
+                    oracle::Type::Atom(oracle::Atom::Str),
+                );
+            }
+            let mut model = problem.solver();
+            let expected_trial = model.trial(problem.equations());
+            assert_eq!(expected_trial.is_ok(), !seed.is_multiple_of(7));
+            let mut actual = build_actual(&problem);
+            assert_eq!(actual_trial(&mut actual), Ok(expected_trial.is_ok()), "seed {seed}");
+            assert_generalization_matches(&baseline, &mut actual, seed);
+
+            let continuations = [
+                oracle::Equation {
+                    left: generic,
+                    right: oracle::Type::List(Box::new(oracle::Type::Atom(oracle::Atom::Bool))),
+                },
+                oracle::Equation {
+                    left: environment,
+                    right: oracle::Type::Atom(oracle::Atom::Int),
+                },
+                oracle::Equation {
+                    left: linked,
+                    right: oracle::Type::Atom(oracle::Atom::Str),
+                },
+                oracle::Equation {
+                    left: environment_row,
+                    right: oracle::Type::Record(oracle::Row::closed(BTreeMap::from([
+                        (blocked, oracle::Type::Atom(oracle::Atom::Bool)),
+                    ]))),
+                },
+                oracle::Equation {
+                    left: local_row,
+                    right: oracle::Type::Record(oracle::Row::closed(BTreeMap::from([
+                        (reserved, oracle::Type::Atom(oracle::Atom::Int)),
+                    ]))),
+                },
+            ];
+            for (index, equation) in continuations.iter().enumerate() {
+                let expected = model.unify(&equation.left, &equation.right);
+                assert!(expected.is_ok(), "oracle continuation {index} at seed {seed}: {expected:?}");
+                let left = constraint_type(&equation.left, &actual.type_variables, &actual.row_variables).unwrap();
+                let right = constraint_type(&equation.right, &actual.type_variables, &actual.row_variables).unwrap();
+                let result = actual.constraints.constrain_types(&left, &right, span(index as u32 + 16384));
+                assert_eq!(result.is_ok(), expected.is_ok(), "continuation {index} at seed {seed}: {result:?}");
+                baseline.equate(equation.left.clone(), equation.right.clone());
+            }
+            let expected_outputs = baseline.observations().iter()
+                .map(|ty| model.resolve_type(ty).unwrap()).collect::<Vec<_>>();
+            let actual_outputs = resolved_actual_outputs(
+                &actual, &mut OutputIds::new(&baseline, &actual),
+            ).unwrap();
+            assert!(
+                oracle::types_equivalent(&expected_outputs, &actual_outputs),
+                "continuation outputs differ at seed {seed}: {expected_outputs:?} vs {actual_outputs:?}",
+            );
+            assert_generalization_matches(&baseline, &mut actual, seed);
         }
     });
 }
