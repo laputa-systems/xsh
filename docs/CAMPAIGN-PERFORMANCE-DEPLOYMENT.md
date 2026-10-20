@@ -23,6 +23,15 @@ The deliverables are:
 
 ## Current checkpoint
 
+Practical corpus adapter `b84a128ef` now applies semantic interface and body
+comparison to the same 12 XSH and three Laputa roots used by paired checking.
+Its sixth runtime selector covers AWK include diagnostics and both changed
+parser helpers. Shell syntax and all eight existing adapter controls pass;
+those controls exercise frozen mode with stub products. Practical replay with
+matching compiler products remains pending. Historical wc diagnostic probes
+and exact revealed-signature comparisons still need qualification against the
+new inference behavior.
+
 Source `475f8be3a` passes the combined immutable replay: 209 passed, zero
 failed and zero ignored. Independent review approves its condition and
 producer repair. Conditions authenticate their actual operands, pipeline
