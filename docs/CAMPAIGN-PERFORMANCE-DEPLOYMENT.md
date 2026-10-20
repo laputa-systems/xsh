@@ -23,6 +23,17 @@ The deliverables are:
 
 ## Current checkpoint
 
+Source `d8e6dc342` passes the combined immutable replay: 243 passed, zero
+failed and zero ignored. Independent review approves the physical abort-discard
+repair. `exit` produces no discarded value, while its status operand retains
+ordinary type and effect checks. The regression reproduces the former missing
+value-contract rejection and preserves status 77 on both indexed routes.
+Valid-first mutations retain rejection of a live expression without a value
+contract and an exit-status call whose effect exceeds its owner's bound.
+All 22 focused effect and abort controls pass. Matching products, snippet
+replay and practical-corpus replay remain required. Existing products stay at
+`e0f8cbfac`.
+
 Source `80fea2f8d` fixes attribution of spanless compact-build errors to the
 current entry. Explicit source spans, diagnostic codes and messages remain
 unchanged. The two-source rendering regression fails before the fix and passes
