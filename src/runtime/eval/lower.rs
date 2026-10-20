@@ -7806,6 +7806,107 @@ mod checked_constructor_fact_tests {
     }
 
     #[test]
+    fn checked_record_constructors_preserve_declared_effect_ceilings() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create constructor module fixture");
+        std::fs::write(module_root.path().join("rows.xsh"), "##! Record constructor contracts.\n## A fixed integer row.\nexport type Row = {value: Int}\n## A generic value row.\nexport type Box[T] = {value: T}\n").expect("write constructor module");
+        let mut failures = Vec::new();
+        for (schema, constructor) in [("rows.Row", "rows.Row"), ("rows.Box[Int]", "rows.Box")] {
+            let source = format!("use rows\nproc gather() -> List[{schema}] {{ var values: List[{schema}] = []; values = values.push({constructor}(value: 1)); values }}\n");
+            let checked = CheckedSource::new("imported-constructor-effect.xsh", &source, vec![module_root.path().to_path_buf()]);
+            if let Err(error) = checked.build(&checked.declarations) { failures.push(format!("{source}\n{error:?}")); }
+        }
+        for source in [
+            "type Row = {value: Int}\npure make(value: Int) -> Row { Row(value:) }\n",
+            "type Row = {value: Int}\nproc make(value: Int) [] -> Row { Row(value:) }\n",
+            "type Row = {value: Int}\nproc make(value: Int) -> Row { Row(value:) }\n",
+            "type Row = {value: UInt}\nproc make(value: UInt) [] -> Row { Row(value:) }\n",
+            "type Box[T] = {value: T}\npure make(value: Str) -> Box[Str] { Box(value:) }\n",
+            "type Dynamic = {value: Any}\npure make(value: Any) -> Dynamic { Dynamic(value:) }\n",
+            "nominal type Row = {value: Int}\npure make(value: Int) -> Row { Row(value:) }\n",
+        ] {
+            let checked = CheckedSource::new("checked-constructor-effect.xsh", source, Vec::new());
+            if let Err(error) = checked.build(&checked.declarations) { failures.push(format!("{source}\n{error:?}")); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        for (source, code) in [
+            ("type Row = {value: Int}\npure make(value: Any) -> Row { Row(value:) }\n", crate::diagnostic::DiagnosticCode::CheckDynamicBoundary),
+            ("type Box[T] = {value: T}\npure make(value: Int) -> Box[Str] { Box(value:) }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
+            ("nominal type Left = {value: Int}\nnominal type Right = {value: Int}\ntype Holder = {value: Left}\npure make(value: Right) -> Holder { Holder(value:) }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena(&parsed.arena, source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(code), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn checked_record_constructors_enforce_unsigned_storage_boundaries() {
+        use crate::runtime::eval::{Evaluator, LoweredFunctionKey, LoweredFunctionKind};
+        use crate::runtime::value::{ResultValue, Value};
+        use crate::symbol::Name;
+        use std::sync::Arc;
+        let checked = CheckedSource::new("unsigned-constructor-validation.xsh", r#"
+type Row = {value: UInt}
+proc make(value: Int) [io] -> Result[Row] {
+    defer { print "callee" }
+    try { defer { print "inner" }; Row(value:) }
+}
+pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
+"#, Vec::new());
+        let program = Arc::new(super::super::FullBuilder::build_compact(&checked.parsed.arena, &checked.declarations, &checked.source, Arc::new(checked.sources.clone()), checked.source_id).unwrap());
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
+        for force_frames in [false, true] {
+            for value in [7, -1] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).expect("constructor procedure exists");
+                if value >= 0 {
+                    let Value::Result(ResultValue::Ok(record)) = result.expect("valid constructor") else { panic!("constructor must return a successful record") };
+                    let Value::Record(record) = *record else { panic!("constructor must return a record") };
+                    assert_eq!(record.get("value"), Some(&Value::Int(value)));
+                } else {
+                    let error = result.expect_err("try cannot turn a typed field failure into data");
+                    assert_eq!(error.family, "Error");
+                    assert_eq!(error.kind, "type-error");
+                    assert_eq!(error.message, "value violates UInt constraint in Row");
+                    let span = error.span.expect("constructor validation span");
+                    assert_eq!(&checked.source[span.range()], "Row(value:)");
+                }
+                assert_eq!(evaluator.stdout, b"inner\ncallee\n");
+                let explicit = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("explicitly_checked")));
+                let result = evaluator.call_indexed_direct(explicit, LoweredFunctionKind::Pure, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).unwrap().expect("explicit validation returns data");
+                match (result, value >= 0) {
+                    (Value::Result(ResultValue::Ok(checked)), true) => assert_eq!(*checked, Value::Int(value)),
+                    (Value::Result(ResultValue::Err(error)), false) => {
+                        let Value::Error(error) = *error else { panic!("explicit validation retains its schema failure") };
+                        assert_eq!(error.kind, "schema");
+                    }
+                    (result, _) => panic!("{force_frames} {value}: {result:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn checked_record_constructors_keep_typed_validation_out_of_error_effects() {
+        use crate::syntax::node::Effect;
+        let mut failures = Vec::new();
+        for parameter in ["Int", "UInt"] {
+            let source = format!("type Row = {{value: UInt}}\nproc make(value: {parameter}) -> Result[Row] {{ Row(value:) }}\n");
+            let checked = CheckedSource::new("inferred-constructor-validation.xsh", &source, Vec::new());
+            let effects = checked.declarations.function_signatures.values().next().unwrap().effects.as_ref().unwrap();
+            if effects.contains(&Effect::Error) { failures.push(format!("{source}\n{effects:?}")); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
     fn missing_constructor_call_type_fact_blocks_lowering() {
         use crate::syntax::arena::ArenaExprKind;
 

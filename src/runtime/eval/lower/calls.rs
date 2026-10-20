@@ -762,15 +762,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 .into(),
             };
-            let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::Try {
-                    value: checked,
-                    span
-                }
-            ));
+            return Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }));
         }
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)

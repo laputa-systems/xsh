@@ -1049,6 +1049,11 @@ constant data (literals, constant lists and records, and earlier constants)
 and apply only to constructor calls. They never fill missing fields in record
 literals, JSON, or `.require`. A schema name is not a callable value.
 
+Constructing a record adds no effects beyond its arguments. Field constraints
+are typed storage boundaries: a violation stops execution and runs cleanup,
+and `try` does not convert the violation to `Err`. Use explicit `.require`
+when validation failure should be returned as data.
+
 Schemas and aliases may take type parameters:
 
 ```xsh
