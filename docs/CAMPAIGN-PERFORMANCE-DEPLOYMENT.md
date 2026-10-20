@@ -69,6 +69,9 @@ transfer controls. Expanded docs preparation now stops at a guarded optional
 record field; no matching documentation generation pass is claimed. Try-capture
 transport, condition-only producer authentication and resource specialization
 remain mandatory open repairs.
+Optional-record literals also fail to propagate a typed callable field context.
+Using an already typed callable isolates the verifier tests but does not close
+that checker case.
 
 The paired interface command at `4f58546f2` preserves original logical source
 identities while checking candidate bytes. Export, symlink and cancellation
@@ -183,7 +186,12 @@ meaning across independent parses; semantically empty facade contexts compare
 without erasing the checker's diagnostic context.
 
 The independent finite-effect model passes eight tests but has no production
-symbolic-effect differential yet. Fixed scaling workloads cover eight families
+symbolic-effect differential yet. The strengthened type/row differential at
+`3ac5eb1aa` passes all eleven focused controls after integration, including
+128-seed generic quantification and post-trial continuation comparisons.
+The current low-level publisher rejects unresolved environment roots; this
+does not establish complete captured-environment inference.
+Fixed scaling workloads cover eight families
 at sizes 64, 128, 256 and 512. Their shape and generator checks are not measured
 performance evidence. Three solver scaling checks pass at all four sizes. Seven host-obligation
 checks pass, including actual candidate-trial counts and deduplicated dependency
