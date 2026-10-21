@@ -2757,6 +2757,11 @@ impl<'a> FullFunctionView<'a> {
         self.index
     }
 
+    pub(in crate::runtime::eval) fn callable_kind(&self) -> Result<crate::sema::types::CallableKind, IrVerifyError> {
+        self.program.store.function_metadata.get(self.index).map(|metadata| metadata.callable_kind)
+            .ok_or_else(|| IrVerifyError::new("function callable kind is missing"))
+    }
+
     pub(in crate::runtime::eval) fn definition_span(&self) -> Result<Span, IrVerifyError> {
         self.program
             .function_definition_spans
@@ -10979,9 +10984,10 @@ impl<'a> FullDecoder<'a> {
                     "checked function reference producer tag was changed",
                 ))
             } else {
-                Err(IrVerifyError::new(
-                    "checked callable expression has no structural producer proof",
-                ))
+                Err(IrVerifyError::new(format!(
+                    "checked callable expression has no structural producer proof: {:?} in owner {} at instruction {instruction} with contract {ty}",
+                    self.store.tags[instruction], self.owner,
+                )))
             }
         };
         match view {
@@ -11579,6 +11585,11 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
             }
+            schema::ExprView::Capture { body, .. } => {
+                let Type::Result(ok, _) = &ty else { return Err(IrVerifyError::new("checked stream capture has no Result contract")); };
+                if crate::runtime::eval::stream_return_item(ok).is_none() { return reject_producer(); }
+                self.checked_block_tail_matches_type(body, ok)?;
+            }
             schema::ExprView::ValueBlock { body, .. } => {
                 self.checked_block_tail_matches_type(body, &ty)?;
             }
@@ -11701,6 +11712,9 @@ impl<'a> FullDecoder<'a> {
                 let output = output.map(|ty| match ty { Type::Stream(item) => Type::List(item), other => other });
                 if output.as_ref() != Some(&ty) { return Err(IrVerifyError::new(format!("checked pipeline result disagrees with its stage producers: expected {ty}, found {output:?}"))); }
             }
+            schema::ExprView::Range { .. } => {
+                require_registered_return(Type::Stream(Box::new(Type::Int)), "checked range result disagrees with its intrinsic item contract")?;
+            }
             schema::ExprView::MapComp { key, value, .. } => {
                 let Type::Map(key_type, value_type) = &ty else {
                     return Err(IrVerifyError::new("checked map-comprehension fact is not a map"));
@@ -11725,7 +11739,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
             | schema::ExprView::LastStatus { .. }
-            | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
@@ -11736,7 +11749,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::SpawnRun(_)
             | schema::ExprView::SpawnCommand { .. }
             | schema::ExprView::Wait { .. }
-            | schema::ExprView::Capture { .. }
             | schema::ExprView::ErrorContext { .. }
             | schema::ExprView::Retry { .. }
             | schema::ExprView::ProcessCommandArgv(_)
@@ -23498,6 +23510,136 @@ assert apply(40) == 42
             assert_eq!(&forged.store.data[range.clone()], &program.store.data[range]);
             let error = FullVerifier::verify(&forged).expect_err("an actual Int yield cannot authenticate a Str stream contract");
             assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_actual_range_factory() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-range-factory.xsh", concat!(
+                "pure factory(lower: Int, upper: Int, wrong: Str) -> Stream[Int] { let _ = wrong; range(lower, upper) }\n",
+                "pure identity(payload) { let _ = payload; 8 }\n",
+                "pure keep(action, value) { let _ = action(value); action }\n",
+                "pure make(items: Stream[Int]) { keep(identity, items) }\n",
+                "pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "factory");
+            let decoder = function_view_decoder(&program.store, owner);
+            let instructions = program.store.function_instruction_range(owner).unwrap();
+            let range = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRange).unwrap();
+            let fact = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == range).expect("the actual Range retains its solved Stream[Int] result");
+            let original = program.store.checked_expr_types[fact];
+            assert_eq!(program.store.semantic.to_type(original.type_id).unwrap(), Type::Stream(Box::new(Type::Int)));
+            assert!(original.function_ref().is_none());
+            assert!(!original.with_error_source());
+            let schema::ExprView::Range { start, end, .. } = decoder.expression_view(range).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(start.raw() as usize), Ok(schema::ExprView::Param(0))));
+            assert!(matches!(decoder.expression_view(end.raw() as usize), Ok(schema::ExprView::Param(1))));
+            let wrong = instructions.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("the factory retains its actual Ground parameter domains") };
+            let (_, wrong_type, _) = program.store.semantic.signature_param(signature, 2).unwrap();
+            assert_eq!(program.store.semantic.to_type(wrong_type).unwrap(), Type::Str);
+            for bound in [start, end] {
+                assert!(program.store.checked_expr_types.iter().all(|fact| fact.instruction != bound.raw()));
+                let mut wrong_bound = (*program).clone();
+                wrong_bound.store.data[bound.raw() as usize] = program.store.data[wrong];
+                let decoder = function_view_decoder(&wrong_bound.store, owner);
+                assert!(matches!(decoder.expression_view(bound.raw() as usize), Ok(schema::ExprView::Param(2))));
+                assert_eq!(wrong_bound.store.checked_expr_types[fact].type_id, original.type_id);
+                FullVerifier::verify(&wrong_bound).expect_err("each actual Range bound must retain its Int producer contract");
+            }
+            let mut wrong_item = (*program).clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            wrong_item.store.checked_expr_types[fact].type_id = semantic.intern_type(&mut wrong_item.store.semantic, &Type::Stream(Box::new(Type::Str))).unwrap();
+            assert_eq!(wrong_item.store.tags[range], program.store.tags[range]);
+            assert_eq!(wrong_item.store.data[range], program.store.data[range]);
+            let error = FullVerifier::verify(&wrong_item).expect_err("the Range intrinsic cannot produce Str items");
+            assert_eq!(error.message, "checked range result disagrees with its intrinsic item contract");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let span = Span::at(program.store.source_id, 0);
+                let factory = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("factory")));
+                let value = evaluator.call_indexed_direct(factory, LoweredFunctionKind::Pure, &[Value::Int(1), Value::Int(3), Value::Str(Arc::from("wrong"))], span).unwrap().unwrap();
+                let Value::Stream(mut stream) = value else { panic!("Range returns its declared native stream carrier") };
+                assert!(stream.contract.is_some());
+                assert!(stream.script.is_none());
+                assert!(stream.items.is_empty());
+                let (make, direct) = program.symbol_owner().with_current(|| (
+                    LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
+                ));
+                let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[Value::Stream(stream.clone())], span).unwrap().unwrap();
+                assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, Value::Stream(stream.clone())], span).unwrap().unwrap(), Value::Int(8));
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(1)));
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(2)));
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+            }
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_captured_range_result() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-captured-range.xsh", concat!(
+                "error RangeFailure = Wrong(message: Str)\n",
+                "pure captured(limit: Int) -> Result[Stream[Int]] { try { range(limit) } }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "captured");
+            let instructions = program.store.function_instruction_range(owner).unwrap();
+            let capture = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprCapture).unwrap();
+            let range = instructions.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRange).unwrap();
+            let fact = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == capture).unwrap();
+            let range_fact = program.store.checked_expr_types.iter().find(|fact| fact.instruction as usize == range).unwrap();
+            assert_eq!(program.store.semantic.to_type(program.store.checked_expr_types[fact].type_id).unwrap(), Type::Result(Box::new(Type::Stream(Box::new(Type::Int))), Box::new(Type::Error)));
+            assert_eq!(program.store.semantic.to_type(range_fact.type_id).unwrap(), Type::Stream(Box::new(Type::Int)));
+            let narrower_error = program.symbol_owner().with_current(|| Type::ErrorFamily(Name::intern("RangeFailure")));
+            for (item, error, error_message) in [
+                (Type::Str, Type::Error, "checked expression child type disagrees with its producer"),
+                (Type::Int, narrower_error, "captured error producer disagrees with its nominal error contract"),
+            ] {
+                let mut forged = program.clone();
+                let mut semantic = SemanticPoolBuilder::default();
+                forged.store.checked_expr_types[fact].type_id = semantic.intern_type(&mut forged.store.semantic, &Type::Result(Box::new(Type::Stream(Box::new(item))), Box::new(error))).unwrap();
+                assert_eq!(forged.store.tags[range], program.store.tags[range]);
+                assert_eq!(forged.store.data[range], program.store.data[range]);
+                let actual = forged.store.checked_expr_types.iter().find(|fact| fact.instruction as usize == range).unwrap();
+                assert_eq!(actual.type_id, range_fact.type_id);
+                let error = FullVerifier::verify(&forged).expect_err("the actual Range producer must authenticate both captured item and error domains");
+                assert_eq!(error.message, error_message);
+            }
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_preserve_eager_range_materialization() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-range-eager-materialization.xsh", r#"
+assert range(3).collect() == [0, 1, 2]
+assert range(-3).collect() == [0, -1, -2]
+assert range(2, 2).collect() == []
+let failed = try { range(9223372036854775807) }
+assert failed is Err(is HostIo)
+if let Err(error) = failed { assert error.errno == 12 }
+var order = ""
+proc lower() [] -> Int { order = order + "L"; 1 }
+proc upper() [] -> Int { order = order + "U"; 4 }
+let items = range(lower(), upper())
+assert order == "LU"
+for item in items { order = order + f"{item}" }
+assert order == "LU123"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
         });
     }
 

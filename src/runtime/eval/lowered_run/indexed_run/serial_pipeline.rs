@@ -1726,7 +1726,7 @@ impl IndexedMaterializedStage {
                     )
                     .with_span(span));
                 };
-                Ok(LoweredValue::List(indexed_range_values(*start, *end, span)?))
+                Ok(LoweredValue::List(indexed_range_values(*start, *end, span, LoweredValue::Int)?))
             }
             FullStageTag::Sum => {
                 let mut items = IndexedPipelineItems::new(evaluator, input, span)?;

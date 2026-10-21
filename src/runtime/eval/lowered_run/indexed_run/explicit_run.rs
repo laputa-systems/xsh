@@ -3103,11 +3103,7 @@ impl Evaluator {
         view: FullFunctionView<'_>,
         span: Span,
     ) -> Result<bool, RuntimeError> {
-        let header = view.header().map_err(|error| indexed_error(error, span))?;
-        Ok(!matches!(
-            header.return_kind,
-            LoweredReturnKind::Plain(LoweredType::Stream)
-        ))
+        Ok(view.callable_kind().map_err(|error| indexed_error(error, span))? != crate::sema::types::CallableKind::Stream)
     }
 
     pub(super) fn eval_indexed_with_frames(
@@ -4776,12 +4772,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let target = resolved.program.program();
         let stream_call = match target.function_view(resolved.function, resolved.kind)
             .map_err(|error| indexed_error(error, span))? {
-            Some(view) => matches!(
-                view.header()
-                    .map_err(|error| indexed_error(error, span))?
-                    .return_kind,
-                LoweredReturnKind::Plain(LoweredType::Stream)
-            ),
+            Some(view) => view.callable_kind().map_err(|error| indexed_error(error, span))? == crate::sema::types::CallableKind::Stream,
             None => false,
         };
         if stream_call {
