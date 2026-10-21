@@ -821,6 +821,20 @@ impl GroundProducerIndex {
                 owner.pipeline_stages.entry(instruction).or_default().push(stage.id.raw());
                 let stage = stage.view;
                 use super::super::StageView as S;
+                if let S::Range { start, end } = &stage
+                    && let Some(bounds) = super::super::indexed_configured_range_bounds_with(
+                        decoder, start.raw(), end.raw(), &mut |amount| work.borrow_mut().charge(amount))?
+                {
+                    work.borrow_mut().charge(2)?;
+                    let binding = ProducerBinding::ScopedDeclaration(bounds.end_root, bounds.end_slot);
+                    let source = owner.pattern_sources.get(&binding).ok_or_else(|| IrVerifyError::new("configured range binding has no pattern producer"))?;
+                    if source.source != bounds.end_subject as usize || source.pattern != bounds.end_pattern || !source.preceding.is_empty() {
+                        return Err(IrVerifyError::new("configured range binding disagrees with its pattern producer"));
+                    }
+                    if owner.region_bindings.insert((end.raw() as usize, bounds.end_slot), binding).is_some() {
+                        return Err(IrVerifyError::new("configured range end has another binding region"));
+                    }
+                }
                 match &stage {
                     S::Where { predicate, .. } | S::Any { predicate, .. } | S::All { predicate, .. } => self.conditions.push((predicate.raw() as usize, ConditionRole::Boolean)),
                     S::WhereBlock { value, .. } | S::AnyBlock { value, .. } | S::AllBlock { value, .. } => self.conditions.push((value.raw() as usize, ConditionRole::Boolean)),
@@ -4661,6 +4675,12 @@ impl<'a> ProducerProof<'a> {
         use super::super::StageView as S;
         let decoder = self.owner(owner)?;
         let len = self.index.owners[&owner].pipeline_stages[&pipeline].len();
+        for position in 0..len {
+            if let S::Range { start, end } = self.pipeline_stage(&decoder, pipeline, position)? {
+                self.expression(owner, start.raw() as usize, Arc::new(Type::Int), false);
+                self.expression(owner, end.raw() as usize, Arc::new(Type::Int), false);
+            }
+        }
         let position = len.checked_sub(1).ok_or_else(|| IrVerifyError::new("pipeline producer has no stages"))?;
         let last = self.pipeline_stage(&decoder, pipeline, position)?;
         let last = &last;
@@ -4960,7 +4980,8 @@ impl<'a> ProducerProof<'a> {
                 return Ok(());
             }
             let driver = self.store.driver_steps[step];
-            let binding = bounded(driver.slots, &self.store.driver_slots, "ground driver slot range is invalid")?.iter().find(|binding| binding.slot as usize == slot).ok_or_else(|| IrVerifyError::new("ground driver slot has no lexical binding"))?;
+            let binding = bounded(driver.slots, &self.store.driver_slots, "ground driver slot range is invalid")?.iter()
+                .find(|binding| binding.slot as usize == slot).ok_or_else(|| IrVerifyError::new("ground driver slot has no lexical binding"))?;
             return self.binding_writer(binding.binding_identity, expected);
         }
         let function = self.store.functions[function_index(owner)?];
