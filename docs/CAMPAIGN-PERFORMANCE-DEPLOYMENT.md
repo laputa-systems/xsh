@@ -184,42 +184,41 @@ and the scoped per-call effect proof. All seven carrier/forgery controls and
 all 66 verifier-effect controls pass on that assembly, with no failures or
 ignores. The slice is integrated into the campaign branch; master is unchanged.
 These targeted passes do not qualify the combined regression boundary.
-A later isolated host candidate passes all nine focused controls, including
-specialized inputs and cache separation. Further discriminators reproduce
-acceptance of a wrong Module export signature and a wrong Stream item type.
-The Module repair passes its exact control. Stream validation remains open;
-its proof must preserve lazy pull and cleanup timing.
+A later host checkpoint `2518b8e01` passes eighteen focused controls and is
+integrated through `b87587160`. Actual Module signatures include parameter
+labels. Stream contracts retain their actual program, producer and closed
+instance without pulling. Ground parameter validation uses the same recursive
+matcher. Cold yield proofs retain lazy UInt checks and delegation behavior.
+Independent review approves this bounded prefix. Remaining factory routes,
+generic Stream environments and the combined regression boundary remain open.
 
-The recursive-component prototype passes its staged publication and mutation
-controls, including the reproduced late-effect failure. Its matching products
-build and its narrow warning-denied non-test check passes. Only one of six
-native runtime controls passes before subsequent source repairs. Application
-origins need authenticated callee-scope normalization before export; no SCC
-membership waiver supplies authority.
-A later four-control replay passes default preparation and callee-binder
-authentication, including its mutations. Recursive Proc self calls also pass
-inside a mixed control, but callback peers and imported callback roots still
-fail effect-scope or stream-origin publication. The group has two passes and
-two failures; the inherited collecting probe also remains separate work from
-the authoritative body check.
+Recursive command checkpoint `f017423e9` passes nine focused controls and is
+integrated through `6d6e2e4b3`. These cover checked command classes, argument
+authority, original Stream inference cells, callback instances and atomic
+failure. Its combined replay passes 120 of 124 controls with no ignores.
+Three original Proc callback tests and the counter's real-program fixture fail
+result-envelope or origin-publication checks. These remain compiler blockers.
+The inherited collecting probe also remains separate work from the authoritative
+body check. Stream aliases, terminal commands and native-order checks remain open.
 
-Nested fresh aggregate inference has twenty focused checker passes, including
-a reproduced default-parameter panic regression and signal-hook inference.
-Generic payload preservation and actual `expr` preparation still need proof.
-The four generic-payload discriminators have one pass and three failures.
-The repair must validate the actual fresh holes without demanding that an
-unrelated generic field become ground, while rejecting unconstrained holes.
-Explicit `List[Any]` and genuinely heterogeneous literals remain dynamic.
+Constructor checkpoint `21b4c1660` passes all 37 focused checks with no ignores,
+including disposal, effect order and physical overwrite proofs. Its packed
+body fact occupies sixteen bytes. The paired-body regression then finds that
+fully annotated functions prepare constructor evidence after raw type resolution.
+The candidate fix uses the existing declaration schedule for authored interfaces
+too. That fix, paired-body comparison and coherent prerequisite integration remain
+unqualified. Explicit `List[Any]` and genuinely heterogeneous literals stay dynamic.
 The native witnesses integrated at `6397a90cf` both reproduce real failures.
 Prepared-constant repair `85d6f607a` is now integrated through `6fd59da4b`.
 Its 89-test checker/runtime group and four imported-read/nominal controls pass.
 The final payload and type forgery control passes, and matching verification
 products pass the unchanged native constant witness. Prepared expressions keep
 their ordinary leaf semantics and a separate authenticated data-work budget.
-The ordinary generic proof bound is unchanged. The isolated mutable-callable
-repair passes compatible and incompatible assignment controls. Ground runtime
-reassignment passes, but generic runtime preparation still fails. Stream aliases
-also remain unresolved. Neither class is qualified for integration.
+The ordinary generic proof bound is unchanged. Mutable-callable checkpoint
+`09af29f84` is integrated through `719480599`. Ground and generic reassignment
+pass on both execution routes, and forged writer instances reject. Its wider
+isolated group passes 27 of 30 controls. Recursive inference and the retained
+Stream-alias positive still require combined qualification.
 
 The reviewed producer repair passes all 74 verifier-effect controls, including
 both original 128-use bounds, without exclusions or raised limits.
@@ -228,21 +227,24 @@ the original resolver for owners with expression-region bindings.
 The repair is integrated through `489b304cb`. All 88 selected controls pass on
 that assembly. Matching isolated products build, and the original 27 native
 failures now yield 17 passes and ten failures, with no ignores. The remaining
-failures are eight btop cases and two expr cases. A conditional-record follow-up
-passes its runtime and corruption controls. Actual btop preparation then reaches
-a separate empty-set receiver proof failure. The expr spread proofs remain open.
+failures are eight btop cases and two expr cases. Follow-up `ee22c3cc8` passes all
+78 verifier controls and is integrated through `586d4bf0c`. Its actual btop
+preparation passes after fresh-record, empty-set and immutable-loop guard fixes.
+An earlier complete-Optional allowance failed seven unchanged corruption tests
+and was withdrawn. Matching products and the original native replay remain
+pending. The expr spread proofs remain open.
 Test adapter repair `bc7e8fffe` preserves the concrete effect assertions after
 the checked-effect representation change. All five affected integration tests pass.
-Stream checkpoint `49ec18214` passes ten of eleven focused controls, including
-staged callback effects and rollback. Checked command-body proof remains red.
 These isolated results do not qualify the combined regression boundary.
 Work-counter repair `ab26826b9` passes nine focused controls and a non-test
 check. It counts discarded diagnostics and nested retained type nodes.
 Independent review finds no blocker in that checkpoint. Adaptation `d5ecb43f1`
 counts retained generic body evidence, including proc-return sites, without
 inventing output types. All fifteen focused counter controls pass on its merged
-source. Actual Stream and signal-hook body-entry coverage remains under test.
-Integration and merged replay remain required before performance use.
+source. Stream and signal-hook body entries now pass their regression alongside
+all sixteen focused counter controls. The accounting prefix is integrated through
+`9bd8fe67d`. The combined real-program evidence test currently stops at the
+Proc origin-publication failure above, so performance qualification remains open.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
