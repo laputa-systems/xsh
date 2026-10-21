@@ -1,16 +1,15 @@
-use super::schema::InPlaceClass;
+use super::schema::{InPlaceClass, InstructionKind};
 use std::ops::Range;
 
 pub(super) const HEIGHT_LIMIT: u16 = 128;
 const UNMARKED: u16 = 0;
 const TOO_DEEP: u16 = HEIGHT_LIMIT + 1;
 
-/// Proof accumulated by the generated instruction verifier as it walks the
-/// actual operand IDs in an owner's instruction graph.
 pub(super) struct InstructionProof {
     range: Range<usize>,
     marks: Vec<bool>,
     parents: Vec<u32>,
+    statements: Vec<u32>,
     open: Vec<(usize, u16)>,
 }
 
@@ -21,17 +20,23 @@ impl InstructionProof {
             range,
             marks: vec![false; len],
             parents: vec![u32::MAX; len],
+            statements: vec![u32::MAX; len],
             open: Vec::new(),
         }
     }
 
-    pub(super) fn enter(&mut self, instruction: usize, class: InPlaceClass) {
+    pub(super) fn enter(&mut self, instruction: usize, kind: InstructionKind, class: InPlaceClass) {
         debug_assert!(self.range.contains(&instruction));
         if let Some((parent, _)) = self.open.last() {
             let parent = u32::try_from(*parent)
                 .expect("instruction owner range fits a u32 parent index");
             self.parents[instruction - self.range.start] = parent;
         }
+        self.statements[instruction - self.range.start] = if kind == InstructionKind::Stmt {
+            (instruction - self.range.start) as u32
+        } else {
+            self.open.last().map_or(u32::MAX, |(parent, _)| self.statements[*parent])
+        };
         let height = match class {
             InPlaceClass::Operands => 1,
             InPlaceClass::Scheduled => UNMARKED,
@@ -75,5 +80,11 @@ impl InstructionProof {
         }
         let parent = self.parents[instruction - self.range.start];
         (parent != u32::MAX).then(|| self.range.start + parent as usize)
+    }
+
+    pub(super) fn statement_of(&self, instruction: usize) -> Option<usize> {
+        if !self.range.contains(&instruction) { return None; }
+        let statement = self.statements[instruction - self.range.start];
+        (statement != u32::MAX).then(|| self.range.start + statement as usize)
     }
 }
