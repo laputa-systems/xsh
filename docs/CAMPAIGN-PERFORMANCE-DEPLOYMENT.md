@@ -55,9 +55,20 @@ fresh checked producers and every comprehension target, including unused
 record targets. Existing work limits remain unchanged. The combined merged
 run on `4e0863e6c` selects 643 tests: 641 pass, two fail and none are ignored.
 All 24 failures from the earlier assignment run are resolved. Two optional
-typed-call producer controls now fail during preparation because the receiver
-lacks a non-null branch proof. That repair remains open. Matching products
-were not built; native, corpus and baseline acceptance remain pending.
+typed-call producer controls regress during preparation because the receiver
+lacks a non-null branch proof.
+
+Repair `520757c30` passes the fresh merged boundary: 645 passed, zero failed
+and zero ignored, including both retained budget-exhaustion controls. Its lane
+boundary passes all 49 controls and independent review finds no P1/P2 issue.
+Early callable validation and physical producer verification share the completed
+owner census and its ordered guard proof. Every incomplete optional-payload
+carrier requires that presence proof even when wrapper facts are absent.
+A valid-first mutation that reverses the preceding guard is rejected. Prefix
+scans borrow the existing child forest, and completed positive presence proofs
+are reused only for their exact physical gate within that owner. Work limits
+remain unchanged. Matching verification products are building; native,
+documentation, corpus and full baseline acceptance remain pending.
 
 Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
 comprehensions. All 20 focused controls pass before integration. They cover
