@@ -940,7 +940,7 @@ fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
     let body = &declarations.bodies;
     let scheme_body_nodes = declarations.scheme_bodies.values().try_fold(0usize, |total, facts| {
         [facts.expression_types().len(), facts.tail_types().len(), facts.registered_calls().len(),
-            facts.read_bindings().len(), facts.proc_return_site_count()]
+            facts.read_bindings().len(), facts.proc_return_site_count(), facts.constructor_producers().len()]
             .into_iter().try_fold(total, usize::checked_add)
     }).expect("scheme body evidence node count overflowed");
     let call_nodes = body
@@ -1875,6 +1875,30 @@ mod tests {
     }
 
     #[test]
+    fn inference_work_counts_constructor_roles_as_evidence_without_types() {
+        let source = "pure keep(payload) { let _ = {items: map.empty(), payload}; payload }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let mut declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        let roles = declarations.scheme_bodies.values().map(|facts| facts.constructor_producers().len()).sum::<usize>();
+        assert!(roles > 0);
+        let original_types = measure_output_type_nodes(&declarations);
+        let original_evidence = super::measure_evidence_nodes(&declarations);
+        let original_retained = measure_compact_declarations(&declarations);
+        for facts in declarations.scheme_bodies.values_mut() {
+            *facts = facts.clone().with_constructor_producers(BTreeMap::new());
+        }
+        assert_eq!(measure_output_type_nodes(&declarations), original_types);
+        let remaining_retained = measure_compact_declarations(&declarations);
+        assert_eq!(original_retained.0, remaining_retained.0);
+        assert_eq!(original_retained.1 - remaining_retained.1,
+            roles * size_of::<(crate::syntax::arena::ExprId, crate::sema::schemes::NonmaterialConstructor)>());
+        assert_eq!(original_evidence - super::measure_evidence_nodes(&declarations), roles);
+    }
+
+    #[test]
     fn inference_work_counts_body_evidence_without_inventing_output_types() {
         let source = concat!(
             "pure first(payload: Int) -> Int { payload }\n",
@@ -1898,7 +1922,7 @@ mod tests {
         assert_eq!(original_evidence - super::measure_evidence_nodes(&declarations), sites);
         let remaining = declarations.scheme_bodies.values().map(|facts| {
             facts.expression_types().len() + facts.tail_types().len()
-                + facts.registered_calls().len() + facts.read_bindings().len()
+                + facts.registered_calls().len() + facts.read_bindings().len() + facts.constructor_producers().len()
         }).sum::<usize>();
         assert!(remaining > 0);
         let body_evidence = super::measure_evidence_nodes(&declarations);

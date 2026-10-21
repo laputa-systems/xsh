@@ -373,8 +373,8 @@ invocation-scoped; ordinary checks do not retain a global statistics record.
 | `evidence_nodes` | Final compact effect facts, static callable aliases, stream-stage plans, body evidence records, and nested call-instantiation evidence. |
 
 Each retained scheme-body expression fact, tail fact, registered-call plan,
-read binding and Proc return site counts as one evidence node. Return-site IDs
-do not create output type nodes. Runtime-owned callable substitutions remain
+read binding, constructor role and Proc return site counts as one evidence node.
+Constructor roles and return-site IDs do not create output type nodes. Runtime-owned callable substitutions remain
 outside these frontend output counts.
 
 The same record reports `function_body_check_entries` separately. It counts
