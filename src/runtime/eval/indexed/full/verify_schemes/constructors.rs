@@ -124,7 +124,10 @@ mod tests {
     use std::sync::Arc;
 
     fn prepare() -> FullProgram {
-        let source = "pure keep(payload) { let state = {...{items: []}, ...{items: [7]}, payload}; state.payload }\npure other() -> Int { 7 }\n";
+        prepare_source("pure keep(payload) { let state = {...{items: []}, ...{items: [7]}, payload}; state.payload }\npure other() -> Int { 7 }\n")
+    }
+
+    fn prepare_source(source: &str) -> FullProgram {
         let mut sources = SourceMap::default();
         let source_id = sources.add_file("constructor-proof.xsh", source.to_string());
         let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -134,6 +137,29 @@ mod tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn nonmaterial_constructor_function_shorthand_rejects_forged_targets() {
+        let program = prepare_source(concat!(
+            "pure fixed() -> Int { 11 }\n",
+            "proc wrong() [] -> Int { 12 }\n",
+            "pure keep(payload) { let _ = {items: [], fixed, wrong, payload}; payload }\n",
+        ));
+        let fact = program.store.scheme_body_facts.iter().find(|fact| fact.kind() == FullSchemeBodyFactKind::RecordProducer).unwrap();
+        let decoder = function_view_decoder(&program.store, fact.function.index());
+        let mut range = program.store.function_instruction_range(fact.function.index()).unwrap();
+        let reference = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { pure: true, .. }))).unwrap();
+        let wrong = range.find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { pure: false, .. }))).unwrap();
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.data[reference] = program.store.data[wrong];
+        assert!(FullVerifier::verify(&wrong_kind).is_err());
+        let words = program.store.data[reference].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[words.start], 0);
+        let mut wrong_scheme = program.clone();
+        wrong_scheme.store.extra[words.start + 1] = program.symbol_owner().with_current(|| Name::intern("keep").symbol().raw());
+        let error = FullVerifier::verify(&wrong_scheme).unwrap_err();
+        assert_eq!(error.message, "function reference requires a checked scheme instance");
     }
 
     fn entries(program: &FullProgram, instruction: usize) -> std::ops::Range<usize> {

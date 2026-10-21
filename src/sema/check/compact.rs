@@ -200,9 +200,7 @@ impl CompactBodyFacts {
                 facts.selected_function_calls.insert(id, *target);
                 selected_function_expr_spans.insert(span);
             }
-            if let ArenaExprKind::Record(fields) = expression.kind
-                && let Some(container_type) = checked.expr_types.get(&span)
-            {
+            if let ArenaExprKind::Record(fields) = expression.kind {
                 for field in arena.record_fields(fields) {
                     let crate::syntax::arena::ArenaRecordFieldKind::Shorthand {
                         name,
@@ -215,11 +213,11 @@ impl CompactBodyFacts {
                     if !checked.selected_function_calls.contains_key(&field_span) {
                         continue;
                     }
-                    let value_type = match container_type {
-                        Type::Record(fields) => fields.get(name).cloned(),
-                        Type::Map(_, value) | Type::Set(value) => Some((**value).clone()),
+                    let value_type = checked.expr_types.get(&field_span).cloned().or_else(|| match checked.expr_types.get(&span) {
+                        Some(Type::Record(fields)) => fields.get(name).cloned(),
+                        Some(Type::Map(_, value) | Type::Set(value)) => Some((**value).clone()),
                         _ => None,
-                    };
+                    });
                     if let Some(value_type) = value_type {
                         record_field_types.insert(field_span, value_type);
                     }

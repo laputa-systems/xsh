@@ -516,6 +516,9 @@ impl Checker {
 
     pub(super) fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
         let ty = self.lookup_expr_ident(name, span);
+        if self.selected_function_calls.contains_key(&span) {
+            self.expr_types.insert(span, ty.clone());
+        }
         if name == "ARGV"
             && let Some(diagnostic) = self.diagnostics.last_mut()
             && diagnostic.code == Some(DiagnosticCode::CheckCompatibilityVocabulary)
