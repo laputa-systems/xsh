@@ -191,6 +191,11 @@ instance without pulling. Ground parameter validation uses the same recursive
 matcher. Cold yield proofs retain lazy UInt checks and delegation behavior.
 Independent review approves this bounded prefix. Remaining factory routes,
 generic Stream environments and the combined regression boundary remain open.
+Range checkpoint `a6d119581` passes ten focused controls and is integrated through
+`a57c98136`. It preserves eager allocation and error timing while returning the
+declared Stream carrier. Actual declaration kind controls producer suspension.
+Bound, item and captured-error forgeries reject. Both expr programs now pass
+actual preparation and their native cases on matching verification products.
 
 Recursive command checkpoint `f017423e9` passes nine focused controls and is
 integrated through `6d6e2e4b3`. These cover checked command classes, argument
@@ -244,10 +249,13 @@ failures are eight btop cases and two expr cases. Follow-up `ee22c3cc8` passes a
 preparation passes after fresh-record, empty-set and immutable-loop guard fixes.
 An earlier complete-Optional allowance failed seven unchanged corruption tests
 and was withdrawn. Matching verification products build on `ee22c3cc8`.
-The original 27 native failures now yield 25 passes and two expr failures,
-with no ignores. All eight btop cases pass. On the coherent constructor source,
-expr preparation instead stops earlier at an unproved Range Stream contract.
-The Range repair and subsequent expr replay remain unqualified.
+The original 27 native failures yield 25 passes and two expr failures on that
+checkpoint, with no ignores. All eight btop cases pass. On combined `a57c98136`,
+matching products pass both expr cases but newly fail all five cp cases during
+checking. The resulting 22-pass, five-failure replay has no ignores. Authored
+plain-payload Procs reject valid propagation before inferred error effects settle.
+This regression blocks qualification. The matching build also emits an unused
+counter-getter warning and an XSHT Send-proof recursion-depth warning.
 Test adapter repair `bc7e8fffe` preserves the concrete effect assertions after
 the checked-effect representation change. All five affected integration tests pass.
 These isolated results do not qualify the combined regression boundary.
@@ -272,6 +280,8 @@ R4's ignored artifacts are also preserved before ordinary removal succeeds.
 Both original paths and registrations are absent. The completed constant-assembly
 checkout is also removed after confirming clean integration and no consumers.
 Its scratch data and ignored artifacts remain in the retired-lane directory.
+The completed mutable-callable checkout is removed under the same checks after
+the combined runtime controls pass. Its full ignored tree remains archived there.
 The active failed
 canonical checkout and all unfinished source remain retained.
 
