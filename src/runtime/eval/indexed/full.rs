@@ -34288,6 +34288,31 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn generic_prepared_constants_reject_forged_values() {
+        run_with_large_stack(|| {
+            let source = "const marker = \"constant:\"\npure attach(value) { {value: value, marker: marker} }\npure root() -> Str { attach(42).marker }\n";
+            let program = fixture("generic-constant-value-forgery.xsh", source);
+            let _symbols = program.symbol_owner().enter();
+            let function = scheme_fixture_root_function(&program, "attach");
+            assert!(matches!(program.store.functions[function].contract, FullCallableContract::Scheme(_)));
+            let instruction = program.store.function_instruction_range(function).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprPreparedConstant).unwrap();
+            let index = program.store.payload(program.store.data[instruction].range()).unwrap()[0] as usize;
+            let mut bad = program.clone();
+            bad.store.prepared_constants[index].0 = LoweredValue::Int(7);
+            let error = FullVerifier::verify(&bad).expect_err("generic prepared values must satisfy their checked contracts");
+            assert_eq!(error.message, "prepared producer value disagrees with its checked contract");
+            let mut bad_type = program.clone();
+            let ground = SemanticPoolBuilder::default().intern_type(&mut bad_type.store.semantic, &Type::Bool).unwrap();
+            let fact = bad_type.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction && fact.kind == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let node = &mut bad_type.store.scheme_types[fact.ty.index()];
+            assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+            node.first = ground.raw();
+            let error = FullVerifier::verify(&bad_type).expect_err("generic prepared contracts must describe their actual values");
+            assert_eq!(error.message, "generic declaration disagrees with its initializer");
+        });
+    }
+
+    #[test]
     fn prepared_constant_nested_origins_do_not_brand_structural_siblings() {
         run_with_large_stack(|| {
             let source = "type ConstantFields = {name: Str}\nnominal type ConstantPackage = {name: Str}\ntype ConstantPair = {plain: ConstantFields, branded: ConstantPackage}\nnominal type ConstantEnvelope = {inner: ConstantPackage}\nconst nested = ConstantEnvelope(ConstantPackage(\"nested\"))\nproc nested_value() -> ConstantEnvelope { nested }\nconst plain = {name: \"core\"}\nconst branded = ConstantPackage(\"core\")\nconst pair = {plain: plain, branded: branded}\nconst all = [branded, ConstantPackage(\"other\")]\nconst selected = pair.branded\nconst rebuilt = {...branded}\nproc pair_value() -> ConstantPair { pair }\nproc list_value() -> List[ConstantPackage] { all }\nproc selected_value() -> ConstantPackage { selected }\nproc rebuilt_value() -> ConstantFields { rebuilt }\n";

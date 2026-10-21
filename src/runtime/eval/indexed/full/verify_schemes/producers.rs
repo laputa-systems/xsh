@@ -21,13 +21,18 @@ pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     storage_reads: Vec<(u32, usize, TypeId)>,
     effect_demand_work: usize,
     owners: BTreeMap<u32, ProducerOwner>,
-    scheme_return_analyses: BTreeMap<u32, Rc<super::super::IndexedReturnAnalysis>>,
+    scheme_owners: BTreeMap<u32, VerifiedSchemeOwner>,
     starts: BTreeMap<usize, u32>,
     binding_writers: Vec<Option<(usize, usize, u32)>>,
     storage_writers: BTreeMap<u32, Vec<StorageWriter>>,
     module_exports: BTreeMap<u32, Vec<(Name, u32)>>,
     function_signatures: Option<Arc<super::super::FunctionSignatureIndex>>,
     work: Option<Rc<RefCell<SchemeInstantiationBudget>>>,
+}
+
+struct VerifiedSchemeOwner {
+    return_analysis: Rc<super::super::IndexedReturnAnalysis>,
+    prepared_constant_work: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -623,7 +628,7 @@ impl GroundProducerIndex {
         let demand = if driver_output_demand || selected_demand {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, scheme_scopes: OnceCell::new(), checked_producers, driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_return_analyses: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, scheme_scopes: OnceCell::new(), checked_producers, driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_owners: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
@@ -647,8 +652,13 @@ impl GroundProducerIndex {
     }
 
     pub(super) fn scheme_return_analysis(&self, function: IrFunctionId) -> Result<Rc<super::super::IndexedReturnAnalysis>, IrVerifyError> {
-        self.scheme_return_analyses.get(&function.raw()).map(Rc::clone)
+        self.scheme_owners.get(&function.raw()).map(|owner| Rc::clone(&owner.return_analysis))
             .ok_or_else(|| IrVerifyError::new("generic body has no authenticated return analysis"))
+    }
+
+    pub(super) fn scheme_prepared_constant_work(&self, function: IrFunctionId) -> Result<usize, IrVerifyError> {
+        self.scheme_owners.get(&function.raw()).map(|owner| owner.prepared_constant_work)
+            .ok_or_else(|| IrVerifyError::new("generic body has no authenticated constant data work"))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn record(&mut self, decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
@@ -658,7 +668,7 @@ impl GroundProducerIndex {
                 let work = self.work.get_or_insert_with(|| Rc::new(RefCell::new(SchemeInstantiationBudget::new(decoder.store))));
                 work.borrow_mut().charge(decoder.instruction_range.len() + analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
             }
-            if self.scheme_return_analyses.insert(decoder.owner, analysis).is_some() { return Err(IrVerifyError::new("generic return analysis has multiple owners")); }
+            if self.scheme_owners.insert(decoder.owner, VerifiedSchemeOwner { return_analysis: analysis, prepared_constant_work: decoder.prepared_constant_work.get() }).is_some() { return Err(IrVerifyError::new("generic return analysis has multiple owners")); }
         }
         if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
         if let Some(step) = super::super::driver_owner_index(decoder.owner)
@@ -1121,8 +1131,8 @@ impl GroundProducerIndex {
             + self.storage_writers.values().map(|writers| writers.capacity() * size_of::<StorageWriter>()).sum::<usize>()
             + self.module_exports.len() * size_of::<(u32, Vec<(Name, u32)>)>()
             + self.module_exports.values().map(|values| values.capacity() * size_of::<(Name, u32)>()).sum::<usize>()
-            + self.scheme_return_analyses.len() * size_of::<(u32, Rc<super::super::IndexedReturnAnalysis>)>()
-            + self.scheme_return_analyses.iter().filter(|(owner, _)| !self.owners.contains_key(owner)).map(|(_, analysis)| analysis.temporary_payload_bytes()).sum::<usize>()
+            + self.scheme_owners.len() * size_of::<(u32, VerifiedSchemeOwner)>()
+            + self.scheme_owners.iter().filter(|(owner, _)| !self.owners.contains_key(owner)).map(|(_, owner)| owner.return_analysis.temporary_payload_bytes()).sum::<usize>()
             + self.owners.values().map(|owner| {
                 size_of::<(u32, ProducerOwner)>()
                     + owner.storage_bindings.len() * size_of::<(ProducerBinding, StorageBinding)>()

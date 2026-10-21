@@ -3155,10 +3155,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         match self.program.arena.stmt(statement).kind {
-            ArenaStmtKind::TailBareIdent(_) => {
+            ArenaStmtKind::TailBareIdent(name) => {
                 let ty = facts.tail_types().get(&statement)?.clone();
-                let binding = self.bodies.resolved_bindings.tails.get(&statement)?;
-                let value = push_build_row!(self, expr, BuildExprRow::Param(slots.resolve_binding(*binding)?));
+                let value = self.lower_bare_ident_stmt(statement, name, slots)?;
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -3773,6 +3772,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if !visited.insert(expression) { return self.block_scheme_lowering_expr(expression); }
         let mut ty = facts.expression_types().get(&expression)?.clone();
+        if self.declarations.prepared_constants.values.contains_key(&expression) {
+            let value = self.lower_expr(expression, slots, Some(current_function), None)?;
+            return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+        }
         let span = self.program.arena.expr(expression).span;
         let mut registered = None;
         let lowered = match self.program.arena.expr(expression).kind {
@@ -3780,11 +3783,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let body = self.lower_scheme_capture_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::Capture { body, span })
             }
-            ArenaExprKind::Ident(_) => {
-                let binding = self.expression_binding(expression)?;
-                let slot = slots.resolve_binding(binding)?;
-                push_build_row!(self, expr, BuildExprRow::Param(slot))
-            }
+            ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
