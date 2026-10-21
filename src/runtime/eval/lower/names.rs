@@ -335,6 +335,39 @@ mod tests {
     use crate::syntax::arena::{ArenaExprKind, ArenaRecordFieldKind, ExprId};
     use crate::syntax::parser::ArenaParseOutput;
 
+    #[test]
+    fn generic_named_constants_execute_from_their_prepared_bindings() {
+        let many = format!("[{}]", vec!["\"constant:\""; 2048].join(","));
+        for (constant, definition, expected) in [
+            ("\"constant:\"", "pure select(value) { {marker: marker, value: value}.marker }", "constant:"),
+            ("\"constant:\"", "pure select(value) { marker }", "constant:"),
+            ("{label: \"constant:\", words: [\"one\", \"two\"]}", "pure select(value) { marker.label }", "constant:"),
+            ("[\"constant:\", \"unused\"]", "pure select(value) { marker[0] }", "constant:"),
+        ].into_iter().chain(std::iter::once((many.as_str(), "pure select(value) { {marker: marker, value: value}.marker[0] }", "constant:"))) {
+            let source = format!("const marker = {constant}\n{definition}\npure number() -> Str {{ select(42) }}\npure text() -> Str {{ select(\"demo\") }}\n");
+            let (program, sources, source_id) = {
+                let entry = entry_source_from_text("generic-constant-read.xsh", source.clone());
+                let source_id = entry.source_id;
+                let (sources, parsed) = parse_load_entry_source_arena_only("generic-constant-read.xsh", entry, Vec::new());
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                assert!(declarations.diagnostics.is_empty(), "{constant} {definition}\n{:?}", declarations.diagnostics);
+                let program = crate::runtime::eval::FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources.clone()), source_id).unwrap();
+                (Arc::new(program), sources, source_id)
+            };
+            for force_frames in [false, true] {
+                for name in ["number", "text"] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                    assert_eq!(actual, crate::runtime::value::Value::Str(Arc::from(expected)), "{definition} {name} frames={force_frames}");
+                }
+            }
+        }
+    }
+
     fn checked_program() -> (String, SourceMap, ArenaParseOutput, CompactDeclOutput) {
         let source = "type Renderer = pure(value: Int) -> Int\npure render() -> Int { 1 }\npure other() -> Int { 2 }\npure render_defaulted(value: Int = 1) -> Int { value }\npure factory() -> Renderer { render_defaulted }\nlet first = render\nlet second = other\nlet fields = {render, marker: 1}\n".to_string();
         let entry = entry_source_from_text("function-reference-authority.xsh", source.clone());
