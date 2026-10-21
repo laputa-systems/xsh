@@ -14,26 +14,30 @@ Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
 products, with source and product guards intact. Matching `a3fd9a756` products
-are rebuilding for the practical corpus gate. Master remains at `d2453760a`.
+build successfully. Master remains at `d2453760a`.
 
-The last practical four-return paired gate reaches its original XSH check but
-fails on `7f4dccc80` in unchanged `core/lib/textio_a1.xsh:77`: a Result-valued branch of
-`return if` is checked against `Bytes`. The first group loads 12 files from
-ten selected roots. Reduced-source checks, Laputa, behavior, interfaces and
+The practical four-return paired gate on `a3fd9a756` passes the original-view
+checks for all 12 XSH roots and three Laputa roots. The wc behavior test passes.
+The next test, `test_sort_general_numeric_orders_past_double_precision`, fails
+during indexed preparation: a ground field producer has no receiver contract.
+Reduced-view checks, later behavior tests, interfaces, negative controls and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
 view with the existing pinned preparation command; metadata comparison remains
 strict. Repair `b2131ca90` restores the original branch expectation and passes
-all 23 focused controls, including both reproduced If and Match failures. It
-is integrated into `a3fd9a756`; whole-program replay remains pending. The failed
-run grants no additional annotation-removal or parity credit.
+all 23 focused controls, including both reproduced If and Match failures.
+The subsequent original-view source checks pass with this repair integrated.
+The failed paired run grants no additional annotation-removal or parity credit.
 
 The separate runtime callable migration passes its library type check, 27 cold
 and runtime controls, and three execution controls on both routes. The execution
 group includes independent Int and Str Stream aliases, higher-order callbacks,
 lazy defaults and cleanup. Propagation consumer repair `dcca45911` resolves the
 existing handle before Result projection; its 15 controls pass and it is
-integrated. Generic delegation still exposes two producer-proof path gaps.
+integrated. Reviewed generic-delegation proof repairs are running five focused
+controls. They share the actual Stream-owner demand rule and retain mandatory
+scheme-body and latent-error checks while limiting the duplicate ground walk
+to ground contracts.
 The runtime candidate is not integrated or fully qualified; the original
 captured-write and Repeat witness remains open.
 
