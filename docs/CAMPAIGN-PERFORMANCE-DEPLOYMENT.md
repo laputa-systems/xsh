@@ -30,6 +30,10 @@ integration, clean tracked files, and no open handles. Their generated Cargo
 outputs are discarded. Branches remain. The temporary foundation and diagnostic
 qualification checkouts are also removed. Active work, qualified products, failed-run evidence,
 and checkouts containing useful probes or corpus data remain intact.
+Seven superseded assignment, comprehension, context, iteration, operator,
+paired-comparison and repaired qualification checkouts are also removed.
+Their raw qualification logs remain under
+`.work/tmp/full-inference-retired-qualification/`; their commits remain available.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
