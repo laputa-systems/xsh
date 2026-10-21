@@ -14,12 +14,26 @@ Neither run has failures or ignores. The combined group covers type, scheme,
 semantic-codec, Range, constructor, shorthand, Proc completion, counter and
 mutable-callable controls. Master remains at `d2453760a`.
 
+Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
+all 14 independent type, row and finite-effect oracle controls pass, including
+rollback and interrupted-trial continuations. The effect comparison is bounded
+to two variables; it does not establish complete solver or scheme-publication
+correctness. XSHT's original 12-selector replay also passes on `0c9d8d1f2`
+with test correction `f29cdd313`. The corrected test first demonstrates that
+the real body proof permits a redundant effect-clause warning, then removes
+one checked declaration while retaining its effect fact and requires removal
+to fail closed. Its former implicit unsupported-body premise is now false.
+Neither follow-up changes production behavior or qualifies a full gate.
+
 The callable-kind foundation changes the internal Rust type API while preserving
 authored Pure and Proc syntax. It passes 68 isolated controls and the non-test
 XSH and XSHT library check. Runtime Stream carriers and dispatch still reject
 unsupported paths explicitly. New runtime probes expose the remaining Stream
 transport and captured-write limitations. These are mandatory open work.
-Explicit recursive return expressions also remain unqualified. Corpus
+Explicit recursive return expressions also remain unqualified: the current
+isolated candidate passes 19 of 20 controls, including both runtime routes,
+but loses the live-resource escape diagnostic after Unit consumption. Its
+next repair must preserve the actual leaf before that consumption. Corpus
 classification and the inherited full acceptance gates remain open.
 The counter-getter build warning is fixed. XSHT still reports the known
 Send-proof recursion-depth warning. No performance qualification follows.
