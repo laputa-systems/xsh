@@ -20,7 +20,7 @@ Later inference commits remain on the campaign branch: even the focused-green
 `8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
 ready for master.
 
-Eleven completed lane worktrees are removed after confirming campaign
+Twelve completed lane worktrees are removed after confirming campaign
 integration, clean tracked files, and no open handles. Their generated Cargo
 outputs are discarded. Branches remain. The temporary foundation qualification
 checkout is also removed. Active work, qualified products, failed-run evidence,
@@ -39,6 +39,22 @@ The deliverables are:
 5. Disposable Laputa package, process, rooted-filesystem, and real boot/shutdown acceptance workflows.
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
+
+Source `4e0863e6c` combines the reviewed assignment and producer repairs for
+fresh merged qualification. Assignment source `6591e9ab7` passes 21 focused
+controls before integration. Its merged boundary has 609 passes and 24 failures:
+the previous 22 producer failures and two test navigators that assume the old
+assignment operand layout. The test-only repair restores those mutations
+through the actual lazy operand blocks. It also confirms that a truthful
+List[Int] RHS cannot change List[UInt] compound-assignment storage. All three
+focused controls pass before rebase; production is unchanged by that repair.
+
+Producer repair `4ce9e2c06` passes 45 focused controls before rebase and has
+independent approval. It authenticates guarded storage, captured setters,
+fresh checked producers and every comprehension target, including unused
+record targets. Existing work limits remain unchanged. The combined merged
+run is pending; no fresh products, native, corpus or baseline acceptance follows
+from the lane results.
 
 Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
 comprehensions. All 20 focused controls pass before integration. They cover
