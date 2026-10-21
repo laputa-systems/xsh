@@ -1194,7 +1194,7 @@ fn file_backed_byte_operations_require_and_infer_filesystem_effects() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{operation}: {:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects["inferred"], Some(vec![Effect::Fs]), "{operation}");
+        assert_eq!(checked.callable_effects["inferred"].concrete().unwrap(), Some(vec![Effect::Fs]), "{operation}");
         let compact = compact_check(&parsed.arena, &source);
         parsed.arena.symbol_owner().with_current(|| {
             assert_eq!(compact.procs[&xsh::frontend::symbols::Name::intern("inferred")].effects,
@@ -1229,7 +1229,7 @@ fn private_proc_effects_publish_matching_full_and_compact_facts() {
     parsed.arena.symbol_owner().with_current(|| {
         for name in ["forwarding", "clock"] {
             let effects = Some(vec![xsh::frontend::syntax::node::Effect::Time]);
-            assert_eq!(checked.callable_effects[name], effects);
+            assert_eq!(checked.callable_effects[name].concrete().unwrap(), effects);
             let signature = &compact.procs[&xsh::frontend::symbols::Name::intern(name)];
             assert_eq!(signature.effects, effects);
             assert!(signature.inferred_effects);
@@ -1272,7 +1272,7 @@ fn effect_inference_keeps_unknown_dynamic_and_test_boundaries() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects[name], effects, "{name}");
+        assert_eq!(checked.callable_effects[name].concrete().unwrap(), effects, "{name}");
         let compact = compact_check(&parsed.arena, source);
         parsed.arena.symbol_owner().with_current(|| {
             let name = xsh::frontend::symbols::Name::intern(name);
@@ -1292,7 +1292,7 @@ fn effect_inference_keeps_unknown_dynamic_and_test_boundaries() {
     let fact = checked.function_effect_facts.values().next().unwrap();
     assert!(!fact.inference_allowed);
     assert!(!fact.inferred);
-    assert_eq!(fact.effective, None);
+    assert_eq!(fact.effective.concrete().unwrap(), None);
     assert!(checked.callable_effects.is_empty());
 }
 

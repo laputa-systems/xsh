@@ -144,8 +144,8 @@ fn suppressed_embedded_modules_keep_declaration_effect_facts() {
         .map(|(_, fact)| fact)
         .collect::<Vec<_>>();
     assert_eq!(module_effect_facts.len(), 1, "{:?}", output.function_effect_facts);
-    assert_eq!(module_effect_facts[0].effective, Some(vec![Effect::Fs]));
-    assert_eq!(module_effect_facts[0].required, Some(Vec::new()));
+    assert_eq!(module_effect_facts[0].effective.concrete().unwrap(), Some(vec![Effect::Fs]));
+    assert_eq!(module_effect_facts[0].required.concrete().unwrap(), Some(Vec::new()));
     assert!(!output.embedded_bodies_checked);
 }
 
@@ -441,7 +441,8 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
             && ty == &Type::List(Box::new(Type::Bytes))));
     assert!(alpha_check.function_effect_facts.values().any(|fact| {
         fact.effective
-            .as_ref()
+            .concrete()
+            .unwrap()
             .is_some_and(|effects| effects.contains(&Effect::Time))
     }));
     let alpha_sources = prepared_sources(&alpha_check, &program);
@@ -473,7 +474,8 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
             && ty == &Type::List(Box::new(Type::Str))));
     assert!(other_check.function_effect_facts.values().any(|fact| {
         fact.effective
-            .as_ref()
+            .concrete()
+            .unwrap()
             .is_some_and(|effects| effects.contains(&Effect::Time))
     }));
     let other_sources = prepared_sources(&other_check, &program);
