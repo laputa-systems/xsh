@@ -6032,6 +6032,12 @@ enum CheckedValueBlockResult {
     DoesNotComplete,
 }
 
+#[derive(Clone, Copy)]
+enum GuardPathStability {
+    ImmutableSnapshot,
+    MayChange,
+}
+
 struct InstructionParentContext<'a> {
     owner: u32,
     range: std::ops::Range<usize>,
@@ -13245,7 +13251,7 @@ impl<'a> FullDecoder<'a> {
         expected_payload: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload,
+        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload, GuardPathStability::MayChange,
             &mut |parent, roots, charge| self.checked_branch_preserves_binding_path(parent, roots, field_instruction, target, charge), charge)
     }
 
@@ -13256,6 +13262,7 @@ impl<'a> FullDecoder<'a> {
         child: usize,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        stability: GuardPathStability,
         preserves: &mut dyn FnMut(usize, &[usize], &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
@@ -13283,11 +13290,11 @@ impl<'a> FullDecoder<'a> {
         if let Some((conditions, body_roots)) = branch {
             for (condition, when_true, is_boolean) in conditions {
                 charge(1)?;
-                if !self.checked_parent_path_crosses_repeatable_loop(
+                if (matches!(stability, GuardPathStability::ImmutableSnapshot) || !self.checked_parent_path_crosses_repeatable_loop(
                     field_instruction,
                     parent,
                     charge,
-                )? && self.checked_condition_proves_nonnull(
+                )?) && self.checked_condition_proves_nonnull(
                     condition,
                     when_true,
                     is_boolean,

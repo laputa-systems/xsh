@@ -362,8 +362,9 @@ impl ProducerOwner {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         let snapshot = self.binding_path_is_snapshot(decoder, binding, target.0, charge)?;
+        let stability = if snapshot { super::super::GuardPathStability::ImmutableSnapshot } else { super::super::GuardPathStability::MayChange };
         let mut active = |parent, child, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| {
-            decoder.checked_binding_path_is_narrowed_at_parent_with_preservation(instruction, parent, child, target, payload,
+            decoder.checked_binding_path_is_narrowed_at_parent_with_preservation(instruction, parent, child, target, payload, stability,
                 &mut |parent, roots, charge| if snapshot { Ok(true) } else { decoder.checked_branch_preserves_binding_path(parent, roots, instruction, target, charge) }, charge)
         };
         self.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
@@ -3107,6 +3108,24 @@ impl<'a> ProducerProof<'a> {
         self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, &mut |amount| self.budget.charge(amount))
     }
 
+    fn is_conditional_record_source(&mut self, decoder: &FullDecoder<'a>, mut instruction: usize) -> Result<bool, IrVerifyError> {
+        for _ in decoder.instruction_range.clone() {
+            self.budget.charge(1)?;
+            if !decoder.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("conditional record source belongs to another owner")); }
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. }
+                | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } => return Ok(true),
+                schema::ExprView::ValueBlock { mut body, .. } => {
+                    self.budget.charge(body.len())?;
+                    let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? else { return Ok(false) };
+                    instruction = tail;
+                }
+                _ => return Ok(false),
+            }
+        }
+        Err(IrVerifyError::new("conditional record source is cyclic"))
+    }
+
     fn verify_expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool, fact: Option<DeclaredProducerFact>) -> Result<(), IrVerifyError> {
         let (declared, declared_binding) = match fact {
             Some(fact) => { let (ty, binding) = fact.into_evidence(owner, instruction)?; (Some(ty), binding) }
@@ -3175,6 +3194,10 @@ impl<'a> ProducerProof<'a> {
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && expected_list_item(container, true).is_some();
+            let literal_record = self.store.tags[instruction] == FullTag::ExprRecord
+                && matches!(actual.as_ref(), Type::Record(_) | Type::ErasedRecord) && matches!(container, Type::Record(_));
+            let record_branches = actual.as_ref() == &Type::ErasedRecord && matches!(container, Type::Record(_))
+                && self.is_conditional_record_source(&decoder, instruction)?;
             let checked_comprehension = if matches!((self.store.tags[instruction], container),
                 (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
                 && let Some(parent) = decoder.instruction_parent_of(instruction)?
@@ -3188,7 +3211,7 @@ impl<'a> ProducerProof<'a> {
                     _ => false,
                 }
             } else { false };
-            if !fits && !narrowed_read && !literal_list && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !narrowed_read && !literal_list && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 return Err(IrVerifyError::new("ground producer value disagrees with its checked contract"));
             }
         }
@@ -4723,9 +4746,13 @@ impl<'a> ProducerProof<'a> {
         if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
             || self.declared_type(decoder, receiver)?.is_some()
         { return Ok(None); }
-        let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
-        let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
-        if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
+        self.budget.charge(1)?;
+        let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
+        if !empty {
+            let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
+            let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
+            if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
+        }
         self.budget.charge(args.len())?;
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
         self.budget.charge_clone(item)?;

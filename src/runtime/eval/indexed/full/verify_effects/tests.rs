@@ -2698,6 +2698,249 @@ assert forwarded(true) is Err(_)
 }
 
 #[test]
+fn checked_optional_loop_fields_preserve_runtime_predicates() {
+    let mut program = fixture(r#"
+type State = {selected: Str?, wrong: Bool?}
+pure read(state: State, items: List[Int]) -> Str {
+    let _ = state.wrong
+    if state.selected != null {
+        for item in items {
+            let _ = item
+            return state.selected
+        }
+    }
+    "none"
+}
+assert read({selected: null, wrong: true}, [1]) == "none"
+assert read({selected: "kept", wrong: true}, [1]) == "kept"
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "read");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let _symbols = program.symbol_owner().enter();
+    let (gate, input, checked) = range.clone().find_map(|instruction| {
+        let Ok(schema::ExprView::CheckedValue { check, value, .. }) = decoder.expression_view(instruction) else { return None };
+        if check.schema.is_none() && program.store.semantic.to_type(check.ty.id).unwrap() == Type::Str
+            && matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Field { name: "selected", .. }))
+        { Some((instruction, value.raw() as usize, check.ty.id)) } else { None }
+    }).unwrap();
+    let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Field { name: "wrong", .. }))).unwrap();
+    let discard = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::LetRecord { source, target: super::super::decode::CompTargetView::Discard, .. }) if source.raw() as usize == wrong)).unwrap();
+    let mut wrong_payload = program.clone();
+    let gate_value = program.store.data[gate].range().start as usize;
+    let discarded_value = program.store.data[discard].range().start as usize;
+    assert_eq!(program.store.extra[gate_value], input as u32);
+    assert_eq!(program.store.extra[discarded_value], wrong as u32);
+    wrong_payload.store.extra.swap(gate_value, discarded_value);
+    assert!(matches!(function_view_decoder(&wrong_payload.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { value, .. } if value.raw() as usize == wrong));
+    let error = FullVerifier::verify(&wrong_payload).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let mut weakened = program.clone();
+    let optional = SemanticPoolBuilder::default().intern_type(&mut weakened.store.semantic, &Type::Optional(Box::new(Type::Str))).unwrap();
+    let check_type = gate_value + 1;
+    assert_eq!(program.store.extra[check_type], checked.raw());
+    weakened.store.extra[check_type] = optional.raw();
+    weakened.store.checked_expr_types.retain(|fact| fact.instruction as usize != gate);
+    assert!(matches!(function_view_decoder(&weakened.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check, .. } if check.ty.id == optional));
+    let error = FullVerifier::verify(&weakened).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let condition = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. })
+        if matches!(decoder.expression_view(left.raw() as usize), Ok(schema::ExprView::Field { name: "selected", .. }))
+            && matches!(decoder.expression_view(right.raw() as usize), Ok(schema::ExprView::Null)))).unwrap();
+    let mut null_input = program.clone();
+    let operation = program.store.extra[program.store.data[condition].range().start as usize] as usize;
+    assert_eq!(program.store.binary_ops[operation], BinaryOp::Ne);
+    null_input.store.binary_ops[operation] = BinaryOp::Eq;
+    assert!(matches!(function_view_decoder(&null_input.store, owner).expression_view(condition).unwrap(), schema::ExprView::Binary { op: BinaryOp::Eq, .. }));
+    let error = FullVerifier::verify(&null_input).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let null_input = Arc::new(null_input);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*null_input.sources).clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&null_input));
+        let error = (0..null_input.driver_step_count().unwrap()).find_map(|step| evaluator.eval_indexed_driver_step(step, Span::new(null_input.store.source_id, 0, 0)).unwrap().err()).unwrap();
+        assert_eq!(error.kind, "type-error");
+        assert!(error.message.contains("Str constraint"), "{error:?}");
+    }
+}
+
+#[test]
+fn record_list_fields_authenticate_fresh_optional_items() {
+    let mut program = fixture(r#"
+enum Role { Accent }
+type View = {roles: List[Role?]}
+pure make(stored: List[Null], wrong: Bool) -> View {
+    let _ = stored
+    let _ = wrong
+    {roles: [null]}
+}
+let view = make([null], false)
+assert view.roles.len() == 1
+assert view.roles[0] == null
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "make");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let (record, list) = range.clone().find_map(|instruction| {
+        let Ok(schema::ExprView::Record(mut entries)) = decoder.expression_view(instruction) else { return None };
+        match entries.next() {
+            Some(Ok(super::super::decode::RecordEntryView::Field(_, value))) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }
+    }).unwrap();
+    let schema::ExprView::List(mut items) = decoder.expression_view(list).unwrap() else { unreachable!() };
+    assert_eq!(items.len(), 1);
+    let leaf = items.next().unwrap().unwrap().raw() as usize;
+    assert!(matches!(decoder.expression_view(leaf).unwrap(), schema::ExprView::Null));
+    let boolean = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+    let mut wrong_leaf = program.clone();
+    wrong_leaf.store.tags[leaf] = FullTag::ExprParam;
+    wrong_leaf.store.data[leaf] = program.store.data[boolean];
+    assert!(matches!(function_view_decoder(&wrong_leaf.store, owner).expression_view(leaf).unwrap(), schema::ExprView::Param(1)));
+    let error = FullVerifier::verify(&wrong_leaf).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let stored = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+    let discard = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::LetRecord { source, target: super::super::decode::CompTargetView::Discard, .. }) if source.raw() as usize == stored)).unwrap();
+    let schema::ExprView::Record(entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+    let field_value = program.store.blocks[entries.block_identity_for_test().index()].instructions.bounds(program.store.extra.len()).unwrap().start + 3;
+    let discarded_value = program.store.data[discard].range().start as usize;
+    assert_eq!(program.store.extra[field_value], list as u32);
+    assert_eq!(program.store.extra[discarded_value], stored as u32);
+    let mut wrong_storage = program.clone();
+    wrong_storage.store.extra.swap(field_value, discarded_value);
+    let changed = function_view_decoder(&wrong_storage.store, owner);
+    let schema::ExprView::Record(mut entries) = changed.expression_view(record).unwrap() else { unreachable!() };
+    assert!(matches!(entries.next(), Some(Ok(super::super::decode::RecordEntryView::Field(_, value))) if value.raw() as usize == stored));
+    assert!(matches!(changed.expression_view(stored).unwrap(), schema::ExprView::Param(0)));
+    let error = FullVerifier::verify(&wrong_storage).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+}
+
+#[test]
+fn empty_set_record_fields_authenticate_fresh_receivers() {
+    let mut program = fixture(r#"
+type Box = {values: Set[Str]}
+pure count(value: Box) -> Int { value.values.len() }
+pure make(stored: List[Any], wrong: Bool) -> Int {
+    let _ = stored
+    let _ = "is_empty"
+    let spare = [wrong]
+    let _ = spare
+    count({values: set.empty()})
+}
+assert make([true], false) == 0
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "make");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let (method, receiver) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+        Ok(schema::ExprView::Method { receiver, name: "to_set", .. }) => Some((instruction, receiver.raw() as usize)),
+        _ => None,
+    }).unwrap();
+    assert!(matches!(decoder.expression_view(receiver).unwrap(), schema::ExprView::List(values) if values.len() == 0));
+    assert!(range.clone().any(|instruction| match decoder.expression_view(instruction) {
+        Ok(schema::ExprView::Record(mut entries)) => entries.any(|entry| matches!(entry, Ok(super::super::decode::RecordEntryView::Field(_, value)) if value.raw() as usize == method)),
+        _ => false,
+    }));
+    let nonempty = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::List(values)) if values.len() == 1)).unwrap();
+    let mut wrong_items = program.clone();
+    wrong_items.store.data.swap(receiver, nonempty);
+    assert!(matches!(function_view_decoder(&wrong_items.store, owner).expression_view(receiver).unwrap(), schema::ExprView::List(values) if values.len() == 1));
+    let error = FullVerifier::verify(&wrong_items).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let stored = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+    let discard = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::LetRecord { source, target: super::super::decode::CompTargetView::Discard, .. }) if source.raw() as usize == stored)).unwrap();
+    let mut wrong_storage = program.clone();
+    let method_receiver = program.store.data[method].range().start as usize;
+    let discarded_value = program.store.data[discard].range().start as usize;
+    assert_eq!(program.store.extra[method_receiver], receiver as u32);
+    assert_eq!(program.store.extra[discarded_value], stored as u32);
+    wrong_storage.store.extra.swap(method_receiver, discarded_value);
+    assert!(matches!(function_view_decoder(&wrong_storage.store, owner).expression_view(method).unwrap(), schema::ExprView::Method { receiver, .. } if receiver.raw() as usize == stored));
+    let error = FullVerifier::verify(&wrong_storage).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let selector = (1..=program.store.strings.len()).find(|&index| program.store.string(index as u32).unwrap() == "is_empty").unwrap() as u32;
+    let mut wrong_method = program.clone();
+    let name = program.store.data[method].range().start as usize + 1;
+    assert_eq!(program.store.string(program.store.extra[name]).unwrap(), "to_set");
+    wrong_method.store.extra[name] = selector;
+    assert!(matches!(function_view_decoder(&wrong_method.store, owner).expression_view(method).unwrap(), schema::ExprView::Method { name: "is_empty", .. }));
+    let error = FullVerifier::verify(&wrong_method).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+}
+
+#[test]
+fn conditional_record_results_authenticate_every_arm() {
+    let mut program = fixture(r#"
+type Identity = {pid: Int}
+type Row = {selected: Identity?}
+enum Key { Home, Other }
+pure choose(state: Row, key: Key, empty: Bool, erased: Record, spare: Bool) -> Row {
+    let _ = erased
+    let _ = spare
+    match key {
+        Home => if empty { {selected: null} } else { {selected: {pid: 7}} }
+        else => { let _ = spare; state }
+    }
+}
+let cleared = choose({selected: {pid: 2}}, Home, true, {ignored: true}, false)
+assert cleared.selected == null
+let selected = choose({selected: {pid: 2}}, Home, false, {ignored: true}, false)
+assert selected.selected == {pid: 7}
+let unchanged = choose({selected: {pid: 2}}, Other, false, {ignored: true}, false)
+assert unchanged.selected == {pid: 2}
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "choose");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let scalar = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7)))).unwrap();
+    let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+    let mut wrong_leaf = program.clone();
+    wrong_leaf.store.tags[scalar] = FullTag::ExprBool;
+    wrong_leaf.store.data[scalar] = program.store.data[boolean];
+    let error = FullVerifier::verify(&wrong_leaf).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let _symbols = program.symbol_owner().enter();
+    let record = range.clone().find(|&instruction| {
+        let Ok(schema::ExprView::Record(mut entries)) = decoder.expression_view(instruction) else { return false };
+        matches!(entries.next(), Some(Ok(super::super::decode::RecordEntryView::Field(name, value)))
+            if name == Name::intern("selected") && program.store.tags[value.raw() as usize] == FullTag::ExprNull)
+            && entries.next().is_none()
+    }).unwrap();
+    let mut missing_field = program.clone();
+    let schema::ExprView::Record(entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+    let field = program.store.blocks[entries.block_identity_for_test().index()].instructions.bounds(program.store.extra.len()).unwrap().start + 2;
+    assert_eq!(program.store.extra[field], Name::intern("selected").symbol().raw());
+    missing_field.store.extra[field] = Name::intern("pid").symbol().raw();
+    let changed = function_view_decoder(&missing_field.store, owner);
+    let schema::ExprView::Record(mut entries) = changed.expression_view(record).unwrap() else { unreachable!() };
+    assert!(matches!(entries.next(), Some(Ok(super::super::decode::RecordEntryView::Field(name, _))) if name == Name::intern("pid")));
+    let error = FullVerifier::verify(&missing_field).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+    let state = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+    for replacement in [3, 4] {
+        let mut wrong_arm = program.clone();
+        wrong_arm.store.extra[program.store.data[state].range().start as usize] = replacement;
+        assert!(matches!(function_view_decoder(&wrong_arm.store, owner).expression_view(state).unwrap(), schema::ExprView::Param(slot) if slot == replacement as usize));
+        let error = FullVerifier::verify(&wrong_arm).unwrap_err();
+        assert!(error.message.contains("contract"), "{error:?}");
+    }
+}
+
+#[test]
 fn context_scope_return_preserves_result_envelope() {
     let program = fixture(r#"
 pure boolean() -> Bool { true }
