@@ -1610,7 +1610,7 @@ impl<'a> ProducerProof<'a> {
         if let ProducerBinding::DriverBinding(_) = binding {
             if let Some(id) = decoder.checked_slot_type(slot)? {
                 let ty = self.contract_type(id)?;
-                self.expression(decoder.owner, instruction, Arc::clone(&ty), false);
+                self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
                 return Ok(Some(ty));
             }
             let identity = self.index.owners[&decoder.owner].storage_bindings.get(&binding).map(|source| source.identity);
@@ -1622,7 +1622,7 @@ impl<'a> ProducerProof<'a> {
             };
             if let Some(ty) = ty {
                 ensure_closed_type(&ty)?;
-                self.expression(decoder.owner, instruction, Arc::clone(&ty), false);
+                self.slot(decoder.owner, instruction, slot, Arc::clone(&ty))?;
                 return Ok(Some(ty));
             }
         }
@@ -4431,22 +4431,30 @@ impl<'a> ProducerProof<'a> {
         let signatures = FullDecoder::registered_method_signatures(receiver_type.as_ref(), name)?.ok_or_else(|| IrVerifyError::new("ground method has no registered parameter contract"))?;
         let mut selected = None;
         for signature in signatures {
-            if arguments.len() > signature.params.len() || signature.params[arguments.len()..].iter().any(|parameter| !parameter.defaulted) { continue; }
+            let first_parameter = if signature.op == super::super::RuntimeOp::ProcessHandleCancel
+                && arguments.len() == 1 && signature.params.len() == 2
+                && signature.params[0].defaulted && signature.params[0].ty == Type::Str
+                && signature.params[1].defaulted && signature.params[1].ty == Type::Duration
+                && self.need_context(decoder, arguments[0])?.is_some_and(|actual| matches!(actual.unvalidated(), Type::Duration))
+            { 1 } else { 0 };
+            if arguments.len() + first_parameter > signature.params.len()
+                || signature.params[arguments.len() + first_parameter..].iter().any(|parameter| !parameter.defaulted)
+            { continue; }
             let mut fits = true;
-            for (&argument, parameter) in arguments.iter().zip(&signature.params) {
+            for (&argument, parameter) in arguments.iter().zip(&signature.params[first_parameter..]) {
                 if let Some(actual) = self.need_context(decoder, argument)? && !actual.matches_expected(&parameter.ty) { fits = false; break; }
             }
             if !fits { continue; }
-            if selected.replace(signature).is_some() { return Err(IrVerifyError::new("ground method parameter contract is ambiguous")); }
+            if selected.replace((signature, first_parameter)).is_some() { return Err(IrVerifyError::new("ground method parameter contract is ambiguous")); }
         }
-        let signature = selected.ok_or_else(|| IrVerifyError::new("ground method arguments do not match a registered contract"))?;
+        let (signature, first_parameter) = selected.ok_or_else(|| IrVerifyError::new("ground method arguments do not match a registered contract"))?;
         self.require_callable_effects(decoder, instruction, Some(signature.effects), signature.pure)?;
         let result = decoder.checked_method_return_type(receiver_type.as_ref(), name, arguments)?
             .ok_or_else(|| IrVerifyError::new("ground method has no resolved return contract"))?;
         if !result.matches_expected(expected) {
             return Err(IrVerifyError::new("ground method result disagrees with its selected contract"));
         }
-        for (&argument, parameter) in arguments.iter().zip(&signature.params) {
+        for (&argument, parameter) in arguments.iter().zip(&signature.params[first_parameter..]) {
             self.contextual_argument(decoder, argument, &parameter.ty)?;
             self.expression(decoder.owner, argument, Arc::new(parameter.ty.clone()), false);
         }
