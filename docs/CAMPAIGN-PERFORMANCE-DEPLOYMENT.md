@@ -111,12 +111,19 @@ still fail. Outer bound effect publication, latent application causality and
 symbolic cold execution remain unfinished. This checkpoint stays outside the
 integration branch and earns no F2 acceptance.
 
-The subsequent uncommitted outer-effects migration compiles and passes 32 of
+Outer-effects checkpoint `e142ea86f` compiles and passes 32 of
 those 35 controls. Proc client order, Result-as-data and application-result
-aliases now pass. Capture, uncaptured error propagation and recursive component
-inference remain failing. Independent review identifies default-call ownership
-and provisional mutual-recursion mappings for explicit discrimination. No stable
-tooling API, cold execution or effect-scheme acceptance follows yet.
+aliases now pass. All five default-ownership and scoped graph controls pass,
+including rejected missing or wrong-owner substitution maps. The public
+`CheckedEffects` projection distinguishes unknown, finite and symbolic effects.
+Cross-edit comparisons retain canonical callable and body proof evidence.
+The isolated XSHT consumer migration starts from this unqualified checkpoint.
+
+After Capture admission through the existing body visitor, eleven of thirteen
+source controls pass. Both captured and uncaptured error contributions pass.
+Self and mutual recursion still fail at the explicit-return inference boundary.
+The mutual source case has not reached its effect-map check. Cold execution and
+effect-scheme acceptance remain unfinished.
 
 The isolated producer repair now passes the actual frozen `cut` source and
 its portable counter, self-slice and field-guard controls. Independently
