@@ -416,7 +416,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("net", "validate_root_bundle") => Some((
             "Validate a PEM certificate bundle without changing trust.",
-            "Pure: reads no files, makes no connection and changes no trust settings. Every PEM certificate must decode and be accepted by the TLS root store. Empty bundles, raw DER, malformed certificates, non-certificate PEM sections and unrelated text fail with NetError.TrustStore. Whitespace and lines starting with # are allowed between certificates. Validation checks bundle structure, not certificate dates, revocation, hostname or trustworthiness.",
+            "Pure: reads no files, makes no connection and changes no trust settings. Every PEM certificate must decode and be accepted by the TLS root store. Empty bundles, raw DER, malformed certificates, nested or unknown PEM markers and non-certificate PEM sections fail with NetError.TrustStore. UTF-8 explanatory text without control characters is allowed outside PEM sections. Every certificate section is validated. Validation checks bundle structure, not certificate dates, revocation, hostname or trustworthiness.",
             &["net", "tls", "certificate", "trust", "validation"],
         )),
         ("net", "request") => Some((

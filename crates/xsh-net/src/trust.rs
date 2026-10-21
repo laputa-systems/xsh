@@ -198,14 +198,22 @@ pub(super) fn parse_root_bundle(mut bytes: &[u8]) -> NetResult<Vec<CertificateDe
     loop {
         bytes = bytes.trim_ascii_start();
         if bytes.is_empty() { break; }
-        if bytes.starts_with(b"#") {
-            bytes = bytes.iter().position(|byte| *byte == b'\n').map_or(&[], |index| &bytes[index + 1..]);
-            continue;
-        }
         let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
         let first = lines.next().ok_or_else(|| policy_error("missing certificate PEM section"))?;
         if first.trim_ascii() != b"-----BEGIN CERTIFICATE-----" {
-            return Err(policy_error("root bundle must contain only PEM certificates, whitespace, or # comments"));
+            let text = std::str::from_utf8(first.trim_ascii())
+                .map_err(|_| policy_error("root bundle explanatory text must be UTF-8"))?;
+            if text.contains("-----")
+                || (text.contains("BEGIN ") || text.contains("END ")) && text.contains('-')
+                || text.starts_with("BEGIN ") || text.starts_with("END ")
+            {
+                return Err(policy_error("unexpected or malformed PEM marker outside certificate section"));
+            }
+            if text.chars().any(|character| character.is_control() && !matches!(character, '\t' | '\r' | '\n')) {
+                return Err(policy_error("root bundle explanatory text contains control characters"));
+            }
+            bytes = &bytes[first.len()..];
+            continue;
         }
         let mut section_len = first.len();
         let mut ended = false;
@@ -589,7 +597,7 @@ mod tests {
                 assert!(validate_root_bundle(&[ROOT_PEM, bytes].concat()).is_err(), "invalid mixed bundle: {bytes:?}");
             }
         }
-        assert!(validate_root_bundle(&[ROOT_PEM, b"garbage"].concat()).is_err());
+        validate_root_bundle(&[ROOT_PEM, b"explanatory footer"].concat()).unwrap();
     }
 
 
@@ -600,6 +608,10 @@ mod tests {
             b"-----BEGIN CERTIFICATE-----\nAAAA\n",
             b"-----BEGIN CERTIFICATE-----garbage\n",
             b"-----BEGIN UNKNOWN-----\nAAAA\n-----END UNKNOWN-----\n",
+            b"----BEGIN CERTIFICATE----\n",
+            b"BEGIN CERTIFICATE\n",
+            b"-----END CERTIFICATE-----\n",
+            b"text -----BEGIN CERTIFICATE-----\n",
         ] {
             assert!(validate_root_bundle(&[prefix, ROOT_PEM].concat()).is_err());
         }
@@ -653,6 +665,21 @@ mod tests {
             let trust = TrustGuard { policy_file: scratch.0.join("policy"), roots: RootSource::System { file: Some(ca), directories: Vec::new() }, snapshot: OnceLock::new(), failure: OnceLock::new() };
             assert_eq!(trust.check().unwrap_err().kind, "net-ca-certificate");
         }
+    }
+
+
+    #[test]
+    fn root_bundle_validation_accepts_curl_titles_and_unicode_explanatory_text() {
+        let bundle = [
+            "Bundle of CA Root Certificates\n\nCOMODO ECC Certification Authority\n==================================\n".as_bytes(),
+            ROOT_PEM,
+            "\nAutoridad de Certificación raíz\n==============================\n".as_bytes(),
+            ROOT_PEM,
+            "\nFin del catálogo de certificados\n".as_bytes(),
+        ].concat();
+        assert_eq!(parse_root_bundle(&bundle).unwrap().len(), 2);
+        validate_root_bundle(&bundle).unwrap();
+        assert_eq!(roots_from_bytes(&[(PathBuf::from("curl.pem"), bundle)], &[]).unwrap().len(), 2);
     }
 
 }

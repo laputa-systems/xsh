@@ -1425,7 +1425,7 @@ return. Every variant carries `message` and `status: Int?`, the HTTP status of
 `Connect` a refused or unreachable peer, `ConnectTimeout` and `Timeout` the
 phase that ran out of time (both implement the `Timeout` facet), `Certificate`
 a rejected peer certificate, `Tls` any other handshake failure, `TrustStore`
-an unusable `ca_certificate` file, `EmptyReply` a connection closed before a
+an unusable CA bundle or trust policy, `EmptyReply` a connection closed before a
 response, `Status` a response that `fail_status` turned into a failure,
 `Redirect` a redirect that was not followed (more than `redirects` of them, or
 none naming a `Location`), `Unsupported` a scheme or method the module does not
@@ -5475,6 +5475,56 @@ Contracts worth knowing without consulting the reference:
   response's `url` is the URL the request was submitted with, `effective_url`
   the URL it came from after redirects, and `redirect_count` how many were
   followed.
+- `net.validate_root_bundle(pem)` validates a nonempty PEM certificate bundle
+  without reading files, making connections, or changing trust. Every certificate
+  must decode and be accepted by the TLS root store. Empty input, raw DER,
+  malformed certificates, nested or unknown PEM markers, and other PEM section
+  types fail with `NetError.TrustStore`. UTF-8 explanatory text without control
+  characters is allowed outside PEM sections, including CA names and title
+  separators in curl bundles. Every certificate section is validated. Validation
+  does not establish certificate dates, revocation status,
+  hostname validity, or trustworthiness.
+- HTTPS clients read the optional administrator policy at
+  `/etc/laputa/trust-policy`. A blocked SHA-256 SPKI digest rejects every supplied
+  peer certificate with that key, including unused intermediates and alternate
+  cross-signed certificates. Custom CA bundles and `tls_verify: false` cannot
+  override a block. Verified TLS retains hostname and handshake-signature checks.
+  The file uses UTF-8 with LF line endings and a final LF:
+
+  ```text
+  laputa-trust-policy-v1
+  generation 1
+  blocked-spki-sha256 <64 lowercase hexadecimal digits>
+  ```
+
+  `generation` is a positive canonical decimal `u64`. Zero blocked-key lines are
+  valid. Duplicate hashes, unknown lines, CRLF, and files larger than 1 MiB fail.
+  Laputa authenticates policy before atomically publishing this root-administered
+  file. XSH does not authenticate signatures or enforce monotonic generations.
+  A truly absent path allows general XSH use. An installed dangling symlink fails.
+  Laputa installations must provide the policy.
+- On Linux, `SSL_CERT_FILE` selects the authoritative bundle. Otherwise XSH selects
+  the first existing canonical bundle. XSH never scans implicit certificate
+  directories. Explicit `SSL_CERT_DIR` directories add roots from regular files,
+  following symlinks. Unreadable or malformed selected bundles and configured
+  extra roots fail closed. Blocked
+  anchors are excluded even when the peer omits them from its chain.
+- Custom CA bundles are read when the client is created. The first HTTPS request
+  snapshots the policy and system root bytes. Before each later admission to the
+  HTTP transport, including redirects and pooled connections, XSH compares the
+  current files with that snapshot. An observed change, removal, or malformed
+  replacement permanently rejects further HTTPS requests from that client.
+  Recreate the pool with `net.close_pool`, `net.close_all_pools`, or `net.pool`,
+  or restart the process to load new trust. Operations already admitted to the
+  transport may finish, including internal queues, retries, TLS resumption, and
+  response streams. Operations submitted but not yet admitted must pass the
+  current snapshot check. Immediate cutover requires draining or restarting the
+  workload. File publication alone cannot cancel admitted operations. Plain HTTP
+  does not load TLS policy or roots.
+- macOS uses the native platform verifier unless a CA bundle is selected.
+  Supplied peer certificates still follow the SPKI policy. Native platform anchors
+  omitted by the peer remain under macOS policy because the platform verifier
+  does not expose its selected anchor. Explicit bundles follow XSH anchor blocks.
 - Standard API failures are structured errors located at the call site.
 - `fs.walk`, `fs.files`, and `fs.dirs` skip hidden entries and honor
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).

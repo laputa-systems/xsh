@@ -4449,9 +4449,11 @@ Contracts worth knowing without consulting the reference:
 - `net.validate_root_bundle(pem)` validates a nonempty PEM certificate bundle
   without reading files, making connections, or changing trust. Every certificate
   must decode and be accepted by the TLS root store. Empty input, raw DER,
-  malformed certificates, other PEM section types, and unrelated text fail with
-  `NetError.TrustStore`. Whitespace and `#` comment lines between certificates are
-  allowed. Validation does not establish certificate dates, revocation status,
+  malformed certificates, nested or unknown PEM markers, and other PEM section
+  types fail with `NetError.TrustStore`. UTF-8 explanatory text without control
+  characters is allowed outside PEM sections, including CA names and title
+  separators in curl bundles. Every certificate section is validated. Validation
+  does not establish certificate dates, revocation status,
   hostname validity, or trustworthiness.
 - HTTPS clients read the optional administrator policy at
   `/etc/laputa/trust-policy`. A blocked SHA-256 SPKI digest rejects every supplied
