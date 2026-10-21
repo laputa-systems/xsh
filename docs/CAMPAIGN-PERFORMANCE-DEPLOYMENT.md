@@ -128,14 +128,27 @@ binding tails. Repair `de8e288dd` uses the exact resolved binding and its checke
 slot type. Both tail forms now reject all five mutations. All 68 focused
 controls pass, including parameter and captured Result forwarding, cleanup
 order and broader-error retarget rejection. The repair is integrated.
+Obsolete transfer helpers are removed at `6b8ef0329`; the warning-denied
+non-test check and all 68 controls pass. Frozen source `d17f140ce` passes
+fresh canonical bootstrap, then 231 root integration tests. All 25 earlier
+failures pass. The remaining failure is `libc_hygiene::no_migratable_libc_calls`,
+which cannot parse its `cargo metadata` output. Native stages do not run.
+The failed receipt remains in `full-inference-producers-qualified-r5`.
+Source stays clean, cleanup resolves, and peak memory is 4,343,279,616 bytes
+with no OOM events. This run supplies no timing or combined acceptance credit.
 
 The owner also requested isolated Laputa certificate hardening. Laputa commit
 `2549eb0` removes unauthenticated live certificate downloads, updates packaged
 roots and runtimes, and makes CA package dependencies explicit. Seven source
 checks and the focused CA recipe test pass. XSH master includes Ed25519 host
 verification at `21ce1ed25`, with one registry and two native controls passing.
-Signed trust-release composition and XSH distrust-policy enforcement remain
-under implementation and review. The production signing public key is not provisioned.
+XSH distrust-policy enforcement and trust-generation invalidation are integrated
+through `be7009bb7`. Fifteen Rust controls, two native controls and validation
+of the unchanged curl bundle pass. Laputa signed-release checkpoint `4c5f991`
+passes seven focused controls. Review blocks integration because staging accepts
+existing overlays and fixed temporary paths can delete unrelated generations.
+Exclusive staging ownership and preservation regressions remain required.
+The production signing public key is not provisioned.
 These security changes do not supply inference or deployment acceptance credit.
 
 Isolated compiler checkpoint `dc21c8501` passes thirteen runtime-layout controls
@@ -143,13 +156,14 @@ with one remaining Proc-origin failure. A later draft passes its first three
 Proc-origin controls, including direct and aliased returns, Result-as-data,
 and malformed physical return-site evidence. Ordinary branch, recursive and
 Stream completion remain mandatory. These drafts are not integrated or qualified.
-Work-counter checkpoint `85efae76e` passes seven focused controls, but review
-finds discarded diagnostic work and nested retained type nodes undercounted.
-Both metrics require repair before integration or performance use.
+Work-counter repair `ab26826b9` passes nine focused controls and a non-test
+check. It counts discarded diagnostics and nested retained type nodes.
+Independent review finds no remaining blocker. Integration and merged replay
+remain required before performance use.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
-Thirty-five completed checkouts have now been retired. The active failed
+Thirty-seven completed checkouts have now been retired. The active failed
 canonical checkout and all unfinished source remain retained.
 
 Previous focused source `50b9d543e` passes 684 merged controls with zero failures
