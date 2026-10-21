@@ -14,12 +14,13 @@ Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
 products, with source and product guards intact. Matching `28436de64` products
-are rebuilding for the practical corpus gate. Master remains at `d2453760a`.
+build without warnings. Master remains at `d2453760a`.
 
-The practical four-return paired gate on `a3fd9a756` passes the original-view
-checks for all 12 XSH roots and three Laputa roots. The wc behavior test passes.
-The next test, `test_sort_general_numeric_orders_past_double_precision`, fails
-during indexed preparation: a ground field producer has no receiver contract.
+The practical four-return paired gate on `28436de64` passes the original-view
+checks for all 12 XSH roots and three Laputa roots. The wc invalid-byte and sort
+numeric-order behavior tests pass. The next selector,
+`test_awk_arrays_functions_and_loops`, fails during indexed preparation:
+a ground match lacks a subject contract for a lowered list comprehension.
 Reduced-view checks, later behavior tests, interfaces, negative controls and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
@@ -44,9 +45,10 @@ existing handle before Result projection; its 15 controls pass and it is
 integrated. Generic-delegation controls pass for both runtime routes, late
 nominal errors, cleanup order and required Yield transfer facts. The cold
 item and effect mutations also reject correctly after the valid base passes.
-Review finds a propagation
-boundary inferred from Stream return shape instead of actual declaration kind.
-The runtime owner is repairing that boundary while preserving local Result catches.
+A reproduced propagation-boundary defect is repaired in the isolated candidate:
+actual declaration kind now controls latent Stream errors. The negative case
+first demonstrated incorrectly accepted IR. The repaired case and 22 boundary,
+delegation and Result controls pass, preserving local Result catches.
 The runtime candidate is not integrated or fully qualified; the original
 captured-write and Repeat witness remains open.
 
@@ -134,6 +136,9 @@ checkouts are removed under the same checks. Their complete scratch trees remain
 in that directory. The imported-source reproducer and dirty iteration prototype
 remain untouched. The prototype's patch lines match the accepted iteration edits
 at `c0a282df8`, apart from seven later added stream-error verification lines.
+Two completed XSHT checkouts are removed after clean patch-equivalence checks
+and confirmation that no agent or process uses them. Their complete ignored
+working trees remain under `.work/tmp/full-inference-retired-lanes/`.
 The superseded argument and budget qualification checkouts are also removed
 after clean ancestry checks. Their complete scratch trees remain in the same
 directory. Matching collector, NonEmpty and optional products remain retained.
