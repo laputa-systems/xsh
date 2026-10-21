@@ -40,6 +40,31 @@ impl From<ConstraintResolutionError> for CallableApplicationError {
     fn from(error: ConstraintResolutionError) -> Self { Self::Resolution(error) }
 }
 
+impl std::fmt::Display for CallableApplicationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Resolution(ConstraintResolutionError::ForeignVariable) => formatter.write_str("application refers to a type outside its inference scope"),
+            Self::Resolution(ConstraintResolutionError::TypeDepth) => formatter.write_str("application exceeds the type-depth limit"),
+            Self::Constraint(conflict) => write!(formatter, "expected `{}`, found `{}`", conflict.expected, conflict.actual),
+            Self::Layout(error) => formatter.write_str(&error.message),
+            Self::Kind { required, actual } => {
+                let required = match required { CallableKindRequirement::Pure => "pure", CallableKindRequirement::Immediate => "pure or proc" };
+                let actual = match actual { CallableKind::Pure => "pure", CallableKind::Proc => "proc", CallableKind::Stream => "stream" };
+                write!(formatter, "requires a {required} callable, found a {actual} callable")
+            }
+            Self::NotCallable(actual) => write!(formatter, "`{actual}` has no checked callable signature"),
+            Self::ReturnShape(actual) => write!(formatter, "proc return envelope is not determined by `{actual}`"),
+            Self::SourceShape(span) => write!(formatter, "application argument layout changed at source span {span:?}"),
+            Self::Effects(error) => match error {
+                super::EffectConstraintError::Resolution(ConstraintResolutionError::ForeignVariable) => formatter.write_str("application effects refer to another inference scope"),
+                super::EffectConstraintError::Resolution(ConstraintResolutionError::TypeDepth) => formatter.write_str("application effects exceed the type-depth limit"),
+                super::EffectConstraintError::Mismatch => formatter.write_str("application effects violate the required contract"),
+                super::EffectConstraintError::Unresolved => formatter.write_str("application effect relationship remains unresolved"),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ScopedCallableApplication {
     pub(super) owner: CallableApplicationScope,
@@ -607,6 +632,22 @@ impl TypeConstraints {
     pub(crate) fn source_callable_application_reference(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Result<Option<CallableApplicationReference>, CallableApplicationError> {
         let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
         self.applications.source_sites.get(&(owner, span)).copied().map(|id| self.callable_application_reference(id)).transpose()
+    }
+
+    pub(crate) fn proc_return_envelope(&self, reference: CallableApplicationReference, span: crate::source::Span) -> Result<u32, CallableApplicationError> {
+        let id = self.referenced_callable_application(reference)?;
+        let entry = &self.applications.entries[&id];
+        let index = entry.application.proc_returns.iter().position(|envelope| envelope.span == span)
+            .ok_or(ConstraintResolutionError::ForeignVariable)?;
+        u32::try_from(index).map_err(|_| ConstraintResolutionError::TypeDepth.into())
+    }
+
+    pub(crate) fn generalized_application_ordinal(&self, reference: CallableApplicationReference, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, CallableApplicationError> {
+        if reference.scope != scope.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let id = self.referenced_callable_application(reference)?;
+        if let Some(ordinal) = scope.applications.get(&id) { return Ok(Some(*ordinal)); }
+        if self.applications.entries[&id].binding.is_some() { return Ok(None); }
+        Err(ConstraintResolutionError::ForeignVariable.into())
     }
 
     pub(crate) fn has_deferred_proc_returns(&self, owner: EffectDeclarationId) -> bool {

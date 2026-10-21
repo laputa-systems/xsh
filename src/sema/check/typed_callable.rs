@@ -147,7 +147,7 @@ impl Checker {
         };
         let invocation_effects = application.effects.clone();
         if let Err(error) = self.type_constraints.register_source_callable_application(scope, application) {
-            self.error(span, &format!("callable application requirement failed: {error:?}"), DiagnosticCode::CheckCallableMismatch);
+            self.error(span, &format!("callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
             return Some(Type::Invalid);
         }
         if !self.boundary.in_pure {
@@ -307,9 +307,8 @@ impl Checker {
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
-        let effects = if callable.pure {
-            crate::sema::types::CallableEffects::finite([])
-        } else { callable.sig.effects.clone() };
+        let kind = if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc };
+        let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
         let name = match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) | ArenaExprKind::Field { name, .. } => name.to_string(),
             _ => "callable value".to_string(),

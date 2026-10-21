@@ -232,7 +232,7 @@ impl CompactBodyFacts {
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
                 facts.resolved_type_expressions.instantiations.insert(id, instance.clone());
             }
-            if matches!(expression.kind, ArenaExprKind::Call { .. })
+            if (matches!(expression.kind, ArenaExprKind::Call { .. }) || checked.selected_function_value_references.contains(&span))
                 && let Some(instantiation) = checked.call_instantiations.get(&span)
             {
                 facts.call_instantiations.insert(id, instantiation.clone());

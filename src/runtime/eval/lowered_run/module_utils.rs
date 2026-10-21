@@ -66,6 +66,7 @@ impl Evaluator {
                 .with_span(span));
             }
         };
+        let function = function.identity();
         let display_name = function.display_name();
         let key = utils_cache_key(&display_name, &call_args).map_err(|bad_type| {
             RuntimeError::new(

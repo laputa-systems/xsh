@@ -17,8 +17,6 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use rustls_graviola::default_provider;
-#[cfg(target_os = "macos")]
-use rustls_platform_verifier::BuilderVerifierExt;
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::future::Future;
@@ -32,6 +30,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod runtime;
+mod trust;
 
 pub use runtime::{
     NetOperation, NetOperationMetrics, NetProtocol, NetRuntimeOwner, NetRuntimeSnapshot,
@@ -698,8 +697,8 @@ fn dns_io_error(error: io::Error) -> NetError {
 
 #[derive(Clone)]
 pub struct NetAgent {
-    h1_client: H12Client<Full<Bytes>>,
-    auto_client: H12Client<Full<Bytes>>,
+    h1_client: GuardedClient,
+    auto_client: GuardedClient,
 }
 
 impl std::fmt::Debug for NetAgent {
@@ -716,8 +715,8 @@ pub struct NetAgentKey {
     /// agent is built.
     pub ca_certificate: Option<PathBuf>,
     /// The `SSL_CERT_FILE` of the caller's environment. It only names where
-    /// the system trust store lives, so it is read when an HTTPS certificate
-    /// is first checked and never for a plain `http` request.
+    /// the system trust store lives. HTTPS requests snapshot the file and reject
+    /// later changes until the client is recreated. Plain HTTP does not read it.
     pub system_ca_file: Option<PathBuf>,
     pub max_idle_per_host: usize,
     pub idle_timeout: Duration,
@@ -842,6 +841,11 @@ pub struct NetResponse {
     pub body: Option<Vec<u8>>,
 }
 
+/// Validates every certificate in a PEM root bundle without reading files or changing trust.
+pub fn validate_root_bundle(pem: &[u8]) -> NetResult<()> {
+    trust::parse_root_bundle(pem).map(|_| ())
+}
+
 /// Validates request fields that never require transport or file I/O.
 ///
 /// Evaluator adapters call this before starting the lazy network driver so a
@@ -867,10 +871,12 @@ pub fn validate_upload(upload: &NetUpload) -> NetResult<()> {
 }
 
 pub fn make_agent(key: &NetAgentKey, executor: Arc<Executor<'static>>) -> NetResult<NetAgent> {
-    let tls_config = tls_config_for_key(key)?;
+    let trust = Arc::new(trust::TrustGuard::new(key)?);
+    let tls_config = tls_config_for_key(key, Arc::clone(&trust))?;
     let h1_client = h12_client(
         Arc::clone(&executor),
         tls_config.clone(),
+        Arc::clone(&trust),
         key.max_idle_per_host,
         key.idle_timeout,
         true,
@@ -878,6 +884,7 @@ pub fn make_agent(key: &NetAgentKey, executor: Arc<Executor<'static>>) -> NetRes
     let auto_client = h12_client(
         Arc::clone(&executor),
         tls_config.clone(),
+        Arc::clone(&trust),
         key.max_idle_per_host,
         key.idle_timeout,
         false,
@@ -888,13 +895,20 @@ pub fn make_agent(key: &NetAgentKey, executor: Arc<Executor<'static>>) -> NetRes
     })
 }
 
+#[derive(Clone)]
+struct GuardedClient {
+    inner: H12Client<Full<Bytes>>,
+    trust: Arc<trust::TrustGuard>,
+}
+
 fn h12_client(
     executor: Arc<Executor<'static>>,
     mut tls_config: ClientConfig,
+    trust: Arc<trust::TrustGuard>,
     max_idle_per_host: usize,
     idle_timeout: Duration,
     http1_only: bool,
-) -> H12Client<Full<Bytes>> {
+) -> GuardedClient {
     if !http1_only {
         tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     }
@@ -910,7 +924,7 @@ fn h12_client(
     if http1_only {
         builder.http1_only();
     }
-    builder.build()
+    GuardedClient { inner: builder.build(), trust }
 }
 
 type H12Task = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
@@ -1124,14 +1138,22 @@ fn h12_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
 }
 
 async fn h12_send(
-    client: &H12Client<Full<Bytes>>,
+    client: &GuardedClient,
     request: &HttpRequest,
     config: &RequestConfig,
 ) -> NetResult<Response<Incoming>> {
-    client
+    if request.url.scheme == "https" {
+        client.trust.check()?;
+    }
+    client.inner
         .request_with_options(h12_request(request)?, h12_request_options(config))
         .await
-        .map_err(h12_error)
+        .map_err(|error| {
+            if request.url.scheme == "https" {
+                if let Err(trust_error) = client.trust.check() { return trust_error; }
+            }
+            h12_error(error)
+        })
 }
 
 fn h12_request_options(config: &RequestConfig) -> H12RequestOptions {
@@ -1341,7 +1363,7 @@ fn follow_redirect(request: &mut HttpRequest, status: u16, target: UrlParts) {
 }
 
 async fn h12_request_with_redirects(
-    client: &H12Client<Full<Bytes>>,
+    client: &GuardedClient,
     mut request: HttpRequest,
     config: &RequestConfig,
     max_body_bytes: u64,
@@ -1372,7 +1394,7 @@ async fn h12_request_with_redirects(
 }
 
 async fn h12_response_record(
-    client: &H12Client<Full<Bytes>>,
+    client: &GuardedClient,
     request: HttpRequest,
     config: &RequestConfig,
     max_body_bytes: u64,
@@ -1443,7 +1465,7 @@ async fn h12_write_download_response(
 
 async fn h12_download_with_redirects(
     runtime: &runtime::NetRuntime,
-    client: &H12Client<Full<Bytes>>,
+    client: &GuardedClient,
     request: HttpRequest,
     config: &RequestConfig,
     download: &NetDownload,
@@ -1849,108 +1871,10 @@ fn temp_download_path(dest: &Path) -> PathBuf {
     dest.with_file_name(name)
 }
 
+#[cfg(target_os = "macos")]
 fn load_ca_certs(path: &Path) -> NetResult<Vec<CertificateDer<'static>>> {
     let pem = fs::read(path).map_err(|error| NetError::from_io("net-ca-certificate", error))?;
-    let mut reader = io::Cursor::new(pem);
-    let certs = rustls_pemfile::certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| NetError::new("net-ca-certificate", error.to_string()))?;
-    if certs.is_empty() {
-        return Err(NetError::new("net-ca-certificate", "no certificates found"));
-    }
-    Ok(certs)
-}
-
-// These are standard Linux CA locations. Keeping the list here avoids a TLS
-// backend dependency while retaining distribution coverage.
-#[cfg(not(target_os = "macos"))]
-const SYSTEM_CERTIFICATE_FILES: &[&str] = &[
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-    "/etc/pki/tls/certs/ca-bundle.crt",
-    "/etc/ssl/ca-bundle.pem",
-    "/etc/pki/tls/cacert.pem",
-    "/etc/ssl/cert.pem",
-    "/opt/etc/ssl/certs/ca-certificates.crt",
-    "/etc/ssl/certs/cacert.pem",
-];
-
-#[cfg(not(target_os = "macos"))]
-const SYSTEM_CERTIFICATE_DIRECTORIES: &[&str] = &[
-    "/etc/ssl/certs",
-    "/etc/pki/tls/certs",
-    "/etc/security/certificates",
-];
-
-#[cfg(not(target_os = "macos"))]
-fn system_root_certificates(environment_file: Option<&Path>) -> NetResult<RootCertStore> {
-    let certificate_file = environment_file
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("SSL_CERT_FILE").map(PathBuf::from));
-    let certificate_directories = std::env::var_os("SSL_CERT_DIR")
-        .map(|directories| std::env::split_paths(&directories).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let (certificate_file, certificate_directories) =
-        if certificate_file.is_some() || !certificate_directories.is_empty() {
-            (certificate_file, certificate_directories)
-        } else {
-            (
-                SYSTEM_CERTIFICATE_FILES
-                    .iter()
-                    .map(PathBuf::from)
-                    .find(|path| path.is_file()),
-                SYSTEM_CERTIFICATE_DIRECTORIES
-                    .iter()
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_dir())
-                    .collect(),
-            )
-        };
-
-    let mut certificates = Vec::new();
-    if let Some(path) = certificate_file {
-        collect_system_certificates(&path, &mut certificates);
-    }
-    for directory in certificate_directories {
-        collect_system_certificates_from_dir(&directory, &mut certificates);
-    }
-    certificates.sort_unstable_by(|left, right| left.as_ref().cmp(right.as_ref()));
-    certificates.dedup_by(|left, right| left.as_ref() == right.as_ref());
-
-    let mut roots = RootCertStore::empty();
-    roots.add_parsable_certificates(certificates);
-    if roots.is_empty() {
-        return Err(NetError::new(
-            "net-tls",
-            "no CA certificates were loaded from the system",
-        ));
-    }
-    Ok(roots)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn collect_system_certificates(path: &Path, certificates: &mut Vec<CertificateDer<'static>>) {
-    let Ok(pem) = fs::read(path) else {
-        return;
-    };
-    let mut reader = io::Cursor::new(pem);
-    certificates.extend(rustls_pemfile::certs(&mut reader).filter_map(Result::ok));
-}
-
-#[cfg(not(target_os = "macos"))]
-fn collect_system_certificates_from_dir(
-    directory: &Path,
-    certificates: &mut Vec<CertificateDer<'static>>,
-) {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_file() {
-            collect_system_certificates(&path, certificates);
-        }
-    }
+    trust::parse_root_bundle(&pem)
 }
 
 /// Classifies an I/O failure while establishing a connection. Anything that is
@@ -1982,26 +1906,26 @@ fn net_transport_error(error: io::Error) -> NetError {
     NetError::new(kind, message)
 }
 
-fn tls_config_for_key(key: &NetAgentKey) -> NetResult<ClientConfig> {
+fn tls_config_for_key(key: &NetAgentKey, trust: Arc<trust::TrustGuard>) -> NetResult<ClientConfig> {
     let provider = Arc::new(default_provider());
     let builder = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|error| NetError::new("net-tls", error.to_string()))?;
-    let config = if !key.tls_verify {
-        builder
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(DisabledVerifier))
-            .with_no_client_auth()
-    } else if let Some(path) = &key.ca_certificate {
-        builder
-            .with_root_certificates(roots_from_file(path)?)
-            .with_no_client_auth()
+    let verifier: Arc<dyn ServerCertVerifier> = if !key.tls_verify {
+        Arc::new(DisabledVerifier)
+    } else if key.ca_certificate.is_some() {
+        trust.custom_roots()?;
+        Arc::new(LazyTrustRootsVerifier::new(Arc::new(default_provider()), Arc::clone(&trust)))
     } else {
-        default_tls_client_config(builder, key.system_ca_file.as_deref())?
+        default_tls_verifier(key.system_ca_file.as_deref(), Arc::clone(&trust))?
     };
+    let config = builder.dangerous()
+        .with_custom_certificate_verifier(Arc::new(trust::PolicyVerifier { inner: verifier, trust }))
+        .with_no_client_auth();
     Ok(config)
 }
 
+#[cfg(target_os = "macos")]
 fn roots_from_file(path: &Path) -> NetResult<RootCertStore> {
     let mut roots = RootCertStore::empty();
     for cert in load_ca_certs(path)? {
@@ -2012,56 +1936,43 @@ fn roots_from_file(path: &Path) -> NetResult<RootCertStore> {
     Ok(roots)
 }
 
-fn default_tls_client_config(
-    builder: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+fn default_tls_verifier(
     system_ca_file: Option<&Path>,
-) -> NetResult<ClientConfig> {
-    // The platform verifier owns the trust store on macOS, so an
-    // environment-named file replaces it there and is read eagerly.
+    trust: Arc<trust::TrustGuard>,
+) -> NetResult<Arc<dyn ServerCertVerifier>> {
     #[cfg(target_os = "macos")]
-    let config = match system_ca_file {
-        Some(path) => builder
-            .with_root_certificates(roots_from_file(path)?)
-            .with_no_client_auth(),
-        None => builder
-            .with_platform_verifier()
-            .map_err(|error| NetError::new("net-tls", error.to_string()))?
-            .with_no_client_auth(),
-    };
-
+    {
+        match system_ca_file {
+            Some(path) => {
+                roots_from_file(path)?;
+                Ok(Arc::new(LazyTrustRootsVerifier::new(Arc::new(default_provider()), trust)))
+            },
+            None => rustls_platform_verifier::Verifier::new(Arc::new(default_provider()))
+                .map(|verifier| Arc::new(verifier) as Arc<dyn ServerCertVerifier>)
+                .map_err(|error| NetError::new("net-tls", error.to_string())),
+        }
+    }
     #[cfg(not(target_os = "macos"))]
-    let config = builder
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(LazySystemRootsVerifier::new(
-            Arc::new(default_provider()),
-            system_ca_file.map(Path::to_path_buf),
-        )))
-        .with_no_client_auth();
-
-    Ok(config)
+    {
+        let _ = system_ca_file;
+        Ok(Arc::new(LazyTrustRootsVerifier::new(Arc::new(default_provider()), trust)))
+    }
 }
 
-/// Verifies server certificates against the system trust store, reading the
-/// store on the first certificate check instead of when the agent is built. An
-/// agent exists before any URL is dialled, and a plain `http` request never
-/// reaches certificate verification; an image without a CA bundle must still
-/// serve those requests. A missing store fails the first HTTPS handshake.
-#[cfg(not(target_os = "macos"))]
-struct LazySystemRootsVerifier {
+struct LazyTrustRootsVerifier {
     provider: Arc<rustls::crypto::CryptoProvider>,
-    environment_file: Option<PathBuf>,
+    trust: Arc<trust::TrustGuard>,
     verifier: std::sync::OnceLock<Result<Arc<dyn ServerCertVerifier>, rustls::Error>>,
 }
 
-#[cfg(not(target_os = "macos"))]
-impl LazySystemRootsVerifier {
+impl LazyTrustRootsVerifier {
     fn new(
         provider: Arc<rustls::crypto::CryptoProvider>,
-        environment_file: Option<PathBuf>,
+        trust: Arc<trust::TrustGuard>,
     ) -> Self {
         Self {
             provider,
-            environment_file,
+            trust,
             verifier: std::sync::OnceLock::new(),
         }
     }
@@ -2069,7 +1980,7 @@ impl LazySystemRootsVerifier {
     fn load(&self) -> Result<&Arc<dyn ServerCertVerifier>, rustls::Error> {
         self.verifier
             .get_or_init(|| {
-                let roots = system_root_certificates(self.environment_file.as_deref())
+                let roots = self.trust.roots()
                     .map_err(|error| rustls::Error::General(error.message))?;
                 let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(
                     Arc::new(roots),
@@ -2084,15 +1995,13 @@ impl LazySystemRootsVerifier {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-impl std::fmt::Debug for LazySystemRootsVerifier {
+impl std::fmt::Debug for LazyTrustRootsVerifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LazySystemRootsVerifier").finish_non_exhaustive()
+        f.debug_struct("LazyTrustRootsVerifier").finish_non_exhaustive()
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-impl ServerCertVerifier for LazySystemRootsVerifier {
+impl ServerCertVerifier for LazyTrustRootsVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer<'_>,

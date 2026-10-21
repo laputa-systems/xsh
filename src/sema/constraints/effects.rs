@@ -1,5 +1,5 @@
 use super::{ConstraintChange, ConstraintResolutionError, TypeConstraints, MAX_TYPE_DEPTH};
-use crate::sema::effects::{EffectContract, EffectSet};
+use crate::sema::effects::EffectContract;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -361,6 +361,7 @@ impl TypeConstraints {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sema::effects::EffectSet;
     use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::node::Effect;

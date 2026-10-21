@@ -346,10 +346,6 @@ impl Checker {
             .then_some(*id)
     }
 
-    /// Speculative checks retain declaration and lexical contracts but rebuild
-    /// expression facts and branch joins before consuming them. Prior published
-    /// facts carry no additional constraints, and copying them makes each probe
-    /// pay for every earlier body, including captured module contracts.
     pub(super) fn constraint_probe(&mut self) -> Self {
         let checked_declarations = std::mem::take(&mut self.checked_declarations);
         let resolved_type_expressions = std::mem::take(&mut self.resolved_type_expressions);
@@ -358,6 +354,7 @@ impl Checker {
         let binary_operators = std::mem::take(&mut self.binary_operators);
         let stream_expr_origins = std::mem::take(&mut self.stream_expr_origins);
         let stream_stmt_origins = std::mem::take(&mut self.stream_stmt_origins);
+        let proc_return_sites = std::mem::take(&mut self.proc_return_sites);
         let stream_stmt_results = std::mem::take(&mut self.stream_stmt_results);
         let projections = std::mem::take(&mut self.projections);
         let record_constructor_instances = std::mem::take(&mut self.record_constructor_instances);
@@ -401,6 +398,7 @@ impl Checker {
         self.binary_operators = binary_operators;
         self.stream_expr_origins = stream_expr_origins;
         self.stream_stmt_origins = stream_stmt_origins;
+        self.proc_return_sites = proc_return_sites;
         self.stream_stmt_results = stream_stmt_results;
         self.projections = projections;
         self.record_constructor_instances = record_constructor_instances;

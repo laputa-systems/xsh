@@ -486,7 +486,7 @@ pub(in crate::runtime::eval) enum CallableAssignmentPathStep {
 
 #[derive(Clone, Copy)]
 struct FunctionSignatureTarget {
-    signature: SignatureId,
+    contract: FullCallableContract,
     function: IrFunctionId,
 }
 
@@ -618,13 +618,12 @@ impl FunctionSignatureIndex {
             } else {
                 &mut entry.proc
             };
-            *lookup = match (function.contract, *lookup) {
-                (FullCallableContract::Ground(signature), FunctionSignatureLookup::Missing) => {
-                    FunctionSignatureLookup::Unique(FunctionSignatureTarget { signature, function: IrFunctionId::new(index).map_err(|_| IrVerifyError::new("function signature target id is invalid"))? })
+            *lookup = match *lookup {
+                FunctionSignatureLookup::Missing => {
+                    FunctionSignatureLookup::Unique(FunctionSignatureTarget { contract: function.contract, function: IrFunctionId::new(index).map_err(|_| IrVerifyError::new("function signature target id is invalid"))? })
                 }
-                (_, FunctionSignatureLookup::Missing)
-                | (_, FunctionSignatureLookup::Unique(_))
-                | (_, FunctionSignatureLookup::Ambiguous) => FunctionSignatureLookup::Ambiguous,
+                FunctionSignatureLookup::Unique(_)
+                | FunctionSignatureLookup::Ambiguous => FunctionSignatureLookup::Ambiguous,
             };
         }
         Ok(Self { functions })
@@ -641,7 +640,10 @@ impl FunctionSignatureIndex {
             .get(&(Some(owner), name))
             .map(|signatures| if pure { &signatures.pure } else { &signatures.proc });
         match lookup {
-            Some(FunctionSignatureLookup::Unique(target)) => Ok(target.signature),
+            Some(FunctionSignatureLookup::Unique(target)) => match target.contract {
+                FullCallableContract::Ground(signature) => Ok(signature),
+                FullCallableContract::Scheme(_) => Err(IrVerifyError::new("registered module function target requires a checked scheme instance")),
+            },
             Some(FunctionSignatureLookup::Ambiguous) => Err(IrVerifyError::new(
                 "registered module function target is ambiguous",
             )),
@@ -734,6 +736,7 @@ struct FullStore {
     call_application_bindings: Vec<schemes::FullApplicationBinding>,
     call_application_slots: Vec<u32>,
     scheme_application_calls: Vec<schemes::FullSchemeApplicationCall>,
+    scheme_application_returns: Vec<schemes::FullSchemeApplicationReturn>,
     call_effect_arguments: Vec<schemes::FullEffectArgument>,
     scheme_schema_expectations: Vec<schemes::FullSchemeSchemaExpectation>,
     scheme_schema_instances: Vec<schemes::FullSchemeSchemaInstance>,
@@ -823,6 +826,7 @@ impl Default for FullStore {
             call_application_bindings: Vec::new(),
             call_application_slots: Vec::new(),
             scheme_application_calls: Vec::new(),
+            scheme_application_returns: Vec::new(),
             call_effect_arguments: Vec::new(),
             scheme_schema_expectations: Vec::new(),
             scheme_schema_instances: Vec::new(),
@@ -861,6 +865,20 @@ impl Default for FullStore {
 }
 
 impl FullStore {
+    fn try_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        if self.tags.get(instruction) != Some(&FullTag::ExprTry) { return Ok(None); }
+        let data = self.data.get(instruction).ok_or_else(|| IrVerifyError::new("error transfer has no instruction payload"))?;
+        let mut payload = FullCursor::new(self.payload(data.range())?);
+        let value = payload.raw()? as usize;
+        let location = IrLocationId::from_raw(payload.raw()?).ok_or_else(|| IrVerifyError::new("error transfer location is invalid"))?;
+        payload.finish()?;
+        if self.locations.get(location.index()).is_none() || self.location_sources.get(location.index()).is_none() {
+            return Err(IrVerifyError::new("error transfer location is out of bounds"));
+        }
+        self.tags.get(value).ok_or_else(|| IrVerifyError::new("error transfer source is out of bounds"))?;
+        Ok(Some(value))
+    }
+
     #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
@@ -1041,6 +1059,7 @@ impl FullStore {
             + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
             + self.call_application_slots.capacity() * size_of::<u32>()
             + self.scheme_application_calls.capacity() * size_of::<schemes::FullSchemeApplicationCall>()
+            + self.scheme_application_returns.capacity() * size_of::<schemes::FullSchemeApplicationReturn>()
             + self.call_effect_arguments.capacity() * size_of::<schemes::FullEffectArgument>()
             + self.scheme_schema_expectations.capacity()
                 * size_of::<schemes::FullSchemeSchemaExpectation>()
@@ -1148,6 +1167,7 @@ impl FullStore {
         self.call_application_bindings.shrink_to_fit();
         self.call_application_slots.shrink_to_fit();
         self.scheme_application_calls.shrink_to_fit();
+        self.scheme_application_returns.shrink_to_fit();
         self.call_effect_arguments.shrink_to_fit();
         self.scheme_schema_expectations.shrink_to_fit();
         self.scheme_schema_instances.shrink_to_fit();
@@ -1208,6 +1228,22 @@ pub(in crate::runtime::eval) struct FullProgram {
         std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedTypeConstructor { Result, Other }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::runtime::eval) struct PreparedInvocationBindings {
+    types: Arc<[PreparedTypeConstructor]>,
+    layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
+}
+
+impl PreparedInvocationBindings {
+    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() && self.types.is_empty() }
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
     program: &'a FullProgram,
@@ -1221,6 +1257,103 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
+    pub(in crate::runtime::eval) fn has_invocation(&self, instruction: u32) -> bool {
+        self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_ok()
+    }
+
+    pub(in crate::runtime::eval) fn function_requires_invocation(&self, function: usize) -> Result<bool, IrVerifyError> {
+        let function = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("callable invocation target is out of bounds"))?;
+        Ok(matches!(function.contract, FullCallableContract::Scheme(_)))
+    }
+
+    pub(in crate::runtime::eval) fn invocation_applications(
+        &self, instruction: u32, target: usize, caller: &PreparedInvocationBindings,
+    ) -> Result<PreparedInvocationBindings, IrVerifyError> {
+        let Ok(index) = self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction) else {
+            return Ok(PreparedInvocationBindings::default());
+        };
+        let instance = self.store.call_instantiations[index];
+        let FullCallableContract::Scheme(id) = self.store.functions.get(target)
+            .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
+        else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
+        let parameters = self.store.scheme(id)?.type_parameters.bounds(self.store.scheme_type_parameters.len())
+            .ok_or_else(|| IrVerifyError::new("invocation type parameter range is invalid"))?;
+        let arguments = instance.type_arguments.bounds(self.store.call_type_arguments.len())
+            .ok_or_else(|| IrVerifyError::new("invocation type argument range is invalid"))?;
+        let arguments = self.store.call_type_arguments[arguments].iter().map(|argument| (argument.binder, argument.ty)).collect::<BTreeMap<_, _>>();
+        let mut types = Vec::with_capacity(parameters.len());
+        for parameter in &self.store.scheme_type_parameters[parameters] {
+            let ty = *arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
+            types.push(self.invocation_type_constructor(ty, caller)?);
+        }
+        let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
+            .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
+        let mut layouts = Vec::with_capacity(range.len());
+        for binding in &self.store.call_application_bindings[range] {
+            let layout = match binding {
+                schemes::FullApplicationBinding::Selected { argument_slots, omitted_slots } => {
+                    let arguments = argument_slots.bounds(self.store.call_application_slots.len())
+                        .ok_or_else(|| IrVerifyError::new("invocation argument layout range is invalid"))?;
+                    let omitted = omitted_slots.bounds(self.store.call_application_slots.len())
+                        .ok_or_else(|| IrVerifyError::new("invocation omitted layout range is invalid"))?;
+                    Arc::new(crate::sema::arguments::StaticArgumentBinding {
+                        argument_slots: self.store.call_application_slots[arguments].iter().map(|slot| *slot as usize).collect(),
+                        omitted_slots: self.store.call_application_slots[omitted].iter().map(|slot| *slot as usize).collect(),
+                    })
+                }
+                schemes::FullApplicationBinding::Forwarded(ordinal) => caller.layouts.get(*ordinal as usize).cloned()
+                    .ok_or_else(|| IrVerifyError::new("invocation has no actual forwarded application"))?,
+            };
+            layouts.push(layout);
+        }
+        Ok(PreparedInvocationBindings { types: types.into(), layouts: layouts.into() })
+    }
+
+    fn invocation_type_constructor(&self, ty: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedTypeConstructor, IrVerifyError> {
+        let node = self.store.scheme_types.get(ty.index()).ok_or_else(|| IrVerifyError::new("invocation type is out of bounds"))?;
+        match node.tag {
+            schema::FullSchemeTypeTag::Ground => {
+                let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation ground type is invalid"))?;
+                Ok(if self.store.semantic.type_tag(id)? == super::semantic::TypeTag::Result { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
+            }
+            schema::FullSchemeTypeTag::Parameter => invocation.types.get(node.first as usize).copied()
+                .ok_or_else(|| IrVerifyError::new("invocation type parameter has no actual binding")),
+            schema::FullSchemeTypeTag::Result => Ok(PreparedTypeConstructor::Result),
+            _ => Ok(PreparedTypeConstructor::Other),
+        }
+    }
+
+    pub(in crate::runtime::eval) fn invocation_returns_result(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
+        let FullCallableContract::Scheme(id) = self.store.functions.get(function)
+            .ok_or_else(|| IrVerifyError::new("invocation return owner is out of bounds"))?.contract
+        else { return Err(IrVerifyError::new("erased invocation return has no scheme")); };
+        Ok(self.invocation_type_constructor(self.store.scheme(id)?.return_type, invocation)? == PreparedTypeConstructor::Result)
+    }
+
+    pub(in crate::runtime::eval) fn application_return(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<PreparedProcReturn>, IrVerifyError> {
+        let Ok(index) = self.store.scheme_application_returns.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
+        let site = self.store.scheme_application_returns[index];
+        let FullCallableContract::Scheme(id) = self.store.functions[site.function.index()].contract
+            else { return Err(IrVerifyError::new("application return has no generic owner")); };
+        let applications = self.store.scheme(id)?.applications.bounds(self.store.scheme_applications.len())
+            .ok_or_else(|| IrVerifyError::new("application return range is invalid"))?;
+        let application = self.store.scheme_applications[applications].get(site.application as usize)
+            .ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
+        Ok(Some(match self.invocation_type_constructor(application.result, invocation)? {
+            PreparedTypeConstructor::Result => PreparedProcReturn::Preserve,
+            PreparedTypeConstructor::Other => PreparedProcReturn::Wrap,
+        }))
+    }
+
+    pub(in crate::runtime::eval) fn application_layout(
+        &self, instruction: u32, invocation: &PreparedInvocationBindings,
+    ) -> Result<Option<Arc<crate::sema::arguments::StaticArgumentBinding>>, IrVerifyError> {
+        let Ok(index) = self.store.scheme_application_calls.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
+        let ordinal = self.store.scheme_application_calls[index].application;
+        invocation.layouts.get(ordinal as usize).cloned().map(Some)
+            .ok_or_else(|| IrVerifyError::new("application call has no actual invocation layout"))
+    }
+
     pub(in crate::runtime::eval) fn fresh_binding_namespace() -> u64 {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let namespace = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2977,6 +3110,7 @@ struct FullCheckpoint {
     call_application_bindings: usize,
     call_application_slots: usize,
     scheme_application_calls: usize,
+    scheme_application_returns: usize,
     call_effect_arguments: usize,
     scheme_schema_expectations: usize,
     scheme_schema_instances: usize,
@@ -4763,6 +4897,7 @@ impl FullBuilder {
             call_application_bindings: self.store.call_application_bindings.len(),
             call_application_slots: self.store.call_application_slots.len(),
             scheme_application_calls: self.store.scheme_application_calls.len(),
+            scheme_application_returns: self.store.scheme_application_returns.len(),
             call_effect_arguments: self.store.call_effect_arguments.len(),
             scheme_schema_expectations: self.store.scheme_schema_expectations.len(),
             scheme_schema_instances: self.store.scheme_schema_instances.len(),
@@ -4850,6 +4985,7 @@ impl FullBuilder {
         self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
         self.store.call_application_slots.truncate(checkpoint.call_application_slots);
         self.store.scheme_application_calls.truncate(checkpoint.scheme_application_calls);
+        self.store.scheme_application_returns.truncate(checkpoint.scheme_application_returns);
         self.store.call_effect_arguments.truncate(checkpoint.call_effect_arguments);
         self.store.scheme_schema_expectations.truncate(checkpoint.scheme_schema_expectations);
         self.store.scheme_schema_instances.truncate(checkpoint.scheme_schema_instances);
@@ -6138,7 +6274,10 @@ impl<'a> FullDecoder<'a> {
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
         if let Some(proof) = &self.instruction_proof {
-            proof.borrow_mut().enter(index, tag);
+            let class = if tag == FullTag::ExprParam
+                && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
+            { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
+            proof.borrow_mut().enter(index, class);
         }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
@@ -6220,17 +6359,23 @@ impl<'a> FullDecoder<'a> {
                 "typed call kind does not match its callable type",
             ));
         }
-        let len = args.len();
-        if len != semantic.signature_param_count(signature)? {
-            return Err(IrVerifyError::new(
-                "typed call argument count does not match its signature",
-            ));
-        }
+        let count = semantic.signature_param_count(signature)?;
+        let mut position = 0;
         for argument in args {
-            if !matches!(argument?, decode::CallArgView::Single(_)) {
-                return Err(IrVerifyError::new(
-                    "typed call argument is not a single value",
-                ));
+            if position >= count { return Err(IrVerifyError::new("typed call argument count does not match its signature")); }
+            let flags = semantic.signature_param(signature, position)?.2;
+            let rest = flags & 2 != 0;
+            match argument? {
+                decode::CallArgView::Default(slot) if slot == position && flags & 1 != 0 && !rest => {}
+                decode::CallArgView::Default(_) => return Err(IrVerifyError::new("typed call default has no actual parameter default")),
+                decode::CallArgView::Splice(_) if !rest => return Err(IrVerifyError::new("typed call splice has no rest parameter")),
+                decode::CallArgView::Single(_) | decode::CallArgView::Splice(_) => {}
+            }
+            if !rest { position += 1; }
+        }
+        for parameter in position..count {
+            if semantic.signature_param(signature, parameter)?.2 & 3 == 0 {
+                return Err(IrVerifyError::new("typed call argument count does not match its signature"));
             }
         }
         Ok(())
@@ -8480,10 +8625,10 @@ impl<'a> FullDecoder<'a> {
         Ok(sources)
     }
 
-    fn function_reference_target(
+    fn function_reference_contract(
         &self,
         function: decode::FunctionNameView,
-    ) -> Result<(IrFunctionId, SignatureId, bool), IrVerifyError> {
+    ) -> Result<(IrFunctionId, FullCallableContract, bool), IrVerifyError> {
         let (name, namespace) = match function {
             decode::FunctionNameView::Name(name) => (name, None),
             decode::FunctionNameView::Qualified(name) => (name.member, Some(name.namespace)),
@@ -8496,10 +8641,10 @@ impl<'a> FullDecoder<'a> {
         let result = match lookup {
             Some(signatures) => match (&signatures.pure, &signatures.proc) {
                 (FunctionSignatureLookup::Unique(target), FunctionSignatureLookup::Missing) => {
-                    Some((target.function, target.signature, true))
+                    Some((target.function, target.contract, true))
                 }
                 (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Unique(target)) => {
-                    Some((target.function, target.signature, false))
+                    Some((target.function, target.contract, false))
                 }
                 (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Missing) => None,
                 _ => {
@@ -8519,6 +8664,17 @@ impl<'a> FullDecoder<'a> {
                 "function reference `{target}` has no checked signature"
             ))
         })
+    }
+
+    fn function_reference_target(
+        &self,
+        function: decode::FunctionNameView,
+    ) -> Result<(IrFunctionId, SignatureId, bool), IrVerifyError> {
+        let (target, contract, pure) = self.function_reference_contract(function)?;
+        let FullCallableContract::Ground(signature) = contract else {
+            return Err(IrVerifyError::new("function reference requires a checked scheme instance"));
+        };
+        Ok((target, signature, pure))
     }
 
     fn function_reference_signature(
@@ -8986,6 +9142,9 @@ impl<'a> FullDecoder<'a> {
         }
         match self.expression_view(instruction)? {
             schema::ExprView::Param(slot) => {
+                if matches!(expected, Type::Callable(_))
+                    && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+                { return self.function_reference_matches_callable(instruction, expected); }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
                     Ok(None) => None,
@@ -9016,6 +9175,9 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::FunctionRef { function, pure } => {
+                if matches!(self.function_reference_contract(function)?.1, FullCallableContract::Scheme(_)) {
+                    return self.function_reference_matches_callable(instruction, expected);
+                }
                 let (signature, target_pure) = self.function_reference_signature(function)?;
                 let Type::Callable(callable) = expected else {
                     return Err(IrVerifyError::new(
@@ -9332,30 +9494,45 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn checked_callable_reference_source(&self, instruction: usize) -> Result<usize, IrVerifyError> {
+        match self.expression_view(instruction)? {
+            schema::ExprView::FunctionRef { .. } => Ok(instruction),
+            schema::ExprView::Param(slot) => self.local_function_ref_initializer(slot)?
+                .ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source")),
+            _ => Err(IrVerifyError::new("materialized callable has no function reference producer")),
+        }
+    }
+
     fn function_reference_matches_callable(
         &self,
         instruction: usize,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(instruction)?
+        let source = self.checked_callable_reference_source(instruction)?;
+        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(source)?
         else {
             return Err(IrVerifyError::new(
                 "checked callable initializer is not a function reference",
             ));
         };
-        let (signature, target_pure) = self.function_reference_signature(function)?;
+        let (target, contract, target_pure) = self.function_reference_contract(function)?;
         let Type::Callable(callable) = expected else {
             return Err(IrVerifyError::new(
                 "checked function reference has a non-callable expected type",
             ));
         };
-        if target_pure != pure
-            || callable.pure != pure
-            || !self
-                .store
-                .semantic
-                .signature_fits_callable(signature, pure, callable)?
-        {
+        let fits = match contract {
+            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
+            FullCallableContract::Scheme(_) => {
+                let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("function reference instruction is invalid"))?;
+                if self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_err()
+                    || self.store.checked_call_targets.binary_search_by_key(&instruction, |fact| fact.instruction)
+                        .ok().is_none_or(|index| self.store.checked_call_targets[index].function != target)
+                { return Err(IrVerifyError::new("function reference has no checked scheme instance")); }
+                self.checked_expression_type(instruction as usize)?.as_ref().is_some_and(|actual| self.checked_type_fits(actual, expected))
+            }
+        };
+        if target_pure != pure || callable.pure != pure || !fits {
             return Err(IrVerifyError::new(
                 "checked function reference tail disagrees with its target signature",
             ));
@@ -10115,7 +10292,7 @@ impl<'a> FullDecoder<'a> {
         }
         match self.expression_view(instruction)? {
             schema::ExprView::FunctionRef { function, pure } => {
-                let (_, _, actual_pure) = self.function_reference_target(function)?;
+                let (_, _, actual_pure) = self.function_reference_contract(function)?;
                 if actual_pure != pure { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
                 Ok(Some(if pure { Type::Pure } else { Type::Proc }))
             }
@@ -10764,7 +10941,7 @@ impl<'a> FullDecoder<'a> {
                         _ => false,
                     }
                 });
-                let (signature, target_is_pure) = self.function_reference_signature(function)?;
+                let (_, contract, target_is_pure) = self.function_reference_contract(function)?;
                 let Type::Callable(checked_callable) = &ty else {
                     return Err(IrVerifyError::new(
                         "checked function reference has a non-callable fact",
@@ -10785,17 +10962,20 @@ impl<'a> FullDecoder<'a> {
                         "checked function reference identity disagrees with its producer: checked kind",
                     ));
                 }
-                if !self.store.semantic.signature_fits_callable(
-                    signature,
-                    pure,
-                    checked_callable,
-                )? {
+                let fits = match contract {
+                    FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, checked_callable)?,
+                    FullCallableContract::Scheme(_) => { self.function_reference_matches_callable(instruction, &ty)?; true },
+                };
+                if !fits {
                     return Err(IrVerifyError::new(
                         "checked function reference identity disagrees with its producer: checked signature",
                     ));
                 }
             }
             schema::ExprView::Param(slot) => {
+                if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() {
+                    return self.function_reference_matches_callable(instruction, &ty);
+                }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => actual,
                     Ok(None) => return self.local_function_ref_matches_type(slot, &ty),
@@ -11550,6 +11730,15 @@ impl<'a> FullDecoder<'a> {
                 }
                 FullTag::ExprSelfCall => IrFunctionId::from_raw(self.owner)
                     .ok_or_else(|| IrVerifyError::new("checked self call has no owner"))?,
+                FullTag::ExprFunctionRef => {
+                    let schema::ExprView::FunctionRef { function, .. } = self.expression_view(instruction)? else { unreachable!() };
+                    self.function_reference_contract(function)?.0
+                }
+                FullTag::ExprParam => {
+                    let source = self.checked_callable_reference_source(instruction)?;
+                    let schema::ExprView::FunctionRef { function, .. } = self.expression_view(source)? else { unreachable!() };
+                    self.function_reference_contract(function)?.0
+                }
                 _ => {
                     return Err(IrVerifyError::new(
                         "checker-selected function target is attached to a non-direct call",
@@ -12397,6 +12586,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, body) = branch?;
+                    if condition.raw() as usize == child {
+                        return Ok(Some((prior_false, vec![child])));
+                    }
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
@@ -12424,6 +12616,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, body) = branch?;
+                    if condition.raw() as usize == child {
+                        return Ok(Some((prior_false, vec![child])));
+                    }
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
@@ -12452,6 +12647,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, value) = branch?;
+                    if in_roots(child, &[condition.raw() as usize])? {
+                        return Ok(Some((prior_false, vec![condition.raw() as usize])));
+                    }
                     let value = value.raw() as usize;
                     if in_roots(child, &[value])? {
                         prior_false.push((condition.raw() as usize, true, false));
@@ -12583,6 +12781,23 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn argument_binding_match(&self, instruction: usize) -> Result<Option<IndexedArgumentBinding>, IrVerifyError> {
+        if !self.instruction_range.contains(&instruction) {
+            return Err(IrVerifyError::new("argument binding match belongs to another owner"));
+        }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(instruction)? else { return Ok(None) };
+        if arms.len() != 1 { return Ok(None); }
+        let (pattern, guard, result) = arms.next().transpose()?.ok_or_else(|| IrVerifyError::new("argument binding match has no arm"))?;
+        if guard.is_some() { return Ok(None); }
+        let schema::PatternView::Bind { slot } = self.checked_pattern_view(pattern.raw())? else { return Ok(None) };
+        let source = value.raw() as usize;
+        let result = result.raw() as usize;
+        if !self.instruction_range.contains(&source) || !self.instruction_range.contains(&result) {
+            return Err(IrVerifyError::new("argument binding match child belongs to another owner"));
+        }
+        Ok(Some(IndexedArgumentBinding { instruction, source, pattern: pattern.raw(), slot, result }))
+    }
+
     fn checked_condition_proves_nonnull(
         &self,
         condition: usize,
@@ -12603,6 +12818,11 @@ impl<'a> FullDecoder<'a> {
                 cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?),
             };
             return match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                schema::BoolView::Slot(slot) => {
+                    let Some(prefix) = &self.producer_prefix else { return Ok(false) };
+                    let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+                    self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge)
+                }
                 schema::BoolView::Not(value) => self.checked_condition_proves_nonnull(
                     value.raw() as usize,
                     !when_true,
@@ -12659,6 +12879,22 @@ impl<'a> FullDecoder<'a> {
             };
         }
 
+        if let schema::ExprView::IfExpr { mut branches, else_value, .. } = self.expression_view(condition)? {
+            charge(3)?;
+            if branches.len() != 1 { return Ok(false); }
+            let (nested, value) = branches.next().unwrap()?;
+            let (schema::ExprView::Bool(yes), schema::ExprView::Bool(no)) =
+                (self.expression_view(value.raw() as usize)?, self.expression_view(else_value.raw() as usize)?)
+            else { return Ok(false) };
+            if yes == no { return Ok(false); }
+            return self.checked_condition_proves_nonnull(nested.raw() as usize, when_true == yes, false,
+                use_site, target, expected_payload, charge);
+        }
+        if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
+            let Some(prefix) = &self.producer_prefix else { return Ok(false) };
+            let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+            return self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge);
+        }
         let schema::ExprView::Binary {
             op,
             left,
@@ -12827,54 +13063,71 @@ impl<'a> FullDecoder<'a> {
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Ok(false);
             };
-            let short_circuit = self.checked_short_circuit_path_for_child(parent, child, charge)?;
-            if let Some((left, when_true, is_boolean, right)) = short_circuit
-                && self.checked_condition_proves_nonnull(
-                    left,
+            if self.checked_binding_path_is_narrowed_at_parent(field_instruction, parent, child, target, expected_payload, charge)? { return Ok(true); }
+            child = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic parent path",
+        ))
+    }
+
+    fn checked_binding_path_is_narrowed_at_parent(
+        &self,
+        field_instruction: usize,
+        parent: usize,
+        child: usize,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let tag = self.store.tags[parent];
+        let short_circuit = if matches!(tag, FullTag::BoolAnd | FullTag::BoolOr | FullTag::ExprBinary) {
+            self.checked_short_circuit_path_for_child(parent, child, charge)?
+        } else { None };
+        if let Some((left, when_true, is_boolean, right)) = short_circuit
+            && self.checked_condition_proves_nonnull(
+                left,
+                when_true,
+                is_boolean,
+                field_instruction,
+                target,
+                expected_payload,
+                charge,
+            )?
+            && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
+        {
+            return Ok(true);
+        }
+        let branch = if matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool | FullTag::ExprIf | FullTag::StmtWhile | FullTag::StmtWhileBool) {
+            self.checked_branch_conditions_for_child(parent, child, charge)?
+        } else { None };
+        if let Some((conditions, body_roots)) = branch {
+            for (condition, when_true, is_boolean) in conditions {
+                charge(1)?;
+                if !self.checked_parent_path_crosses_repeatable_loop(
+                    field_instruction,
+                    parent,
+                    charge,
+                )? && self.checked_condition_proves_nonnull(
+                    condition,
                     when_true,
                     is_boolean,
                     field_instruction,
                     target,
                     expected_payload,
                     charge,
-                )?
-                && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
-            {
-                return Ok(true);
-            }
-            if let Some((conditions, body_roots)) =
-                self.checked_branch_conditions_for_child(parent, child, charge)?
-            {
-                for (condition, when_true, is_boolean) in conditions {
-        charge(1)?;
-                    if !self.checked_parent_path_crosses_repeatable_loop(
-                        field_instruction,
-                        parent,
-                        charge,
-                    )? && self.checked_condition_proves_nonnull(
-                        condition,
-                        when_true,
-                        is_boolean,
-                        field_instruction,
-                        target,
-                        expected_payload,
-                        charge,
-                    )? && self.checked_branch_preserves_binding_path(
-                        parent,
-                        &body_roots,
-                        field_instruction,
-                        target,
-                        charge,
-                    )? {
-                        return Ok(true);
-                    }
+                )? && self.checked_branch_preserves_binding_path(
+                    parent,
+                    &body_roots,
+                    field_instruction,
+                    target,
+                    charge,
+                )? {
+                    return Ok(true);
                 }
             }
-            child = parent;
         }
-        Err(IrVerifyError::new(
-            "checked optional field receiver has a cyclic parent path",
-        ))
+        Ok(false)
     }
 
     fn checked_instruction_is_in_roots(
@@ -12944,10 +13197,284 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
-        let Some(mut prefix_roots) = self.checked_block_prefix_roots(body_roots, before, charge)? else {
+        let Some(prefix_roots) = self.checked_block_prefix_roots(body_roots, before, charge)? else {
             return Ok(false);
         };
 
+        self.checked_anchored_prefix_preserves_binding_path(branch_parent, prefix_roots, before, target, charge)
+    }
+
+    fn checked_eager_prefix_preserves_binding_path(
+        &self,
+        parent: usize,
+        child: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        macro_rules! operand {
+            ($value:expr) => {{
+                charge(1)?;
+                let value = $value.raw() as usize;
+                if value == child { return Ok(true); }
+                if !self.checked_expression_preserves_binding_path(value, target, charge)? { return Ok(false); }
+            }};
+        }
+        macro_rules! argument {
+            ($value:expr) => {{
+                let value = match &$value.kind {
+                    decode::RunArgKindView::Single(value) | decode::RunArgKindView::SingleOrSplice(value)
+                    | decode::RunArgKindView::Splice(value) => *value,
+                };
+                operand!(value);
+            }};
+        }
+        macro_rules! run {
+            ($operands:expr) => {{
+                let operands = $operands;
+                for option in &mut operands.options {
+                    let (decode::RunOptionView::Timeout(value) | decode::RunOptionView::CpuMax(value) | decode::RunOptionView::Accept(value)) = option?;
+                    operand!(value);
+                }
+                for entry in &mut operands.env { argument!(entry?.value); }
+                argument!(operands.target);
+                for entry in &mut operands.tail {
+                    match entry? {
+                        decode::RunTailOperandView::Argument(value) => argument!(value),
+                        decode::RunTailOperandView::Redirection(value) => argument!(value.target),
+                    }
+                }
+            }};
+        }
+        if self.store.tags[parent].kind() == schema::InstructionKind::Stmt {
+            match self.store.tags[parent] {
+                FullTag::StmtIf => {
+                    let schema::StmtView::If { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtIfBool => {
+                    let schema::StmtView::IfBool { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtWhile | FullTag::StmtPatternWhile => {
+                    let (schema::StmtView::While { condition, .. } | schema::StmtView::PatternWhile { condition, .. }) = self.statement_view(parent)? else { unreachable!() };
+                    operand!(condition);
+                }
+                FullTag::StmtWhileBool => {
+                    let schema::StmtView::WhileBool { condition, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(condition);
+                }
+                FullTag::StmtWith => {
+                    let schema::StmtView::With { bindings, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for binding in bindings { let (_, value) = binding?; operand!(value); }
+                }
+                FullTag::StmtEnv => {
+                    let schema::StmtView::Env { env, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for entry in env { argument!(entry?.value); }
+                }
+                FullTag::StmtGuard => {
+                    let schema::StmtView::Guard { value, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                }
+                FullTag::StmtAssert => {
+                    let schema::StmtView::Assert { value, message, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                    if let Some(message) = message { operand!(message); }
+                }
+                FullTag::StmtPrint => {
+                    let schema::StmtView::Print { args, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for value in args { operand!(value?); }
+                }
+                FullTag::StmtAssignPath => {
+                    let schema::StmtView::AssignPath { path, value, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for step in path { if let decode::AssignStepView::Index(value) = step? { operand!(value); } }
+                    operand!(value);
+                }
+                FullTag::StmtPatternIf => {
+                    let schema::StmtView::PatternIf { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body, _) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtMatch => {
+                    let schema::StmtView::Match { value, arms, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                    for arm in arms {
+                        charge(1)?;
+                        let (_, guard, mut body) = arm?;
+                        if let Some(guard) = guard { operand!(guard); }
+                        for statement in &mut body {
+                            charge(1)?;
+                            if statement?.raw() as usize == child { return Ok(true); }
+                        }
+                    }
+                }
+                FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
+                    let (schema::StmtView::StrMatch { value, .. } | schema::StmtView::TagMatch { value, .. }) = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                }
+                FullTag::StmtCd => {
+                    let schema::StmtView::Cd { target: input, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(input);
+                }
+                FullTag::StmtLet | FullTag::StmtLetInt | FullTag::StmtLetBool
+                | FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt
+                | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtValue
+                | FullTag::StmtExpr
+                | FullTag::StmtFor | FullTag::StmtForRecord | FullTag::StmtForStrLines
+                | FullTag::StmtLetRecord | FullTag::StmtScanLines | FullTag::StmtScanBytes
+                | FullTag::StmtRun | FullTag::StmtLoop | FullTag::StmtReturn
+                | FullTag::StmtYield | FullTag::StmtYieldDelegate | FullTag::StmtBreak
+                | FullTag::StmtBreakValue | FullTag::StmtContinue | FullTag::StmtDefer
+                | FullTag::StmtDefaultParameter => {}
+                _ => return Err(IrVerifyError::new("checked guard path has no ordered statement proof")),
+            }
+            return Ok(true);
+        }
+        if self.store.tags[parent].kind() != schema::InstructionKind::Expr { return Ok(true); }
+        let mut view = self.expression_view(parent)?;
+        match &mut view {
+            schema::ExprView::ListPipeline { input, .. } => {
+                operand!(*input);
+                return Err(IrVerifyError::new("checked guard path crosses an unproved pipeline stage prefix"));
+            }
+            schema::ExprView::IfExpr { branches, .. } => {
+                for branch in branches {
+                    let (condition, body) = branch?;
+                    operand!(condition);
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::PatternIf { branches, .. } => {
+                for branch in branches {
+                    let (condition, body, _) = branch?;
+                    operand!(condition);
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::Err { value, cause } => { operand!(*value); if let Some(cause) = cause { operand!(*cause); } }
+            schema::ExprView::Retry { delays, .. } => { for value in delays { operand!(value?); } }
+            schema::ExprView::RunCapture(run) => { run!(&mut run.operands); }
+            schema::ExprView::SpawnRun(run) => { run!(&mut run.operands); }
+            schema::ExprView::RunPipeline { segments, .. } => { for segment in segments { let mut segment = segment?; run!(&mut segment.operands); } }
+            schema::ExprView::ProcessCommandBuilder { entries, .. } => {
+                for entry in entries {
+                    match entry? {
+                        decode::ProcessCommandBuilderEntryView::Field { value, .. } => operand!(value),
+                        decode::ProcessCommandBuilderEntryView::Run { mut operands, .. } => run!(&mut operands),
+                    }
+                }
+            }
+            schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => {
+                for qualifier in qualifiers {
+                    match qualifier? {
+                        decode::CompQualifierView::For { iter, .. } => operand!(iter),
+                        decode::CompQualifierView::If { condition, .. } => operand!(condition),
+                    }
+                }
+                if let schema::ExprView::MapComp { key, .. } = &view { operand!(*key); }
+            }
+            schema::ExprView::FmtString(parts) | schema::ExprView::PathFmtString { parts, .. } => {
+                for part in parts { if let decode::FmtPartView::Expr(value, ..) = part? { operand!(value); } }
+            }
+            schema::ExprView::ContextScope { input, .. } => { operand!(*input); }
+            schema::ExprView::ErrorContext { message, .. } => { operand!(*message); }
+            schema::ExprView::MatchExpr { value, arms, .. } => {
+                operand!(*value);
+                for arm in arms {
+                    charge(1)?;
+                    let (_, guard, body) = arm?;
+                    if let Some(guard) = guard { operand!(guard); }
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::StrMatchExpr { value, .. } | schema::ExprView::TagMatchExpr { value, .. } => { operand!(*value); }
+            schema::ExprView::Binary { left, right, .. }
+            | schema::ExprView::ResultFallback { left, right } => { operand!(*left); operand!(*right); }
+            schema::ExprView::ComparisonChain { first, pairs } => {
+                operand!(*first);
+                for pair in pairs { let (_, right, _) = pair?; operand!(right); }
+            }
+            schema::ExprView::Index { base, index, .. } => { operand!(*base); operand!(*index); }
+            schema::ExprView::List(items) => { for item in items { operand!(item?); } }
+            schema::ExprView::ListBuild(items) => { for item in items { let (_, value, _) = item?; operand!(value); } }
+            schema::ExprView::Record(entries) => {
+                for entry in entries {
+                    let (decode::RecordEntryView::Field(_, value) | decode::RecordEntryView::Spread(value)) = entry?;
+                    operand!(value);
+                }
+            }
+            schema::ExprView::MapLiteral(entries) => {
+                for entry in entries { let (key, value, _) = entry?; if let Some(key) = key { operand!(key); } operand!(value); }
+            }
+            schema::ExprView::RecordUpdate { base, updates, .. } => {
+                operand!(*base);
+                for update in updates { let (_, value, _) = update?; operand!(value); }
+            }
+            schema::ExprView::Method { receiver, args, .. } => {
+                operand!(*receiver);
+                for arg in args { operand!(arg?); }
+            }
+            schema::ExprView::DynamicCall { callee, args, .. }
+            | schema::ExprView::TypedCall { callee, args, .. } => {
+                operand!(*callee);
+                for arg in args {
+                    match arg? { decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => operand!(value), decode::CallArgView::Default(_) => {} }
+                }
+            }
+            schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. }
+            | schema::ExprView::ExternalCall { args, .. } | schema::ExprView::SelfCall { args, .. } => {
+                for arg in args {
+                    match arg? { decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => operand!(value), decode::CallArgView::Default(_) => {} }
+                }
+            }
+            schema::ExprView::ModuleCall { args, .. } => {
+                for arg in args { if let Some(value) = arg? { operand!(value); } }
+            }
+            schema::ExprView::Field { .. } | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Require { .. } | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::SpawnCommand { .. } | schema::ExprView::Wait { .. }
+            | schema::ExprView::Try { .. } | schema::ExprView::Ok(_)
+            | schema::ExprView::ProcCallResult(_) | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::Capture { .. } | schema::ExprView::Loop { .. } => {}
+            _ => {
+                use crate::runtime::eval::lowered_run::indexed_run::IndexedFrameApplyChild;
+                let mut position = 0;
+                loop {
+                    let value = match crate::runtime::eval::lowered_run::indexed_run::indexed_frame_apply_child_id(
+                        self.store.tags[parent], &mut view, position, Span::new(self.store.source_id, 0, 0),
+                    ).map_err(|error| IrVerifyError::new(error.message))? {
+                        IndexedFrameApplyChild::Expression(value) => value,
+                        IndexedFrameApplyChild::Complete => break,
+                        IndexedFrameApplyChild::Unsupported => return Err(IrVerifyError::new("checked guard path has no ordered operand proof")),
+                    };
+                    charge(1)?;
+                    if value as usize == child { return Ok(true); }
+                    if !self.checked_expression_preserves_binding_path(value as usize, target, charge)? { return Ok(false); }
+                    position += 1;
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    fn checked_anchored_prefix_preserves_binding_path(
+        &self,
+        branch_parent: usize,
+        mut prefix_roots: Vec<usize>,
+        before: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         let mut child = before;
         for _ in 0..=self.instruction_range.len() {
         charge(1)?;
@@ -12956,14 +13483,9 @@ impl<'a> FullDecoder<'a> {
                     "checked optional field receiver is outside its guard path",
                 ));
             };
+            if !self.checked_eager_prefix_preserves_binding_path(parent, child, target, charge)? { return Ok(false); }
             if parent == branch_parent {
                 return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target, charge);
-            }
-            if let Some((conditions, _)) = self.checked_branch_conditions_for_child(parent, child, charge)? {
-                for (condition, _, _) in conditions {
-                    charge(1)?;
-                    if !self.checked_expression_preserves_binding_path(condition, target, charge)? { return Ok(false); }
-                }
             }
             for roots in self.checked_statement_blocks(parent, charge)? {
         charge(1)?;
@@ -15115,19 +15637,36 @@ fn indexed_identity_match_subject(
     }
 }
 
-/// Resolves the ordered, checked argument bindings generated for a configured
-/// range stage. Other match shapes and unbound parameters provide no proof.
 fn indexed_configured_range_bound_subjects(
     decoder: &FullDecoder<'_>,
     start: u32,
     end: u32,
 ) -> Result<Option<(u32, u32)>, IrVerifyError> {
+    Ok(indexed_configured_range_bounds_with(decoder, start, end, &mut |_| Ok(()))?
+        .map(|bounds| (bounds.start_subject, bounds.end_subject)))
+}
+
+struct IndexedConfiguredRangeBounds {
+    start_subject: u32,
+    end_subject: u32,
+    end_root: usize,
+    end_pattern: u32,
+    end_slot: usize,
+}
+
+fn indexed_configured_range_bounds_with(
+    decoder: &FullDecoder<'_>,
+    start: u32,
+    end: u32,
+    charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+) -> Result<Option<IndexedConfiguredRangeBounds>, IrVerifyError> {
     let mut bindings = FxHashMap::default();
     let mut current = start as usize;
     let mut seen_matches = rustc_hash::FxHashSet::default();
     let mut seen_subjects = rustc_hash::FxHashSet::default();
     let mut terminal_slot = None;
     for _ in 0..decoder.instruction_range.len() {
+        charge(1)?;
         if !decoder.instruction_range.contains(&current)
             || !seen_matches.insert(current)
             || seen_subjects.contains(&current)
@@ -15158,12 +15697,14 @@ fn indexed_configured_range_bound_subjects(
         {
             return Ok(None);
         }
+        charge(1)?;
         seen_subjects.insert(subject);
         let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())?
         else {
             return Ok(None);
         };
-        if bindings.insert(slot, value.raw()).is_some() {
+        charge(1)?;
+        if bindings.insert(slot, (value.raw(), result.raw() as usize, pattern.raw())).is_some() {
             return Ok(None);
         }
         let result = result.raw() as usize;
@@ -15182,7 +15723,8 @@ fn indexed_configured_range_bound_subjects(
     let Some(terminal_slot) = terminal_slot else {
         return Ok(None);
     };
-    let Some(&start_subject) = bindings.get(&terminal_slot) else {
+    charge(1)?;
+    let Some(&(start_subject, _, _)) = bindings.get(&terminal_slot) else {
         return Ok(None);
     };
     let end = end as usize;
@@ -15195,10 +15737,11 @@ fn indexed_configured_range_bound_subjects(
     let schema::ExprView::Param(end_slot) = decoder.expression_view(end)? else {
         return Ok(None);
     };
-    let Some(&end_subject) = bindings.get(&end_slot) else {
+    charge(1)?;
+    let Some(&(end_subject, end_root, end_pattern)) = bindings.get(&end_slot) else {
         return Ok(None);
     };
-    Ok(Some((start_subject, end_subject)))
+    Ok(Some(IndexedConfiguredRangeBounds { start_subject, end_subject, end_root, end_pattern, end_slot }))
 }
 
 fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32) -> Result<Option<i64>, IrVerifyError> {
@@ -15216,16 +15759,39 @@ fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32
     Ok(None)
 }
 
+struct IndexedArgumentBinding {
+    instruction: usize,
+    source: usize,
+    pattern: u32,
+    slot: usize,
+    result: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IndexedCompletionContext {
+    Value,
+    PropagatedResult,
+}
+
 fn indexed_expr_can_complete(
     decoder: &FullDecoder<'_>,
     instruction: usize,
     depth: usize,
 ) -> Result<bool, IrVerifyError> {
+    indexed_expr_can_complete_in(decoder, instruction, depth, IndexedCompletionContext::Value)
+}
+
+fn indexed_expr_can_complete_in(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    depth: usize,
+    context: IndexedCompletionContext,
+) -> Result<bool, IrVerifyError> {
     if depth > decoder.instruction_range.len() {
         return Ok(true);
     }
     let child = |child_index: u32| {
-        indexed_expr_can_complete(decoder, child_index as usize, depth + 1)
+        indexed_expr_can_complete_in(decoder, child_index as usize, depth + 1, IndexedCompletionContext::Value)
     };
     let sequence = |children: Vec<u32>| -> Result<bool, IrVerifyError> {
         for child_expr in children {
@@ -15235,6 +15801,22 @@ fn indexed_expr_can_complete(
         }
         Ok(true)
     };
+
+    if context == IndexedCompletionContext::PropagatedResult {
+        match decoder.store.tags.get(instruction) {
+            Some(FullTag::ExprErr) => {
+                let schema::ExprView::Err { .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                return Ok(false);
+            }
+            Some(FullTag::ExprMatch) => {
+                if let Some(binding) = decoder.argument_binding_match(instruction)? {
+                    return Ok(child(binding.source as u32)?
+                        && indexed_expr_can_complete_in(decoder, binding.result, depth + 1, IndexedCompletionContext::PropagatedResult)?);
+                }
+            }
+            _ => {}
+        }
+    }
 
     Ok(match decoder.expression_view(instruction)? {
         schema::ExprView::Binary {
@@ -15341,8 +15923,8 @@ fn indexed_expr_can_complete(
             }
         }
         schema::ExprView::ResultFallback { left, .. } => child(left.raw())?,
-        schema::ExprView::Try { value, .. }
-        | schema::ExprView::Require { value, .. }
+        schema::ExprView::Try { value, .. } => indexed_expr_can_complete_in(decoder, value.raw() as usize, depth + 1, IndexedCompletionContext::PropagatedResult)?,
+        schema::ExprView::Require { value, .. }
         | schema::ExprView::CheckedValue { value, .. }
         | schema::ExprView::PathFrom { value, .. }
         | schema::ExprView::ProcCallResult(value) => child(value.raw())?,
@@ -17010,7 +17592,7 @@ impl FullVerifier {
                 || previous_checked_call_target.is_some_and(|previous| previous >= instruction)
                 || !matches!(
                     store.tags[instruction],
-                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall
+                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam
                 )
                 || fact.function.index() >= store.functions.len()
             {
@@ -19226,6 +19808,9 @@ macro_rules! impl_build_id_codec {
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
+                let application_return = if $resource_transfer {
+                    scratch.scheme_application_returns.get(&self.index()).copied()
+                } else { None };
                 let call_instantiation = if $checked_expr_type {
                     scratch.call_instantiations.get(self.index()).cloned().flatten()
                 } else {
@@ -19264,6 +19849,7 @@ macro_rules! impl_build_id_codec {
                 };
                 let needs_instruction = checked_expr_type.is_some()
                     || transfers_resource
+                    || application_return.is_some()
                     || checked_call_target.is_some()
                     || call_instantiation.is_some()
                     || checked_call_result.is_some()
@@ -19371,6 +19957,18 @@ macro_rules! impl_build_id_codec {
                         instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_application_instruction", None, 0, instruction))?, application,
                     });
                 }
+                if let Some(site) = application_return {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_return_instruction", None, 0, self.index()))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw)
+                        .ok_or_else(|| IrBuildError::format("scheme_return_owner", None, 0, instruction))?;
+                    if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::StmtReturn {
+                        return Err(IrBuildError::format("scheme_return_owner", None, 0, instruction));
+                    }
+                    builder.store.scheme_application_returns.push(schemes::FullSchemeApplicationReturn {
+                        instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_return_instruction", None, 0, instruction))?,
+                        function, application: site.application, envelope: site.envelope,
+                    });
+                }
                 match (call_instantiation, checked_call_result) {
                     (Some(instantiation), Some(result_type)) => {
                         let instruction = instruction.ok_or_else(|| {
@@ -19384,7 +19982,7 @@ macro_rules! impl_build_id_codec {
                         builder.record_call_instantiation(instruction, &instantiation)?;
                         builder.record_checked_call_result(instruction, &result_type)?;
                     }
-                    (Some(instantiation), None) if scheme_body_type.is_some() => {
+                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam)) => {
                         let instruction = instruction.ok_or_else(|| {
                             IrBuildError::format(
                                 "indexed_build_instruction",
@@ -23121,6 +23719,10 @@ assert apply(40) == 42
             let FullCallableContract::Scheme(scheme) = program.store.functions[traced].contract else { panic!("generic caller") };
             let effects = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
+            let mut wrong_owner = program.clone();
+            wrong_owner.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
+            let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+            assert!(error.message.contains("executable operation requires effect io outside its owner contract"), "{}", error.message);
             let mut forged = program.clone();
             let mut semantic = SemanticPoolBuilder::default();
             let signature = semantic.intern_signature(&mut forged.store.semantic, &signature).unwrap();
@@ -23176,6 +23778,171 @@ assert apply(40) == 42
     }
 
     #[test]
+    fn prepared_callable_references_authenticate_actual_target_and_layout() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-callable-reference.xsh", concat!(
+                "pure identity(payload) { payload }\n",
+                "pure other(different) { different }\n",
+                "pure apply(action, value) { action(value) }\n",
+                "pure number() -> Int { let _ = apply(other, 0); let direct = apply(identity, 7); let f = identity; apply(f, direct) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let identity = scheme_fixture_root_function(&program, "identity");
+            let other = scheme_fixture_root_function(&program, "other");
+            let reference_targets = program.store.checked_call_targets.iter().enumerate()
+                .filter(|(_, target)| target.function.index() == identity
+                    && matches!(program.store.tags[target.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam))
+                .map(|(index, target)| (index, *target)).collect::<Vec<_>>();
+            assert_eq!(reference_targets.len(), 2);
+            assert!(reference_targets.iter().any(|(_, target)| program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef));
+            assert!(reference_targets.iter().any(|(_, target)| program.store.tags[target.instruction as usize] == FullTag::ExprParam));
+            for (index, target) in reference_targets {
+                let instance = program.store.call_instantiations.binary_search_by_key(&target.instruction, |instance| instance.instruction).unwrap();
+                let mut wrong_target = program.clone();
+                wrong_target.store.checked_call_targets[index].function = IrFunctionId::new(other).unwrap();
+                let error = FullVerifier::verify(&wrong_target).unwrap_err();
+                assert_eq!(error.message, "function reference has no checked scheme instance");
+                let mut duplicate = program.clone();
+                duplicate.store.call_instantiations.insert(instance, program.store.call_instantiations[instance]);
+                assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("instantiations are not strictly ordered"));
+            }
+            let identity_parameters = program.store.functions[identity].params.bounds(program.store.params.len()).unwrap();
+            let other_parameters = program.store.functions[other].params.bounds(program.store.params.len()).unwrap();
+            assert_eq!(identity_parameters.len(), 1);
+            assert_eq!(other_parameters.len(), 1);
+            assert_ne!(program.store.params[identity_parameters.start].name, program.store.params[other_parameters.start].name);
+            let mut wrong_layout = program.clone();
+            wrong_layout.store.params[identity_parameters.start].name = program.store.params[other_parameters.start].name;
+            let error = FullVerifier::verify(&wrong_layout).unwrap_err();
+            assert!(error.message.contains("callable reference disagrees with its actual scheme instance"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn prepared_callable_references_preserve_kind_and_nested_effects() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-callable-nested-effects.xsh", concat!(
+                "proc first(payload: Int) [env] -> Int { let _ = env.get(\"XSH_NESTED_CALLBACK\"); payload }\n",
+                "pure ignore(payload) { 7 }\n",
+                "pure apply(action, value) { action(value) }\n",
+                "pure number() -> Int { apply(ignore, first) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let ignore = scheme_fixture_root_function(&program, "ignore");
+            let number = scheme_fixture_root_function(&program, "number");
+            let target = program.store.checked_call_targets.iter().find(|target| target.function.index() == ignore
+                && program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
+            let fact = program.store.checked_expr_types.iter().find(|fact| fact.instruction == target.instruction).unwrap();
+            let Type::Callable(callable) = program.store.semantic.to_type(fact.type_id).unwrap() else { panic!("materialized reference has a callable contract") };
+            assert!(callable.pure);
+            let Type::Callable(nested) = &callable.sig.params[0].ty else { panic!("the actual input is a nested callable") };
+            assert!(!nested.pure);
+            assert_eq!(nested.sig.effects, crate::sema::types::CallableEffects::finite([Effect::Env]));
+            let owner_range = program.store.function_instruction_range(number).unwrap();
+            let slot_range = program.store.functions[number].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            let coordinate_claim = |forged: &mut FullProgram, changed: Arc<crate::sema::types::TypedCallable>| {
+                let mut semantic = SemanticPoolBuilder::default();
+                let changed = semantic.intern_type(&mut forged.store.semantic, &Type::Callable(changed)).unwrap();
+                for own in &mut forged.store.checked_expr_types {
+                    if owner_range.contains(&(own.instruction as usize)) && own.type_id == fact.type_id { own.type_id = changed; }
+                }
+                for own in &mut forged.store.slot_type_facts[slot_range.clone()] {
+                    if *own == fact.type_id.raw() { *own = changed.raw(); }
+                }
+            };
+            let mut wrong_kind = program.clone();
+            let mut changed = callable.clone();
+            Arc::make_mut(&mut changed).pure = false;
+            coordinate_claim(&mut wrong_kind, changed);
+            let payload = program.store.data[target.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[payload.end - 1], 1);
+            wrong_kind.store.extra[payload.end - 1] = 0;
+            for own in &mut wrong_kind.store.checked_expr_types {
+                if own.instruction != target.instruction { continue; }
+                let FullCheckedExprPurpose::CheckedContract { function_ref: Some((_, pure)), .. } = &mut own.purpose else { panic!("the actual reference retains its checked identity") };
+                *pure = false;
+            }
+            let error = FullVerifier::verify(&wrong_kind).unwrap_err();
+            assert!(error.message.contains("function kind"), "{}", error.message);
+            let mut wrong_nested = program.clone();
+            let mut changed = callable;
+            let Type::Callable(nested) = &mut Arc::make_mut(&mut changed).sig.params[0].ty else { unreachable!() };
+            Arc::make_mut(nested).sig.effects = crate::sema::types::CallableEffects::finite([Effect::Time]);
+            coordinate_claim(&mut wrong_nested, changed);
+            let error = FullVerifier::verify(&wrong_nested).unwrap_err();
+            assert!(error.message.contains("callable reference disagrees with its actual scheme instance"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn prepared_application_returns_authenticate_actual_producers_and_sites() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-application-returns.xsh", concat!(
+                "pure first(payload: Int) -> Int { payload }\n",
+                "pure second(payload: Int) -> Int { payload + 1 }\n",
+                "proc relay(first, second, value, flag: Bool) { if flag { return first(value) }; second(value) }\n",
+                "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "relay");
+            let sites = program.store.scheme_application_returns.iter().enumerate()
+                .filter(|(_, site)| site.function.index() == owner).map(|(index, site)| (index, *site)).collect::<Vec<_>>();
+            assert_eq!(sites.len(), 2);
+            let (first, first_site) = sites[0];
+            let (_, second_site) = sites[1];
+            assert_ne!(first_site.application, second_site.application);
+            let mut swapped = program.clone();
+            swapped.store.scheme_application_returns[first].application = second_site.application;
+            swapped.store.scheme_application_returns[first].envelope = second_site.envelope;
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert!(error.message.contains("application return disagrees with its actual producer or envelope"), "{}", error.message);
+            let mut missing = program.clone();
+            missing.store.scheme_application_returns.remove(first);
+            let error = FullVerifier::verify(&missing).unwrap_err();
+            assert!(error.message.contains("generic body return does not match its scheme return"), "{}", error.message);
+            let mut duplicate = program.clone();
+            duplicate.store.scheme_application_returns.insert(first, first_site);
+            assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("scheme application returns are unordered"));
+            let mut foreign = program.clone();
+            foreign.store.scheme_application_returns[first].function = IrFunctionId::new(scheme_fixture_root_function(&program, "number")).unwrap();
+            assert!(FullVerifier::verify(&foreign).unwrap_err().message.contains("scheme application return belongs to another owner"));
+            let mut envelope = program.clone();
+            envelope.store.scheme_application_returns[first].envelope = u32::MAX;
+            assert!(FullVerifier::verify(&envelope).unwrap_err().message.contains("scheme return envelope ordinal is out of scope"));
+
+            let branches = fixture("prepared-application-return-branches.xsh", concat!(
+                "pure first(payload: Int) -> Int { payload }\n",
+                "pure second(payload: Int) -> Int { payload + 1 }\n",
+                "proc relay(first, second, value, flag: Bool) { if flag { first(value) } else { second(value) } }\n",
+                "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+            ));
+            FullVerifier::verify(&branches).unwrap();
+            let owner = scheme_fixture_root_function(&branches, "relay");
+            let (site_index, site) = branches.store.scheme_application_returns.iter().enumerate()
+                .find(|(_, site)| site.function.index() == owner).map(|(index, site)| (index, *site)).unwrap();
+            let FullCallableContract::Scheme(id) = branches.store.functions[owner].contract else { unreachable!() };
+            let range = branches.store.schemes[id.index()].applications.bounds(branches.store.scheme_applications.len()).unwrap();
+            assert_eq!(range.len(), 2);
+            assert_eq!(site.application, 0);
+            let other = branches.store.scheme_applications[range.start + 1];
+            assert_eq!(other.proc_returns.len, 1);
+            let mut nonminimum = branches.clone();
+            nonminimum.store.scheme_application_returns[site_index].application = 1;
+            nonminimum.store.scheme_application_returns[site_index].envelope = 0;
+            let error = FullVerifier::verify(&nonminimum).unwrap_err();
+            assert!(error.message.contains("application return disagrees with its actual producer or envelope"), "{}", error.message);
+            let mut wrong_branch_envelope = branches.clone();
+            let envelope = other.proc_returns.bounds(branches.store.scheme_proc_returns.len()).unwrap().start;
+            let claimed = wrong_branch_envelope.store.scheme_proc_returns[envelope].result;
+            assert_eq!(branches.store.scheme_types[claimed.index()].tag, schema::FullSchemeTypeTag::Parameter);
+            assert_eq!(branches.store.scheme_types[other.result.index()].tag, schema::FullSchemeTypeTag::Parameter);
+            wrong_branch_envelope.store.scheme_types[claimed.index()] = branches.store.scheme_types[other.result.index()];
+            let error = FullVerifier::verify(&wrong_branch_envelope).unwrap_err();
+            assert!(error.message.contains("application return producer has no matching proc envelope"), "{}", error.message);
+        });
+    }
+
+    #[test]
     fn generic_proc_results_preserve_symbolic_success_after_frontend_disposal() {
         run_with_large_stack(|| {
             let program = fixture("generic-proc-results.xsh", concat!(
@@ -23213,7 +23980,7 @@ assert apply(40) == 42
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
             let mut forged = program.clone();
             forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
-            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic body proc effects exceed its owner contract"));
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("executable operation requires effect io outside its owner contract"));
             let constructor = program.store.checked_expr_types.iter().position(|fact| {
                 program.store.tags[fact.instruction as usize] == FullTag::ExprOk
                     && matches!(program.store.semantic.to_type(fact.type_id).unwrap(), Type::Result(ok, _) if *ok == Type::Int)
@@ -32621,25 +33388,35 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     #[test]
     fn generic_producer_binding_work_uses_ordered_declaration_queries() {
         run_with_large_stack(|| {
-            let mut counts = Vec::new();
-            for locals in [64, 128] {
-                let declarations = (0..locals).map(|index| format!("let local_{index} = {index}; ")).collect::<String>();
-                let source = format!("pure helper() -> Int {{ {declarations} local_{} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n", locals - 1);
-                let program = fixture("producer-binding-work.xsh", &source);
-                let decoder = return_analysis_decoder(&program, "helper");
-                let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
-                index.record(&decoder).unwrap();
-                let (visits, instructions) = index.census_instruction_work();
-                assert!(visits <= instructions * 3);
-                let work = index.binding_work();
-                assert!(work.0 >= locals);
-                assert!(work.1 <= work.0 * 4);
-                assert!(work.2 <= work.0 * 2);
-                counts.push((locals, work, index.temporary_payload_bytes()));
+            for replacements in [false, true] {
+                let mut counts = Vec::new();
+                for locals in [64, 128] {
+                    let declarations = (0..locals).map(|index| if replacements {
+                        format!("var local_{index} = {index}; local_{index} += 1; ")
+                    } else {
+                        format!("let local_{index} = {index}; ")
+                    }).collect::<String>();
+                    let source = format!("pure helper() -> Int {{ {declarations} local_{} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n", locals - 1);
+                    let program = fixture("producer-binding-work.xsh", &source);
+                    let decoder = return_analysis_decoder(&program, "helper");
+                    let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+                    index.record(&decoder).unwrap();
+                    let (visits, instructions) = index.census_instruction_work();
+                    assert!(visits <= instructions * 3);
+                    let work = index.binding_work();
+                    if replacements {
+                        assert!(work.0 >= locals, "{locals}: {work:?}");
+                        assert!(work.1 <= work.0 * 4, "{locals}: {work:?}");
+                        assert!(work.2 <= work.0 * 2, "{locals}: {work:?}");
+                    } else {
+                        assert_eq!(work, (0, 0, 0));
+                    }
+                    assert!(index.census_matches_depth_first(&decoder).unwrap());
+                    counts.push(index.temporary_payload_bytes());
+                }
+                assert!(counts[1] > counts[0]);
+                assert!(counts[1] < counts[0] * 3);
             }
-            assert!(counts[1].2 > counts[0].2);
-            assert!(counts[1].2 < counts[0].2 * 3);
-            eprintln!("producer lifetime work and payload bytes: {counts:?}");
         });
     }
 
@@ -33508,6 +34285,31 @@ pure selected() -> Str {
             let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(program, name)), LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             assert_eq!(actual, expected);
         }
+    }
+
+    #[test]
+    fn generic_prepared_constants_reject_forged_values() {
+        run_with_large_stack(|| {
+            let source = "const marker = \"constant:\"\npure attach(value) { {value: value, marker: marker} }\npure root() -> Str { attach(42).marker }\n";
+            let program = fixture("generic-constant-value-forgery.xsh", source);
+            let _symbols = program.symbol_owner().enter();
+            let function = scheme_fixture_root_function(&program, "attach");
+            assert!(matches!(program.store.functions[function].contract, FullCallableContract::Scheme(_)));
+            let instruction = program.store.function_instruction_range(function).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprPreparedConstant).unwrap();
+            let index = program.store.payload(program.store.data[instruction].range()).unwrap()[0] as usize;
+            let mut bad = program.clone();
+            bad.store.prepared_constants[index].0 = LoweredValue::Int(7);
+            let error = FullVerifier::verify(&bad).expect_err("generic prepared values must satisfy their checked contracts");
+            assert_eq!(error.message, "prepared producer value disagrees with its checked contract");
+            let mut bad_type = program.clone();
+            let ground = SemanticPoolBuilder::default().intern_type(&mut bad_type.store.semantic, &Type::Bool).unwrap();
+            let fact = bad_type.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction && fact.kind == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let node = &mut bad_type.store.scheme_types[fact.ty.index()];
+            assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+            node.first = ground.raw();
+            let error = FullVerifier::verify(&bad_type).expect_err("generic prepared contracts must describe their actual values");
+            assert_eq!(error.message, "generic declaration disagrees with its initializer");
+        });
     }
 
     #[test]
@@ -38199,17 +39001,14 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 "typed call argument count does not match its signature",
             );
 
-            // Pointing the argument at an instruction that does not produce
-            // one value is rejected before ownership validation.
             let mut unowned_argument = (*program).clone();
             let first = arguments(&unowned_argument) + 1;
             unowned_argument.store.extra[first] = 2;
             rejected(
                 &unowned_argument,
-                "typed call argument is not a single value",
+                "typed call default has no actual parameter default",
             );
 
-            // The type's signature lets a call omit a parameter.
             let mut defaulted = (*program).clone();
             assert!(
                 defaulted
@@ -38219,7 +39018,7 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             );
             rejected(
                 &defaulted,
-                "typed callable signature has a defaulted or rest parameter",
+                "function parameter metadata disagrees with its signature",
             );
 
             // A row made consistent with a proc type of the same arity still
@@ -40478,6 +41277,22 @@ test test_scoped_callable_alias {
                 program.store.string(function.name).unwrap() == "test_scoped_callable_alias"
             })
             .expect("scoped test function exists");
+        let decoder = function_view_decoder(&program.store, scoped_test);
+        let scope_input = program.store.function_instruction_range(scoped_test).unwrap().find_map(|instruction| {
+            match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::ContextScope { input, .. }) => Some(input.raw() as usize),
+                _ => None,
+            }
+        }).unwrap();
+        assert_eq!(program.store.tags[scope_input], FullTag::ExprDuration);
+        let integer = program.store.function_instruction_range(scoped_test).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let mut wrong_scope_input = program.clone();
+        wrong_scope_input.store.checked_expr_types.retain(|fact| fact.is_contract());
+        wrong_scope_input.store.tags[scope_input] = FullTag::ExprInt;
+        wrong_scope_input.store.data[scope_input] = program.store.data[integer];
+        let error = FullVerifier::verify(&wrong_scope_input).unwrap_err();
+        assert!(error.message.contains("scope") || error.message.contains("Duration"), "{error:?}");
         let alias_initializer = program
             .store
             .function_instruction_range(scoped_test)
