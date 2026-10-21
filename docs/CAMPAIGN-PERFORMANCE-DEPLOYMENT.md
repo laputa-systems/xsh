@@ -8,11 +8,13 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `0c9d8d1f2` passes all 270 focused controls and all
-27 unchanged native regression cases on matching verification products.
-Neither run has failures or ignores. The combined group covers type, scheme,
-semantic-codec, Range, constructor, shorthand, Proc completion, counter and
-mutable-callable controls. Master remains at `d2453760a`.
+Current inference assembly `7f4dccc80` passes all 290 focused controls without
+failures or ignores. The combined group covers type, scheme, semantic-codec,
+Range, constructor, shorthand, structured Proc returns, resource transfers,
+counters, mutable callables and independent solver comparisons. All 27 unchanged
+native regression cases pass on the earlier `0c9d8d1f2` matching products;
+matching-product qualification of `7f4dccc80` is running. Master remains at
+`d2453760a`.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
@@ -30,10 +32,11 @@ authored Pure and Proc syntax. It passes 68 isolated controls and the non-test
 XSH and XSHT library check. Runtime Stream carriers and dispatch still reject
 unsupported paths explicitly. New runtime probes expose the remaining Stream
 transport and captured-write limitations. These are mandatory open work.
-Explicit recursive return expressions also remain unqualified: the current
-isolated candidate passes 19 of 20 controls, including both runtime routes,
-but loses the live-resource escape diagnostic after Unit consumption. Its
-next repair must preserve the actual leaf before that consumption. Corpus
+Structured recursive return repair `4aa2a44eb` is integrated and covered by
+the combined group. Both runtime routes preserve application envelopes and
+formal Result data. Contextual empty-list returns, live-resource escape rejection
+and missing-leaf resource-proof rejection pass. The escape repair checks the
+actual leaf before Unit consumption. Corpus
 classification and the inherited full acceptance gates remain open.
 The counter-getter build warning is fixed. XSHT still reports the known
 Send-proof recursion-depth warning. No performance qualification follows.
