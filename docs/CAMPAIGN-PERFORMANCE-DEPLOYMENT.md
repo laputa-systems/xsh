@@ -52,6 +52,9 @@ checkouts are removed under the same checks. Their complete scratch trees remain
 in that directory. The imported-source reproducer and dirty iteration prototype
 remain untouched. The prototype's patch lines match the accepted iteration edits
 at `c0a282df8`, apart from seven later added stream-error verification lines.
+The superseded argument and budget qualification checkouts are also removed
+after clean ancestry checks. Their complete scratch trees remain in the same
+directory. Matching collector, NonEmpty and optional products remain retained.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
@@ -107,6 +110,13 @@ the owning scheme's application evidence. Six Proc and recursive-return cases
 still fail. Outer bound effect publication, latent application causality and
 symbolic cold execution remain unfinished. This checkpoint stays outside the
 integration branch and earns no F2 acceptance.
+
+The subsequent uncommitted outer-effects migration compiles and passes 32 of
+those 35 controls. Proc client order, Result-as-data and application-result
+aliases now pass. Capture, uncaptured error propagation and recursive component
+inference remain failing. Independent review identifies default-call ownership
+and provisional mutual-recursion mappings for explicit discrimination. No stable
+tooling API, cold execution or effect-scheme acceptance follows yet.
 
 The isolated producer repair now passes the actual frozen `cut` source and
 its portable counter, self-slice and field-guard controls. Independently
