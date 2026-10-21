@@ -90,6 +90,18 @@ Fresh merged qualification and matching-product replay produce the results
 above. The remaining XSH failures stay owned by the producer lane; this is
 not a qualified full compiler baseline.
 
+Isolated compiler checkpoint `ea24407c7` passes 26 of 30 focused controls.
+The 21 foundation controls and five Pure source cases pass, including immutable
+aliases, returned callback identity and one requirement per source application.
+Four Proc and recursive-return cases still fail. Bound effect publication,
+application-result origins and cold execution remain unfinished. This checkpoint
+stays outside the integration branch and earns no F2 acceptance.
+
+Three smaller producer regressions reproduce the remaining corpus classes:
+guarded optional fields, guarded mutable optional records, and mutable Bytes
+self-slices. All three fail before the repair. The producer lane owns the fix;
+independent review checks guard preservation and every storage writer.
+
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
 Laputa failure is reproduced in `pm/graph.xsh::edges`: a lowered `collect`
