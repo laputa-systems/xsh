@@ -15,6 +15,12 @@ native, or performance gate accompanies this merge. Later inference commits
 remain on the campaign branch: even the focused-green `8f80bc2f5` checkpoint
 still fails existing XSH corpus preparation and is not ready for master.
 
+Eleven completed lane worktrees are removed after confirming campaign
+integration, clean tracked files, and no open handles. Their generated Cargo
+outputs are discarded. Branches remain. The temporary foundation qualification
+checkout is also removed. Active work, qualified products, failed-run evidence,
+and checkouts containing useful probes or corpus data remain intact.
+
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
 operations on the existing Linux platform. Add no syntax-feature batches.
