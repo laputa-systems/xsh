@@ -209,7 +209,7 @@ impl Checker {
                     .collect(),
                 (*sig.return_ty).clone(),
                 None,
-                sig.effects.clone(),
+                sig.effects.concrete().ok()?,
                 false,
                 true,
             )?,

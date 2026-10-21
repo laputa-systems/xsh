@@ -65,6 +65,7 @@ pub(super) fn indexed_callable_identity(
             .with_span(span));
         }
     };
+    let function = function.identity();
     let key = function
         .as_name()
         .map(LoweredFunctionKey::Name)

@@ -2013,7 +2013,7 @@ impl RecordConstructors {
             return_ty: Box::new(
                 self.resolve_instance_annotation(arena, return_ty, namespace, bindings, active)?,
             ),
-            effects,
+            effects: super::types::CallableEffects::from_clause(effects),
         })
     }
 

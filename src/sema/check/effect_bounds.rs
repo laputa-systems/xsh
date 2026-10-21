@@ -52,24 +52,36 @@ impl Checker {
         enclosing
     }
 
+    pub(super) fn constrain_callable_effect_exclusions(&mut self, contract: &crate::sema::effects::EffectContract<crate::sema::constraints::EffectVariableId>, name: &str, span: Span) {
+        for excluded in self.boundary.excluded_effects.clone() {
+            let predicate = crate::sema::effects::EffectPredicate::Excluded(contract.clone(), crate::sema::effects::EffectSet::singleton(excluded.effect.clone()));
+            if let Err(error) = self.type_constraints.constrain_effect(predicate) {
+                match error {
+                    crate::sema::constraints::EffectConstraintError::Mismatch => self.report_excluded(format!("effect relationship required by `{name}` is excluded by `without {}`", excluded.effect.as_str()), span, &excluded),
+                    _ => self.error(span, "callable effect exclusion escaped its declaration inference scope", DiagnosticCode::CheckLocalInference),
+                }
+            }
+        }
+    }
+
+    pub(super) fn validate_symbolic_callable_effect_exclusions(&mut self, contract: &crate::sema::effects::EffectContract<crate::sema::constraints::EffectVariableId>, span: Span) {
+        for excluded in self.boundary.excluded_effects.clone() {
+            if !self.owns_effect_predicate(contract, |contract| crate::sema::effects::EffectPredicate::Excluded(contract, crate::sema::effects::EffectSet::singleton(excluded.effect))) {
+                self.error(span, "callable effect exclusion is outside its checked scheme", DiagnosticCode::CheckLocalInference);
+            }
+        }
+    }
+
     pub(super) fn leave_block_effect_bound(&mut self, enclosing: usize) {
         self.boundary.excluded_effects.truncate(enclosing);
     }
 
-    /// The innermost enclosing bound that rules out `required`. `io` implies
-    /// `fs`, `net`, `process`, and `env`, so excluding any of those excludes a
-    /// requirement for `io`; excluding `io` excludes only `io` itself.
     fn excluding_bound(&self, required: &Effect) -> Option<ExcludedEffect> {
         self.boundary.excluded_effects
             .iter()
             .rev()
             .find(|excluded| {
-                excluded.effect == *required
-                    || (*required == Effect::Io
-                        && matches!(
-                            excluded.effect,
-                            Effect::Fs | Effect::Net | Effect::Process | Effect::Env
-                        ))
+                crate::sema::effects::effect_covers(required, &excluded.effect)
             })
             .cloned()
     }
@@ -138,9 +150,7 @@ impl Checker {
     ) {
         if self.defer_effect_diagnostics {
             self.defer_callable_effects(
-                None,
                 callee_effects.clone(),
-                false,
                 unknown_chain.to_vec(),
                 callee_name,
                 span,

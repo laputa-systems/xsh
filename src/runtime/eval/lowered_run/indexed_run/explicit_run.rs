@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::PreparedInvocationBindings;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, IndexedSerialStep, IndexedStageEngine,
     IndexedStageStep,
@@ -2032,7 +2033,7 @@ enum FrameContinuation {
     },
     AssignSelector(AssignPathState),
     AssignPath(AssignPathState),
-    Return { transfers_resource: bool },
+    Return { transfers_resource: bool, application: Option<crate::runtime::eval::indexed::full::PreparedProcReturn> },
     BlockValue { transfers_resource: bool },
     ErrorContextEntry {
         body: u32,
@@ -2313,6 +2314,7 @@ enum FrameContinuation {
         position: CallArgumentPosition,
         mode: CallArgumentMode,
         values: Vec<LoweredValue>,
+        group_ends: Vec<usize>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -3010,6 +3012,7 @@ pub(super) struct CallFrame<'p> {
     cancelled: bool,
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
+    applications: PreparedInvocationBindings,
     _binding_namespace_lease: Option<BindingNamespaceLease>,
     /// Keeps a cross-program frame's interned names current through cleanup.
     _symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
@@ -3053,6 +3056,7 @@ pub(super) struct ExplicitFrames<'a, 'p> {
 }
 
 struct ResolvedCall<'p> {
+    applications: PreparedInvocationBindings,
     program: ProgramOwner<'p>,
     function: LoweredFunctionKey,
     kind: LoweredFunctionKind,
@@ -3220,6 +3224,7 @@ impl Evaluator {
             cancelled: false,
             scope_id,
             execution: execution.thread_local(),
+            applications: PreparedInvocationBindings::default(),
             _binding_namespace_lease: None,
             _symbol_owner: None,
             slots: FrameSlots::Lent(slots),
@@ -3716,6 +3721,7 @@ impl<'p> CallFrame<'p> {
             producer: true,
             cancelled: false,
             scope_id: state.scope_id,
+            applications: PreparedInvocationBindings::default(),
             execution,
             _binding_namespace_lease: None,
             _symbol_owner: symbol_owner,
@@ -4512,6 +4518,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map(|view| view.index())
         {
             return Ok(ResolvedCall {
+                applications: PreparedInvocationBindings::default(),
                 program: caller,
                 function,
                 kind,
@@ -4538,6 +4545,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .with_span(span)
                 })?;
             return Ok(ResolvedCall {
+                applications: PreparedInvocationBindings::default(),
                 program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
                 function: dynamic.function,
                 kind: dynamic.kind,
@@ -4545,6 +4553,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             });
         }
         Err(RuntimeError::new("unresolved-lowered-call", function.display_name()).with_span(span))
+    }
+
+    fn resolve_callable_value(
+        &self, index: usize, callee: &LoweredValue, span: Span,
+    ) -> Result<ResolvedCall<'p>, RuntimeError> {
+        let (function, kind) = indexed_callable_identity(callee, span)?;
+        let callable = match callee {
+            LoweredValue::Pure(callable) | LoweredValue::Proc(callable) => callable,
+            _ => unreachable!("callable identity requires a callable value"),
+        };
+        let Some(instance) = callable.instance() else {
+            return self.resolve_active_call(index, function, kind, true, span);
+        };
+        if instance.kind != kind || instance.function != function {
+            return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
+        }
+        let target = instance.program.function_view(instance.function, instance.kind)
+            .map_err(|error| indexed_error(error, span))?
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable owner is missing").with_span(span))?.index();
+        Ok(ResolvedCall {
+            applications: instance.applications.clone(), program: ProgramOwner::Shared(Arc::clone(&instance.program)),
+            function: instance.function, kind: instance.kind, index: target,
+        })
     }
 
     fn resolve_active_external(
@@ -4563,6 +4594,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .map(|view| view.index())
             {
                 return Ok(ResolvedCall {
+                applications: PreparedInvocationBindings::default(),
                     program: caller,
                     function,
                     kind,
@@ -4587,6 +4619,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span)
             })?;
         Ok(ResolvedCall {
+            applications: PreparedInvocationBindings::default(),
             program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
             function: dynamic.function,
             kind: dynamic.kind,
@@ -4638,24 +4671,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .ok_or_else(|| RuntimeError::new("indexed-ir", "checked omitted argument has no prepared default").with_span(span))
     }
 
-    /// Resolves a fully evaluated call: a stream producer runs to completion
-    /// and hands its stream back, and every other callee becomes a frame.
-    ///
-    /// The frame engine reaches this decision from its argument-walking
-    /// continuation and, for a call with no arguments, directly; both go
-    /// through here so a producer is never pushed as an ordinary frame, which
-    /// would run its body with nowhere for `yield` to report and then fail the
-    /// call as a function that did not return.
     fn push_resolved_call(
         &mut self,
         index: usize,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         values: Vec<LoweredValue>,
+        instruction: u32,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        let resolved = self.resolve_active_call(index, function, kind, true, span)?;
+        let mut resolved = self.resolve_active_call(index, function, kind, true, span)?;
+        resolved.applications = self.calls[index].execution.program()
+            .invocation_applications(instruction, resolved.index, &self.calls[index].applications)
+            .map_err(|error| indexed_error(error, span))?;
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
@@ -4737,6 +4766,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             None => false,
         };
         if stream_call {
+            if !resolved.applications.is_empty() {
+                return Err(RuntimeError::new("indexed-ir", "stream invocation lost its prepared application environment").with_span(span));
+            }
             let program = resolved
                 .program
                 .dispatch_arc(self.evaluator.indexed_program.as_ref())
@@ -4811,7 +4843,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    /// Walks a named call's borrowed arguments, filling omitted defaults at their encoded positions.
     fn push_static_arguments(
         &mut self,
         index: usize,
@@ -4867,7 +4898,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
             self.push_resolved_external(index, qualified, values, span, next)
         } else {
-            self.push_resolved_call(index, function, kind, values, span, next)
+            self.push_resolved_call(index, function, kind, values, instruction, span, next)
         }
     }
 
@@ -4878,6 +4909,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         mut position: CallArgumentPosition,
         mut values: Vec<LoweredValue>,
+        mut group_ends: Vec<usize>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
@@ -4889,14 +4921,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         )? {
             match argument {
                 CallArgumentOperand::Default(slot) => {
-                    let (function, function_kind) = indexed_callable_identity(&callee, span)?;
-                    values.push(self.argument_default_for_active(
-                        index,
-                        function,
-                        function_kind,
-                        slot,
-                        span,
-                    )?);
+                    let resolved = self.resolve_callable_value(index, &callee, span)?;
+                    values.push(self.argument_default_for_target(&resolved, slot, span)?);
+                    group_ends.push(values.len());
                     position = next_position;
                 }
                 CallArgumentOperand::Expression {
@@ -4913,6 +4940,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             position: next_position,
                             mode,
                             values,
+                            group_ends,
                             span,
                             next: Box::new(next),
                         },
@@ -4921,8 +4949,76 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
         }
-        let (function, kind) = indexed_callable_identity(&callee, span)?;
-        self.push_resolved_call(index, function, kind, values, span, next)
+        let mut resolved = self.resolve_callable_value(index, &callee, span)?;
+        let caller = self.calls[index].execution.program();
+        if caller.has_invocation(instruction) {
+            if !std::ptr::eq(caller, resolved.program.program()) {
+                return Err(RuntimeError::new("indexed-ir", "callable invocation evidence belongs to another program").with_span(span));
+            }
+            resolved.applications = caller.invocation_applications(instruction, resolved.index, &self.calls[index].applications)
+                .map_err(|error| indexed_error(error, span))?;
+        } else if resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
+            && matches!(&callee, LoweredValue::Pure(callable) | LoweredValue::Proc(callable) if callable.instance().is_none())
+        {
+            return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span));
+        }
+        let layout = self.calls[index].execution.program().application_layout(instruction, &self.calls[index].applications)
+            .map_err(|error| indexed_error(error, span))?;
+        let values = if let Some(layout) = layout {
+            self.arrange_application_arguments(&resolved, values, group_ends, &layout, span)?
+        } else { values };
+        self.push_resolved_target(index, resolved, values, span, next)
+    }
+
+    fn argument_default_for_target(&self, target: &ResolvedCall<'_>, slot: usize, span: Span) -> Result<LoweredValue, RuntimeError> {
+        target.program.program().function_view_at(target.index)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "application target has no actual header").with_span(span))?
+            .header().map_err(|error| indexed_error(error, span))?.param_defaults.get(slot).and_then(Clone::clone)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "checked omitted argument has no prepared default").with_span(span))
+    }
+
+    fn arrange_application_arguments(
+        &mut self, resolved: &ResolvedCall<'_>,
+        values: Vec<LoweredValue>, group_ends: Vec<usize>,
+        layout: &crate::sema::arguments::StaticArgumentBinding, span: Span,
+    ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        let header = resolved.program.program().function_view_at(resolved.index)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "application target has no actual header").with_span(span))?
+            .header().map_err(|error| indexed_error(error, span))?;
+        let rest = header.param_rest.iter().position(|rest| *rest);
+        let fixed = rest.unwrap_or(header.params.len());
+        if group_ends.len() != layout.argument_slots.len()
+            || rest.is_some_and(|slot| slot + 1 != header.params.len())
+        { return Err(RuntimeError::new("indexed-ir", "application arguments disagree with their prepared layout").with_span(span)); }
+        let count = values.len();
+        let mut values = values.into_iter();
+        let mut slots = (0..fixed).map(|_| None).collect::<Vec<_>>();
+        let mut tail = Vec::new();
+        let mut previous = 0;
+        for (end, slot) in group_ends.into_iter().zip(layout.argument_slots.iter().copied()) {
+            if end < previous || end > count { return Err(RuntimeError::new("indexed-ir", "application argument group is invalid").with_span(span)); }
+            let length = end - previous;
+            previous = end;
+            if Some(slot) == rest { tail.extend(values.by_ref().take(length)); }
+            else {
+                if slot >= fixed || length != 1 || slots[slot].is_some() {
+                    return Err(RuntimeError::new("indexed-ir", "application fixed argument has an invalid group").with_span(span));
+                }
+                slots[slot] = Some(values.next().ok_or_else(|| RuntimeError::new("indexed-ir", "application argument value is missing").with_span(span))?);
+            }
+        }
+        if previous != count { return Err(RuntimeError::new("indexed-ir", "application argument values are unowned").with_span(span)); }
+        let omitted = layout.omitted_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();
+        let mut ordered = Vec::with_capacity(fixed + tail.len());
+        for (slot, value) in slots.into_iter().enumerate() {
+            ordered.push(match value {
+                Some(value) if !omitted.contains(&slot) => value,
+                None if omitted.contains(&slot) => self.argument_default_for_target(resolved, slot, span)?,
+                _ => return Err(RuntimeError::new("indexed-ir", "application omission disagrees with its actual slot").with_span(span)),
+            });
+        }
+        ordered.extend(tail);
+        Ok(ordered)
     }
 
     fn push_call(
@@ -4950,7 +5046,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.push_call_with_header(function, kind, view, execution, None, header, slots, call_span, return_to)
+        self.push_call_with_header(function, kind, view, execution, None, header, slots, PreparedInvocationBindings::default(), call_span, return_to)
     }
 
     fn push_call_in_owner(
@@ -4985,6 +5081,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             symbol_owner,
             header,
             slots,
+            resolved.applications,
             call_span,
             return_to,
         )
@@ -5012,7 +5109,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.push_call_with_header(function, kind, view, execution, None, header, slots, call_span, return_to)
+        self.push_call_with_header(function, kind, view, execution, None, header, slots, PreparedInvocationBindings::default(), call_span, return_to)
     }
 
     fn push_call_with_header(
@@ -5024,6 +5121,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
         header: Arc<FunctionHeader>,
         mut slots: Vec<LoweredValue>,
+        applications: PreparedInvocationBindings,
         call_span: Span,
         return_to: Option<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
@@ -5092,6 +5190,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             cancelled: false,
             scope_id,
             execution,
+            applications,
             _binding_namespace_lease: Some(binding_namespace_lease),
             _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(slots),
@@ -6245,7 +6344,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     value.raw(),
                     span,
-                    FrameContinuation::Return { transfers_resource },
+                    FrameContinuation::Return {
+                        transfers_resource,
+                        application: execution.program().application_return(instruction, &self.calls[index].applications)
+                            .map_err(|error| indexed_error(error, span))?,
+                    },
                 );
                 Ok(())
             }
@@ -6380,6 +6483,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let value = super::indexed_frame_apply_value(
                 self.evaluator,
                 &execution,
+                &self.calls[index].applications,
                 instruction,
                 Vec::new(),
                 span,
@@ -6452,6 +6556,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 &mut call.slots,
                 span,
             )?;
+            let value = if tag == FullTag::ExprParam {
+                super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?
+            } else { value };
             self.push_value(index, FrameValue::Value(value), next);
             return Ok(());
         }
@@ -8107,9 +8214,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Return { transfers_resource } => {
+            FrameContinuation::Return { transfers_resource, application } => {
                 let flow = match value {
                     FrameValue::Value(value) => {
+                        let value = match application {
+                            Some(crate::runtime::eval::indexed::full::PreparedProcReturn::Wrap) => LoweredValue::ResultOk(Box::new(value)),
+                            Some(crate::runtime::eval::indexed::full::PreparedProcReturn::Preserve) | None => value,
+                        };
                         // `fail` lowers to a synthetic `return Err(...)`, which
                         // has no source return-transfer fact. Keep resource
                         // payloads alive across that checked-error boundary.
@@ -8477,6 +8588,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         let value = super::indexed_frame_apply_value(
                             evaluator,
                             execution,
+                            &self.calls[index].applications,
                             instruction,
                             values,
                             span,
@@ -9356,12 +9468,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if let Some(pure) = typed_pure {
                         super::indexed_typed_callee_kind(&callee, pure, span)?;
                     }
+                    let group_ends = Vec::with_capacity(values.capacity());
                     self.push_dynamic_arguments(
                         index,
                         callee,
                         instruction,
                         position,
                         values,
+                        group_ends,
                         span,
                         *next,
                     )?
@@ -9376,17 +9490,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 position,
                 mode,
                 mut values,
+                mut group_ends,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
                     append_call_argument(&mut values, mode.runtime_kind(), value, span)?;
+                    group_ends.push(values.len());
                     self.push_dynamic_arguments(
                         index,
                         callee,
                         instruction,
                         position,
                         values,
+                        group_ends,
                         span,
                         *next,
                     )?;
@@ -11257,18 +11374,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         cleanup_contexts: &[crate::runtime::value::ErrorContext],
     ) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
+        let active = &self.calls[index];
+        let header = match active.owner {
+            FrameOwner::Function(function, kind) => Some(Self::function_header(
+                active.execution.program(), function, kind, active.call_span,
+            )?),
+            _ => None,
+        };
+        let mut returns_bound_result = false;
+        if let FrameOwner::Function(function, LoweredFunctionKind::Proc) = active.owner
+            && header.as_ref().is_some_and(|header| header.return_kind == LoweredReturnKind::Erased)
+        {
+            let program = active.execution.program();
+            let owner = program.function_view(function, LoweredFunctionKind::Proc)
+                .map_err(|error| indexed_error(error, active.call_span))?
+                .ok_or_else(|| RuntimeError::new("indexed-ir", "erased return owner is missing").with_span(active.call_span))?;
+            returns_bound_result = program.invocation_returns_result(owner.index(), &active.applications)
+                .map_err(|error| indexed_error(error, active.call_span))?;
+        }
+        let returns_result = returns_bound_result || header.as_ref().is_some_and(|header|
+            matches!(header.return_kind, LoweredReturnKind::Result(_) | LoweredReturnKind::QuantifiedResult));
         let mut call = self.calls.pop().expect("active indexed frame");
         let is_function = matches!(call.owner, FrameOwner::Function(..));
-        let mut returns_result = false;
-        if let FrameOwner::Function(function, kind) = call.owner
-            && let Ok(header) = Self::function_header(
-                call.execution.program(),
-                function,
-                kind,
-                call.call_span,
-            )
-        {
-            returns_result = matches!(header.return_kind, LoweredReturnKind::Result(_));
+        if let Some(header) = header {
             let _ =
                 self.evaluator
                     .write_back_lowered_captures(&header, &call.slots, call.call_span);
@@ -11282,8 +11410,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator
                 .transfer_owned_host_resources_in_runtime_error(error, parent);
         }
-        // An active error remains primary; capability release can still add a
-        // secondary cleanup failure while the call's scope is closed.
         if let Err(error) = cleanup_call_scopes(self.evaluator, &mut call) {
             self.report_cleanup_error_with_contexts(
                 &error,
@@ -11310,11 +11436,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         if returns_result
-            && let Some(error) = self.pending_error.take_if(|error| error.scope_cleanup)
+            && let Some(error) = self.pending_error.take_if(|error| error.scope_cleanup || returns_bound_result && error.abort.is_none() && error.propagated)
         {
-            // The body left without a failure and a deferred action then
-            // failed: that failure is what the function returns, so the
-            // caller handles it like any other `Err` of this call.
             let value = capture_checked_error(error)?;
             match call.return_to {
                 Some(next) => {

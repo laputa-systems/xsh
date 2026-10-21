@@ -1,3 +1,4 @@
+use crate::sema::callable_application::{inferred_proc_return_envelope, join_error_types};
 use super::{
     AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
     Type,
@@ -8,6 +9,20 @@ use crate::syntax::arena::{
     ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
     PatternId, StmtId,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct CheckedProcReturnSite {
+    pub(super) application: crate::sema::constraints::CallableApplicationReference,
+    pub(super) envelope: u32,
+}
+
+#[derive(Clone)]
+pub(super) struct InferredReturn {
+    pub(super) ty: Type,
+    pub(super) span: Span,
+    pub(super) origin: super::stream_origins::StreamOrigins,
+    pub(super) schema: Option<crate::sema::constants::SchemaExpectation>,
+}
 
 struct ReturnDeclaration {
     name: Name,
@@ -469,6 +484,9 @@ impl Checker {
                                 ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
                                 ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
                             };
+                            let alias = if matches!(kind, ArenaStmtKind::Let { ty: None, .. } | ArenaStmtKind::Const { ty: None, .. }) {
+                                match initializer { ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(program, expression), _ => None }
+                            } else { None };
                             self.define_binding_target_arena(
                                 program,
                                 target,
@@ -477,6 +495,9 @@ impl Checker {
                                 decl.span,
                                 &origin,
                             );
+                            if let Some(alias) = alias
+                                && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
+                            { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }
                             self.annotation_facts.truncate(before);
                         }
                     }
@@ -534,11 +555,12 @@ impl Checker {
                 self.inference_reachable = true;
                 self.check_body_before_callers(program, source, decl, &declarations, def);
                 let candidates = self.inferred_returns.take().unwrap();
+                let schema = Self::common_checked_schema(candidates.iter().map(|candidate| candidate.schema.clone()));
                 let mut inferred = None;
-                for (candidate, span) in candidates {
+                for candidate in candidates {
                     inferred = Some(match inferred {
-                        None => candidate,
-                        Some(previous) => self.unify_inferred_returns(previous, candidate, span),
+                        None => candidate.ty,
+                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
@@ -571,6 +593,7 @@ impl Checker {
                 }
                 self.function_return_types.insert(body_span, ty.clone());
                 self.update_pending_return_type(program, def, ty.clone());
+                self.update_pending_return_schema(program, def, schema);
                 if ty != Type::Invalid {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::InferredPureReturn { body: body_span },
@@ -678,7 +701,7 @@ impl Checker {
         let propagated = std::mem::take(&mut probe.inferred_propagations);
         if !candidates
             .iter()
-            .map(|(ty, _)| ty)
+            .map(|candidate| &candidate.ty)
             .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
             .any(produces_value)
         {
@@ -686,16 +709,20 @@ impl Checker {
             self.update_pending_return_type(program, def, ty);
             return;
         }
-        // Once a completion produces a value, a statement completion conflicts
-        // with it as any other disagreeing completion does.
+        if !clean { return; }
+        self.type_constraints = probe.type_constraints;
         self.return_conflicts = Some(conflicts);
-        let mut inferred: Option<Type> = None;
-        for (candidate, span) in candidates {
-            inferred = Some(match inferred {
-                None => candidate,
-                Some(previous) => self.unify_inferred_returns(previous, candidate, span),
-            });
-        }
+        let owner = self.effect_declaration_id(program, def.body);
+        let schema = Self::common_checked_schema(candidates.iter().map(|candidate| {
+            let schema = candidate.schema.clone()?;
+            if candidate.ty.is_result() { Some(schema) } else {
+                let mut wrapped = crate::sema::constants::SchemaExpectation::default();
+                wrapped.insert_child(crate::sema::constants::SchemaComponent::Success, schema);
+                Some(wrapped)
+            }
+        }));
+        let inferred = self.normalize_inferred_proc_returns(owner, candidates, &propagated);
+
         let conflicts = self.return_conflicts.take().unwrap_or_default();
         let body_span = program.arena.span(program.arena.block(def.body).span);
         if let Some((left, right, span)) = conflicts.into_iter().next() {
@@ -715,34 +742,80 @@ impl Checker {
             self.update_pending_return_type(program, def, Type::Invalid);
             return;
         }
-        if !clean {
-            return;
-        }
         let ty = if let Some(boundary) = boundary {
             self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), DiagnosticCode::CheckRequiredReturn);
             Type::Invalid
         } else {
-            match inferred.unwrap_or(Type::Invalid) {
+            match inferred {
                 Type::Invalid => Type::Invalid,
                 ty if !return_type_is_concrete(&ty) => {
                     self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                     Type::Invalid
                 }
-                // Every `?` in the body propagates through the inferred error
-                // type, so it joins with the errors of `Err(..)` completions.
-                Type::Result(ok, err) => Type::Result(
-                    ok,
-                    Box::new(
-                        propagated
-                            .iter()
-                            .fold(*err, |joined, (ty, _)| join_error_types(&joined, ty)),
-                    ),
-                ),
-                ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
+                ty => ty,
             }
         };
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
+        self.update_pending_return_schema(program, def, schema);
+    }
+
+    pub(super) fn normalize_inferred_proc_returns(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        candidates: Vec<InferredReturn>,
+        propagated: &[(Type, Span)],
+    ) -> Type {
+        self.proc_return_sites.remove(&owner);
+        let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
+        let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
+        if !candidates.iter().any(|candidate| candidate.origin.return_applications().iter().any(Option::is_some)) {
+            let mut inferred = None;
+            for candidate in candidates {
+                inferred = Some(match inferred {
+                    None => candidate.ty,
+                    Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
+                });
+            }
+            return inferred.map(|ty| inferred_proc_return_envelope(ty, &errors)).unwrap_or(Type::Invalid);
+        }
+        let mut inferred = None;
+        for candidate in candidates {
+            let applications = candidate.origin.return_applications();
+            let retain_applications = !applications.contains(&None);
+            for application in applications {
+                let ty = if let Some(reference) = application {
+                    let Some(level) = level else {
+                        self.error(owner.body, "proc application return has no declaration inference scope", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    };
+                    if reference.scope != crate::sema::constraints::CallableApplicationScope::Declaration(owner) {
+                        self.error(candidate.span, "proc return application belongs to another declaration", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                    match self.type_constraints.referenced_callable_application(reference)
+                        .and_then(|id| self.type_constraints.defer_proc_application_return(id, &errors, candidate.span, level))
+                    {
+                        Ok(ty) => {
+                            if retain_applications {
+                                let envelope = self.type_constraints.proc_return_envelope(reference, candidate.span).expect("the checked application return owns its envelope");
+                                self.proc_return_sites.entry(owner).or_default().entry(candidate.span).or_default().push(CheckedProcReturnSite { application: reference, envelope });
+                            }
+                            ty
+                        }
+                        Err(error) => {
+                            self.error(candidate.span, &format!("proc return application requirement failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            return Type::Invalid;
+                        }
+                    }
+                } else { inferred_proc_return_envelope(candidate.ty.clone(), &errors) };
+                inferred = Some(match inferred {
+                    None => ty,
+                    Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
+                });
+            }
+        }
+        inferred.unwrap_or(Type::Invalid)
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
@@ -868,22 +941,6 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     }
 }
 
-// Failures from different completions join to their narrowest common error:
-// variants of one family join to the family, anything else to `Error`.
-fn join_error_types(left: &Type, right: &Type) -> Type {
-    match (left, right) {
-        _ if left == right => left.clone(),
-        (Type::Unknown, other) | (other, Type::Unknown) => other.clone(),
-        (Type::ErrorVariant { family, .. }, Type::ErrorVariant { family: other, .. })
-        | (Type::ErrorVariant { family, .. }, Type::ErrorFamily(other))
-        | (Type::ErrorFamily(family), Type::ErrorVariant { family: other, .. })
-            if family == other =>
-        {
-            Type::ErrorFamily(*family)
-        }
-        _ => Type::Error,
-    }
-}
 
 fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<Vec<usize>>, FxHashSet<usize>) {
     let mut visited = vec![false; edges.len()];

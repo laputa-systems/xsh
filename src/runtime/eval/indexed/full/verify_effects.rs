@@ -2,51 +2,48 @@ use super::{FullCallableContract, FullDecoder, FullStore, FullTag, IrVerifyError
 use crate::modules::signature::NativeEffectRule;
 use crate::sema::types::CallableKind;
 use crate::syntax::node::Effect;
+use crate::sema::effects::{EffectContract, EffectSet};
+use crate::sema::schemes::SchemeEffectParameterId;
+use super::verify_schemes::{ScopedEffectProof, VerifiedSchemeScopes};
 use std::collections::BTreeMap;
 
 struct OwnerEffects {
     kind: CallableKind,
-    effects: Option<Vec<Effect>>,
+    function: usize,
 }
 
 impl OwnerEffects {
     fn for_function(store: &FullStore, index: usize) -> Result<Self, IrVerifyError> {
-        let metadata = store.function_metadata[index];
+        let metadata = store.function_metadata.get(index).ok_or_else(|| IrVerifyError::new("effect callable metadata is out of bounds"))?;
         let kind = metadata.callable_kind;
         if metadata.reserved != [0; 2] || metadata.flags & 1 != u8::from(kind == CallableKind::Proc) {
             return Err(IrVerifyError::new("callable kind disagrees with executable dispatch"));
         }
-        let effects = match store.functions[index].contract {
-            FullCallableContract::Ground(signature) => store.semantic.signature_effects(signature)?,
-            FullCallableContract::Scheme(id) => {
-                let scheme = store.scheme(id)?;
-                if scheme.callable_kind != kind {
-                    return Err(IrVerifyError::new("callable kind disagrees with its scheme"));
-                }
-                if scheme.has_effects {
-                    let effects = scheme.effects.bounds(store.scheme_effects.len())
-                        .ok_or_else(|| IrVerifyError::new("callable effect range is invalid"))?;
-                    if effects.len() > Effect::ALL.len() {
-                        return Err(IrVerifyError::new("callable effects exceed the capability set"));
-                    }
-                    Some(store.scheme_effects[effects].to_vec())
-                } else { None }
-            }
-        };
-        Ok(Self { kind, effects: if kind == CallableKind::Pure { Some(effects.unwrap_or_default()) } else { effects } })
+        if let FullCallableContract::Scheme(id) = store.functions.get(index)
+            .ok_or_else(|| IrVerifyError::new("effect callable owner is out of bounds"))?.contract
+            && store.scheme(id)?.callable_kind != kind
+        { return Err(IrVerifyError::new("callable kind disagrees with its scheme")); }
+        Ok(Self { kind, function: index })
     }
 
-    fn require(&self, required: Option<&[Effect]>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
+    fn require_contract(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, required: &EffectContract<SchemeEffectParameterId>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
         if self.kind == CallableKind::Pure && !pure {
             return Err(IrVerifyError::new("pure executable body contains an impure operation"));
         }
-        let Some(ceiling) = &self.effects else { return Ok(()) };
-        let required = required.or(if pure { Some(&[]) } else { None }).ok_or_else(|| IrVerifyError::new("finite executable body contains an unknown effect contract"))?;
+        proof.require(self.function, required, captured || self.kind == CallableKind::Pure, budget)
+    }
+
+    fn require(&self, proof: &ScopedEffectProof<'_>, budget: &mut super::verify_schemes::SchemeInstantiationBudget, required: Option<&[Effect]>, pure: bool, captured: bool) -> Result<(), IrVerifyError> {
+        if self.kind == CallableKind::Pure && !pure {
+            return Err(IrVerifyError::new("pure executable body contains an impure operation"));
+        }
+        let Some(required) = required.or(if pure { Some(&[]) } else { None }) else {
+            return self.require_contract(proof, budget, &EffectContract::Unknown, pure, captured)
+                .map_err(|error| IrVerifyError::new(format!("finite executable body contains an unknown effect contract: {}", error.message)));
+        };
         for effect in required {
-            if *effect == Effect::Error && (captured || self.kind == CallableKind::Pure) { continue; }
-            if !crate::sema::check::Checker::effects_covers(ceiling, effect) {
-                return Err(IrVerifyError::new(format!("executable operation requires effect {} outside its owner contract", effect.as_str())));
-            }
+            self.require_contract(proof, budget, &EffectContract::finite(EffectSet::singleton(effect.clone())), pure, captured)
+                .map_err(|error| IrVerifyError::new(format!("executable operation requires effect {} outside its owner contract: {}", effect.as_str(), error.message)))?;
         }
         Ok(())
     }
@@ -78,19 +75,24 @@ fn captures_error(decoder: &FullDecoder<'_>, instruction: usize, cache: &mut BTr
 }
 
 pub(super) fn function_effects(store: &FullStore, index: usize) -> Result<Option<Vec<Effect>>, IrVerifyError> {
-    Ok(OwnerEffects::for_function(store, index)?.effects)
+    let owner = OwnerEffects::for_function(store, index)?;
+    let effects = match store.functions[index].contract {
+        FullCallableContract::Ground(signature) => store.semantic.signature_effects(signature)?,
+        FullCallableContract::Scheme(id) => store.scheme(id)?.effects.concrete(store)?,
+    };
+    Ok(if owner.kind == CallableKind::Pure { Some(effects.unwrap_or_default()) } else { effects })
 }
 
-pub(super) fn require_callable(decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[Effect]>, pure: bool, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<(), IrVerifyError> {
+pub(super) fn require_callable(decoder: &FullDecoder<'_>, scopes: &VerifiedSchemeScopes, budget: &mut super::verify_schemes::SchemeInstantiationBudget, instruction: usize, effects: Option<&[Effect]>, pure: bool, parent_of: impl Fn(usize) -> Result<Option<usize>, IrVerifyError>) -> Result<(), IrVerifyError> {
     let Some(function) = super::IrFunctionId::from_raw(decoder.owner) else { return Ok(()) };
     if super::driver_owner_index(decoder.owner).is_some() { return Ok(()); }
     let owner = OwnerEffects::for_function(decoder.store, function.index())?;
     let captured = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
         && captures_error(decoder, instruction, &mut BTreeMap::new(), parent_of)?;
-    owner.require(effects, pure, captured)
+    owner.require(&ScopedEffectProof::new(decoder.store, scopes), budget, effects, pure, captured)
 }
 
-pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<(), IrVerifyError> {
+pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &VerifiedSchemeScopes) -> Result<(), IrVerifyError> {
     let owner = OwnerEffects::for_function(decoder.store, index)?;
     verify_script_implementation(decoder.store, index, &owner)?;
     let mutable_captures = if owner.kind == CallableKind::Pure {
@@ -101,10 +103,12 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
             .collect::<std::collections::BTreeSet<_>>()
     } else { std::collections::BTreeSet::new() };
     let mut captured = BTreeMap::new();
+    let proof = ScopedEffectProof::new(decoder.store, scopes);
+    let budget = std::cell::RefCell::new(super::verify_schemes::SchemeInstantiationBudget::new(decoder.store));
     let require = |instruction, effects: Option<&[Effect]>, pure, captured: &mut BTreeMap<usize, bool>| {
         let captures = owner.kind != CallableKind::Pure && effects.is_some_and(|effects| effects.contains(&Effect::Error))
             && captures_error(decoder, instruction, captured, |at| decoder.instruction_parent_of(at))?;
-        owner.require(effects, pure, captures).map_err(|error| IrVerifyError::new(format!("{} at callable {index}, instruction {instruction} {:?}", error.message, decoder.store.tags[instruction])))
+        owner.require(&proof, &mut budget.borrow_mut(), effects, pure, captures).map_err(|error| IrVerifyError::new(format!("{} at callable {index}, instruction {instruction} {:?}", error.message, decoder.store.tags[instruction])))
     };
     for instruction in decoder.instruction_range.clone() {
         let tag = decoder.store.tags[instruction];
@@ -121,7 +125,9 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
             FullTag::ExprModuleCall => {
                 let schema::ExprView::ModuleCall { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 if let Some(bridge) = crate::stdlib::bridge_contract(op) {
-                    require(instruction, bridge.sig.effects.as_deref(), bridge.pure, &mut captured)?;
+                    let effects = bridge.sig.effects.concrete()
+                        .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
+                    require(instruction, effects.as_deref(), bridge.pure, &mut captured)?;
                 } else { match crate::modules::signature::native_static_operation_effect_rule(op) {
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => {}
@@ -146,8 +152,16 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => require(instruction, None, false, &mut captured)?,
                     None => {
+                        let effects = proof.call_contract(index, instruction, target, &mut budget.borrow_mut())?;
                         let target = OwnerEffects::for_function(decoder.store, target)?;
-                        require(instruction, target.effects.as_deref(), target.kind == CallableKind::Pure, &mut captured)?;
+                        match effects.concrete() {
+                            Ok(effects) => require(instruction, effects.as_deref(), target.kind == CallableKind::Pure, &mut captured)?,
+                            Err(_) => {
+                                let captures = owner.kind != CallableKind::Pure
+                                    && captures_error(decoder, instruction, &mut captured, |at| decoder.instruction_parent_of(at))?;
+                                owner.require_contract(&proof, &mut budget.borrow_mut(), &effects, target.kind == CallableKind::Pure, captures)?;
+                            }
+                        }
                     }
                 }
             }
@@ -217,7 +231,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
             FullTag::StmtExpr => {
                 let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
                 if owner.kind != CallableKind::Pure
-                    && owner.effects.as_ref().is_some_and(|effects| !crate::sema::check::Checker::effects_covers(effects, &Effect::Error))
+                    && !proof.permits_direct(index, &Effect::Error)?
                     && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. })
                 {
                     let value = value.raw() as usize;
@@ -268,7 +282,8 @@ fn verify_script_implementation(store: &FullStore, index: usize, owner: &OwnerEf
     if (owner.kind == CallableKind::Pure) != pure || owner.kind == CallableKind::Stream {
         return Err(IrVerifyError::new("script implementation kind differs from its registry contract"));
     }
-    let actual = owner.effects.as_deref().ok_or_else(|| IrVerifyError::new("script implementation has unknown effects"))?;
+    let actual_effects = function_effects(store, index)?;
+    let actual = actual_effects.as_deref().ok_or_else(|| IrVerifyError::new("script implementation has unknown effects"))?;
     let return_kind = match store.functions[index].contract {
         FullCallableContract::Ground(signature) => super::lowered_return_kind(store.semantic.to_type(store.semantic.signature_return_type(signature)?)?)?,
         FullCallableContract::Scheme(id) => super::scheme_return_kind(store, store.scheme(id)?.return_type)?,

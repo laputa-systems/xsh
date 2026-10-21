@@ -1,4 +1,4 @@
-use super::schema::{FullTag, InPlaceClass};
+use super::schema::InPlaceClass;
 use std::ops::Range;
 
 pub(super) const HEIGHT_LIMIT: u16 = 128;
@@ -25,14 +25,14 @@ impl InstructionProof {
         }
     }
 
-    pub(super) fn enter(&mut self, instruction: usize, tag: FullTag) {
+    pub(super) fn enter(&mut self, instruction: usize, class: InPlaceClass) {
         debug_assert!(self.range.contains(&instruction));
         if let Some((parent, _)) = self.open.last() {
             let parent = u32::try_from(*parent)
                 .expect("instruction owner range fits a u32 parent index");
             self.parents[instruction - self.range.start] = parent;
         }
-        let height = match tag.in_place_class() {
+        let height = match class {
             InPlaceClass::Operands => 1,
             InPlaceClass::Scheduled => UNMARKED,
         };

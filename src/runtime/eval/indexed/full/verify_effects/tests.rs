@@ -41,7 +41,9 @@ fn without_effect(program: &FullProgram, owner: usize, effect: Effect) -> FullPr
     let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground function") };
     let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
         &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-    signature.effects.as_mut().unwrap().retain(|candidate| *candidate != effect);
+    let mut effects = signature.effects.concrete().unwrap().unwrap();
+    effects.retain(|candidate| *candidate != effect);
+    signature.effects = crate::sema::types::CallableEffects::finite(effects);
     let mut forged = program.clone();
     forged.store.functions[owner].contract = FullCallableContract::Ground(
         SemanticPoolBuilder::default().intern_signature(&mut forged.store.semantic, &signature).unwrap());
@@ -1787,7 +1789,7 @@ fn unknown_dynamic_calls_keep_unknown_effect_contracts() {
         let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground function") };
         let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
             &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-        signature.effects = Some(Vec::new());
+        signature.effects = crate::sema::types::CallableEffects::finite([]);
         program.store.functions[owner].contract = FullCallableContract::Ground(
             SemanticPoolBuilder::default().intern_signature(&mut program.store.semantic, &signature).unwrap());
         let error = FullVerifier::verify(&program).unwrap_err();

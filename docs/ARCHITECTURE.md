@@ -196,6 +196,16 @@ assignment, requirement, and default checks remain exact. Prepared schemas compa
 structurally, including conversion order, nominal names, wire mappings, and error
 names. Preparation failures retain their original diagnostic.
 
+Inferred return schemas come from checked constructor, requirement, callable,
+and immutable binding provenance. Scoped bindings retain contextual schema
+expectations separately from the schema proven by their initializer. Checked
+expression and tail origins are rebuilt in probes, then carried with the
+existing return candidates. Completing branches and early returns must agree
+on schema identity; equal record shapes do not supply that identity. The
+ordinary proc return envelope places a plain constructor's schema under
+Success. Mutable reads without an authenticated origin do not establish a
+return schema.
+
 The checker publishes successful binary selections at their executable source
 identities. Comparison-chain pairs have canonical ordinal paths and use the
 preceding actual right operand as the next left domain. Constant preparation
@@ -353,6 +363,96 @@ cannot satisfy finite effect bounds. Callable kind must match the prepared entry
 and return boundary. Pure body restrictions remain independent of capability
 sets, and captured errors remove only the Error requirement within their actual
 runtime boundary.
+
+`CallableType.effects` uses the opaque `CallableEffects` contract. Unknown,
+known empty, and symbolic effects remain distinct. Concrete projection rejects
+unresolved symbolic terms. Effect expressions retain raw capability identity,
+including `io`, while permission and exclusion checks share one implication
+relation. `TypeConstraints` owns effect cells, predicates, dependency queues,
+and callable-application requirements. Their fresh identities, bindings, levels,
+watchers, and queue changes use the same rollback journal as type and row cells.
+Application requirements refer to the actual callable type variable and use
+the canonical argument binder, preserving authored labels, defaults, and rest
+layout through aliases and returned values.
+`CallableScheme` owns the bound effect scope and application requirements.
+Generalization includes obligation-only result binders before freezing the body
+scope. Instantiation allocates one type, row, and effect substitution and retains
+the selected argument layouts. An unresolved nested invocation instead retains
+a reference to its actual caller-owned application requirement. Ground invocation
+evidence still requires a selected layout. Physical verification must compare the
+substituted application relationship against that caller requirement independently
+of constructor range checks. Declaration-owned requirements remain distinct
+from nongeneralizing invocations. Nested committed transactions and speculative
+trials share the same journal, including fresh scope ownership and panic rollback.
+Direct source applications retain one declaration-and-expression identity across
+constraint probes. Instantiated requirements remain separate activations.
+A deferred Proc return envelope refers to an explicit application identity and
+uses the existing ground Result/error join policy; type-cell equality alone
+cannot establish application-result provenance.
+
+Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
+`FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable
+effect projection retain these contracts. Concrete projection returns an unknown
+contract separately from a finite set and rejects unresolved bound expressions.
+Bound effect ordinals belong to one declaring callable. Graph edges substitute
+the actual call's effect arguments before joining contributions from another
+owner. Defaults belong to their declaring callable through the actual parameter
+expression spans. A semantic body comparison uses the same retained callable
+instance as its header comparison. Raw effect-term equality proves only equality
+within one owner scope.
+
+Indexed schemes retain owned effect binders, expressions, predicates, and call
+arguments alongside their type and row substitutions. Preparation authenticates
+one scope per scheme and reuses it for physical effect and producer verification.
+Concrete projection distinguishes unknown contracts from unresolved expressions;
+scoped substitution and retained predicates prove symbolic permission checks.
+Capture removes only outward Error inside its actual lexical boundary.
+
+Prepared applications retain their actual callee, ordered argument domains,
+result, kind, effects, argument layout, and Proc return relationships. A selected
+application must match the actual callable contract. A forwarded application
+must match the caller-owned requirement under the same substitution, including
+its ordinal and all domains. Argument producers establish binder evidence first.
+An application can then establish result binders only after its callee and input
+binders are established; cyclic requirements cannot establish themselves.
+Fresh empty collection arguments receive a transient closed-domain obligation
+from that proof. The existing producer verifier checks the exact physical call
+operand, literal family, aliases, and writers before accepting the program.
+Capture bodies use ordinary lazy block lowering and independently verify actual
+success and error producers after frontend disposal.
+
+Each invocation retains the checked application layouts selected by its canonical
+call substitution. Forwarded entries share the caller's actual layout instead of
+building a chain of unresolved applications. Argument evaluation retains source
+entry boundaries through splice expansion. After all supplied entries finish,
+those layouts place values and actual declaration defaults in formal slots. The
+runtime consumes prepared slot indices and preserves actual callee header checks.
+Declaration-derived callable signatures retain defaults and rest metadata; typed
+call verification checks their layout and every argument against both the callable
+contract and its actual target writers.
+
+Proc application returns retain their actual owner, return instruction,
+application ordinal, and return-envelope ordinal. The body verifier traces the
+actual immutable producers and all completing branch values before accepting
+that descriptor. Shared branches must prove the same raw result and normalized
+return contract; their representative is the minimum actual application ordinal.
+Invocation bindings project the result's outer constructor from the same checked
+type substitution to select wrapping or preservation. The executor does not
+inspect the returned payload to select an envelope, and formal values keep their
+ordinary data wrapping.
+
+The public Rust `Value::Pure` and `Value::Proc` variants carry an opaque
+`CallableValue`. Its declaration identity remains available through `identity()`;
+equality compares that identity rather than treating invocation evidence as part
+of the source value. Prepared invocation context belongs to the callable's
+executable program and remains private. Extracting a declaration name provides no
+substitute for checking the actual target and its call-site substitution.
+Each contextual reference or immutable alias read retains its own checked
+substitution; materializing one use does not specialize the stored declaration
+for later clients. Materializations prove their actual producer and signature
+without counting as invocations. Only an authenticated Pure target projects its
+top-level invocation effects to empty; nested callable contracts retain their
+own effects, labels, schemas, defaults, and rest layout.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.

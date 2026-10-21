@@ -146,9 +146,6 @@ impl Checker {
         if pending.generalized().is_some() {
             return Some(());
         }
-        if pending.kind() == crate::sema::types::CallableKind::Proc && self.collecting_effects {
-            return None;
-        }
         let shape = pending.provisional()?;
         let params = program.arena.params(def.params);
         let mut types = Vec::with_capacity(shape.params().len() + 1);
@@ -183,6 +180,7 @@ impl Checker {
                 &tail_types,
                 &calls,
                 0,
+                declaration.effect_declaration(),
             )
         {
             Ok(generalized) => generalized,
@@ -199,11 +197,11 @@ impl Checker {
             Err(_) => return None,
         };
         if !pending.generalizable()
-            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty())
+            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty())
         {
             return None;
         }
-        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty();
+        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
             let span = program.arena.expr(expression).span;
             let call = self.api_calls.get(&span)?;
@@ -232,7 +230,7 @@ impl Checker {
             };
             crate::sema::builtin_templates::registered_call_is_executable(&plan).then(|| (expression, Arc::new(plan)))
         }).collect::<BTreeMap<_, _>>();
-        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() {
+        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() {
             let parameter_bindings = params
                 .iter()
                 .filter_map(|parameter| {
@@ -242,7 +240,7 @@ impl Checker {
                         .copied()
                 })
                 .collect::<super::FxHashSet<_>>();
-            let checked_calls = generalized_body_types.keys().filter_map(|&expression| {
+            let mut checked_calls = generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
@@ -257,14 +255,12 @@ impl Checker {
                     || self.qualified_pures.values()
                         .any(|signature| signature.definition_target() == Some(*target)
                             && signature.scheme().kind() == crate::sema::types::CallableKind::Pure);
-                let finite_proc = pending.kind() == crate::sema::types::CallableKind::Proc
-                    && self.declaration_effects(pending.effect_declaration).is_some_and(|ceiling| {
-                        self.declaration_effects(Some(id.effect_declaration())).is_some_and(|effects| {
-                            effects.iter().all(|effect| Self::effects_covers(&ceiling, effect))
-                        })
-                    });
-                (pure || finite_proc).then_some(span)
+                let checked_proc = pending.kind() == crate::sema::types::CallableKind::Proc
+                    && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
+                (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
+            checked_calls.extend(generalized.requirements.applications.iter()
+                .map(|application| application.span));
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }
@@ -335,6 +331,7 @@ impl Checker {
                 return_type,
                 shape.return_schema.clone(),
                 shape.explicit_return,
+                generalized.requirements,
             )
             .ok()?,
         );
@@ -380,7 +377,7 @@ impl Checker {
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
         self.declaration_inference
             .pending_mut(declaration)?
-            .generalize(callable, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, generalized.generalization_scope, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -428,7 +425,7 @@ impl Checker {
             return Some(signature.clone());
         }
         let pending = self.declaration_inference.pending(declaration)?;
-        let effects = self.declaration_effects(pending.effect_declaration());
+        let effects = self.declaration_effects(pending.effect_declaration()).into_checked()?;
         let inferred_effects = pending
             .effect_declaration()
             .is_some_and(|id| self.effect_graph.is_inferred(id));
@@ -471,7 +468,7 @@ impl Checker {
             params,
             return_ty,
             return_schema,
-            effects,
+            effects.concrete().ok()?,
             inferred_effects,
             explicit_return,
         )
@@ -493,6 +490,21 @@ impl Checker {
         }
     }
 
+    pub(super) fn update_pending_return_schema(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+        schema: Option<crate::sema::constants::SchemaExpectation>,
+    ) {
+        let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+        if def.return_ty_defaulted
+            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+            && let Some(shape) = signature.provisional_mut()
+        {
+            shape.return_schema = schema;
+        }
+    }
+
     pub(super) fn checked_function_sig_arena(
         &mut self,
         program: &ArenaProgram,
@@ -505,14 +517,21 @@ impl Checker {
         self.generalize_pending_function(program, def_id)?;
         let pending = self.declaration_inference.pending(declaration)?.clone();
         let callable = Arc::clone(pending.generalized()?);
-        let effects = effect_fact.and_then(|fact| fact.effective.clone());
+        let effects = match (pending.kind, effect_fact) {
+            (_, Some(fact)) => fact.effective.clone(),
+            (crate::sema::types::CallableKind::Pure, None) => super::CheckedEffects::unknown(),
+            (_, None) => {
+                self.error(program.arena.span(program.arena.block(def.body).span), "function has no checked effect contract", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        };
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
         if pending.kind == crate::sema::types::CallableKind::Proc
-            && (!callable.type_parameters().is_empty() || !callable.row_parameters().is_empty())
-            && effects.is_none()
+            && (callable.is_quantified())
+            && !effects.is_known()
         {
             self.error(program.arena.span(program.arena.block(def.body).span),
-                "generic proc requires a finite checked effect contract", DiagnosticCode::CheckLocalInference);
+                "generic proc requires a known checked effect contract", DiagnosticCode::CheckLocalInference);
             return None;
         }
         let scheme = Arc::new(
@@ -524,8 +543,19 @@ impl Checker {
             )
             .ok()?,
         );
-        let scheme_body_facts = if callable.type_parameters().is_empty()
-            && callable.row_parameters().is_empty()
+        let mut proc_return_sites = BTreeMap::new();
+        if matches!(scheme.return_type(), super::super::schemes::SchemeType::Parameter(_)) {
+            for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
+                let mut representative = None;
+                for site in sites {
+                    let application = self.type_constraints.generalized_application_ordinal(site.application, pending.generalized_scope()?).ok()??;
+                    let candidate = super::super::schemes::SchemeProcReturnSite { application, envelope: site.envelope };
+                    if representative.is_none_or(|previous: super::super::schemes::SchemeProcReturnSite| previous.application > application) { representative = Some(candidate); }
+                }
+                proc_return_sites.insert(span, representative?);
+            }
+        }
+        let scheme_body_facts = if !callable.is_quantified()
         {
             None
         } else {
@@ -533,7 +563,7 @@ impl Checker {
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ) {
+            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";
@@ -1464,7 +1494,7 @@ pub(super) fn callable_type_from_function_signature(
     sig: &FunctionSig,
 ) -> Option<super::CallableType> {
     let scheme = sig.scheme();
-    if !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty() {
+    if scheme.callable().is_quantified() {
         return None;
     }
     let params = scheme
@@ -1482,7 +1512,7 @@ pub(super) fn callable_type_from_function_signature(
     Some(super::CallableType {
         params,
         return_ty: Box::new(scheme.return_type().closed_ground_type()?),
-        effects: scheme.effects().map(<[_]>::to_vec),
+        effects: crate::sema::types::CallableEffects::from_contract(scheme.effects().contract().substitute(|_| Err(())).ok()?),
     })
 }
 
@@ -1561,8 +1591,7 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
                     crate::sema::types::CallableKind::Pure => super::ModuleExportType::Pure { sig, optional: false },
                     crate::sema::types::CallableKind::Stream => unreachable!(),
                 }
-            } else if !signature.scheme().type_parameters().is_empty()
-                || !signature.scheme().row_parameters().is_empty()
+            } else if signature.scheme().callable().is_quantified()
             {
                 super::ModuleExportType::GenericCallable { kind, optional: false }
             } else { continue };

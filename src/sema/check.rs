@@ -446,6 +446,7 @@ pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
+pub use crate::sema::effects::{CheckedEffectScope, CheckedEffects, UnresolvedCallableEffects};
 use self::infer_effects::{DeferredEffectCheck, EffectGraph, EffectSummary};
 use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
@@ -579,7 +580,7 @@ pub struct CheckOutput {
     pub stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
-    pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub callable_effects: FxHashMap<String, CheckedEffects>,
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
     pub(crate) stream_origin_summaries: stream_origins::StreamOriginSummaries,
     pub assertion_effect_spans: BTreeSet<Span>,
@@ -976,6 +977,12 @@ pub enum AnnotationFactKind {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct BindingSchemaFacts {
+    expectation: Option<super::constants::SchemaExpectation>,
+    origin: Option<super::constants::SchemaExpectation>,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     id: Option<BindingId>,
@@ -990,7 +997,7 @@ pub(super) struct Binding {
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
-    schema_expectation: Option<super::constants::SchemaExpectation>,
+    schemas: BindingSchemaFacts,
 }
 
 impl Binding {
@@ -1008,7 +1015,7 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
-            schema_expectation: None,
+            schemas: BindingSchemaFacts::default(),
         }
     }
 
@@ -1128,6 +1135,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_scope(&self) -> Option<&super::constraints::CallableGeneralizationScope> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.generalization_scope),
+        }
+    }
+
     pub(super) fn generalized_body_types(
         &self,
     ) -> Option<&BTreeMap<ExprId, super::schemes::SchemeType>> {
@@ -1163,6 +1177,7 @@ impl PendingFunctionSig {
     pub(super) fn generalize(
         &mut self,
         callable: Arc<super::schemes::CallableScheme>,
+        generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1174,6 +1189,7 @@ impl PendingFunctionSig {
         );
         self.callable = PendingCallable::Generalized(GeneralizedCallable {
             callable,
+            generalization_scope,
             body_types,
             tail_types,
             registered_calls,
@@ -1185,6 +1201,7 @@ impl PendingFunctionSig {
 #[derive(Clone, Debug)]
 struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
+    generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1238,10 +1255,28 @@ pub(super) struct FunctionParamSig {
 }
 
 #[derive(Clone, Debug)]
+pub(super) enum DeclarationEffects {
+    Pending(EffectDeclarationId),
+    Checked(CheckedEffects),
+}
+
+impl DeclarationEffects {
+    fn into_checked(self) -> Option<CheckedEffects> {
+        match self { Self::Pending(_) => None, Self::Checked(effects) => Some(effects) }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum InvocationEffects {
+    Pending(EffectDeclarationId),
+    Checked(crate::sema::types::CallableEffects),
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct FunctionCallContract {
     pub(super) params: Vec<FunctionParamSig>,
     pub(super) return_ty: Type,
-    pub(super) effects: Option<Vec<Effect>>,
+    pub(super) effects: InvocationEffects,
     pub(super) effect_declaration: Option<EffectDeclarationId>,
     pub(super) definition_target: Option<CheckedFunctionTarget>,
     instantiation: Option<PendingCallInstantiation>,
@@ -1283,12 +1318,13 @@ impl FunctionSig {
             super::schemes::SchemeType::Ground(return_ty),
             return_schema,
             explicit_return,
+            super::schemes::CallableRequirements::default(),
         )
         .ok()?;
         let scheme = super::schemes::TypeScheme::with_callable(
             kind,
             Arc::new(callable),
-            effects,
+            CheckedEffects::from_clause(effects),
             inferred_effects,
         )
         .ok()?;
@@ -1738,6 +1774,7 @@ pub struct Checker {
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    checked_schema_origins: BTreeMap<Span, super::constants::SchemaExpectation>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
@@ -1830,7 +1867,7 @@ pub struct Checker {
     pipeline_hole_types: BTreeMap<Span, Type>,
     /// Collected on first use; a checker checks one program.
     return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
-    inferred_returns: Option<Vec<(Type, Span)>>,
+    inferred_returns: Option<Vec<infer_return::InferredReturn>>,
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
@@ -1849,6 +1886,7 @@ pub struct Checker {
     stream_origin_outputs: stream_origins::StreamOriginSummaries,
     stream_expr_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
     stream_stmt_origins: FxHashMap<Span, stream_origins::StreamOrigins>,
+    proc_return_sites: BTreeMap<EffectDeclarationId, BTreeMap<Span, Vec<infer_return::CheckedProcReturnSite>>>,
     stream_stmt_results: FxHashSet<Span>,
     stream_origin_owner: Option<EffectDeclarationId>,
     stream_target_definitions: BTreeMap<EffectDeclarationId, CheckedFunctionTarget>,
@@ -2163,6 +2201,7 @@ impl Checker {
             argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             record_constructor_instances: BTreeMap::new(),
+            checked_schema_origins: BTreeMap::new(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
@@ -2257,6 +2296,7 @@ impl Checker {
             stream_origin_outputs: stream_origins::StreamOriginSummaries::new(),
             stream_expr_origins: FxHashMap::default(),
             stream_stmt_origins: FxHashMap::default(),
+            proc_return_sites: BTreeMap::new(),
             stream_stmt_results: FxHashSet::default(),
             stream_origin_owner: None,
             stream_target_definitions: BTreeMap::new(),
@@ -2571,39 +2611,31 @@ impl Checker {
         }
     }
 
-    fn callable_effects(&self) -> FxHashMap<String, Option<Vec<Effect>>> {
+    fn callable_effects(&self) -> FxHashMap<String, CheckedEffects> {
         let mut effects = FxHashMap::default();
         for (name, declaration) in &self.procs {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, declaration) in &self.streams {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, sig) in self.qualified_procs.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         for (name, sig) in self.qualified_streams.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         effects
     }
 
     pub(crate) fn effects_covers(caller: &[Effect], required: &Effect) -> bool {
-        if caller.contains(required) {
-            return true;
-        }
-        // io subsumes fs, net, process, env but not time or error
-        caller.contains(&Effect::Io)
-            && matches!(
-                required,
-                Effect::Fs | Effect::Net | Effect::Process | Effect::Env
-            )
+        caller.iter().any(|permission| super::effects::effect_covers(permission, required))
     }
 
     pub(crate) fn check_callee_effects(

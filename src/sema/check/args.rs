@@ -138,8 +138,11 @@ impl Checker {
                             && label.span.end() <= span.end()
                     })
             });
-        if !argument_error && let Some(instantiation) = &contract.instantiation {
-            self.record_pending_call_instantiation(span, instantiation.clone());
+        if !argument_error {
+            match self.type_constraints.solve_callable_applications() {
+                Ok(()) => if let Some(instantiation) = &contract.instantiation { self.record_pending_call_instantiation(span, instantiation.clone()); },
+                Err(error) => self.error(span, &format!("callable application requirement failed: {error:?}"), DiagnosticCode::CheckCallableMismatch),
+            }
         }
     }
 

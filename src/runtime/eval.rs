@@ -19,7 +19,7 @@ use crate::runtime::signal::{
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
-    FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
+    CallableValue, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{BindingId, CheckBundleView, Checker, CompactDeclOutput};
@@ -798,6 +798,8 @@ struct BuildScratch {
     /// expressions until instruction encoding.
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
     call_instantiations: Vec<Option<CallInstantiation>>,
+    scheme_application_calls: Vec<Option<u32>>,
+    scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
@@ -972,6 +974,7 @@ impl BuildScratch {
         self.checked_expr_types.push(None);
         self.checked_call_targets.push(None);
         self.call_instantiations.push(None);
+        self.scheme_application_calls.push(None);
         self.checked_call_result_types.push(None);
         self.registered_calls.push(None);
         id
@@ -992,6 +995,14 @@ impl BuildScratch {
                 *target = Some(checked);
                 true
             }
+        }
+    }
+
+    fn record_scheme_application_call(&mut self, id: BuildExprId, ordinal: u32) -> bool {
+        let Some(fact) = self.scheme_application_calls.get_mut(id.index()) else { return false; };
+        match fact {
+            Some(previous) => *previous == ordinal,
+            None => { *fact = Some(ordinal); true }
         }
     }
 
@@ -2036,6 +2047,13 @@ pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
     }
 }
 
+pub(super) struct PreparedCallable {
+    program: Arc<FullProgram>,
+    function: LoweredFunctionKey,
+    kind: LoweredFunctionKind,
+    applications: indexed::full::PreparedInvocationBindings,
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -2061,8 +2079,8 @@ enum LoweredValue {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
-    Pure(FunctionName),
-    Proc(FunctionName),
+    Pure(CallableValue),
+    Proc(CallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the
@@ -7443,7 +7461,7 @@ impl Evaluator {
         let sig = CallableType {
             params: sig.params.clone(),
             return_ty: Box::new(sig.return_ty.clone()),
-            effects: sig.effects.clone(),
+            effects: crate::sema::types::CallableEffects::from_clause(sig.effects.clone()),
         };
         Arc::make_mut(&mut self.module_export_signatures)
             .insert(function, ModuleExportSignature { pure, sig });

@@ -18,7 +18,7 @@ pub mod check {
         CheckedCallableContract, ContractComparisonError, CheckedCliEntryContract, CliContractError,
         CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
         CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,
-        Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+        Checker, CheckedEffectScope, CheckedEffects, UnresolvedCallableEffects, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
         Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo, FunctionEffectFact,
         InstantiatedTypeExpressions, MessagePayloadConstructor, ProjectionOperation,
         RecordRequireMigration, RequirementTarget, ResolvedBindings, ResolvedTypeExpressions,
