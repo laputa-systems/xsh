@@ -10,6 +10,10 @@ use super::{
     lowered_value_matches, positional_call_args, single_positional_arena_call_arg,
 };
 
+pub(super) fn direct_iterable_result_needs_unwrap(kind: LoweredType) -> bool {
+    matches!(kind, LoweredType::Map | LoweredType::Str | LoweredType::Bytes | LoweredType::Stream)
+}
+
 pub(super) fn lower_const_param_default(
     arena: &AstArena,
     expr: ExprId,
@@ -266,7 +270,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let span = self.program.arena.expr(iter).span;
             return Some(self.set_as_list(lowered, span));
         }
-        if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
+        if matches!(checked, Some(Type::Result(ok, _)) if super::lowered_checked_type(&ok).is_some_and(direct_iterable_result_needs_unwrap))
         {
             Some(push_build_row!(
                 self,

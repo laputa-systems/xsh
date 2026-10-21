@@ -19,7 +19,7 @@ pub(super) fn supports_generalized_body(
     result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
     completion: BodyCompletion,
 ) -> bool {
-    use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprOrRun};
+    use crate::syntax::arena::ArenaExprOrRun;
     let block = program.arena.block(body);
     if !program.arena.block_params(block.params).is_empty() { return false; }
     let statements = program.arena.stmt_ids(block.statements).collect::<Vec<_>>();
@@ -31,12 +31,9 @@ pub(super) fn supports_generalized_body(
         match node.kind {
             ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. }
             | ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(value), .. } => {
-                let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return false };
-                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value) { return false; }
-                if name.as_str() != "_" {
-                    let Some(binding) = bindings.declaration_sites.get(&(node.span, name)) else { return false };
-                    available.insert(*binding);
-                }
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)
+                    || !declare_target_bindings(program, bindings, target, &mut available)
+                { return false; }
             }
             ArenaStmtKind::Assign { target, value: ArenaExprOrRun::Expr(value), .. } => {
                 let crate::syntax::arena::ArenaAssignTargetKind::Name(name) = program.arena.assign_target(target).kind else { return false };
@@ -69,6 +66,13 @@ pub(super) fn supports_generalized_body(
                         arm.guard.is_none_or(|guard| is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, guard))
                             && supports_generalized_body(program, arm.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)
                     }) { return false; }
+            }
+            ArenaStmtKind::For { target, iter, block } => {
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, iter) { return false; }
+                let mut inner = available.clone();
+                if !declare_target_bindings(program, bindings, target, &mut inner)
+                    || !supports_generalized_body(program, block, bindings, &inner, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement)
+                { return false; }
             }
             ArenaStmtKind::Loop { block } => {
                 if !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Statement) { return false; }
@@ -110,6 +114,22 @@ pub(super) fn supports_generalized_body(
         }
         _ => false,
     }
+}
+
+fn declare_target_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, target: crate::syntax::arena::BindingTargetId, available: &mut FxHashSet<BindingId>) -> bool {
+    let mut pending = vec![target];
+    while let Some(target) = pending.pop() {
+        match program.arena.binding_target(target).kind {
+            crate::syntax::arena::ArenaBindingTargetKind::Name(name) => {
+                if name.as_str() != "_" {
+                    let Some(binding) = bindings.target(target) else { return false };
+                    available.insert(binding);
+                }
+            }
+            crate::syntax::arena::ArenaBindingTargetKind::Record { fields, .. } => pending.extend(program.arena.destructure_fields(fields).iter().map(|field| field.target)),
+        }
+    }
+    true
 }
 
 fn pattern_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, available: &FxHashSet<BindingId>, pattern: crate::syntax::arena::PatternId) -> FxHashSet<BindingId> {
@@ -493,6 +513,46 @@ mod ordinary_body_tests {
             "pure keep(value, item: Int) { let _ = {1, item}; value }",
             "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)",
         );
+    }
+
+    #[test]
+    fn generic_iteration_record_bindings_retain_renamed_payloads() {
+        accepts("pure keep(value) { let {item: copy} = {item: value}; copy }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_nested_bindings_retain_projected_payloads() {
+        accepts("pure keep(value) { let {nested: {item: copy, ..}, ..} = {nested: {item: value, ignored: 1}, extra: true}; copy }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_shadowed_bindings_keep_lexical_identity() {
+        accepts("pure keep(value) { let {item: copy} = {item: value}; let result = { let {item: copy} = {item: copy}; copy }; result }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_mutable_record_bindings_keep_one_payload_domain() {
+        accepts("proc keep(value) [] { var {item: copy} = {item: value}; copy = value; copy }", "let number: Int = keep(7)?\nlet text: Str = keep(\"value\")?");
+    }
+
+    #[test]
+    fn generic_iteration_list_items_retain_the_payload_binder() {
+        accepts("pure keep(value) { var result = value; for item in [value] { result = item }; result }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_record_items_retain_projected_payloads() {
+        accepts("pure keep(value) { var result = value; for {item: copy} in [{item: value}] { result = copy }; result }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_nested_loops_own_break_and_continue() {
+        accepts("pure keep(value) { var result = value; for row in [[value]] { for item in row { result = item; continue }; break }; result }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_iteration_closed_sources_keep_their_item_domains() {
+        accepts("pure keep(value) { for item in [1] { let _ = item }; for byte in b\"x\" { let _ = byte }; for letter in \"x\" { let _ = letter }; for entry in {[\"key\"]: value} { let _ = entry.value }; value }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
     }
 
     #[test]

@@ -762,3 +762,166 @@ fn generic_operators_unsigned_map_membership_keeps_the_ordinary_validation_bound
         }
     }
 }
+
+#[test]
+fn generic_iteration_destructured_sources_preserve_order_and_binder_identity() {
+    let source = "proc copy(value) [] { var count = 0; let {item: original} = { count = count + 1; {item: value} }; var {item: changed, nested: {copy}} = { count = count + 10; {item: original, nested: {copy: original}} }; changed = value; let result = { let {item: original} = {item: copy}; original }; {value: result, changed, count} }\nproc number() [] { copy(7) }\nproc text() [] { copy(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked proc retains its success boundary") };
+            let Value::Record(fields) = *actual else { panic!("the checked result remains a record") };
+            assert_eq!(fields.get("value"), Some(&expected));
+            assert_eq!(fields.get("changed"), Some(&expected));
+            assert_eq!(fields.get("count"), Some(&Value::Int(11)));
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_for_sources_evaluate_once_and_keep_the_snapshot() {
+    let source = "proc copy(value) [] { var count = 0; var rows = [value, value]; var result = value; for item in { count = count + 1; rows } { count = count + 10; result = item; rows = [] }; {value: result, count} }\nproc number() [] { copy(7) }\nproc text() [] { copy(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked proc retains its success boundary") };
+            let Value::Record(fields) = *actual else { panic!("the checked result remains a record") };
+            assert_eq!(fields.get("value"), Some(&expected));
+            assert_eq!(fields.get("count"), Some(&Value::Int(21)));
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_finite_sources_preserve_canonical_item_order() {
+    for (ty, value, item, expected) in [
+        ("List[Int]", "[2, 1]", "item", 21),
+        ("Map[Str, Int]", "{[\"b\"]: 2, [\"a\"]: 1}", "item.value", 12),
+        ("Str", "\"x🙂\"", "if item == \"x\" { 1 } else { 2 }", 12),
+        ("Bytes", "b\"ab\"", "item", 1068),
+        ("Set[Int]", "{2, 1}", "item", 12),
+    ] {
+        for wrapped in [false, true] {
+            let ty = if wrapped { format!("Result[{ty}, Error]") } else { ty.to_string() };
+            let value = if wrapped { format!("Ok({value})") } else { value.to_string() };
+            let source = format!("proc copy(marker, rows: {ty}) [error] {{ var count = 0; var ordered = 0; for item in rows {{ count = count + 1; let selected = {item}; ordered = ordered * 10 + selected }}; {{marker, count, ordered}} }}\nproc number() [error] {{ copy(7, {value}) }}\nproc text() [error] {{ copy(\"value\", {value}) }}\n");
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                for (name, marker) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{ty} frames={force_frames}: {error:?}"));
+                    let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the loop retains its checked result boundary") };
+                    let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
+                    assert_eq!(fields.get("marker"), Some(&marker), "{ty} frames={force_frames}");
+                    assert_eq!(fields.get("count"), Some(&Value::Int(2)), "{ty} frames={force_frames}");
+                    assert_eq!(fields.get("ordered"), Some(&Value::Int(expected)), "{ty} frames={force_frames}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_result_sources_preserve_the_actual_error_payload() {
+    for item in ["List[Int]", "Map[Str, Int]", "Str", "Bytes", "Set[Int]"] {
+        let source = format!("error IterationFailure = Missing(message: Str) : NotFound\nproc copy(marker, rows: Result[{item}, IterationFailure]) [error] {{ for item in rows {{ let _ = item }}; marker }}\nproc number() [error] {{ copy(7, Err(.Missing(message: \"source failed\"))) }}\nproc text() [error] {{ copy(\"value\", Err(.Missing(message: \"source failed\"))) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for name in ["number", "text"] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let Value::Result(ResultValue::Err(error)) = actual else { panic!("the source failure must propagate") };
+                let Value::Error(error) = *error else { panic!("the nominal source failure remains an error value") };
+                assert_eq!(error.family, "IterationFailure", "{item} frames={force_frames}");
+                assert_eq!(error.variant, "Missing");
+                assert_eq!(error.message, "source failed");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_stream_break_stops_pulling_and_releases_the_source() {
+    let source = "var pulls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nstream rows() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 1; pulls = pulls + 100; yield [1][9] }\nproc copy(marker, source: Stream[Int]) [error] { for item in source { let _ = item; break }; marker }\nproc number() [error] { let value = copy(7, rows())?; {value, pulls, closed} }\nproc text() [error] { let value = copy(\"value\", rows())?; {value, pulls, closed} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the loop retains its checked result boundary") };
+            let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
+            assert_eq!(fields.get("value"), Some(&expected));
+            assert_eq!(fields.get("pulls"), Some(&Value::Int(1)), "frames={force_frames}");
+            assert_eq!(fields.get("closed"), Some(&Value::Int(1)), "frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_result_streams_keep_pulls_lazy_and_preserve_source_errors() {
+    let source = "error IterationFailure = Missing(message: Str) : NotFound\nvar created = 0\nvar pulls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nstream rows() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 1; pulls = pulls + 100; yield [1][9] }\nproc source(fail: Bool) [error] -> Result[Stream[Int], IterationFailure] { created = created + 1; if fail { Err(.Missing(message: \"source failed\")) } else { Ok(rows()) } }\nproc copy(marker, source: Result[Stream[Int], IterationFailure]) [error] { for item in source { let _ = item; break }; marker }\nproc number() [error] { let value = copy(7, source(false))?; {value, created, pulls, closed} }\nproc text() [error] { let value = copy(\"value\", source(false))?; {value, created, pulls, closed} }\nproc failed() [error] { copy(7, source(true)) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Some(Value::Int(7))), ("text", Some(Value::Str(Arc::from("value")))), ("failed", None)] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{name} frames={force_frames}: {error:?}"));
+            if let Some(expected) = expected {
+                let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked loop succeeds") };
+                let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
+                assert_eq!(fields.get("value"), Some(&expected));
+                assert_eq!(fields.get("created"), Some(&Value::Int(1)));
+                assert_eq!(fields.get("pulls"), Some(&Value::Int(1)));
+                assert_eq!(fields.get("closed"), Some(&Value::Int(1)));
+            } else {
+                let Value::Result(ResultValue::Err(error)) = actual else { panic!("the source failure propagates") };
+                let Value::Error(error) = *error else { panic!("the error preserves its nominal payload") };
+                assert_eq!((error.family.as_str(), error.variant.as_str(), error.message.as_str()), ("IterationFailure", "Missing", "source failed"));
+                for (name, expected) in [("created", 1), ("pulls", 0), ("closed", 0)] {
+                    let value = program.symbol_owner().with_current(|| evaluator.lookup(Name::intern(name)).map(|binding| binding.value.clone()));
+                    assert_eq!(value, Some(Value::Int(expected)));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_iteration_result_maps_preserve_the_payload_binder() {
+    let source = "pure copy(value) { var result = value; for {value: item} in Ok({[\"key\"]: value}) { result = item }; Ok(result) }\npure number() -> Result[Int] { copy(7) }\npure text() -> Result[Str] { copy(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the iterable retains its checked success boundary") };
+            assert_eq!(*actual, expected, "{name} frames={force_frames}");
+        }
+    }
+}

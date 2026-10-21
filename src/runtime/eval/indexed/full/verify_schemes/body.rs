@@ -57,7 +57,7 @@ impl LexicalScope {
 
 enum Obligation {
     Expression(usize, LexicalScope),
-    Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, slot: usize, ty: SchemeType, mutable: bool, initializer: usize },
+    Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, bindings: Vec<(usize, SchemeType, bool, Option<usize>)> },
     Block { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType> },
 }
 
@@ -87,14 +87,30 @@ fn condition(types: &BTreeMap<usize, SchemeType>, instruction: usize, role: crat
     Ok(())
 }
 
+#[derive(Clone, Copy)]
 enum BodyTypeRef<'a> {
     Scheme(&'a SchemeType),
     Ground(&'a Type),
 }
 
 impl<'a> BodyTypeRef<'a> {
+    fn unvalidated(mut self) -> Self {
+        loop {
+            self = match self {
+                Self::Scheme(SchemeType::Validated(_, base)) => Self::Scheme(base),
+                Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty),
+                Self::Ground(Type::Validated(base)) => Self::Ground(base.base()),
+                _ => return self,
+            };
+        }
+    }
+
+    fn is_record(self) -> bool {
+        matches!(self.unvalidated(), Self::Scheme(SchemeType::Record { .. }) | Self::Scheme(SchemeType::Ground(Type::Record(_))) | Self::Ground(Type::Record(_)))
+    }
+
     fn field(self, name: Name) -> Option<Self> {
-        match self {
+        match self.unvalidated() {
             Self::Scheme(SchemeType::Record { fields, .. }) => fields.get(&name).map(Self::Scheme),
             Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).field(name),
             Self::Ground(Type::Record(fields)) => fields.get(&name).map(Self::Ground),
@@ -146,6 +162,56 @@ fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection, bu
         }
         _ => Ok(None),
     }
+}
+
+fn iteration_item(source: &SchemeType, instruction: usize, expected_return: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
+    budget.charge(1)?;
+    match source {
+        SchemeType::Result(ok, error) => {
+            body_propagated_error_matches_owner(error, expected_return, budget)?;
+            direct_iteration_item(ok, super::producers::StreamProducer::ResultSuccess(instruction), budget)
+        }
+        SchemeType::Ground(Type::Result(ok, error)) => {
+            budget.charge_clone(error)?;
+            body_propagated_error_matches_owner(&SchemeType::Ground((**error).clone()), expected_return, budget)?;
+            budget.charge_clone(ok)?;
+            direct_iteration_item(&SchemeType::Ground((**ok).clone()), super::producers::StreamProducer::ResultSuccess(instruction), budget)
+        }
+        SchemeType::Validated(_, source) => iteration_item(source, instruction, expected_return, budget),
+        _ => direct_iteration_item(source, super::producers::StreamProducer::Value(instruction), budget),
+    }
+}
+
+fn direct_iteration_item(source: &SchemeType, stream_source: super::producers::StreamProducer, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
+    budget.charge(1)?;
+    match source {
+        SchemeType::Stream(item) => { budget.charge_scheme_clone(item)?; Ok(((**item).clone(), Some(stream_source))) }
+        SchemeType::List(item) | SchemeType::Set(item) => { budget.charge_scheme_clone(item)?; Ok(((**item).clone(), None)) }
+        SchemeType::Map(key, value) => {
+            budget.charge_scheme_clone(key)?;
+            budget.charge_scheme_clone(value)?;
+            budget.charge(2)?;
+            Ok((SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), (**key).clone()), (Name::intern("value"), (**value).clone())]), tail: crate::sema::schemes::SchemeRowTail::Closed }, None))
+        }
+        SchemeType::Validated(_, source) => direct_iteration_item(source, stream_source, budget),
+        SchemeType::Ground(source) => {
+            if matches!(source.unvalidated(), Type::Result(_, _)) { return Err(IrVerifyError::new("generic iteration source has no iterable contract")); }
+            budget.charge_clone(source)?;
+            source.iteration_item_type().map(|item| (SchemeType::Ground(item), matches!(source.unvalidated(), Type::Stream(_)).then_some(stream_source))).ok_or_else(|| IrVerifyError::new("generic iteration source has no iterable contract"))
+        }
+        _ => Err(IrVerifyError::new("generic iteration source has no iterable contract")),
+    }
+}
+
+fn target_bindings(target: super::super::decode::CompTargetView<'_>, source: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<BTreeMap<usize, SchemeType>, IrVerifyError> {
+    let mut bindings = BTreeMap::new();
+    let work = RefCell::new(budget);
+    FullDecoder::visit_comp_target_evidence(target, BodyTypeRef::Scheme(source),
+        |source| if source.is_record() { Ok(()) } else { Err(IrVerifyError::new("generic record target has no record source")) },
+        |source, name| Ok(source.field(name)),
+        |slot, source| { bindings.insert(slot, source.materialize(&mut work.borrow_mut())?); Ok(()) },
+        |amount| work.borrow_mut().charge(amount))?;
+    Ok(bindings)
 }
 
 fn subject_after_pattern(decoder: &FullDecoder<'_>, pattern: u32, guarded: bool, subject: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
@@ -205,7 +271,7 @@ pub(super) fn verify_body(
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, SchemeType>, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget,
-) -> Result<(BTreeSet<usize>, BTreeMap<usize, SchemeType>, BTreeSet<usize>), IrVerifyError> {
+) -> Result<(BTreeSet<usize>, BTreeMap<usize, SchemeType>, BTreeSet<usize>, Vec<super::producers::StreamProducer>), IrVerifyError> {
     let slot_count = decoder.slot_count as usize;
     for ty in slots.values() { budget.charge_scheme_clone(ty)?; }
     let mut writers = slots.clone();
@@ -214,11 +280,12 @@ pub(super) fn verify_body(
     let mut pending = vec![Obligation::Block { statements: statements.into(), position: 0, scope, value: None }];
     let mut visited = BTreeSet::new();
     let mut visited_statements = BTreeSet::new();
+    let mut stream_iterations = Vec::new();
     while let Some(obligation) = pending.pop() {
         budget.charge(1)?;
         match obligation {
-            Obligation::Publish { statements, position, scope, value, slot, ty, mutable, initializer } => {
-                declare(&scope, &mut scopes, slot, ty, mutable, Some((initializer, scope)), budget)?;
+            Obligation::Publish { statements, position, scope, value, bindings } => {
+                for (slot, ty, mutable, initializer) in bindings { declare(&scope, &mut scopes, slot, ty, mutable, initializer.map(|initializer| (initializer, scope)), budget)?; }
                 pending.push(Obligation::Block { statements, position, scope, value });
             }
             Obligation::Expression(instruction, scope) => {
@@ -282,7 +349,7 @@ pub(super) fn verify_body(
                         if slot >= slot_count || writers.insert(slot, declared.clone()).is_some() { return Err(IrVerifyError::new("generic declaration slot is duplicated or out of bounds")); }
                         let initializer = value.raw() as usize;
                         let initializer_scope = scope;
-                        pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, slot, ty: declared, mutable, initializer });
+                        pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings: vec![(slot, declared, mutable, Some(initializer))] });
                         pending.push(Obligation::Expression(initializer, initializer_scope));
                         continue;
                     }
@@ -297,7 +364,25 @@ pub(super) fn verify_body(
                         } else if !body_type_matches(&actual, expected, budget)? || expected.closed_ground_type().is_some_and(|expected| expected.has_unsigned_constraint() && actual.closed_ground_type() != Some(expected)) { return Err(IrVerifyError::new("generic assignment disagrees with its invariant slot contract")); }
                         expressions.push(value.raw() as usize);
                     }
-                    schema::StmtView::LetRecord { source, target: super::super::decode::CompTargetView::Discard, .. } => expressions.push(source.raw() as usize),
+                    schema::StmtView::LetRecord { source, target, .. } => {
+                        if matches!(target, super::super::decode::CompTargetView::Discard) {
+                            expressions.push(source.raw() as usize);
+                        } else {
+                            let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic record declaration has no checked declaration fact"))?;
+                            let actual = expression_type(types, source.raw() as usize, budget)?;
+                            if !body_types_equal(&actual, &declared) { return Err(IrVerifyError::new("generic record declaration disagrees with its initializer")); }
+                            let projected = target_bindings(target, &declared, budget)?;
+                            let mut bindings = Vec::new();
+                            for (slot, ty) in projected {
+                                budget.charge_scheme_clone(&ty)?;
+                                if slot >= slot_count || writers.insert(slot, ty.clone()).is_some() { return Err(IrVerifyError::new("generic record declaration slot is duplicated or out of bounds")); }
+                                bindings.push((slot, ty, mutable, None));
+                            }
+                            pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings });
+                            pending.push(Obligation::Expression(source.raw() as usize, scope));
+                            continue;
+                        }
+                    }
                     schema::StmtView::Expr { value, .. } => expressions.push(value.raw() as usize),
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
@@ -332,6 +417,23 @@ pub(super) fn verify_body(
                             budget.charge(statements.len())?;
                             nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
                         }
+                    }
+                    schema::StmtView::ForRecord { target, iter, body, .. } => {
+                        let source = expression_type(types, iter.raw() as usize, budget)?;
+                        let (item, stream_source) = iteration_item(&source, iter.raw() as usize, expected_return, budget)?;
+                        if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push(source); }
+                        let bindings = target_bindings(target, &item, budget)?;
+                        let mut inner = branch_scope(&scope, &mut scopes, budget)?;
+                        inner.loop_depth += 1;
+                        for (slot, ty) in bindings {
+                            budget.charge_scheme_clone(&ty)?;
+                            if slot >= slot_count || writers.insert(slot, ty.clone()).is_some() { return Err(IrVerifyError::new("generic loop binding slot is duplicated or out of bounds")); }
+                            declare(&inner, &mut scopes, slot, ty, false, None, budget)?;
+                        }
+                        expressions.push(iter.raw() as usize);
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
                     }
                     schema::StmtView::While { condition: condition_value, body } => {
                         condition(types, condition_value.raw() as usize, crate::sema::types::ConditionRole::Control, budget)?;
@@ -373,7 +475,7 @@ pub(super) fn verify_body(
             }
         }
     }
-    Ok((visited, writers, visited_statements))
+    Ok((visited, writers, visited_statements, stream_iterations))
 }
 
 #[cfg(test)]
@@ -1444,6 +1546,192 @@ mod tests {
         let deep = prepare(&source(12));
         eprintln!("ordinary nested chain depth 8/12 rows: {}/{}", shallow.instruction_count(), deep.instruction_count());
         assert!(deep.instruction_count() <= shallow.instruction_count() * 2, "ordinary nested chain rows grew from {} to {}", shallow.instruction_count(), deep.instruction_count());
+    }
+
+    #[test]
+    fn generic_iteration_record_targets_authenticate_actual_field_domains() {
+        let program = prepare("pure keep(value, other) { let {item: copy, ..} = {item: value, other}; let _ = copy; value }");
+        let (owner, _) = generic_owner(&program);
+        let declaration = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::StmtLetRecord && program.store.scheme_body_facts.iter().any(|fact| fact.instruction as usize == *instruction && fact.kind == FullSchemeBodyFactKind::LocalImmutable)).unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.data[declaration].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(changed.store.extra[words.start + 1], 1);
+        assert_eq!(changed.store.extra[words.start + 2], 1);
+        changed.store.extra[words.start + 3] = program.symbol_owner().with_current(|| Name::intern("other").symbol().raw());
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_iteration_record_declarations_require_unique_complete_evidence() {
+        let program = prepare("pure keep(value) { let {item: copy} = {item: value}; copy }");
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.kind == FullSchemeBodyFactKind::LocalImmutable && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::StmtLetRecord).unwrap();
+        let mut missing = program.clone();
+        missing.store.scheme_body_facts[fact].kind = FullSchemeBodyFactKind::Expression;
+        assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "generic body fact has an invalid instruction kind");
+        let duplicate = program.store.scheme_body_facts.iter().position(|other| other.kind == FullSchemeBodyFactKind::LocalImmutable && other.instruction != program.store.scheme_body_facts[fact].instruction).unwrap();
+        let mut changed = program.clone();
+        changed.store.scheme_body_facts[duplicate].instruction = changed.store.scheme_body_facts[fact].instruction;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic local declaration fact is duplicated");
+    }
+
+    #[test]
+    fn generic_iteration_record_mutability_and_all_writers_are_authenticated() {
+        let program = prepare("pure keep(value, other) { var {item: copy} = {item: value}; copy = value; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let writer = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize), _ => None,
+        }).unwrap();
+        let changed = retarget_record_operand(&program, owner, scheme, writer, 0, 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+        let mut immutable = program.clone();
+        let declaration = immutable.store.scheme_body_facts.iter_mut().find(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).unwrap();
+        declaration.kind = FullSchemeBodyFactKind::LocalImmutable;
+        assert_eq!(FullVerifier::verify(&immutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
+    }
+
+    #[test]
+    fn generic_iteration_loop_bindings_are_immutable_and_lexically_owned() {
+        let program = prepare("pure keep(value) { var result = value; for item in [value] { result = item }; value }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let slot = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::ForRecord { target: super::super::super::decode::CompTargetView::Slot(slot), .. }) => Some(slot), _ => None,
+        }).unwrap();
+        let writer = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let mut assigned = program.clone();
+        let words = assigned.store.data[writer].range().bounds(assigned.store.extra.len()).unwrap();
+        assigned.store.extra[words.start] = slot as u32;
+        assert_eq!(FullVerifier::verify(&assigned).unwrap_err().message, "generic assignment does not target a mutable declaration");
+        let tail = range.filter_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::Return { value }) => Some(value.raw() as usize), _ => None }).last().unwrap();
+        assert!(matches!(decoder.expression_view(tail).unwrap(), schema::ExprView::Param(0)));
+        let mut escaped = program.clone();
+        let words = escaped.store.data[tail].range().bounds(escaped.store.extra.len()).unwrap();
+        escaped.store.extra[words.start] = slot as u32;
+        assert_eq!(FullVerifier::verify(&escaped).unwrap_err().message, "generic body reads an uninitialized slot");
+    }
+
+    #[test]
+    fn generic_iteration_actual_item_domains_authenticate_the_loop_binder() {
+        let program = prepare("pure keep(value, other) { let rows = [value]; let spare = [other]; var result = value; for item in rows { result = item }; result }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let iter = range.clone().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::ForRecord { iter, .. }) => Some(iter.raw() as usize), _ => None }).unwrap();
+        let (declaration, initializer) = record_operand_binding(&program, owner, iter);
+        let schema::ExprView::Param(rows_slot) = decoder.expression_view(initializer).unwrap() else { panic!("the loop source reads its declared list") };
+        let (spare_slot, spare_type) = range.clone().filter_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if slot != rows_slot => {
+                let fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == value.raw() as usize)?;
+                let ty = program.store.scheme_types[fact.ty.index()];
+                (ty.tag == FullSchemeTypeTag::List).then_some((slot, ty))
+            }
+            _ => None,
+        }).find(|(_, ty)| {
+            let child = program.store.scheme_types[SchemeTypeId::from_raw(ty.first).unwrap().index()];
+            child.tag == FullSchemeTypeTag::Parameter && child.first == 1
+        }).unwrap();
+        let actual_item = program.store.scheme_types[SchemeTypeId::from_raw(spare_type.first).unwrap().index()];
+        let mut changed = program.clone();
+        let words = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = spare_slot as u32;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, iter].contains(&(fact.instruction as usize)) {
+                let list = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(list.tag, FullSchemeTypeTag::List);
+                let item = &mut changed.store.scheme_types[SchemeTypeId::from_raw(list.first).unwrap().index()];
+                assert_eq!(item.tag, FullSchemeTypeTag::Parameter);
+                item.first = actual_item.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_iteration_stream_error_sources_must_fit_the_owner_boundary() {
+        let mut program = prepare("error First = Missing\nstream safe() [] -> Stream[Int] { yield 1 }\nstream failing() [error] -> Stream[Int] { yield [1][9] }\nproc keep(marker, result: Result[Int, First]) [error] -> Result[Int, First] { for item in safe() { let _ = item }; result }");
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        let (owner, scheme_id) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. }))).unwrap();
+        let failing = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "failing").unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.data[call].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = IrFunctionId::new(failing).unwrap().raw();
+        let selected = changed.store.checked_call_targets.iter_mut().find(|target| target.instruction as usize == call).unwrap();
+        selected.function = IrFunctionId::new(failing).unwrap();
+        let changed_decoder = decoder_for_function(&changed.store, owner).unwrap();
+        let (schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) = changed_decoder.expression_view(call).unwrap() else { panic!("the source retains its selected call") };
+        assert_eq!(function.id.index(), failing);
+        assert_eq!(changed.store.checked_call_targets.iter().find(|target| target.instruction as usize == call).unwrap().function.index(), failing);
+        let effects = super::super::super::verify_effects::function_effects(&changed.store, failing).unwrap().unwrap();
+        assert!(effects.contains(&crate::syntax::node::Effect::Error));
+        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scope = scopes[scheme_id.index()].as_ref().unwrap();
+        let scheme = program.store.schemes[scheme_id.index()];
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        let owner_return = decode_scheme_type(&program.store, scope, scheme.return_type, &mut budget, 0).unwrap();
+        let actual_error = match &owner_return {
+            SchemeType::Result(_, error) => error.closed_ground_type().unwrap(),
+            SchemeType::Ground(Type::Result(_, error)) => (**error).clone(),
+            _ => panic!("the actual owner has a result boundary: {owner_return:?}"),
+        };
+        let params = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let declared_result = decode_scheme_type(&program.store, scope, program.store.scheme_params[params.start + 1].ty, &mut budget, 0).unwrap().closed_ground_type().unwrap();
+        let Type::Result(_, first) = declared_result else { panic!("the source formal retains its declared First boundary") };
+        assert_eq!(actual_error, *first, "actual owner: {owner_return:?}, changed target effects: {effects:?}");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic propagated error disagrees with its owner boundary");
+    }
+
+    #[test]
+    fn generic_iteration_result_source_errors_must_fit_the_owner_boundary() {
+        let program = prepare("error First = Missing\nerror Second = Missing\npure keep(marker, rows: Result[List[Int], First], other: Result[List[Int], Second]) -> Result[Int, First] { for item in rows { let _ = item }; Ok(7) }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let iter = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::ForRecord { iter, .. }) => Some(iter.raw() as usize), _ => None,
+        }).unwrap();
+        let (declaration, initializer, read) = guarded_receiver_source(&program, owner, iter);
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        assert_eq!(wrong.tag, FullSchemeTypeTag::Result);
+        let error = program.store.scheme_types[SchemeTypeId::from_raw(wrong.second).unwrap().index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
+                let result = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(result.tag, FullSchemeTypeTag::Result);
+                let actual_error = &mut changed.store.scheme_types[SchemeTypeId::from_raw(result.second).unwrap().index()];
+                assert_eq!(actual_error.tag, error.tag);
+                actual_error.first = error.first;
+                actual_error.second = error.second;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic propagated error disagrees with its owner boundary");
+    }
+
+    #[test]
+    fn generic_iteration_map_arguments_preserve_actual_key_and_value_domains() {
+        for (parameters, literal, from, to) in [
+            ("key: Str, wrong: Int", "{[key]: 1}", 0, 1),
+            ("number: Int, wrong: Str", "{[\"key\"]: number}", 0, 1),
+        ] {
+            let program = prepare(&format!("pure identity(value) {{ value }}\npure selected({parameters}) -> Map[Str, Int] {{ identity({literal}) }}"));
+            let owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "selected").map(|(owner, _)| owner).unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let operand = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == from)).unwrap();
+            let mut changed = program.clone();
+            let words = changed.store.data[operand].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start] = to as u32;
+            changed.store.checked_expr_types.retain(|fact| fact.instruction as usize != operand);
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic call argument does not match its checked parameter slot");
+        }
+        prepare("pure identity(value) { value }\npure selected(rows: Map[Str, Int]) -> Map[Str, Int] { identity({[\"first\"]: 1, ...rows, [\"last\"]: 2}) }");
     }
 
 }

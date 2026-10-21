@@ -103,9 +103,15 @@ enum CapturedResultUse {
     Iterate,
 }
 
-enum StreamProducer {
+pub(super) enum StreamProducer {
     Value(usize),
     ResultSuccess(usize),
+}
+
+pub(super) struct StreamIteration {
+    pub(super) owner: u32,
+    pub(super) source: StreamProducer,
+    pub(super) expected_return: Arc<crate::sema::schemes::SchemeType>,
 }
 
 enum ProcessWordRole {
@@ -262,7 +268,18 @@ impl GroundProducerIndex {
         }
         let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
             || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
-        let selected_demand = storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        let mut selected_demand = storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        if !selected_demand {
+            for (index, function) in store.functions.iter().enumerate() {
+                effect_demand_work += 1;
+                if !matches!(function.contract, FullCallableContract::Scheme(_)) { continue; }
+                let range = store.function_instruction_range(index)?;
+                if store.tags[range].iter().any(|tag| { effect_demand_work += 1; *tag == FullTag::StmtForRecord }) {
+                    selected_demand = true;
+                    break;
+                }
+            }
+        }
         let driver_output_demand = !selected_demand && store.driver_steps.iter().any(|step| {
             effect_demand_work += 1;
             step.tag == super::super::FullDriverTag::LetRecord
@@ -807,13 +824,16 @@ struct ProducerProof<'a> {
     budget: SchemeInstantiationBudget,
 }
 
-pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, stream_iterations: Vec<StreamIteration>) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     if index.demand == crate::runtime::eval::ProducerDemand::Absent
         && store.checked_expr_types.iter().any(|fact| !fact.is_contract())
     {
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
-    if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
+    if index.demand == crate::runtime::eval::ProducerDemand::Absent {
+        if !stream_iterations.is_empty() { return Err(IrVerifyError::new("generic stream iteration has no mandatory producer demand")); }
+        return Ok(Vec::new());
+    }
     let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
     for &step in &index.driver_outputs {
@@ -879,6 +899,13 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
             let ty = proof.need_context(&decoder, argument)?.ok_or_else(|| IrVerifyError::new("generic call argument has no ground producer contract"))?;
             proof.expression(owner, argument, ty, false);
+        }
+    }
+    for iteration in stream_iterations {
+        proof.budget.charge(1)?;
+        let decoder = proof.owner(iteration.owner)?;
+        if proof.stream_may_propagate_error(&decoder, iteration.source)? {
+            super::body_propagated_error_matches_owner(&crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.expected_return, &mut proof.budget)?;
         }
     }
     proof.finish()?;

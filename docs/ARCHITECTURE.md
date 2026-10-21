@@ -194,6 +194,15 @@ canonical lexical binding; native result projection uses argument shape only
 when all compatible signatures agree, while supplied operands are verified
 independently.
 
+Quantified destructuring and loop targets use the same projected-target visitor
+as ground declarations. Verification proves the source before publishing every
+binding with its actual field type and declaration mutability. Loop bindings
+live in a child lexical frame. The iterable's actual item type determines those
+bindings, including the success payload of one Result envelope. Result iterable
+adaptation uses the ordinary lowering decision, while stream error provenance
+uses the existing bounded producer walk and the enclosing checked result
+contract. All source producers and loop bodies remain mandatory proof roots.
+
 Explicit discard bindings consume values without propagating Result errors.
 Static storage annotations use checked-value validation; a failed annotation is
 a fatal type error. Explicit schema requirements retain their Result transport.

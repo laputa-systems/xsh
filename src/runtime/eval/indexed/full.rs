@@ -6878,42 +6878,51 @@ impl<'a> FullDecoder<'a> {
         source_type: &Type,
         mut charge: impl FnMut(usize, Option<&Type>) -> Result<(), IrVerifyError>,
     ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
-        let mut pending = vec![(target, source_type)];
         let mut output_types = BTreeMap::new();
+        let charge = RefCell::new(&mut charge);
+        Self::visit_comp_target_evidence(target, source_type,
+            |source_type| if matches!(source_type.unvalidated(), Type::Record(_)) { Ok(()) } else { Err(IrVerifyError::new("driver record source field path is not a record")) },
+            |source_type, name| Ok(match source_type.unvalidated() {
+                Type::Record(fields) => fields.get(&name),
+                _ => None,
+            }),
+            |slot, source_type| {
+                charge.borrow_mut()(0, Some(source_type))?;
+                output_types.insert(slot, (*source_type).clone());
+                Ok(())
+            },
+            |amount| charge.borrow_mut()(amount, None))?;
+        Ok(output_types)
+    }
+
+    fn visit_comp_target_evidence<T>(
+        target: decode::CompTargetView<'_>, source_type: T,
+        mut record: impl FnMut(&T) -> Result<(), IrVerifyError>,
+        mut field: impl FnMut(&T, Name) -> Result<Option<T>, IrVerifyError>,
+        mut binding: impl FnMut(usize, &T) -> Result<(), IrVerifyError>,
+        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<(), IrVerifyError> {
+        let mut pending = vec![(target, source_type)];
+        let mut slots = rustc_hash::FxHashSet::default();
         while let Some((target, source_type)) = pending.pop() {
-            charge(1, None)?;
+            charge(1)?;
             match target {
                 decode::CompTargetView::Discard => {}
                 decode::CompTargetView::Slot(slot) => {
-                    charge(0, Some(source_type))?;
-                    if output_types
-                        .insert(slot, source_type.clone())
-                        .is_some()
-                    {
-                        return Err(IrVerifyError::new(
-                            "driver record target has duplicate output slots",
-                        ));
-                    }
+                    if !slots.insert(slot) { return Err(IrVerifyError::new("record target has duplicate output slots")); }
+                    binding(slot, &source_type)?;
                 }
                 decode::CompTargetView::Record { mut fields } => {
-                    let Type::Record(source_fields) = source_type.unvalidated() else {
-                        return Err(IrVerifyError::new(
-                            "driver record source field path is not a record",
-                        ));
-                    };
-                    for field in &mut fields {
-                        let (name, target, _) = field?;
-                        let Some(field_type) = source_fields.get(&name) else {
-                            return Err(IrVerifyError::new(
-                                "driver record source field is missing",
-                            ));
-                        };
-                        pending.push((target, field_type));
+                    record(&source_type)?;
+                    for selected in &mut fields {
+                        let (name, target, _) = selected?;
+                        let ty = field(&source_type, name)?.ok_or_else(|| IrVerifyError::new("record target source field is missing"))?;
+                        pending.push((target, ty));
                     }
                 }
             }
         }
-        Ok(output_types)
+        Ok(())
     }
 
     fn driver_local_let_source(

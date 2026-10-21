@@ -3305,6 +3305,27 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     BuildStmtRow::Match { value: subject, arms: lowered_arms, span: node.span }
                 }
+                ArenaStmtKind::For { target, iter, block } => {
+                    let item_type = facts.expression_types().get(&iter)?.closed_ground_type().and_then(|ty| ty.iteration_item_type());
+                    let mut iter = self.lower_scheme_expression(iter, slots, current_function, facts, visited, lowered_types, body)?;
+                    let source = lowered_types.get(&iter)?;
+                    let success = match source {
+                        SchemeType::Result(ok, _) => Some((**ok).clone()),
+                        SchemeType::Ground(Type::Result(ok, _)) => Some(SchemeType::Ground((**ok).clone())),
+                        _ => None,
+                    };
+                    if let Some(success) = success
+                        && lowered_scheme_physical_type(&success).is_some_and(values::direct_iterable_result_needs_unwrap)
+                    {
+                        iter = push_build_row!(self, expr, BuildExprRow::Try { value: iter, span: node.span });
+                        lowered_types.insert(iter, success);
+                    }
+                    let saved = slots.enter();
+                    let target = self.lower_comp_target_typed(target, slots, item_type.as_ref())?;
+                    let statements = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
+                    slots.exit(saved);
+                    BuildStmtRow::ForRecord { target, iter, body: statements, span: node.span }
+                }
                 ArenaStmtKind::Loop { block } => BuildStmtRow::Loop { body: self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)? },
                 ArenaStmtKind::While { condition, block } => BuildStmtRow::While {
                     condition: self.lower_scheme_lazy_expression(condition, slots, current_function, facts, visited, lowered_types)?,
@@ -3327,6 +3348,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(());
         }
         let (target, annotation, expression, mutability) = declaration?;
+        if matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Record { .. }) {
+            let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
+            let source_type = lowered_types.get(&value)?.clone();
+            let stored_type = self.declarations.local_binding_types.get(&node.span).filter(|ty| !ty.contains_inference() && !ty.contains_recovery()).cloned().or_else(|| source_type.closed_ground_type());
+            let checked = self.lower_binding_storage_value(annotation, stored_type.as_ref(), lowered_scheme_physical_type(&source_type), value, node.span)?;
+            if checked != value { self.record_scheme_storage_elaboration(checked, &SchemeType::Ground(stored_type.clone()?), lowered_types); }
+            let ty = lowered_types.get(&checked)?.clone();
+            let target = self.lower_comp_target_typed(target, slots, stored_type.as_ref())?;
+            let declaration = push_build_row!(self, stmt, BuildStmtRow::LetRecord { source: checked, target, span: node.span });
+            slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty, mutability });
+            body.push(declaration);
+            return Some(());
+        }
         let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind else { return None; };
         let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
         if is_discard_name(name) {

@@ -3806,8 +3806,9 @@ annotation. The checker infers that type from the declaration body. An explicit
 appear beside quantified parameters. A quantified proc requires a finite
 checked effect contract. Required parameters in `stream` declarations, callable types, and module contracts still need annotations.
 
-A checked quantified body can use lexical `let` and `var` bindings, nested
-blocks, simple assignment, `if`, `match`, `while`, and `loop`, with `break`,
+A checked quantified body can use lexical `let` and `var` bindings, including
+record destructuring, nested blocks, simple assignment, `if`, `match`, `for`,
+`while`, and `loop`, with `break`,
 `continue`, and explicit value returns. Each mutable local has one type within
 an activation: every assignment must fit the same type, even when different
 calls instantiate that type differently. A nested binding cannot escape its
@@ -3815,6 +3816,13 @@ scope. Pattern bindings belong to their own match arm; guards retain the
 ordinary strict `Bool` contract. Value-loop results share constraints from
 reachable breaks belonging to that loop, including `Unit` for a bare break.
 Breaks in an inner loop do not determine an outer loop's result.
+Destructuring evaluates its source once before publishing its bindings. Each
+renamed or nested binding retains the selected field's type. A `for` binding is
+immutable and belongs only to its body. The source evaluates once and retains
+the ordinary item order and snapshot behavior. Result sources propagate their
+actual error family. Stream sources remain lazy, and leaving a loop releases
+its source through ordinary cleanup. The enclosing result contract must admit
+both source errors and errors from pulling a stream.
 
 Values may be scalar literals, parameter or local reads, ground immutable
 runtime captures, required `.field` projections, list literals without splices,
@@ -3877,8 +3885,8 @@ declaration's operations. Unsigned argument and map-key contracts keep the
 ordinary checked conversions and failure propagation.
 
 Unsupported quantified body shapes still produce a checking or preparation
-diagnostic, including destructuring declarations, `for`, dynamically selected
-calls, and captured mutable or resource state. Compile-time constant bindings and registered calls with specialized
+diagnostic, including dynamically selected calls and captured mutable or
+resource state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing
 defaulted parameters. Calls to user functions with defaulted or rest parameters

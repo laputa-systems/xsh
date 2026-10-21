@@ -157,9 +157,9 @@ struct SchemaCoverage {
 pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, contexts: producers::ProducerContexts<'_>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     let scopes = verify_function_schemes(store)?;
     verify_scheme_tables(store, &scopes)?;
-    verify_scheme_body_facts(store, &scopes, producer_index)?;
+    let stream_iterations = verify_scheme_body_facts(store, &scopes, producer_index)?;
     verify_call_instantiations(store, &scopes)?;
-    producers::verify(store, producer_index, contexts)
+    producers::verify(store, producer_index, contexts, stream_iterations)
 }
 
 fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>, IrVerifyError> {
@@ -899,7 +899,8 @@ fn verify_scheme_body_facts(
     store: &FullStore,
     scopes: &[Option<SchemeScope>],
     producer_index: &GroundProducerIndex,
-) -> Result<(), IrVerifyError> {
+) -> Result<Vec<producers::StreamIteration>, IrVerifyError> {
+    let mut stream_iterations = Vec::new();
     let mut covered = vec![false; store.scheme_body_facts.len()];
     let mut registered_coverage = BTreeSet::new();
     let mut owners = vec![None; scopes.len()];
@@ -934,7 +935,7 @@ fn verify_scheme_body_facts(
                 FullSchemeBodyFactKind::Tail if store.tags[instruction] == FullTag::StmtReturn => {
                     if tails.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body tail fact is duplicated")); }
                 }
-                FullSchemeBodyFactKind::LocalImmutable | FullSchemeBodyFactKind::LocalMutable if store.tags[instruction] == FullTag::StmtLet => {
+                FullSchemeBodyFactKind::LocalImmutable | FullSchemeBodyFactKind::LocalMutable if matches!(store.tags[instruction], FullTag::StmtLet | FullTag::StmtLetRecord) => {
                     if declarations.insert(instruction, (ty, fact.kind == FullSchemeBodyFactKind::LocalMutable)).is_some() { return Err(IrVerifyError::new("generic local declaration fact is duplicated")); }
                 }
                 _ => return Err(IrVerifyError::new("generic body fact has an invalid instruction kind")),
@@ -960,7 +961,7 @@ fn verify_scheme_body_facts(
         let statements = store.payload(block.instructions)?;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
-        let (visited, writers, visited_statements) = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget)?;
+        let (visited, writers, visited_statements, stream_sources) = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -984,9 +985,14 @@ fn verify_scheme_body_facts(
             }
         }
         if visited != encoded_expressions || visited_statements != encoded_statements { return Err(IrVerifyError::new("generic body contains an unchecked instruction")); }
+        if !stream_sources.is_empty() {
+            budget.charge(1 + stream_sources.len())?;
+            let expected_return = Arc::new(expected_return);
+            stream_iterations.extend(stream_sources.into_iter().map(|source| producers::StreamIteration { owner: decoder.owner, source, expected_return: Arc::clone(&expected_return) }));
+        }
     }
     if covered.iter().any(|covered| !covered) || store.registered_calls.keys().any(|instruction| !registered_coverage.contains(instruction)) { return Err(IrVerifyError::new("generic body metadata contains unowned rows")); }
-    Ok(())
+    Ok(stream_iterations)
 }
 
 fn body_types_equal(actual: &SchemeType, expected: &SchemeType) -> bool {
@@ -1004,6 +1010,19 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
         (Some(actual), Some(expected)) => initializer_type_matches_annotation(&actual, &expected, budget, 0),
         _ => Ok(false),
     }
+}
+
+fn body_propagated_error_matches_owner(error: &SchemeType, expected_return: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let compatible = match expected_return {
+        SchemeType::Result(_, expected_error) => body_type_matches(error, expected_error, budget)?,
+        SchemeType::Ground(Type::Result(_, expected_error)) => {
+            budget.charge_clone(expected_error)?;
+            body_type_matches(error, &SchemeType::Ground((**expected_error).clone()), budget)?
+        }
+        _ => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
+    };
+    if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
+    Ok(())
 }
 
 fn body_ordering_matches(left: &SchemeType, right: &SchemeType) -> Result<(), IrVerifyError> {
@@ -1403,17 +1422,7 @@ fn verify_body_expression(
                 !body_type_matches(actual_input, &SchemeType::Ground(required), budget)?
                     && matches!(expected_return, SchemeType::Result(_, _) | SchemeType::Ground(Type::Result(_, _)))
             } else { true };
-            if owner_required {
-                let compatible = match expected_return {
-                    SchemeType::Result(_, expected_error) => body_type_matches(&error, expected_error, budget)?,
-                    SchemeType::Ground(Type::Result(_, expected_error)) => {
-                        budget.charge_clone(expected_error)?;
-                        body_type_matches(&error, &SchemeType::Ground((**expected_error).clone()), budget)?
-                    }
-                    _ => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
-                };
-                if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
-            }
+            if owner_required { body_propagated_error_matches_owner(&error, expected_return, budget)?; }
             ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
@@ -2775,6 +2784,17 @@ fn checked_argument_type(
     Ok(Some(actual))
 }
 
+fn closed_literal_argument_type(actual: CheckedArgumentType, materialization: &mut SchemeInstantiationBudget) -> Result<Option<Type>, IrVerifyError> {
+    match actual {
+        CheckedArgumentType::Known(actual) | CheckedArgumentType::EmptyList(Some(actual)) => {
+            ensure_closed_type(&actual)?;
+            Ok(Some(actual))
+        }
+        CheckedArgumentType::ListItems(items) => merge_list_item_types(&items, materialization),
+        CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap => Ok(None),
+    }
+}
+
 fn checked_argument_type_inner(
     store: &FullStore,
     decoder: &FullDecoder<'_>,
@@ -2809,6 +2829,39 @@ fn checked_argument_type_inner(
     }
     match decoder.expression_view(instruction)? {
         schema::ExprView::EmptyMap => return Ok(Some(CheckedArgumentType::EmptyMap)),
+        schema::ExprView::MapLiteral(mut entries) => {
+            let mut key_type = None;
+            let mut values = Vec::new();
+            while entries.len() != 0 {
+                materialization.charge(1)?;
+                let (key, value, _) = entries.next().transpose()?.ok_or_else(|| IrVerifyError::new("map literal entry is missing"))?;
+                let Some(value) = checked_argument_type(store, decoder, use_instruction, value.raw() as usize, materialization, depth + 1)? else { return Ok(None) };
+                let (key, value) = if let Some(key) = key {
+                    let Some(key) = checked_argument_type(store, decoder, use_instruction, key.raw() as usize, materialization, depth + 1)? else { return Ok(None) };
+                    let Some(key) = closed_literal_argument_type(key, materialization)? else { return Ok(None) };
+                    let Some(value) = closed_literal_argument_type(value, materialization)? else { return Ok(None) };
+                    (key, value)
+                } else {
+                    if matches!(value, CheckedArgumentType::EmptyMap) { continue; }
+                    let Some(value) = closed_literal_argument_type(value, materialization)? else { return Ok(None) };
+                    let Type::Map(key, value) = value.into_unvalidated() else { return Ok(None) };
+                    (*key, *value)
+                };
+                if !key.is_map_key() { return Ok(None); }
+                if let Some(expected) = &key_type {
+                    if !initializer_type_matches_annotation(&key, expected, materialization, 0)? { return Ok(None); }
+                } else { key_type = Some(key); }
+                values.push(value);
+            }
+            let Some(key) = key_type else { return Ok(Some(CheckedArgumentType::EmptyMap)) };
+            let Some(Type::List(value)) = merge_list_item_types(&values, materialization)? else { return Ok(None) };
+            for actual in &values {
+                if !initializer_type_matches_annotation(actual, &value, materialization, 0)? { return Ok(None); }
+            }
+            ensure_closed_type(&value)?;
+            materialization.charge(3)?;
+            return Ok(Some(CheckedArgumentType::Known(Type::Map(Box::new(key), value))));
+        }
         schema::ExprView::List(mut values) => {
             let mut item_types = Vec::new();
             for value in &mut values {
