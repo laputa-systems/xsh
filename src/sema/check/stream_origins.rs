@@ -617,9 +617,15 @@ impl Checker {
         let statement = arena.arena.core_stmt_id(statement);
         let node = arena.arena.stmt(statement);
         let mut origin = StreamOrigins::default();
+        let mut result = ty.is_result();
         match node.kind {
             ArenaStmtKind::Expr(expression) => { origin = self.stream_expr_origin(arena, expression); }
-            ArenaStmtKind::TailBareIdent(name) => { origin = self.lookup_value_binding_at(name, node.span).binding().map(|binding| binding.stream_origins.clone()).unwrap_or_else(StreamOrigins::opaque); }
+            ArenaStmtKind::TailBareIdent(name) => {
+                if let Some(binding) = self.lookup_value_binding_at(name, node.span).binding() {
+                    origin = binding.stream_origins.clone();
+                    result = binding.ty.is_result();
+                } else { origin = StreamOrigins::opaque(); }
+            }
             ArenaStmtKind::If { branches, else_block } => {
                 for branch in arena.arena.if_branches(branches) { origin.join(&self.stream_block_origin(arena, branch.block)); }
                 if let Some(block) = else_block { origin.join(&self.stream_block_origin(arena, block)); }
@@ -637,7 +643,7 @@ impl Checker {
             origin = StreamOrigins::callable(target_id);
         }
         self.stream_stmt_origins.insert(node.span, origin);
-        if ty.is_result() { self.stream_stmt_results.insert(node.span); }
+        if result { self.stream_stmt_results.insert(node.span); }
         else { self.stream_stmt_results.remove(&node.span); }
     }
 
