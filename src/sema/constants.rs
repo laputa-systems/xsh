@@ -706,6 +706,22 @@ impl RecordConstructors {
         (type_count, bytes)
     }
 
+    pub(crate) fn visit_types(&self, mut visit: impl FnMut(&Type)) {
+        let instances = self
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned");
+        for (_, arguments, ty) in instances.iter() {
+            for argument in arguments {
+                visit(argument);
+            }
+            visit(ty);
+        }
+        for ty in self.error_types.values() {
+            visit(ty);
+        }
+    }
+
     pub fn collect(program: &ArenaProgram) -> Self {
         Self::collect_bundle(&CheckBundleView::whole_program(program))
     }

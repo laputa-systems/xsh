@@ -97,10 +97,16 @@ impl EffectConstraints {
         }
     }
 
-    fn enqueue(&mut self, predicate: usize, changes: &mut Vec<ConstraintChange>) {
+    fn enqueue(
+        &mut self,
+        predicate: usize,
+        changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
+    ) {
         if self.queued.insert(predicate) {
             self.pending.push_back(predicate);
             changes.push(ConstraintChange::Effect(EffectChange::Queued(predicate)));
+            counters.record_effect_worklist_wakeup();
         }
     }
 
@@ -157,25 +163,26 @@ impl EffectConstraints {
         id: EffectVariableId,
         contract: EffectContract<EffectVariableId>,
         changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
     ) -> Result<bool, EffectConstraintError> {
         if Self::dependencies(&contract).any(|dependency| dependency == id) {
             return Ok(false);
         }
         let dependencies = Self::dependencies(&contract).collect::<Vec<_>>();
         let level = self.variables.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.level;
-        self.lower_levels(&contract, level, changes)?;
+        self.lower_levels(&contract, level, changes, counters)?;
         let variable = self.variables.get_mut(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
         assert!(variable.binding.is_none());
         changes.push(ConstraintChange::Effect(EffectChange::Binding(id, variable.binding.replace(contract))));
         let watchers = self.watchers.get(&id).into_iter().flatten().copied().collect::<Vec<_>>();
         for predicate in watchers {
             for dependency in &dependencies { self.watch(*dependency, predicate, changes); }
-            self.enqueue(predicate, changes);
+            self.enqueue(predicate, changes, counters);
         }
         Ok(true)
     }
 
-    pub(super) fn lower_levels(&mut self, contract: &EffectContract<EffectVariableId>, level: u32, changes: &mut Vec<ConstraintChange>) -> Result<(), ConstraintResolutionError> {
+    pub(super) fn lower_levels(&mut self, contract: &EffectContract<EffectVariableId>, level: u32, changes: &mut Vec<ConstraintChange>, counters: &super::ConstraintCounters) -> Result<(), ConstraintResolutionError> {
         let mut pending = Self::dependencies(contract).map(|id| (id, 0)).collect::<Vec<_>>();
         let mut visited = BTreeSet::new();
         while let Some((id, depth)) = pending.pop() {
@@ -184,6 +191,7 @@ impl EffectConstraints {
             let variable = self.variables.get_mut(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if variable.level > level {
                 changes.push(ConstraintChange::Effect(EffectChange::Level(id, variable.level)));
+                counters.record_level_adjustment();
                 variable.level = level;
             }
             if let Some(binding) = &variable.binding {
@@ -193,7 +201,12 @@ impl EffectConstraints {
         Ok(())
     }
 
-    fn check(&mut self, predicate: &EffectPredicate, changes: &mut Vec<ConstraintChange>) -> Result<bool, EffectConstraintError> {
+    fn check(
+        &mut self,
+        predicate: &EffectPredicate,
+        changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
+    ) -> Result<bool, EffectConstraintError> {
         let resolved = predicate.try_map_contracts(|contract| self.resolve(contract, 0, &mut BTreeSet::new()))?;
         let resolved = match resolved {
             EffectPredicate::Equal(left, right) => {
@@ -201,12 +214,12 @@ impl EffectConstraints {
                 if let EffectContract::Known(expression) = &left
                     && let Some(id) = expression.single_variable()
                 {
-                    return self.bind(*id, right, changes);
+                    return self.bind(*id, right, changes, counters);
                 }
                 if let EffectContract::Known(expression) = &right
                     && let Some(id) = expression.single_variable()
                 {
-                    return self.bind(*id, left, changes);
+                    return self.bind(*id, left, changes, counters);
                 }
                 EffectPredicate::Equal(left, right)
             }
@@ -219,12 +232,16 @@ impl EffectConstraints {
         }
     }
 
-    fn drain(&mut self, changes: &mut Vec<ConstraintChange>) -> Result<(), EffectConstraintError> {
+    fn drain(
+        &mut self,
+        changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
+    ) -> Result<(), EffectConstraintError> {
         while let Some(predicate) = self.pending.pop_front() {
             assert!(self.queued.remove(&predicate));
             changes.push(ConstraintChange::Effect(EffectChange::Dequeued(predicate)));
             let obligation = self.predicates[predicate].clone();
-            self.check(&obligation, changes)?;
+            self.check(&obligation, changes, counters)?;
         }
         Ok(())
     }
@@ -299,6 +316,7 @@ impl TypeConstraints {
     pub(crate) fn fresh_effect_at_level(&mut self, origin: Span, level: u32) -> EffectVariableId {
         let id = EffectVariableId(NEXT_EFFECT_VARIABLE.fetch_add(1, Ordering::Relaxed));
         assert!(self.effects.variables.insert(id, EffectVariable { origin, level, binding: None }).is_none());
+        self.counters.record_effect_variable();
         if let Some(changes) = &mut self.trial_changes {
             changes.push(ConstraintChange::Effect(EffectChange::FreshVariable(id)));
         }
@@ -314,6 +332,7 @@ impl TypeConstraints {
     }
 
     pub(super) fn constrain_effect_inner(&mut self, predicate: EffectPredicate, changes: &mut Vec<ConstraintChange>) -> Result<(), EffectConstraintError> {
+        self.counters.record_effect_constraint();
         let dependencies = predicate.contracts().map(|contract| {
             self.effects.resolve(contract, 0, &mut BTreeSet::new()).map(|resolved| {
                 EffectConstraints::dependencies(&resolved).collect::<Vec<_>>()
@@ -323,16 +342,18 @@ impl TypeConstraints {
         self.effects.predicates.push(predicate);
         changes.push(ConstraintChange::Effect(EffectChange::Predicate));
         for dependency in dependencies.into_iter().flatten() { self.effects.watch(dependency, id, changes); }
-        self.effects.enqueue(id, changes);
-        self.effects.drain(changes)
+        self.effects.enqueue(id, changes, &self.counters);
+        self.effects.drain(changes, &self.counters)
     }
 
     pub(crate) fn finish_effect_constraints(&mut self) -> Result<(), EffectConstraintError> {
         self.apply_journaled(|this, changes| {
             for predicate in this.effects.predicates.clone() {
-                if !this.effects.check(&predicate, changes)? { return Err(EffectConstraintError::Unresolved); }
+                if !this.effects.check(&predicate, changes, &this.counters)? {
+                    return Err(EffectConstraintError::Unresolved);
+                }
             }
-            this.effects.drain(changes)
+            this.effects.drain(changes, &this.counters)
         })
     }
 }
@@ -386,6 +407,25 @@ mod tests {
         assert_eq!(constraints.finish_effect_constraints(), Err(EffectConstraintError::Unresolved));
         constraints.constrain_effect(EffectPredicate::Equal(EffectContract::variable(bound), finite([Effect::Env]))).unwrap();
         constraints.finish_effect_constraints().unwrap();
+    }
+
+    #[test]
+    fn measured_effect_solver_counts_cells_constraints_and_queue_work() {
+        let (work, ()) = crate::sema::inference_work::collect(|| {
+            let mut constraints = TypeConstraints::default();
+            let variable = constraints.fresh_effect_at_level(span(), 1);
+            constraints
+                .constrain_effect(EffectPredicate::Equal(
+                    EffectContract::variable(variable),
+                    finite([Effect::Env]),
+                ))
+                .unwrap();
+            constraints.finish_effect_constraints().unwrap();
+        });
+
+        assert_eq!(work.fresh_variables, 1);
+        assert_eq!(work.generated_constraints, 1);
+        assert!(work.worklist_wakeups > 0);
     }
 
     #[test]

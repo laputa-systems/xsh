@@ -740,6 +740,10 @@ impl CheckOutput {
             .append(&mut module.call_instantiations);
         self.local_binding_types
             .append(&mut module.local_binding_types);
+        self.function_body_check_entries = self
+            .function_body_check_entries
+            .checked_add(module.function_body_check_entries)
+            .expect("function body check entry count overflowed");
         self.proven_nonnull_fallback_receivers
             .append(&mut module.proven_nonnull_fallback_receivers);
         self.diagnostics.append(&mut module.diagnostics);

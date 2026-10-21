@@ -838,6 +838,8 @@ impl SchemeBodyFacts {
 
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
 
+    pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
+
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
         self.registered_calls = calls;
         self

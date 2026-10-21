@@ -340,6 +340,51 @@ baseline must establish which substantial cases exceed 50 ms of CPU and qualify
 resource, allocation, syscall, and completed-work counts. Post-inference source
 and products remain the final measurement baseline.
 
+### Canonical inference work
+
+`xsht frontend-stats --json` reports an `inference_work` object with exactly
+these twenty nonnegative integer fields on each entry-root record. Solver counts
+cover parse, load, checker, imported-module, and speculative-probe work in one
+measurement invocation. Cloned constraint probes share that invocation's
+counters, so failed and rolled-back work contributes once. The collector is
+invocation-scoped; ordinary checks do not retain a global statistics record.
+
+| Field | Counted work or output |
+|---|---|
+| `fresh_variables` | Type, row, and effect inference cells created, including cells created by failed probes. |
+| `generated_constraints` | Submitted type and row constraints and effect predicates, including speculative work. |
+| `representative_hops` | Parent links traversed while finding type and row representatives. |
+| `compression_writes` | Type or row parent links changed by path compression. |
+| `unifications` | Type and row unification pairs processed. |
+| `occurs_visits` | Type nodes visited by occurs checks. |
+| `row_field_visits` | Record fields inspected while solving row constraints. |
+| `scheme_instantiations` | Callable schemes instantiated by the checker. |
+| `successful_generic_call_resolutions` | Generic user-call resolutions that completed successfully. |
+| `worklist_wakeups` | Type and row solve steps processed plus effect predicates and callable applications enqueued for solving. |
+| `host_candidate_trials` | Host overload candidates whose constraints were tested. |
+| `host_obligation_requeues` | Host method obligations requeued while receiver types remain unresolved. |
+| `rollbacks` | Constraint transactions and candidate probes whose journal was undone. |
+| `rollback_changes` | Journal entries undone by those rollbacks. |
+| `level_adjustments` | Type, row, or effect cell levels lowered during solving. |
+| `effect_edge_visits` | Effect dependency edges inspected during deduplication, binding, fixed-point solving, and contract walks. |
+| `candidate_tests` | Calls to the canonical constraint-trial operation, including failed probes. |
+| `diagnostic_work` | Diagnostic records constructed across the source invocation, including discarded checker probes and reveal types cleared before publication. |
+| `output_type_nodes` | Structural `Type` and `SchemeType` nodes in the final compact declaration and body outputs, including call-instantiation type and row arguments; shared `Arc` payloads count once. |
+| `evidence_nodes` | Final compact effect facts, static callable aliases, stream-stage plans, body evidence records, and nested call-instantiation evidence. |
+
+Each retained scheme-body expression fact, tail fact, registered-call plan,
+read binding and Proc return site counts as one evidence node. Return-site IDs
+do not create output type nodes. Runtime-owned callable substitutions remain
+outside these frontend output counts.
+
+The same record reports `function_body_check_entries` separately. It counts
+actual Pure, Proc, Stream and signal-hook body entries across the root,
+imported modules and checker probes; repeated generic calls may increase `scheme_instantiations` without
+increasing source body checks. `output_type_nodes` and `evidence_nodes` are
+counted from the final merged compact output once, not reconstructed from
+solver counters or intermediate checker snapshots. `semantic_retained_bytes`
+remains a separate retained-typing measure.
+
 ### Fixture qualification scope
 
 The 2026-10-18 check used the immutable `laputa-xsh-seed-1` products from clean

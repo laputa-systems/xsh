@@ -8,6 +8,7 @@
 use crate::loader::parse_load_check_text;
 use crate::mem_track::{self, AllocTraffic};
 use crate::runtime::eval::{Evaluator, probe_compact_lower_constructed_bodies};
+use crate::sema::inference_work;
 use crate::sema::check::{
     CheckOptions, CheckOutput, CheckedDeclarations, CheckedErrorDeclaration,
     CheckedFunctionDeclaration, CheckedTypeDeclaration, Checker, CompactDeclOutput,
@@ -18,7 +19,7 @@ use crate::source::{SourceId, Span};
 use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io;
 use std::mem::size_of;
@@ -45,6 +46,30 @@ pub struct StageMetrics {
     pub tracking_active: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InferenceWorkMetrics {
+    pub fresh_variables: u64,
+    pub generated_constraints: u64,
+    pub representative_hops: u64,
+    pub compression_writes: u64,
+    pub unifications: u64,
+    pub occurs_visits: u64,
+    pub row_field_visits: u64,
+    pub scheme_instantiations: u64,
+    pub successful_generic_call_resolutions: u64,
+    pub worklist_wakeups: u64,
+    pub host_candidate_trials: u64,
+    pub host_obligation_requeues: u64,
+    pub rollbacks: u64,
+    pub rollback_changes: u64,
+    pub level_adjustments: u64,
+    pub effect_edge_visits: u64,
+    pub candidate_tests: u64,
+    pub diagnostic_work: u64,
+    pub output_type_nodes: u64,
+    pub evidence_nodes: u64,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FileFrontendStats {
     pub path: String,
@@ -64,6 +89,7 @@ pub struct FileFrontendStats {
     pub semantic_type_count: usize,
     pub semantic_retained_bytes: usize,
     pub function_body_check_entries: usize,
+    pub inference_work: InferenceWorkMetrics,
     pub source_map_retained_bytes: usize,
     pub lowered_function_count: usize,
     pub lowered_constructed_functions: usize,
@@ -567,6 +593,425 @@ fn measure_compact_body_types(
     )
 }
 
+#[derive(Default)]
+struct OutputTypeNodes {
+    count: usize,
+    shared_nodes: HashSet<usize>,
+}
+
+impl OutputTypeNodes {
+    fn add(&mut self, amount: usize) {
+        self.count = self
+            .count
+            .checked_add(amount)
+            .expect("output type node count overflowed");
+    }
+
+    fn first_shared<T>(&mut self, value: &std::sync::Arc<T>) -> bool {
+        self.shared_nodes
+            .insert(std::sync::Arc::as_ptr(value) as usize)
+    }
+
+    fn add_type(&mut self, ty: &Type) {
+        self.add(1);
+        match ty {
+            Type::List(inner)
+            | Type::Stream(inner)
+            | Type::Set(inner)
+            | Type::Optional(inner) => self.add_type(inner),
+            Type::Map(key, value) | Type::Result(key, value) => {
+                self.add_type(key);
+                self.add_type(value);
+            }
+            Type::Record(fields) if self.first_shared(fields) => {
+                for ty in fields.values() {
+                    self.add_type(ty);
+                }
+            }
+            Type::Module(module) => self.add_module_type(module),
+            Type::Callable(callable) => self.add_typed_callable(callable),
+            Type::Validated(validated) => self.add_type(validated.base()),
+            Type::Union(members) => {
+                for member in members {
+                    self.add_type(member);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn add_callable_type(&mut self, signature: &crate::sema::types::CallableType) {
+        for parameter in &signature.params {
+            self.add_type(&parameter.ty);
+        }
+        self.add_type(&signature.return_ty);
+    }
+
+    fn add_module_type(&mut self, module: &std::sync::Arc<ModuleType>) {
+        if !self.first_shared(module) {
+            return;
+        }
+        for export in module.exports.values() {
+            match export {
+                ModuleExportType::Value { ty, .. } => self.add_type(ty),
+                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                    self.add_callable_type(sig)
+                }
+                ModuleExportType::GenericCallable { .. } => {}
+            }
+        }
+    }
+
+    fn add_typed_callable(&mut self, callable: &std::sync::Arc<crate::sema::types::TypedCallable>) {
+        if self.first_shared(callable) {
+            self.add_callable_type(&callable.sig);
+        }
+    }
+
+    fn add_scheme_type(&mut self, ty: &crate::sema::schemes::SchemeType) {
+        use crate::sema::schemes::SchemeType;
+        self.add(1);
+        match ty {
+            SchemeType::Ground(ty) => self.add_type(ty),
+            SchemeType::Callable { monotype, .. } if self.first_shared(monotype) => {
+                for parameter in monotype.params() {
+                    self.add_scheme_type(&parameter.ty);
+                    if let Some(context) = &parameter.schema_expectation {
+                        self.add_schema(context);
+                    }
+                }
+                self.add_scheme_type(monotype.return_type());
+                if let Some(context) = monotype.return_schema() {
+                    self.add_schema(context);
+                }
+            }
+            SchemeType::List(inner)
+            | SchemeType::Stream(inner)
+            | SchemeType::Set(inner)
+            | SchemeType::Optional(inner)
+            | SchemeType::Validated(_, inner) => self.add_scheme_type(inner),
+            SchemeType::Map(key, value) | SchemeType::Result(key, value) => {
+                self.add_scheme_type(key);
+                self.add_scheme_type(value);
+            }
+            SchemeType::Record { fields, .. } => {
+                for ty in fields.values() {
+                    self.add_scheme_type(ty);
+                }
+            }
+            SchemeType::Union(members) => {
+                for member in members {
+                    self.add_scheme_type(member);
+                }
+            }
+            SchemeType::Parameter(_) | SchemeType::Callable { .. } => {}
+        }
+    }
+
+    fn add_schema(&mut self, context: &crate::sema::constants::SchemaExpectation) {
+        for instance in &context.instances {
+            for ty in &instance.arguments {
+                self.add_type(ty);
+            }
+        }
+        if self.first_shared(&context.children) {
+            for child in context.children.values() {
+                self.add_schema(child);
+            }
+        }
+    }
+
+    fn add_type_scheme(&mut self, scheme: &std::sync::Arc<crate::sema::schemes::TypeScheme>) {
+        if !self.first_shared(scheme) {
+            return;
+        }
+        for parameter in scheme.params() {
+            self.add_scheme_type(&parameter.ty);
+            if let Some(context) = &parameter.schema_expectation {
+                self.add_schema(context);
+            }
+        }
+        self.add_scheme_type(scheme.return_type());
+        if let Some(context) = scheme.return_schema() {
+            self.add_schema(context);
+        }
+        for application in &scheme.callable().requirements().applications {
+            self.add_scheme_type(&application.callee);
+            for argument in application.arguments.iter() {
+                self.add_scheme_type(&argument.ty);
+            }
+            self.add_scheme_type(&application.result);
+            for envelope in application.proc_returns.iter() {
+                self.add_scheme_type(&envelope.result);
+                for ty in envelope.propagated_errors.iter() {
+                    self.add_scheme_type(ty);
+                }
+            }
+        }
+    }
+}
+
+fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
+    use crate::sema::check::InferredVariant;
+
+    let mut nodes = OutputTypeNodes::default();
+    declarations
+        .record_constructors
+        .visit_types(|ty| nodes.add_type(ty));
+    for stage in declarations.stream_stage_types.values() {
+        nodes.add_type(&stage.input);
+        nodes.add_type(&stage.output);
+    }
+    for alias in declarations.static_callable_aliases.values() {
+        nodes.add_callable_type(&alias.signature);
+    }
+    for ty in declarations
+        .local_binding_types
+        .values()
+        .chain(declarations.function_return_types.values())
+        .chain(declarations.parameter_types.values())
+    {
+        nodes.add_type(ty);
+    }
+    for signature in declarations
+        .function_signatures
+        .values()
+        .chain(declarations.procs.values())
+        .chain(declarations.pures.values())
+        .chain(declarations.streams.values())
+        .chain(declarations.qualified_procs.values())
+        .chain(declarations.qualified_pures.values())
+        .chain(declarations.qualified_streams.values())
+    {
+        for parameter in &signature.params {
+            nodes.add_type(&parameter.ty);
+        }
+        nodes.add_type(&signature.return_ty);
+        for context in signature.parameter_schemas.iter().flatten() {
+            nodes.add_schema(context);
+        }
+    }
+    for info in declarations.types.values() {
+        match info {
+            CompactTypeDefInfo::Record(fields) => {
+                for ty in fields.values() {
+                    nodes.add_type(ty);
+                }
+            }
+            CompactTypeDefInfo::Module(module) => {
+                nodes.add_module_type(module);
+            }
+            CompactTypeDefInfo::Alias(_)
+            | CompactTypeDefInfo::Bounded(_, _)
+            | CompactTypeDefInfo::TagUnion => {}
+        }
+    }
+    for variant in declarations
+        .tag_variants_by_name
+        .values()
+        .chain(declarations.qualified_tag_variants.values())
+    {
+        for ty in &variant.field_types {
+            nodes.add_type(ty);
+        }
+    }
+    for family in declarations
+        .error_families_by_name
+        .values()
+        .chain(declarations.qualified_error_families.values())
+    {
+        for variant in family.variants.values() {
+            for ty in variant.fields.values() {
+                nodes.add_type(ty);
+            }
+        }
+    }
+    for scheme in declarations.function_schemes.values() {
+        nodes.add_type_scheme(scheme);
+    }
+    for facts in declarations.scheme_bodies.values() {
+        nodes.add_type_scheme(facts.scheme());
+        for ty in facts.expression_types().values().chain(facts.tail_types().values()) {
+            nodes.add_scheme_type(ty);
+        }
+        for plan in facts.registered_calls().values() {
+            for check in plan.argument_checks.iter().flatten() {
+                if let crate::sema::schemes::RegisteredArgumentCheck::Unsigned(ty) = check {
+                    nodes.add_type(ty);
+                }
+            }
+        }
+    }
+    for plan in &declarations.cli_entries {
+        for parameter in &plan.parameters {
+            nodes.add_type(&parameter.ty);
+        }
+    }
+    for ty in declarations.prepared_constants.types.values() {
+        nodes.add_type(ty);
+    }
+    for operator in declarations.prepared_constants.binary_operators.values() {
+        nodes.add_type(&operator.left_type);
+        nodes.add_type(&operator.right_type);
+        nodes.add_type(&operator.result_type);
+    }
+    for constructor in declarations
+        .prepared_constants
+        .record_constructor_instances
+        .values()
+    {
+        for ty in &constructor.instance.arguments {
+            nodes.add_type(ty);
+        }
+        nodes.add_type(&constructor.ty);
+    }
+
+    let body = &declarations.bodies;
+    for ty in body
+        .resolved_type_expressions
+        .annotations
+        .values()
+        .chain(body.resolved_type_expressions.templates.values())
+    {
+        nodes.add_type(ty);
+    }
+    for instance in body.resolved_type_expressions.instantiations.values() {
+        for ty in &instance.instance.arguments {
+            nodes.add_type(ty);
+        }
+        for ty in instance.expressions.values() {
+            nodes.add_type(ty);
+        }
+    }
+    for ty in body.expr_types.values() {
+        nodes.add_type(ty);
+    }
+    for target in body.requirement_targets.values() {
+        nodes.add_type(&target.ty);
+        nodes.add_schema(&target.context);
+    }
+    for call in body.api_calls.values() {
+        for ty in &call.params {
+            nodes.add_type(ty);
+        }
+    }
+    for instantiation in body.call_instantiations.values() {
+        for ty in instantiation.type_arguments().values() {
+            nodes.add_scheme_type(ty);
+        }
+        for row in instantiation.row_arguments().values() {
+            for ty in row.fields().values() {
+                nodes.add_scheme_type(ty);
+            }
+        }
+    }
+    for (_, ty) in body.selected_function_references.values() {
+        if let Some(ty) = ty {
+            nodes.add_type(ty);
+        }
+    }
+    for command in body.module_commands.values() {
+        for ty in &command.call.params {
+            nodes.add_type(ty);
+        }
+        for argument in &command.arguments {
+            if let crate::sema::check::CheckedCommandArgument::Word(ty) = argument {
+                nodes.add_type(ty);
+            }
+        }
+    }
+    for ty in body.handler_input_types.values() {
+        nodes.add_type(ty);
+    }
+    for variant in body.inferred_variants.values() {
+        if let InferredVariant::Tag { field_types, .. } = variant {
+            for ty in field_types {
+                nodes.add_type(ty);
+            }
+        }
+    }
+    for callable in body.typed_callable_calls.values() {
+        nodes.add_typed_callable(callable);
+    }
+    nodes.count
+}
+
+fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
+    let body = &declarations.bodies;
+    let scheme_body_nodes = declarations.scheme_bodies.values().try_fold(0usize, |total, facts| {
+        [facts.expression_types().len(), facts.tail_types().len(), facts.registered_calls().len(),
+            facts.read_bindings().len(), facts.proc_return_site_count()]
+            .into_iter().try_fold(total, usize::checked_add)
+    }).expect("scheme body evidence node count overflowed");
+    let call_nodes = body
+        .call_instantiations
+        .values()
+        .try_fold(0usize, |total, instantiation| {
+            let row_nodes = instantiation
+                .row_arguments()
+                .values()
+                .try_fold(0usize, |count, row| {
+                    count.checked_add(1)?.checked_add(row.fields().len())
+                })?;
+            let instance_nodes = 1usize
+                .checked_add(instantiation.type_arguments().len())?
+                .checked_add(row_nodes)?
+                .checked_add(instantiation.effect_arguments().len())?
+                .checked_add(instantiation.application_bindings().len())?;
+            total.checked_add(instance_nodes)
+        })
+        .expect("evidence node count overflowed");
+    [
+        declarations.function_effect_facts.len(),
+        declarations.stream_stage_types.len(),
+        declarations.static_callable_aliases.len(),
+        body.resolved_type_expressions.instantiations.len(),
+        body.projections.len(),
+        body.proven_nonnull_fallback_receivers.len(),
+        body.propagating_conditions.len(),
+        body.requirement_targets.len(),
+        body.api_calls.len(),
+        body.selected_function_calls.len(),
+        body.selected_function_references.len(),
+        body.statically_resolved_calls.len(),
+        body.module_commands.len(),
+        body.argument_bindings.len(),
+        body.statement_positions.len(),
+        body.handler_input_types.len(),
+        body.inferred_variants.len(),
+        body.path_literals.len(),
+        body.record_constructor_fields.len(),
+        body.inferred_variant_patterns.len(),
+        body.error_constructors.len(),
+        body.optional_binding_conditions.len(),
+        body.optional_binding_guards.len(),
+        body.collect_yields.len(),
+        body.typed_callable_calls.len(),
+        body.from_end_indexes.len(),
+        body.conversions.len(),
+        body.checked_control_flow.builtin_range_calls.len(),
+        body.checked_control_flow.result_constructors.len(),
+        body.checked_control_flow
+            .cardinality_preserving_collection_calls
+            .len(),
+        body.checked_control_flow.propagating_error_spans.len(),
+        body.checked_control_flow.latent_stream_error_spans.len(),
+        body.checked_control_flow.fallible_pipeline_stage_spans.len(),
+        body.checked_control_flow
+            .propagating_stage_callback_spans
+            .len(),
+        body.checked_control_flow.exhaustive_match_spans.len(),
+        body.resource_scopes.len(),
+        body.resource_transfers.len(),
+        body.text_patterns.len(),
+        scheme_body_nodes,
+        call_nodes,
+    ]
+    .into_iter()
+    .try_fold(0usize, usize::checked_add)
+    .expect("evidence node count overflowed")
+}
+
 fn diagnostic_count(checked: &crate::loader::CheckedEntry) -> usize {
     checked.parsed.diagnostics.len()
         + checked.checked.as_ref().map_or(0, |output| {
@@ -576,6 +1021,7 @@ fn diagnostic_count(checked: &crate::loader::CheckedEntry) -> usize {
 
 /// Measure one in-memory source through tokens, CST, AST/check, and lowering.
 pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
+    let collection = inference_work::begin();
     let source_id = SourceId::new(0);
     let source_bytes = source.len();
     let mut stages = Vec::with_capacity(5);
@@ -612,25 +1058,44 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         CheckOptions::for_execution(),
     );
     let _ = checked.parsed.cst.get();
-    let ast_traffic = mem_track::end_stage();
-    let ast = checked.parsed.arena.stats();
-    let ast_retained_bytes = ast.retained_bytes;
-    let (checked_type_count, checked_retained_bytes, function_body_check_entries) =
-        measure_check_output(checked.checked.as_ref());
-    let checked_diagnostics = diagnostic_count(&checked);
-    // The measured pipeline is the runner's: one check feeds lowering.
-    let declarations = match checked.checked.take() {
-        Some(output) => Checker::compact_declarations(&checked.parsed.arena, output),
-        None => Checker::check_compact_declarations(
+    let check_output_metrics = measure_check_output(checked.checked.as_ref());
+    let had_check_output = checked.checked.is_some();
+    let mut checked_diagnostics = diagnostic_count(&checked);
+    let fallback_output = if had_check_output {
+        None
+    } else {
+        Some(Checker::check_arena_with_sources_and_options(
             &checked.parsed.arena,
             &checked.sources,
             checked.entry_source_id,
+            CheckOptions::for_execution(),
+        ))
+    };
+    if let Some(output) = &fallback_output {
+        checked_diagnostics = checked_diagnostics
+            .checked_add(output.diagnostics.len())
+            .and_then(|count| count.checked_add(output.reveal_types.len()))
+            .expect("diagnostic work count overflowed");
+    }
+    let ast_traffic = mem_track::end_stage();
+    let ast = checked.parsed.arena.stats();
+    let ast_retained_bytes = ast.retained_bytes;
+    let (checked_type_count, checked_retained_bytes, merged_body_entries) = check_output_metrics;
+    let declarations = match checked.checked.take() {
+        Some(output) => Checker::compact_declarations(&checked.parsed.arena, output),
+        None => Checker::compact_declarations(
+            &checked.parsed.arena,
+            fallback_output.expect("fallback check output was produced"),
         ),
     };
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);
     let (body_type_count, body_retained_bytes) =
         measure_compact_body_types(&declarations.bodies);
+    let output_type_nodes = u64::try_from(measure_output_type_nodes(&declarations))
+        .expect("output type node count fits u64");
+    let evidence_nodes = u64::try_from(measure_evidence_nodes(&declarations))
+        .expect("evidence node count fits u64");
     let semantic_type_count = checked_type_count + declaration_type_count + body_type_count;
     let semantic_retained_bytes =
         checked_retained_bytes + declaration_retained_bytes + body_retained_bytes;
@@ -684,7 +1149,33 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         lower_traffic,
     ));
 
+    let work = collection.finish();
+    let function_body_check_entries = usize::try_from(work.function_body_check_entries)
+        .expect("function body check entry count fits usize");
+    assert!(function_body_check_entries >= merged_body_entries);
     let diagnostics = lexed.diagnostics.len() + checked_diagnostics + lower_diagnostics;
+    let inference_work = InferenceWorkMetrics {
+        fresh_variables: work.fresh_variables,
+        generated_constraints: work.generated_constraints,
+        representative_hops: work.representative_hops,
+        compression_writes: work.compression_writes,
+        unifications: work.unifications,
+        occurs_visits: work.occurs_visits,
+        row_field_visits: work.row_field_visits,
+        scheme_instantiations: work.scheme_instantiations,
+        successful_generic_call_resolutions: work.successful_generic_call_resolutions,
+        worklist_wakeups: work.worklist_wakeups,
+        host_candidate_trials: work.host_candidate_trials,
+        host_obligation_requeues: work.host_obligation_requeues,
+        rollbacks: work.rollbacks,
+        rollback_changes: work.rollback_changes,
+        level_adjustments: work.level_adjustments,
+        effect_edge_visits: work.effect_edge_visits,
+        candidate_tests: work.candidate_tests,
+        diagnostic_work: work.diagnostic_work,
+        output_type_nodes,
+        evidence_nodes,
+    };
     let ast_stmt_count = ast.statements;
     let ast_expr_count = ast.expressions;
     let ast_pattern_count = ast.patterns;
@@ -743,6 +1234,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         semantic_type_count,
         semantic_retained_bytes,
         function_body_check_entries,
+        inference_work,
         source_map_retained_bytes,
         lowered_function_count,
         lowered_constructed_functions,
@@ -949,6 +1441,7 @@ fn add_file_stats(total: &mut FileFrontendStats, file: &FileFrontendStats) {
         };
     }
     numeric_fields!(add);
+    total.inference_work = add_inference_work(total.inference_work, file.inference_work);
     merge_arena_tables(&mut total.ast_tables, &file.ast_tables, false);
     total.retained_after_drop_bytes = total
         .retained_after_drop_bytes
@@ -967,6 +1460,7 @@ fn max_file_stats(maximum: &mut FileFrontendStats, file: &FileFrontendStats) {
         };
     }
     numeric_fields!(maximum_field);
+    maximum.inference_work = max_inference_work(maximum.inference_work, file.inference_work);
     merge_arena_tables(&mut maximum.ast_tables, &file.ast_tables, true);
     maximum.retained_after_drop_bytes = maximum
         .retained_after_drop_bytes
@@ -979,6 +1473,70 @@ fn max_file_stats(maximum: &mut FileFrontendStats, file: &FileFrontendStats) {
         .lowered_blocker_events
         .max(file.lowered_blocker_events);
     maximum.reconcile_delta = maximum.reconcile_delta.max(file.reconcile_delta);
+}
+
+fn add_inference_work(
+    total: InferenceWorkMetrics,
+    file: InferenceWorkMetrics,
+) -> InferenceWorkMetrics {
+    InferenceWorkMetrics {
+        fresh_variables: total.fresh_variables.saturating_add(file.fresh_variables),
+        generated_constraints: total.generated_constraints.saturating_add(file.generated_constraints),
+        representative_hops: total.representative_hops.saturating_add(file.representative_hops),
+        compression_writes: total.compression_writes.saturating_add(file.compression_writes),
+        unifications: total.unifications.saturating_add(file.unifications),
+        occurs_visits: total.occurs_visits.saturating_add(file.occurs_visits),
+        row_field_visits: total.row_field_visits.saturating_add(file.row_field_visits),
+        scheme_instantiations: total.scheme_instantiations.saturating_add(file.scheme_instantiations),
+        successful_generic_call_resolutions: total
+            .successful_generic_call_resolutions
+            .saturating_add(file.successful_generic_call_resolutions),
+        worklist_wakeups: total.worklist_wakeups.saturating_add(file.worklist_wakeups),
+        host_candidate_trials: total.host_candidate_trials.saturating_add(file.host_candidate_trials),
+        host_obligation_requeues: total
+            .host_obligation_requeues
+            .saturating_add(file.host_obligation_requeues),
+        rollbacks: total.rollbacks.saturating_add(file.rollbacks),
+        rollback_changes: total.rollback_changes.saturating_add(file.rollback_changes),
+        level_adjustments: total.level_adjustments.saturating_add(file.level_adjustments),
+        effect_edge_visits: total.effect_edge_visits.saturating_add(file.effect_edge_visits),
+        candidate_tests: total.candidate_tests.saturating_add(file.candidate_tests),
+        diagnostic_work: total.diagnostic_work.saturating_add(file.diagnostic_work),
+        output_type_nodes: total.output_type_nodes.saturating_add(file.output_type_nodes),
+        evidence_nodes: total.evidence_nodes.saturating_add(file.evidence_nodes),
+    }
+}
+
+fn max_inference_work(
+    maximum: InferenceWorkMetrics,
+    file: InferenceWorkMetrics,
+) -> InferenceWorkMetrics {
+    InferenceWorkMetrics {
+        fresh_variables: maximum.fresh_variables.max(file.fresh_variables),
+        generated_constraints: maximum.generated_constraints.max(file.generated_constraints),
+        representative_hops: maximum.representative_hops.max(file.representative_hops),
+        compression_writes: maximum.compression_writes.max(file.compression_writes),
+        unifications: maximum.unifications.max(file.unifications),
+        occurs_visits: maximum.occurs_visits.max(file.occurs_visits),
+        row_field_visits: maximum.row_field_visits.max(file.row_field_visits),
+        scheme_instantiations: maximum.scheme_instantiations.max(file.scheme_instantiations),
+        successful_generic_call_resolutions: maximum
+            .successful_generic_call_resolutions
+            .max(file.successful_generic_call_resolutions),
+        worklist_wakeups: maximum.worklist_wakeups.max(file.worklist_wakeups),
+        host_candidate_trials: maximum.host_candidate_trials.max(file.host_candidate_trials),
+        host_obligation_requeues: maximum
+            .host_obligation_requeues
+            .max(file.host_obligation_requeues),
+        rollbacks: maximum.rollbacks.max(file.rollbacks),
+        rollback_changes: maximum.rollback_changes.max(file.rollback_changes),
+        level_adjustments: maximum.level_adjustments.max(file.level_adjustments),
+        effect_edge_visits: maximum.effect_edge_visits.max(file.effect_edge_visits),
+        candidate_tests: maximum.candidate_tests.max(file.candidate_tests),
+        diagnostic_work: maximum.diagnostic_work.max(file.diagnostic_work),
+        output_type_nodes: maximum.output_type_nodes.max(file.output_type_nodes),
+        evidence_nodes: maximum.evidence_nodes.max(file.evidence_nodes),
+    }
 }
 
 impl CorpusFrontendStats {
@@ -1090,6 +1648,7 @@ fn file_json(file: &FileFrontendStats) -> String {
             "\"ast_stmt_count\":{},\"ast_expr_count\":{},\"ast_pattern_count\":{},",
             "\"ast_type_count\":{},\"ast_extra_items\":{},\"ast_retained_bytes\":{},\"ast_tables\":[{}],",
             "\"semantic_type_count\":{},\"semantic_retained_bytes\":{},\"function_body_check_entries\":{},",
+            "\"inference_work\":{},",
             "\"source_map_retained_bytes\":{},\"lowered_function_count\":{},",
             "\"lowered_constructed_functions\":{},\"lowered_statement_count\":{},",
             "\"lowered_expression_count\":{},\"lowered_pattern_count\":{},",
@@ -1116,6 +1675,7 @@ fn file_json(file: &FileFrontendStats) -> String {
         file.semantic_type_count,
         file.semantic_retained_bytes,
         file.function_body_check_entries,
+        inference_work_json(file.inference_work),
         file.source_map_retained_bytes,
         file.lowered_function_count,
         file.lowered_constructed_functions,
@@ -1132,6 +1692,41 @@ fn file_json(file: &FileFrontendStats) -> String {
         file.components_sum,
         file.reported_total_bytes,
         file.reconcile_delta,
+    )
+}
+
+fn inference_work_json(metrics: InferenceWorkMetrics) -> String {
+    format!(
+        concat!(
+            "{{\"fresh_variables\":{},\"generated_constraints\":{},",
+            "\"representative_hops\":{},\"compression_writes\":{},",
+            "\"unifications\":{},\"occurs_visits\":{},\"row_field_visits\":{},",
+            "\"scheme_instantiations\":{},\"successful_generic_call_resolutions\":{},",
+            "\"worklist_wakeups\":{},\"host_candidate_trials\":{},",
+            "\"host_obligation_requeues\":{},\"rollbacks\":{},\"rollback_changes\":{},",
+            "\"level_adjustments\":{},\"effect_edge_visits\":{},\"candidate_tests\":{},",
+            "\"diagnostic_work\":{},\"output_type_nodes\":{},\"evidence_nodes\":{}}}"
+        ),
+        metrics.fresh_variables,
+        metrics.generated_constraints,
+        metrics.representative_hops,
+        metrics.compression_writes,
+        metrics.unifications,
+        metrics.occurs_visits,
+        metrics.row_field_visits,
+        metrics.scheme_instantiations,
+        metrics.successful_generic_call_resolutions,
+        metrics.worklist_wakeups,
+        metrics.host_candidate_trials,
+        metrics.host_obligation_requeues,
+        metrics.rollbacks,
+        metrics.rollback_changes,
+        metrics.level_adjustments,
+        metrics.effect_edge_visits,
+        metrics.candidate_tests,
+        metrics.diagnostic_work,
+        metrics.output_type_nodes,
+        metrics.evidence_nodes,
     )
 }
 
@@ -1158,11 +1753,16 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CorpusFrontendStats, FileFrontendStats, file_json, measure_check_output,
-        measure_compact_declarations, measure_source,
+        CorpusFrontendStats, FileFrontendStats, aggregate_maxima, aggregate_totals, file_json,
+        measure_check_output, measure_compact_declarations, measure_output_type_nodes,
+        measure_source, OutputTypeNodes,
     };
+    use crate::sema::inference_work;
     use crate::sema::check::{CheckOutput, CompactDeclOutput, ResourceTransferSite};
+    use crate::sema::types::Type;
+    use crate::source::{SourceId, Span};
     use crate::syntax::arena::StmtId;
+    use std::collections::BTreeMap;
     use std::mem::size_of;
 
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
@@ -1199,16 +1799,198 @@ mod tests {
     }
 
     #[test]
-    fn frontend_stats_reports_final_checker_body_entries() {
+    fn frontend_stats_reports_invocation_checker_body_entries() {
         let file = measure_source("body-check.xsh", "pure identity(value) { value }\n");
-        assert_eq!(file.function_body_check_entries, 1);
-        assert!(file_json(&file).contains("\"function_body_check_entries\":1"));
+        assert!(file.function_body_check_entries > 1);
+        assert!(file_json(&file).contains(&format!(
+            "\"function_body_check_entries\":{}",
+            file.function_body_check_entries
+        )));
         let corpus = CorpusFrontendStats {
             files: vec![file],
             ..CorpusFrontendStats::default()
         };
         assert!(corpus.to_text().contains("function_body_check_entries"));
         assert!(corpus.to_text().contains("body-check.xsh"));
+    }
+
+    #[test]
+    fn frontend_stats_counts_stream_and_signal_hook_body_entries() {
+        let baseline = measure_source("empty.xsh", "");
+        for (path, source) in [
+            ("stream.xsh", "stream values() [] -> Stream[Int] { yield 7 }\n"),
+            ("hook.xsh", "on SIGINT [] {\n}\n"),
+        ] {
+            let measured = measure_source(path, source);
+            assert_eq!(measured.diagnostics, 0, "{path}");
+            assert!(measured.function_body_check_entries > baseline.function_body_check_entries, "{path}");
+        }
+    }
+
+    #[test]
+    fn inference_work_json_has_exactly_twenty_nonnegative_integer_fields() {
+        let file = measure_source("work-counts.xsh", SOURCE);
+        let json = file_json(&file);
+        let start = json.find("\"inference_work\":").expect("inference_work field")
+            + "\"inference_work\":".len();
+        let end = json[start..].find('}').expect("inference_work object ends") + start + 1;
+        let field_names = json[start + 1..end - 1]
+            .split(',')
+            .map(|field| {
+                let (name, value) = field.split_once(':').expect("field has a value");
+                let name = name.trim_matches('"');
+                value.parse::<u64>().expect("field is a nonnegative integer");
+                name
+            })
+            .collect::<Vec<_>>();
+        let fields = field_names.iter().copied().collect::<std::collections::BTreeSet<_>>();
+        let expected = [
+            "fresh_variables",
+            "generated_constraints",
+            "representative_hops",
+            "compression_writes",
+            "unifications",
+            "occurs_visits",
+            "row_field_visits",
+            "scheme_instantiations",
+            "successful_generic_call_resolutions",
+            "worklist_wakeups",
+            "host_candidate_trials",
+            "host_obligation_requeues",
+            "rollbacks",
+            "rollback_changes",
+            "level_adjustments",
+            "effect_edge_visits",
+            "candidate_tests",
+            "diagnostic_work",
+            "output_type_nodes",
+            "evidence_nodes",
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(field_names.len(), 20);
+        assert_eq!(fields.len(), 20);
+        assert_eq!(fields, expected);
+    }
+
+    #[test]
+    fn inference_work_counts_body_evidence_without_inventing_output_types() {
+        let source = concat!(
+            "pure first(payload: Int) -> Int { payload }\n",
+            "pure second(payload: Int) -> Int { payload + 1 }\n",
+            "proc relay(first, second, value, flag: Bool) { if flag { return first(value) }; second(value) }\n",
+            "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+        );
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let mut declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        let sites = declarations.scheme_bodies.values().map(|facts| facts.proc_return_site_count()).sum::<usize>();
+        assert_eq!(sites, 2);
+        let original_types = measure_output_type_nodes(&declarations);
+        let original_evidence = super::measure_evidence_nodes(&declarations);
+        for facts in declarations.scheme_bodies.values_mut() {
+            *facts = facts.clone().with_proc_return_sites(BTreeMap::new()).unwrap();
+        }
+        assert_eq!(measure_output_type_nodes(&declarations), original_types);
+        assert_eq!(original_evidence - super::measure_evidence_nodes(&declarations), sites);
+        let remaining = declarations.scheme_bodies.values().map(|facts| {
+            facts.expression_types().len() + facts.tail_types().len()
+                + facts.registered_calls().len() + facts.read_bindings().len()
+        }).sum::<usize>();
+        assert!(remaining > 0);
+        let body_evidence = super::measure_evidence_nodes(&declarations);
+        declarations.scheme_bodies.clear();
+        assert_eq!(body_evidence - super::measure_evidence_nodes(&declarations), remaining);
+    }
+
+    #[test]
+    fn inference_work_invocations_are_isolated_and_generic_calls_count_instantiations() {
+        let simple = measure_source("isolated.xsh", "let value = 1\n");
+        let generic_source = |calls: usize| {
+            let applications = (0..calls)
+                .map(|value| format!("identity({value})"))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!(
+                "pure identity(value) {{ value }}\npure exercise_calls() -> Int {{ {applications} }}\n"
+            )
+        };
+        let one_call = measure_source("generic-one.xsh", &generic_source(1));
+        let many_calls = measure_source("generic-many.xsh", &generic_source(8));
+        let repeated = measure_source("isolated.xsh", "let value = 1\n");
+
+        assert_eq!(simple.inference_work, repeated.inference_work);
+        assert!(one_call.inference_work.scheme_instantiations > simple.inference_work.scheme_instantiations);
+        assert!(many_calls.inference_work.scheme_instantiations > one_call.inference_work.scheme_instantiations);
+        assert_eq!(one_call.function_body_check_entries, many_calls.function_body_check_entries);
+    }
+
+    #[test]
+    fn inference_work_totals_sum_and_maxima_select_per_file_values() {
+        let mut first = FileFrontendStats::default();
+        first.inference_work.generated_constraints = 7;
+        first.inference_work.evidence_nodes = 11;
+        let mut second = FileFrontendStats::default();
+        second.inference_work.generated_constraints = 13;
+        second.inference_work.evidence_nodes = 5;
+
+        let totals = aggregate_totals(&[first.clone(), second.clone()]);
+        let maxima = aggregate_maxima(&[first, second]);
+
+        assert_eq!(totals.inference_work.generated_constraints, 20);
+        assert_eq!(totals.inference_work.evidence_nodes, 16);
+        assert_eq!(maxima.inference_work.generated_constraints, 13);
+        assert_eq!(maxima.inference_work.evidence_nodes, 11);
+    }
+
+    #[test]
+    fn diagnostic_work_counts_probe_records_and_discarded_reveals() {
+        let (probe_work, ()) = inference_work::collect(|| {
+            let mut diagnostics = vec![crate::diagnostic::Diagnostic::error("speculative failure")];
+            diagnostics.clear();
+        });
+        assert_eq!(probe_work.diagnostic_work, 1);
+
+        let failed = measure_source("probe-diagnostic.xsh", "let value: Int = \"wrong\"\n");
+        assert!(failed.diagnostics > 0);
+        assert!(failed.inference_work.diagnostic_work > failed.diagnostics as u64);
+
+        let reveal = measure_source("discarded-reveal.xsh", "reveal_type(1)\n");
+        assert!(reveal.diagnostics > 0);
+        assert!(reveal.inference_work.diagnostic_work > reveal.diagnostics as u64);
+    }
+
+    #[test]
+    fn output_type_nodes_walk_nested_types_and_shared_payloads_once() {
+        let _symbols = crate::symbol::SymbolOwner::new().enter();
+        let record = Type::Record(std::sync::Arc::new(BTreeMap::from([(
+            crate::symbol::Name::intern("value"),
+            Type::List(Box::new(Type::Str)),
+        )])));
+        let mut declarations = CompactDeclOutput::default();
+        declarations.local_binding_types.insert(
+            Span::new(SourceId::new(0), 0, 1),
+            record.clone(),
+        );
+        declarations.local_binding_types.insert(
+            Span::new(SourceId::new(0), 2, 3),
+            record,
+        );
+
+        assert_eq!(measure_output_type_nodes(&declarations), 4);
+
+        let scheme = crate::sema::schemes::SchemeType::List(Box::new(
+            crate::sema::schemes::SchemeType::Ground(Type::Map(
+                Box::new(Type::Int),
+                Box::new(Type::Optional(Box::new(Type::Str))),
+            )),
+        ));
+        let mut nodes = OutputTypeNodes::default();
+        nodes.add_scheme_type(&scheme);
+        assert_eq!(nodes.count, 6);
     }
 
     #[test]

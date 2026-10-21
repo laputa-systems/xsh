@@ -577,10 +577,16 @@ impl CallableApplications {
         }
     }
 
-    fn enqueue(&mut self, id: CallableApplicationId, changes: &mut Vec<ConstraintChange>) {
+    fn enqueue(
+        &mut self,
+        id: CallableApplicationId,
+        changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
+    ) {
         if self.queued.insert(id) {
             self.pending.push_back(id);
             changes.push(ConstraintChange::Application(ApplicationChange::Queued(id)));
+            counters.record_application_worklist_wakeup();
         }
     }
 
@@ -590,7 +596,12 @@ impl CallableApplications {
         }
     }
 
-    pub(super) fn enqueue_changes(&mut self, from: usize, changes: &mut Vec<ConstraintChange>) {
+    pub(super) fn enqueue_changes(
+        &mut self,
+        from: usize,
+        changes: &mut Vec<ConstraintChange>,
+        counters: &super::ConstraintCounters,
+    ) {
         let dependencies = changes[from..].iter().filter_map(|change| match change {
             ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
             ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
@@ -600,7 +611,7 @@ impl CallableApplications {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();
             for id in watchers {
                 if self.entries.get(&id).is_some_and(|application| application.binding.is_none() || !application.application.proc_returns.is_empty()) {
-                    self.enqueue(id, changes);
+                    self.enqueue(id, changes, counters);
                 }
             }
         }
@@ -673,7 +684,7 @@ impl TypeConstraints {
                             }))?;
                     }
                     this.constrain_effect_inner(super::EffectPredicate::Equal(previous.effects.clone(), application.effects.clone()), changes).map_err(CallableApplicationError::Effects)?;
-                    this.applications.enqueue(id, changes);
+                    this.applications.enqueue(id, changes, &this.counters);
                     Ok::<_, CallableApplicationError>(())
                 })?;
                 return Ok(id);
@@ -723,7 +734,7 @@ impl TypeConstraints {
                 changes.push(ConstraintChange::Application(ApplicationChange::ReturnEnvelopes(id, previous)));
                 let scoped = &this.applications.entries[&id];
                 for dependency in this.application_dependencies(&scoped.application)? { this.applications.watch(dependency, id, changes); }
-                this.applications.enqueue(id, changes);
+                this.applications.enqueue(id, changes, &this.counters);
                 Ok::<_, CallableApplicationError>(())
             })?;
             Ok(result)
@@ -833,7 +844,7 @@ impl TypeConstraints {
             assert!(this.applications.entries.insert(id, ScopedCallableApplication { owner, ordinal, application, binding: None }).is_none());
             changes.push(ConstraintChange::Application(ApplicationChange::Fresh(id)));
             for dependency in dependencies { this.applications.watch(dependency, id, changes); }
-            this.applications.enqueue(id, changes);
+            this.applications.enqueue(id, changes, &this.counters);
             Ok::<_, CallableApplicationError>(())
         })?;
         Ok(id)
@@ -890,7 +901,7 @@ impl TypeConstraints {
                             expected, actual, contribution: envelope.span, initializer: None, established: None, resolution_error,
                         }))?;
                 }
-                this.applications.enqueue_changes(start, changes);
+                this.applications.enqueue_changes(start, changes, &this.counters);
             }
             Ok(())
         })

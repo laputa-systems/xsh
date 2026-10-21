@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 use crate::sema::effects::{CheckedEffectScope, CheckedEffects, EffectContract, EffectExpr, EffectSet};
 use crate::sema::schemes::{CallInstantiation, SchemeEffectParameterId};
 use crate::sema::constraints::{EffectVariableId, SchemeOperationError};
+use crate::sema::constraints::ConstraintCounters;
+use crate::sema::inference_work;
 use std::sync::Arc;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
@@ -186,6 +188,7 @@ pub(super) struct EffectNode {
 #[derive(Clone, Debug, Default)]
 pub(super) struct EffectGraph {
     nodes: BTreeMap<EffectDeclarationId, EffectNode>,
+    work: Option<Arc<ConstraintCounters>>,
 }
 
 impl EffectGraph {
@@ -229,7 +232,10 @@ impl EffectGraph {
             return Self::default();
         };
         let program = view.program;
-        let mut graph = Self::default();
+        let mut graph = Self {
+            work: inference_work::current_counters(),
+            ..Self::default()
+        };
         for statement_id in program.arena.source_rows().stmt_ids(source_id) {
             let statement = program.arena.stmt(statement_id);
             let definition = match statement.kind {
@@ -311,8 +317,12 @@ impl EffectGraph {
             .nodes
             .get(&target)
             .is_some_and(|node| !node.inferred && node.declared.is_some());
+        let work = self.work.as_deref();
         if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner))
             && !node.edges.iter().any(|edge| {
+                if let Some(work) = &work {
+                    work.record_effect_edge_visit();
+                }
                 edge.target == target
                     && edge.captures_error == captures_error
                     && edge.contract == contract
@@ -365,6 +375,9 @@ impl EffectGraph {
                 return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
             }
             for edge in &mut node.edges {
+                if let Some(work) = &self.work {
+                    work.record_effect_edge_visit();
+                }
                 if let Some(site) = edge.site {
                     if !std::iter::once(&owner.body).chain(&node.defaults).any(|region| {
                         site.source_id == region.source_id && site.start() >= region.start() && site.end() <= region.end()
@@ -413,6 +426,9 @@ impl EffectGraph {
             let mut changed = false;
             for (&id, node) in &self.nodes {
                 for edge in &node.edges {
+                    if let Some(work) = &self.work {
+                        work.record_effect_edge_visit();
+                    }
                     let target = if edge.contract && !unclaused.contains(&edge.target) {
                         EffectSummary {
                             known: EffectExpr::finite(EffectSet::new(self.nodes[&edge.target].declared.clone().unwrap_or_default())),
@@ -493,6 +509,9 @@ impl EffectGraph {
                 continue;
             }
             for edge in self.nodes.get(&current).map_or(&[][..], |node| &node.edges) {
+                if let Some(work) = &self.work {
+                    work.record_effect_edge_visit();
+                }
                 if edge.target == id {
                     return true;
                 }
