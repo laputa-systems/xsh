@@ -53,6 +53,13 @@ fn result_unit_tail_forwarding_retains_interior_error_effects() {
     let program = fixture(r#"
 pure completed() -> Result[Unit] { Ok() }
 error TailFailure = Failed(message: Str)
+pure parameter(value: Result[Unit, TailFailure], other: Result[Unit]) -> Result[Unit, TailFailure] { value }
+proc choose_failure() [] -> Bool { true }
+let saved: Result[Unit, TailFailure] = if choose_failure() { Err(TailFailure.Failed("saved")) } else { Ok() }
+pure captured() -> Result[Unit, TailFailure] { saved }
+assert parameter(Ok(), saved) is Ok(_)
+assert parameter(saved, Ok()) is Err(_)
+assert captured() is Err(_)
 var order = 0
 proc fail_tail() [] -> Result[Unit] {
     order = order * 10 + 1
@@ -82,6 +89,26 @@ assert forward_success() is Ok(_)
 assert order == 132
 "#);
     execute_both(&program);
+    let captured = function(&program, "captured");
+    let captures = program.store.functions[captured].captures.bounds(program.store.captures.len()).unwrap();
+    let saved = program.store.captures[captures].iter().find(|capture|
+        program.store.string(program.store.binding_identities[capture.binding_identity as usize].name).unwrap() == "saved").unwrap();
+    let decoder = function_view_decoder(&program.store, captured);
+    assert!(decoder.instruction_range.clone().any(|instruction|
+        program.store.tags[instruction] == FullTag::ExprParam
+            && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot == (saved.slot_and_flags & !(1 << 31)) as usize)));
+    let parameter = function(&program, "parameter");
+    let decoder = function_view_decoder(&program.store, parameter);
+    let read = decoder.instruction_range.clone().find(|&instruction|
+        program.store.tags[instruction] == FullTag::ExprParam
+            && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(0))).unwrap();
+    let mut wrong_parameter = program.clone();
+    wrong_parameter.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&wrong_parameter).unwrap();
+    wrong_parameter.store.extra[program.store.data[read].range().start as usize] = 1;
+    assert!(matches!(function_view_decoder(&wrong_parameter.store, parameter).expression_view(read).unwrap(), schema::ExprView::Param(1)));
+    let error = FullVerifier::verify(&wrong_parameter).unwrap_err();
+    assert!(error.message.contains("contract") || error.message.contains("error"), "{error:?}");
     let invalid = without_effect(&program, function(&program, "interior"), Effect::Error);
     let error = FullVerifier::verify(&invalid).unwrap_err();
     assert!(error.message.contains("requires effect error"), "{error:?}");
