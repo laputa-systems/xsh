@@ -8,29 +8,34 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `7f4dccc80` passes all 290 focused controls without
+Current inference assembly `a3fd9a756` passes all 297 focused controls without
 failures or ignores. The combined group covers type, scheme, semantic-codec,
 Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
-native regression cases also pass on matching `7f4dccc80` verification products;
-source and product guards pass before and after the replay. Master remains at
-`d2453760a`.
+native regression cases pass on the earlier matching `7f4dccc80` verification
+products, with source and product guards intact. Matching `a3fd9a756` products
+are rebuilding for the practical corpus gate. Master remains at `d2453760a`.
 
-The practical four-return paired gate now reaches its original XSH check but
-fails in unchanged `core/lib/textio_a1.xsh:77`: a Result-valued branch of
+The last practical four-return paired gate reaches its original XSH check but
+fails on `7f4dccc80` in unchanged `core/lib/textio_a1.xsh:77`: a Result-valued branch of
 `return if` is checked against `Bytes`. The first group loads 12 files from
 ten selected roots. Reduced-source checks, Laputa, behavior, interfaces and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
 view with the existing pinned preparation command; metadata comparison remains
-strict. This run grants no additional annotation-removal or parity credit.
+strict. Repair `b2131ca90` restores the original branch expectation and passes
+all 23 focused controls, including both reproduced If and Match failures. It
+is integrated into `a3fd9a756`; whole-program replay remains pending. The failed
+run grants no additional annotation-removal or parity credit.
 
-The separate runtime callable migration passes its library type check and two
-runtime controls on both execution routes, including lazy defaults and cleanup.
-A higher-order Stream relay still exposes a propagation consumer that inspects
-an unresolved handle despite its solved Result type. Its focused checker repair
-and the runtime cold-proof group are in progress. Neither candidate is qualified
-or integrated; the original captured-write and Repeat witness remains open.
+The separate runtime callable migration passes its library type check, 27 cold
+and runtime controls, and three execution controls on both routes. The execution
+group includes independent Int and Str Stream aliases, higher-order callbacks,
+lazy defaults and cleanup. Propagation consumer repair `dcca45911` resolves the
+existing handle before Result projection; its 15 controls pass and it is
+integrated. Generic delegation still exposes two producer-proof path gaps.
+The runtime candidate is not integrated or fully qualified; the original
+captured-write and Repeat witness remains open.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
