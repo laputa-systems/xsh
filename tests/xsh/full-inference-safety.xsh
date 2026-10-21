@@ -177,6 +177,26 @@ let text = current("demo")
   )?
 }
 
+test test_full_inference_mutable_callable_binding_accepts_compatible_reassignment { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure increment(value: Int) -> Int { value + 1 }
+pure decrement(value: Int) -> Int { value - 1 }
+var operation = increment
+let incremented = operation(41)
+operation = decrement
+let decremented = operation(43)
+assert incremented == 42
+assert decremented == 42
+print $incremented
+print $decremented
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stderr == ""
+  assert output.stdout == "42\n42\n"
+}
+
 test test_full_inference_recursive_infinite_type_is_rejected { |ctx|
   test.expect(
     ctx,

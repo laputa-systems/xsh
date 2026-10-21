@@ -10,7 +10,7 @@ pub(super) enum ApplicationSubstitution<'a> {
 }
 
 impl ApplicationSubstitution<'_> {
-    fn ty(&self, store: &FullStore, scope: &SchemeScope, ty: SchemeTypeId, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
+    pub(super) fn ty(&self, store: &FullStore, scope: &SchemeScope, ty: SchemeTypeId, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
         match self {
             Self::Ground(substitution) => Ok(SchemeType::Ground(instantiate_scheme_type(store, scope, ty, substitution, budget, 0)?)),
             Self::Symbolic(substitution) => substitute_scheme_type(&decode_scheme_type(store, scope, ty, budget, 0)?, scope, substitution, budget, 0),
@@ -18,7 +18,7 @@ impl ApplicationSubstitution<'_> {
         }
     }
 
-    fn contract(&self, store: &FullStore, scope: &SchemeScope, contract: super::super::schemes::FullEffectContract, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+    pub(super) fn contract(&self, store: &FullStore, scope: &SchemeScope, contract: super::super::schemes::FullEffectContract, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
         let contract = effects::decode_contract(store, scope, contract, budget)?;
         match self {
             Self::Ground(substitution) => effects::substitute_contract(&contract, scope, &substitution.effects, budget),
@@ -104,9 +104,9 @@ fn selected(store: &FullStore, application: &Application, argument_slots: IrRang
             budget.charge_clone(&callable.sig.return_ty)?;
             let effects = callable.sig.effects.contract();
             if let EffectContract::Known(expression) = effects { budget.charge(expression.variables().count())?; }
-            let effects = if callable.pure { EffectContract::finite(crate::sema::effects::EffectSet::default()) }
-                else { EffectContract::from_clause(effects.concrete().map_err(|_| IrVerifyError::new("ground application callable effects remain unresolved"))?) };
-            (if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, parameters,
+            let kind = if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc };
+            let effects = EffectContract::from_clause(effects.clone().for_invocation(kind).concrete().map_err(|_| IrVerifyError::new("ground application callable effects remain unresolved"))?);
+            (kind, parameters,
                 SchemeType::Ground(callable.sig.return_ty.as_ref().clone()), effects)
         }
         SchemeType::Callable { kind, monotype, effects } => {
@@ -117,9 +117,7 @@ fn selected(store: &FullStore, application: &Application, argument_slots: IrRang
             }).collect::<Result<Vec<_>, IrVerifyError>>()?;
             budget.charge_scheme_clone(monotype.return_type())?;
             if let EffectContract::Known(expression) = effects { budget.charge(expression.variables().count())?; }
-            let effects = if *kind == crate::sema::types::CallableKind::Pure {
-                EffectContract::finite(crate::sema::effects::EffectSet::default())
-            } else { effects.clone() };
+            let effects = effects.clone().for_invocation(*kind);
             (*kind, parameters, monotype.return_type().clone(), effects)
         }
         _ => return Err(IrVerifyError::new("selected application has no actual callable contract")),

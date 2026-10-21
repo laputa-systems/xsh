@@ -291,8 +291,29 @@ bind no values. Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
 exact owner, source, pattern, and slot identities. Every proposing use must agree
 on one concrete source contract. Stored collection contracts remain invariant.
+Fresh `NonEmpty` list literals prove a written element or an independently proved
+`NonEmpty` splice. Every element and splice retains its item contract proof.
+A validated comprehension retains its source validation only through the canonical
+single-`for`, unfiltered mapping rule. The actual iterable, target, and body retain
+their producer proofs.
 Conditional producers derive their contract from independently typed completing
 arms, then prove every condition and arm under that contract.
+Actual null arms can lift an independently derived concrete arm to an optional
+contract. Actual record arms can share an erased record contract while retaining
+every field proof. Checked destinations cannot supply either contract.
+Initializer-anchored scalar and self-slice storage proves every replacement writer
+under the original initializer contract. A null initializer supplies no such anchor.
+Direct error propagation from a physical `Err` proves its error payload and cause
+without inventing a success contract. Every direct transfer has a mandatory
+producer proof, including transfers with no completing return. Uncaught transfers
+must fit the function's declared error boundary.
+
+Presence queries retain the exact binding and field path through ordered guards.
+They check later fallthrough conditions, completing branches, intervening writes,
+and earlier expression operands in execution order. Immutable snapshot aliases
+can name an actual null predicate without authorizing shared mutable roots.
+Completed positive predicates belong to one owner, block, guard branch, binding,
+path, and outcome. Reuse retains guard selection, source, writer, and payload proofs.
 
 Every physical record entry retains its producer proof, including overwritten
 fields and spreads. Checked storage proves the actual input through intermediate
@@ -307,10 +328,23 @@ selected fields from the actual iterable item, including empty and unused target
 when the selected registered method returns exactly the gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.
+Checked storage authenticates a generated collect accumulator through its fresh
+scoped empty-list initializer, inner value block, and matching final slot read.
+Every writer must append an independently proved list inside that block; empty
+outputs use the vacuous empty-list rule. Runtime predicates remain at the checked
+gate, and the inner body's return and effect proofs remain mandatory.
 
 The producer census collects pattern and pipeline instructions during its
 mandatory instruction scan. Later scope registration visits those candidates
-under the same work bound. Guard queries borrow the exact owner census and visit
+under the same work bound.
+Owners without callback or unreachable roots can collect writers and returns from
+the complete physical statement index. The index must match the independently
+counted statements, with finished ownership, valid ranges, and unique positions.
+Other owners retain the full flow traversal. Writer census lookup reuses a completed inherited binding
+for an owner-local block and slot only after checking region overrides and earlier
+local declarations at the actual writer. Read and presence queries retain their
+uncached lexical lookup. This evidence contains no type or
+refinement. Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation
 and stopping once an overlapping writer is established. Selected native arguments,
@@ -413,6 +447,12 @@ equality compares that identity rather than treating invocation evidence as part
 of the source value. Prepared invocation context belongs to the callable's
 executable program and remains private. Extracting a declaration name provides no
 substitute for checking the actual target and its call-site substitution.
+Each contextual reference or immutable alias read retains its own checked
+substitution; materializing one use does not specialize the stored declaration
+for later clients. Materializations prove their actual producer and signature
+without counting as invocations. Only an authenticated Pure target projects its
+top-level invocation effects to empty; nested callable contracts retain their
+own effects, labels, schemas, defaults, and rest layout.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
@@ -425,6 +465,12 @@ or checker output.
 installed XSH does not read a stdlib tree at runtime. The loader selects modules
 required by source use and sends them through ordinary checking and lowering.
 The registry can also bind an entry directly to a native runtime operation.
+Loaded modules link script-backed calls to the loader's prepared implementations.
+Verification resolves each external callee's reserved module identity and member
+against the registry; all matching bindings must agree on purity and effects
+before that contract can justify a finite caller's permissions.
+Reserved implementation declarations must satisfy that same contract before
+they can execute locally or be published to another prepared program.
 
 ## Invariants
 

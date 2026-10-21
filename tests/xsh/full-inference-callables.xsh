@@ -217,6 +217,28 @@ print $words.len()
   assert output.stdout == "42\nAda\n3\n2\n"
 }
 
+test test_full_inference_generic_body_reads_a_named_constant_at_independent_types { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""const marker = "constant:"
+pure attach(value) {
+  {marker: marker, value: value}
+}
+let integer = attach(42)
+let text = attach("demo")
+assert integer.marker == "constant:"
+assert integer.value == 42
+assert text.marker == "constant:"
+assert text.value == "demo"
+print f"{integer.marker}{integer.value}"
+print f"{text.marker}{text.value}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stderr == ""
+  assert output.stdout == "constant:42\nconstant:demo\n"
+}
+
 test test_full_inference_operator_relationships_reuse_per_instantiation { |ctx|
   let output = test.run_xsh(
     ctx,

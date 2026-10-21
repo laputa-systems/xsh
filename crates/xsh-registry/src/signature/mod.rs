@@ -500,7 +500,7 @@ pub fn result(ok: Type) -> Type {
 
 #[cfg(test)]
 mod tests {
-    use super::api_spec;
+    use super::{api_spec, result, RuntimeOp, Type};
     use crate::{records, reference};
 
     #[test]
@@ -623,6 +623,47 @@ mod tests {
         api_spec()
             .validate_docs()
             .expect("public API docs should be complete");
+    }
+
+    #[test]
+    fn ed25519_verifier_is_pure_and_accepts_exact_byte_arguments() {
+        let spec = api_spec();
+        let module = spec
+            .modules
+            .iter()
+            .find(|module| module.name == "crypto")
+            .expect("crypto module");
+        let function = module
+            .sig
+            .functions
+            .iter()
+            .find(|function| function.name == "ed25519_verify")
+            .expect("Ed25519 verifier");
+        assert_eq!(function.overloads.len(), 1);
+
+        let signature = &function.overloads[0];
+        assert_eq!(
+            signature
+                .params
+                .iter()
+                .map(|param| (param.name, param.ty.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("message", Type::Bytes),
+                ("public_key", Type::Bytes),
+                ("signature", Type::Bytes),
+            ]
+        );
+        assert_eq!(signature.return_ty, result(Type::Bool));
+        assert!(signature.params.iter().all(|param| !param.defaulted));
+        assert!(signature.pure);
+        assert_eq!(signature.op, RuntimeOp::CryptoEd25519Verify);
+        let docs = spec
+            .docs("module.crypto.ed25519_verify")
+            .expect("Ed25519 verifier docs");
+        assert!(docs.contract.contains("message bytes unchanged"));
+        assert!(docs.contract.contains("32 bytes"));
+        assert!(docs.contract.contains("64 bytes"));
     }
 
     #[test]

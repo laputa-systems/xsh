@@ -1113,7 +1113,7 @@ return. Every variant carries `message` and `status: Int?`, the HTTP status of
 `Connect` a refused or unreachable peer, `ConnectTimeout` and `Timeout` the
 phase that ran out of time (both implement the `Timeout` facet), `Certificate`
 a rejected peer certificate, `Tls` any other handshake failure, `TrustStore`
-an unusable `ca_certificate` file, `EmptyReply` a connection closed before a
+an unusable CA bundle or trust policy, `EmptyReply` a connection closed before a
 response, `Status` a response that `fail_status` turned into a failure,
 `Redirect` a redirect that was not followed (more than `redirects` of them, or
 none naming a `Location`), `Unsupported` a scheme or method the module does not
@@ -3174,6 +3174,14 @@ this quantified body contract. Symbolic callback effects remain unsupported.
 {{.spec.generic_procs.source}}
 ```
 
+A quantified proc that returns its formal value `T` treats that value as data:
+instantiating `T` with a `Result` preserves the inner value inside the proc's
+outer `Ok`. Returning an actual callable application instead follows that
+application's checked result envelope, including through immutable aliases and
+agreeing conditional branches. Each invocation retains this distinction; merely
+unifying a formal value's type with an application's result does not make the
+formal value an application result.
+
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
@@ -3244,14 +3252,22 @@ always written:
 {{.spec.callable_types.source}}
 ```
 
-A value gets a callable type in one of two ways: a function is named where
-the type is expected (a declaration, a module export, or an alias that kept
-its signature), or a value of a fitting callable type is passed along (5.2).
+A value gets an authored callable type in one of two ways: a function is named
+where the type is expected (a declaration, a module export, or an alias that
+kept its signature), or a value of a fitting callable type is passed along (5.2).
 Where the type is expected, a block may end in a bare function name, so both
 branches of an `if` or the arms of a `match` can select one. A function with
 defaulted parameters fits when its labels and types match, because a call
 through the type passes every argument; one with a rest parameter does not
 fit.
+
+An inferred declaration-derived callable retains its complete selected signature,
+including parameter labels, available defaults, and the final rest parameter.
+An application requirement constrains that actual callable without replacing its
+signature. Supplied entries evaluate in source order before their checked binding
+places them in formal slots; omitted defaults execute in the selected declaration's
+scope, and list splices contribute to its rest parameter. Aliases and returned
+callable values retain the same signature.
 
 A call through the type is written `value(args)`, `record.field(args)` for a
 record field of a callable type, which takes precedence over a record method
@@ -3261,8 +3277,8 @@ position or by label, the result has the type's return type, and the type's
 effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
-call passes each argument explicitly; `@` splices and `...` spreads are
-rejected. A stream stage's callable is still a function name; a value of a
+call through an authored fixed-arity type passes each argument explicitly;
+`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was
@@ -4443,6 +4459,16 @@ signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 
 Contracts worth knowing without consulting the reference:
 
+- `crypto.ed25519_verify(message, public_key, signature)` verifies a detached
+  PureEd25519 signature under RFC 8032. It passes the exact `Bytes` message to
+  the verifier without UTF-8 decoding or prehashing. Public keys must be 32
+  bytes and signatures 64 bytes. A valid-length invalid signature returns
+  `Ok(false)`; malformed lengths, invalid public-key encodings, and provider
+  failures return structured `Err` values with kinds
+  `crypto-ed25519-public-key-length`,
+  `crypto-ed25519-signature-length`, `crypto-ed25519-public-key`, or
+  `crypto-ed25519-provider`. The operation is pure and has no filesystem or
+  network effects.
 - `net.request`, `net.download` and `net.upload` follow up to `redirects`
   redirects (default 3). `redirect_limit: "return"` makes a redirect they will
   not follow the result instead of a `NetError.Redirect` failure, so a caller
@@ -4454,6 +4480,56 @@ Contracts worth knowing without consulting the reference:
   response's `url` is the URL the request was submitted with, `effective_url`
   the URL it came from after redirects, and `redirect_count` how many were
   followed.
+- `net.validate_root_bundle(pem)` validates a nonempty PEM certificate bundle
+  without reading files, making connections, or changing trust. Every certificate
+  must decode and be accepted by the TLS root store. Empty input, raw DER,
+  malformed certificates, nested or unknown PEM markers, and other PEM section
+  types fail with `NetError.TrustStore`. UTF-8 explanatory text without control
+  characters is allowed outside PEM sections, including CA names and title
+  separators in curl bundles. Every certificate section is validated. Validation
+  does not establish certificate dates, revocation status,
+  hostname validity, or trustworthiness.
+- HTTPS clients read the optional administrator policy at
+  `/etc/laputa/trust-policy`. A blocked SHA-256 SPKI digest rejects every supplied
+  peer certificate with that key, including unused intermediates and alternate
+  cross-signed certificates. Custom CA bundles and `tls_verify: false` cannot
+  override a block. Verified TLS retains hostname and handshake-signature checks.
+  The file uses UTF-8 with LF line endings and a final LF:
+
+  ```text
+  laputa-trust-policy-v1
+  generation 1
+  blocked-spki-sha256 <64 lowercase hexadecimal digits>
+  ```
+
+  `generation` is a positive canonical decimal `u64`. Zero blocked-key lines are
+  valid. Duplicate hashes, unknown lines, CRLF, and files larger than 1 MiB fail.
+  Laputa authenticates policy before atomically publishing this root-administered
+  file. XSH does not authenticate signatures or enforce monotonic generations.
+  A truly absent path allows general XSH use. An installed dangling symlink fails.
+  Laputa installations must provide the policy.
+- On Linux, `SSL_CERT_FILE` selects the authoritative bundle. Otherwise XSH selects
+  the first existing canonical bundle. XSH never scans implicit certificate
+  directories. Explicit `SSL_CERT_DIR` directories add roots from regular files,
+  following symlinks. Unreadable or malformed selected bundles and configured
+  extra roots fail closed. Blocked
+  anchors are excluded even when the peer omits them from its chain.
+- Custom CA bundles are read when the client is created. The first HTTPS request
+  snapshots the policy and system root bytes. Before each later admission to the
+  HTTP transport, including redirects and pooled connections, XSH compares the
+  current files with that snapshot. An observed change, removal, or malformed
+  replacement permanently rejects further HTTPS requests from that client.
+  Recreate the pool with `net.close_pool`, `net.close_all_pools`, or `net.pool`,
+  or restart the process to load new trust. Operations already admitted to the
+  transport may finish, including internal queues, retries, TLS resumption, and
+  response streams. Operations submitted but not yet admitted must pass the
+  current snapshot check. Immediate cutover requires draining or restarting the
+  workload. File publication alone cannot cancel admitted operations. Plain HTTP
+  does not load TLS policy or roots.
+- macOS uses the native platform verifier unless a CA bundle is selected.
+  Supplied peer certificates still follow the SPKI policy. Native platform anchors
+  omitted by the peer remain under macOS policy because the platform verifier
+  does not expose its selected anchor. Explicit bundles follow XSH anchor blocks.
 - Standard API failures are structured errors located at the call site.
 - `fs.walk`, `fs.files`, and `fs.dirs` skip hidden entries and honor
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).

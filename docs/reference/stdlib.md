@@ -72,6 +72,12 @@ CPU capability queries.
 
 - `cpu.count() -> Int` — Reports the host CPU count available to the process.
 
+### `crypto`
+
+Ed25519 signature verification.
+
+- `crypto.ed25519_verify(message: Bytes, public_key: Bytes, signature: Bytes) -> Result[Bool, Error]` — Verifies a detached RFC 8032 Ed25519 signature.
+
 ### `diff`
 
 Unified diff generation.
@@ -412,6 +418,7 @@ HTTP request, transfer, and connection-pool helpers.
 - `net.request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
 - `net.start(request: Record) -> Result[NetJob, Error]` — Starts an owned HTTP request and returns its NetJob handle.
 - `net.upload(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Uploads a path or byte source in one structured HTTP request.
+- `net.validate_root_bundle(pem: Bytes) -> Result[Unit, Error]` — Validate a PEM certificate bundle without changing trust.
 
 ### `patch`
 

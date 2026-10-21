@@ -83,6 +83,7 @@ directories = "6.0.0"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+graviola = "=0.4.1"
 ignore = "=0.4.25"
 lzma-rust2 = { version = "0.16.5", default-features = false, features = ["std", "encoder", "xz", "optimization"] }
 md-5 = "0.11"
@@ -111,7 +112,7 @@ xsh-root = { path = "crates/xsh-root" }
 async-io = "2"
 bytes = "1"
 futures-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
-laputa-h2-futures-lite = { version = "=0.4.16-beta.0", default-features = false }
+laputa-h2-futures-lite = { version = "=0.4.20-beta.0", default-features = false }
 laputa-ptytest = "0.1"
 http = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }

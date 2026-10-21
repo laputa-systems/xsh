@@ -33,15 +33,64 @@ fn checked_outputs_accept_default_control_flow_facts() {
 }
 
 #[test]
-fn pure_declarations_alone_accept_unannotated_required_parameters() {
+fn pure_callable_accepts_unannotated_required_parameter() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), "pure identity(value) { value }\n");
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let parameter = parsed.arena.arena.params[0].clone();
     assert!(parameter.annotation.is_none());
     assert!(parameter.default.is_none());
+}
+
+#[test]
+fn callable_header_parameter_omission_boundaries() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
+
+    let source = "proc identity(value) [] { value }\nlet integer = identity(42)\nlet text = identity(\"demo\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let parameter = parsed.arena.arena.params[0].clone();
+    assert!(parameter.annotation.is_none());
+    assert!(parameter.default.is_none());
+
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let mut inferred_calls = Vec::new();
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let expression = ExprId::from_index(raw);
+        let node = parsed.arena.arena.expr(expression);
+        if !matches!(node.kind, ArenaExprKind::Call { .. }) {
+            continue;
+        }
+        let spelling = &source[node.span.range()];
+        if !spelling.starts_with("identity(") {
+            continue;
+        }
+        inferred_calls.push((
+            node.span.start(),
+            spelling.to_owned(),
+            checked.expr_types[&node.span].clone(),
+        ));
+    }
+    inferred_calls.sort_by_key(|(start, _, _)| *start);
+    assert_eq!(
+        inferred_calls,
+        vec![
+            (
+                source.find("identity(42)").unwrap(),
+                "identity(42)".to_owned(),
+                Type::Result(Box::new(Type::Int), Box::new(Type::Error)),
+            ),
+            (
+                source.find("identity(\"demo\")").unwrap(),
+                "identity(\"demo\")".to_owned(),
+                Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
+            ),
+        ]
+    );
 
     for source in [
-        "proc add(value) [] {}\n",
         "stream values(value) [] -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure call(value) -> Int }\n",
         "type Callback = pure(value) -> Int\n",
