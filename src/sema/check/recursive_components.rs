@@ -538,6 +538,23 @@ mod tests {
     }
 
     #[test]
+    fn grounded_proc_relay_preserves_original_application_return_sites() {
+        let source = concat!(
+            "pure first(payload: Int) -> Int { payload }\n",
+            "pure second(payload: Int) -> Int { payload + 1 }\n",
+            "proc relay(first, second, value, flag: Bool) { if flag { return first(value) }; second(value) }\n",
+            "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let sites = checked.checked_declarations.functions.values().filter_map(|declaration| declaration.scheme_body_facts.as_ref())
+            .map(|facts| facts.proc_return_site_count()).sum::<usize>();
+        assert_eq!(sites, 2);
+    }
+
+    #[test]
     fn recursive_component_failure_publishes_no_member_scheme() {
         let source = concat!(
             "pure left(value, count) { if count == 0 { value } else { right(value, count - 1) } }\n",
