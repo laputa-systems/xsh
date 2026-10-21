@@ -5720,6 +5720,8 @@ impl Checker {
             }
             return;
         }
+        let expected = self.boundary.current_return.as_ref()
+            .map_or(Type::Unit, |context| context.ty().clone());
         if !self.boundary.in_pure && self.boundary.current_yield.is_none()
             && self.boundary.effect_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
                 .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc)
@@ -5727,11 +5729,15 @@ impl Checker {
             && matches!(arena.arena.expr(expression).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. })
         {
             if self.inferred_returns.is_some() { self.statement_positions.insert(span, super::StatementPosition::Statement); }
-            self.check_proc_completion_expression_arena(arena, source, expression);
+            let context = if self.inferred_returns.is_some() { None } else {
+                tail_expr_context_arena(arena, expression, Some(&expected))
+            };
+            let schema = self.return_value_schema(&expected, context.as_ref());
+            let previous_schema = std::mem::replace(&mut self.boundary.expected_schema, schema);
+            self.check_proc_completion_expression_arena(arena, source, expression, context.as_ref().map(super::types::TypeExpectation::Required));
+            self.boundary.expected_schema = previous_schema;
             return;
         }
-        let expected = self.boundary.current_return.as_ref()
-            .map_or(Type::Unit, |context| context.ty().clone());
         if value.is_none() && expected.is_result_unit() {
             return;
         }
@@ -5789,12 +5795,10 @@ impl Checker {
 
     pub(super) fn check_proc_completion_expression_arena(
         &mut self, arena: &ArenaProgram, source: &str, expression: ExprId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
         let node = arena.arena.expr(expression);
         let collecting = self.inferred_returns.is_some();
-        let expected = self.boundary.current_return.as_ref().expect("Proc completion owns its return context").ty().clone();
-        let context = (!collecting).then(|| tail_expr_context_arena(arena, expression, Some(&expected))).flatten();
-        let expectation = context.as_ref().map(super::types::TypeExpectation::Required);
         let actual = match node.kind {
             ArenaExprKind::If { branches, else_value } => {
                 self.check_if_expr_arena(arena, source, branches, else_value, expectation, TailCheckingPurpose::ProcCompletion)
@@ -5804,18 +5808,14 @@ impl Checker {
             }
             ArenaExprKind::ValueBlock(block) => {
                 self.push_scope();
-                let schema = self.return_value_schema(&expected, context.as_ref());
-                let previous_schema = std::mem::replace(&mut self.boundary.expected_schema, schema);
                 let actual = self.check_tail_block_for_purpose_arena(arena, source, block, expectation, TailCheckingPurpose::ProcCompletion);
-                self.boundary.expected_schema = previous_schema;
                 self.pop_scope();
                 actual
             }
             _ => {
-                let actual = if collecting {
-                    self.check_expr_arena(arena, source, expression, None)
-                } else {
-                    self.check_return_value_arena(arena, source, Some(ArenaExprOrRun::Expr(expression)), &expected, node.span)
+                let actual = self.check_expr_with_expectation_arena(arena, source, expression, expectation);
+                let actual = if collecting { actual } else {
+                    self.resolve_local_tail_type_with_expectation(actual, expectation, node.span)
                 };
                 let origin = self.stream_expr_origin(arena, expression);
                 let schema = self.checked_schema_for_expr(arena, expression);

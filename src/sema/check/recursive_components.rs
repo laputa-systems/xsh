@@ -231,6 +231,24 @@ mod tests {
         }
     }
 
+    fn assert_authored_result_branch_preserves_the_original_context(completion: &str) {
+        let source = format!("proc read_chunk(source: Path, offset: Int, count = 4) [fs, error, io] -> Result[Bytes, Error] {{ return {completion} }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{completion}: {:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn authored_proc_return_if_preserves_its_whole_result_context() {
+        assert_authored_result_branch_preserves_the_original_context("if offset == 0 { source.read_bytes() } else { Ok(b\"\") }");
+    }
+
+    #[test]
+    fn authored_proc_return_match_preserves_its_whole_result_context() {
+        assert_authored_result_branch_preserves_the_original_context("match offset { 0 => { source.read_bytes() }; _ => { Ok(b\"\") } }");
+    }
+
     #[test]
     fn generic_command_words_require_available_checked_bindings() {
         let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";

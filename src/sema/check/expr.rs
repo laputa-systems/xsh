@@ -2289,7 +2289,7 @@ impl Checker {
             };
             let diagnostics_before = self.diagnostics.len();
             let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
-                self.check_proc_completion_expression_arena(arena, source, branch.value)
+                self.check_proc_completion_expression_arena(arena, source, branch.value, branch_expectation)
             } else { self.check_expr_with_expectation_arena(arena, source, branch.value, branch_expectation) };
             let contextual_error = self.diagnostics.len() != diagnostics_before;
             let value_span = arena.arena.expr(branch.value).span;
@@ -2346,7 +2346,7 @@ impl Checker {
         };
         let diagnostics_before = self.diagnostics.len();
         let else_ty = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
-            self.check_proc_completion_expression_arena(arena, source, else_value)
+            self.check_proc_completion_expression_arena(arena, source, else_value, else_expectation)
         } else { self.check_expr_with_expectation_arena(arena, source, else_value, else_expectation) };
         let contextual_error = self.diagnostics.len() != diagnostics_before;
         let else_span = arena.arena.expr(else_value).span;
@@ -2875,7 +2875,7 @@ impl Checker {
             let arm_expectation = if infer_branches { None } else { super::types::next_branch_expectation(expectation, inferred.as_ref()) };
             let diagnostics_before = self.diagnostics.len();
             let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
-                self.check_proc_completion_expression_arena(arena, source, arm.value)
+                self.check_proc_completion_expression_arena(arena, source, arm.value, arm_expectation)
             } else { self.check_expr_with_expectation_arena(arena, source, arm.value, arm_expectation) };
             let merged = if !infer_branches && self.diagnostics.len() == diagnostics_before {
                 inferred.as_ref().and_then(|previous| super::types::merge_checked_branches(arm_expectation, previous, &actual))
