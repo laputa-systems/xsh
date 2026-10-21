@@ -274,6 +274,59 @@ the denominator:
 | Joint effect proof pending | 202 | All clauses remain in the source; individual lint suggestions do not prove simultaneous removal. |
 | **Total** | **1,843** | |
 
+### Bounded 20-site source relationship review
+
+`frozen_witnesses.py` identifies twelve Proc sites in this sample: 94, 95, 97,
+102, 104, 106–109, 111, 112, and 121. It identifies eight effect sites: 96,
+100, 103, 110, 120, 124, 135, and 439. The first nineteen sites are in
+`xsh/core/wc.xsh`. Site 439 is in `laputa/pm/plan_json.xsh`. This sample records
+source relationships and supports no cause or removal claim.
+
+The `wc.xsh` sites form one source-level helper chain. `main` calls
+`number_width` at line 656 and `posix_mode` at line 665. It calls
+`files0_input` at lines 639, 693, and 706. `count_one` calls `count_input` at
+line 497 and `write_streamed_line` at line 522. `main` calls `count_one` at
+lines 693, 706, and 710. `count_input` calls `read_file` at line 432.
+`number_width` consumes `List[Input]` and `Shown`, then returns a width used
+for output. `count_input` returns `InputResult`, whose fields `count_one` reads.
+`files0_input` constructs `Input` records that flow into the same loop. This
+review did not authenticate the lexical references as resolved declaration
+edges.
+
+The effect sites separate direct operations from called capabilities.
+`posix_mode` reads `POSIXLY_CORRECT` through `env.get`. `read_file` calls
+`Path.read_bytes` and `Path.bytes_lines` with `?`. `files0_input` calls
+`gnu.quote_maybe` on its diagnostic path, and that imported function has an
+`env` effect. `count_input` reads stdin and calls `read_file`; its `io` effect
+also covers `env` under SPEC 9.6. `write_streamed_line` writes and flushes
+output, while `count_one` combines it with `count_input`. `number_width` reads
+`Path.metadata` inside `if let Ok`, so its `fs` effect has a direct source
+operation but its `error` effect is a useful negative inference control.
+These bodies show required capabilities. The current checker must determine
+whether it can derive them without explicit private clauses.
+
+Site 439 distinguishes a `Result` value from an error effect.
+`plan_json_remote` declares
+`[error]` and returns `Result[types.RemoteRetrieval]`. Its body projects fields
+into a record. `plan_json_node` applies `?` to the result at line 126. Source
+review finds no body operation that explains the callee's `error` effect. Only
+the current checker can determine whether it infers an `error` effect for this
+body. The source does not establish whether the annotation expresses an
+intentional contract.
+
+Three focused pairs can test these paths. First, retain the
+`InputResult` fields and the `count_one` consumer while testing inference of
+`count_input`'s return. Second, compare `number_width`'s handled metadata
+result with `read_file`'s propagated `read_bytes` and `bytes_lines` errors. Add a
+private wrapper around `gnu.quote_maybe` to separate direct from imported
+effect-summary propagation. Third, retain `plan_json_remote`'s result type and
+the caller's `?`, then compare it with a neighbor whose body performs an
+effectful operation. Preserve source meanings in both versions and classify
+the results only after running the current checker. The sample contains
+concrete body and caller source, so it has no known source-level
+unavailable-information blocker. The checker still must prove it can derive
+these relationships.
+
 For the 149 empty Maps, the annotation bytes encode 145 single-argument forms
 and four explicit key/value forms.
 [XSH Map type syntax](SPEC.md#45-lists-maps-and-records) defines `Map[V]` as
