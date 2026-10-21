@@ -445,6 +445,37 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn inferred_callable_result_patterns_accept_nominal_callbacks_with_the_ordinary_join() {
+        accepts("error First = invalid(message: Str)\nerror Second = missing(message: Str)\npure number(payload: Int) -> Result[Int, First] { Err(First.invalid(message: \"number\")) }\npure text(input: Str) -> Result[Str, Second] { Err(Second.missing(message: \"text\")) }\nproc relay(action, value) { match action(value) { Ok(result) => Ok(result); Err(problem) => Err(problem) } }\nlet integer: Result[Int] = relay(number, 7)\nlet string: Result[Str] = relay(text, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_result_patterns_preserve_enum_constructor_selection() {
+        accepts("enum Shape { Ok(Int), Empty }\npure read(value: Shape) -> Int { match value { Ok(payload) => payload; Empty => 0 } }\nlet result: Int = read(Ok(7))\n");
+    }
+
+    #[test]
+    fn inferred_callable_result_patterns_reject_plain_callback_results() {
+        let source = "pure number(payload: Int) -> Int { payload }\nproc relay(action, value) { match action(value) { Ok(result) => Ok(result); Err(problem) => Err(problem) } }\nlet integer = relay(number, 7)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "a plain Int callback cannot satisfy a Result-pattern requirement");
+    }
+
+    #[test]
+    fn inferred_callable_result_patterns_keep_the_ordinary_error_join() {
+        let source = "error First = invalid(message: Str)\nproc relay(value: Result[Int, First]) { match value { Ok(result) => Ok(result); Err(problem) => Err(problem) } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+        let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "relay").unwrap();
+        assert_eq!(declaration.scheme.as_ref().unwrap().return_type().closed_ground_type(), Some(crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Error))));
+        accepts("error First = invalid(message: Str)\nproc relay(value: Result[Int, First]) -> Result[Int, First] { match value { Ok(result) => Ok(result); Err(problem) => Err(problem) } }\n");
+    }
+
+    #[test]
     fn inferred_callable_recursive_proc_arms_keep_the_existing_result_join() {
         for returned in ["Int", "Result[Int]"] {
             let body = if returned == "Int" { "payload" } else { "Ok(payload)" };

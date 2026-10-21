@@ -4163,6 +4163,7 @@ impl Checker {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| arm.pattern)
             .collect::<Vec<_>>();
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
         if super::stmt::patterns_are_exhaustive_arena(
             arena,
             &value_ty,
@@ -7028,8 +7029,6 @@ impl Checker {
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
-        let match_is_exhaustive =
-            match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
         let mut inferred: Option<Type> = None;
         let initial_stream_state = self.stream_mutable_state();
@@ -7072,6 +7071,8 @@ impl Checker {
             if self.stream_block_may_complete(arena, arm.block) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();
         }
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
+        let match_is_exhaustive = match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
         let all_arms_return = match_is_exhaustive
             && arm_list
                 .iter()

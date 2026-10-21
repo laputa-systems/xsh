@@ -2875,6 +2875,7 @@ impl Checker {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
             .collect::<Vec<_>>();
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
         let exhaustive = super::stmt::patterns_are_exhaustive_arena(
             arena,
             &value_ty,

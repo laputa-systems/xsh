@@ -1548,6 +1548,26 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn constrain_result_pattern_subject(
+        &mut self, subject: &Type, contribution: Span,
+    ) -> Result<Type, ConstraintConflict> {
+        self.commit_constraint_transaction(|constraints| {
+            let conflict = |error| ConstraintConflict {
+                expected: subject.clone(), actual: subject.clone(), initializer: None,
+                established: None, contribution, resolution_error: Some(error),
+            };
+            let resolved = constraints.resolve(subject).map_err(conflict)?;
+            let Type::Inference(variable) = resolved else { return Ok(resolved) };
+            let level = constraints.type_level(variable).map_err(conflict)?;
+            let required = Type::Result(
+                Box::new(constraints.fresh_at_level(contribution, level)),
+                Box::new(constraints.fresh_at_level(contribution, level)),
+            );
+            constraints.constrain(&required, subject, contribution)?;
+            constraints.resolve(&required).map_err(conflict)
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn constrain_types(
         &mut self,
@@ -6185,5 +6205,28 @@ mod tests {
             constraints.generalize_types(&[variable], 0),
             Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedType))
         ));
+    }
+
+    #[test]
+    fn callable_result_pattern_shapes_keep_levels_and_trial_ownership() {
+        let mut constraints = TypeConstraints::default();
+        let subject = constraints.fresh_at_level(span(1), 1);
+        let required = constraints.constrain_result_pattern_subject(&subject, span(2)).unwrap();
+        let Type::Result(ok, error) = &required else { panic!("the pattern establishes a Result shape") };
+        for payload in [ok, error] {
+            let Type::Inference(id) = payload.as_ref() else { panic!("the payload remains caller independent") };
+            assert_eq!(constraints.type_level(*id), Ok(1));
+        }
+        let mut rolled_back = None;
+        constraints.trial(|constraints| {
+            let temporary = constraints.fresh_at_level(span(3), 1);
+            rolled_back = Some(constraints.constrain_result_pattern_subject(&temporary, span(4)).unwrap());
+            Ok(())
+        }).unwrap();
+        assert!(constraints.resolve(&rolled_back.unwrap()).is_err());
+        assert_eq!(constraints.resolve(&subject).unwrap(), required);
+        assert_eq!(constraints.constrain_result_pattern_subject(&Type::Int, span(5)).unwrap(), Type::Int);
+        let mut foreign = TypeConstraints::default();
+        assert!(foreign.constrain_result_pattern_subject(&subject, span(6)).is_err());
     }
 }

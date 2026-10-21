@@ -11,11 +11,17 @@ fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
     )
 }
 
-/// Arena-native mirror of `check_pattern` and its callees. Fully self-contained:
-/// `check_pattern` (unlike `check_match`, the statement-level match in
-/// stmt.rs) never calls `check_block` — only `check_expr`/type annotations on
-/// leaf sub-expressions, so no `Block` support is needed to port it.
 impl Checker {
+    pub(super) fn resolve_pattern_subject_type(&mut self, value: &Type, span: Span) -> Type {
+        match self.type_constraints.resolve(value) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                self.error(span, &format!("pattern subject resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                Type::Invalid
+            }
+        }
+    }
+
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -375,6 +381,22 @@ impl Checker {
     ) {
         let pattern = arena.arena.pattern(pattern_id);
         let span = arena.arena.span(pattern.span);
+        let result_constructor = match &pattern.kind {
+            ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::TestName { name, .. } =>
+                (*name == "Ok" || *name == "Err") && !self.tag_variants.contains_key(name)
+                    && !self.type_defs.contains_key(name) && !self.error_facets.contains(name),
+            _ => false,
+        };
+        let resolved_value = if result_constructor {
+            match self.type_constraints.constrain_result_pattern_subject(value_ty, span) {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    self.error(span, &format!("Result pattern subject constraint failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    Type::Invalid
+                }
+            }
+        } else { self.resolve_pattern_subject_type(value_ty, span) };
+        let value_ty = &resolved_value;
         // A `.Name` pattern is checked as the qualified pattern the matched
         // value's type selects.
         let qualified;
