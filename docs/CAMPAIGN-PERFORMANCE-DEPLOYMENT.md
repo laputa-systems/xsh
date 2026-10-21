@@ -20,6 +20,13 @@ pinned regression passes. Spanless indexed-build errors identify the failing
 entry source; explicit error spans remain intact. This ports campaign repair
 `80fea2f8d` without the unfinished compiler changes. The isolated checkout is
 clean and its owned build has finished.
+Master also includes the independent performance adapter through `353ebeca0`,
+ported with its three generator prerequisites. All seven files match campaign
+source `354d9215c`; fresh isolated checks pass 26 workload/measurement tests
+and 42 adapter tests on both sources. The optional `inference_performance`
+configuration and module command cover section 12 measurements only. They
+require explicit reference products and reject missing canonical counters;
+full inference acceptance remains closed. No actual timing result follows.
 No fresh full Rust, native, or performance gate accompanies these merges.
 Later inference commits remain on the campaign branch: even the focused-green
 `8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
@@ -60,6 +67,16 @@ bytes. Seven existing runner/resource/constructor controls and all five new
 comprehension selectors pass, with zero skips and unchanged product pins.
 The comprehension file is integrated at `7fef1b5e6`; all five selectors also
 pass against that clean integrated source.
+
+Collector repair `50b9d543e` passes its 19 focused controls and independent
+review, including both existing work-budget controls. It proves every writer
+of the fresh lowered accumulator, preserves actual append types and runtime
+checks, and reuses inherited lexical bindings only during the writer census.
+The 16/32/64/128-writer cases, scope boundaries, early returns and forged
+inputs pass. A separately reproduced scoped-callable baseline failure is also
+fixed without dropping context initialization or effect/resource checks.
+Fresh merged qualification and matching-product corpus replay are running;
+the twenty producer and two slice failures below are not yet claimed closed.
 
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
