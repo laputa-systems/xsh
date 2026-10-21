@@ -1,5 +1,6 @@
 use super::{BTreeMap, CheckBundleView, Effect, Name, Span};
 use crate::diagnostic::DiagnosticCode;
+use std::collections::BTreeSet;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
 /// overlap. Bundled source spans remain usable as the tooling projection.
@@ -221,18 +222,15 @@ impl EffectGraph {
         &self,
         external: &BTreeMap<EffectDeclarationId, EffectSummary>,
     ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
-        self.solve_with(None, external)
+        self.solve_with(&BTreeSet::new(), external)
     }
 
-    /// Effect sets only grow within the finite domain. Unknown witnesses choose
-    /// the shortest stable chain, so recursive calls cannot grow diagnostic paths.
-    /// `unclaused` solves as if that declaration had no clause: contract edges
-    /// to it read its summary instead.
     fn solve_with(
         &self,
-        unclaused: Option<EffectDeclarationId>,
+        unclaused: &BTreeSet<EffectDeclarationId>,
         external: &BTreeMap<EffectDeclarationId, EffectSummary>,
     ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+        assert!(unclaused.iter().all(|id| self.nodes.contains_key(id)), "unclaused declarations belong to the effect graph");
         let mut summaries = self
             .nodes
             .iter()
@@ -242,7 +240,7 @@ impl EffectGraph {
             let mut changed = false;
             for (&id, node) in &self.nodes {
                 for edge in &node.edges {
-                    let target = if edge.contract && unclaused != Some(edge.target) {
+                    let target = if edge.contract && !unclaused.contains(&edge.target) {
                         EffectSummary {
                             known: self.nodes[&edge.target]
                                 .declared
@@ -269,8 +267,10 @@ impl EffectGraph {
                         }
                     }
                     if !target.unknown_chain.is_empty() {
-                        let mut chain = vec![self.nodes[&edge.target].name.clone()];
-                        chain.extend(target.unknown_chain);
+                        let mut chain = target.unknown_chain;
+                        if let Some(target) = self.nodes.get(&edge.target) {
+                            chain.insert(0, target.name.clone());
+                        }
                         changed |= summary.unknown(chain);
                     }
                 }
@@ -281,9 +281,6 @@ impl EffectGraph {
         }
     }
 
-    /// A clause is redundant when it equals, as a set, what its declaration
-    /// infers once every use of the clause, including recursive ones, reads the
-    /// inferred summary instead.
     fn redundant_clause(
         &self,
         id: EffectDeclarationId,
@@ -299,21 +296,17 @@ impl EffectGraph {
         if !node.inference_allowed || summary.effects().is_none_or(|known| !same(&known)) {
             return false;
         }
-        // Without a path back to the declaration, its clause feeds nothing it
-        // depends on, so the solved summary already is the inferred set.
         if !self.reaches_own_contract(id) {
             return true;
         }
-        self.solve_with(Some(id), &BTreeMap::new())[&id]
+        self.solve_with(&BTreeSet::from([id]), &BTreeMap::new())[&id]
             .effects()
             .is_some_and(|known| same(&known))
     }
 
-    /// Whether a call chain from `id` uses `id`'s own clause. Contract edges to
-    /// other declarations end a chain because they read a fixed clause.
     fn reaches_own_contract(&self, id: EffectDeclarationId) -> bool {
         let mut pending = vec![id];
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         while let Some(current) = pending.pop() {
             if !seen.insert(current) {
                 continue;
@@ -361,6 +354,168 @@ impl EffectGraph {
 use super::{Checker, FunctionSig};
 use super::effect_bounds::ExcludedEffect;
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId};
+
+#[cfg(test)]
+mod joint_effect_tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    fn declaration(offset: usize) -> EffectDeclarationId {
+        EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), offset, offset + 1) }
+    }
+
+    fn recursive_pair(declared: bool) -> (EffectGraph, EffectDeclarationId, EffectDeclarationId) {
+        let first = declaration(1);
+        let second = declaration(2);
+        let mut graph = EffectGraph::default();
+        graph.declare(first, "first".into(), true, declared.then(|| vec![Effect::Time]));
+        graph.declare(second, "second".into(), true, declared.then(|| vec![Effect::Time]));
+        graph.call(Some(first), second, false);
+        graph.call(Some(second), first, false);
+        (graph, first, second)
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_drops_mutually_supported_effects() {
+        let (graph, first, second) = recursive_pair(true);
+        let original = graph.solve_with_external(&BTreeMap::new());
+        let facts = graph.facts(&original);
+        assert!(facts[&first].redundant_clause);
+        assert!(facts[&second].redundant_clause);
+        let (inferred, _, _) = recursive_pair(false);
+        let selected = BTreeSet::from([first, second]);
+        let counterfactual = graph.solve_with(&selected, &BTreeMap::new());
+        assert_eq!(counterfactual, inferred.solve_with_external(&BTreeMap::new()));
+        assert!(selected.iter().all(|id| counterfactual[id].effects() == Some(Vec::new())));
+        assert_eq!(graph.facts(&original), facts);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_preserves_empty_and_singleton_contracts() {
+        let (mut graph, first, second) = recursive_pair(true);
+        let recursive = declaration(3);
+        graph.declare(recursive, "recursive".into(), true, Some(vec![Effect::Time]));
+        graph.call(Some(recursive), recursive, false);
+        let ordinary = graph.solve_with(&BTreeSet::new(), &BTreeMap::new());
+        for id in [first, second, recursive] { assert_eq!(ordinary[&id].effects(), Some(vec![Effect::Time])); }
+        let singleton = graph.solve_with(&BTreeSet::from([first]), &BTreeMap::new());
+        assert_eq!(singleton[&first].effects(), Some(vec![Effect::Time]));
+        assert_eq!(singleton[&second].effects(), Some(vec![Effect::Time]));
+        assert!(!graph.facts(&ordinary)[&recursive].redundant_clause);
+        let self_removed = graph.solve_with(&BTreeSet::from([recursive]), &BTreeMap::new());
+        assert_eq!(self_removed[&recursive].effects(), Some(Vec::new()));
+        assert_eq!(self_removed[&first].effects(), Some(vec![Effect::Time]));
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_retains_recursive_clock_requirement() {
+        let (mut graph, first, second) = recursive_pair(true);
+        graph.require(Some(second), Effect::Time, false);
+        let original = graph.solve_with_external(&BTreeMap::new());
+        let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
+        assert_eq!(counterfactual, original);
+        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Time]));
+        assert!(graph.facts(&original).values().all(|fact| fact.redundant_clause));
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_retains_unselected_authored_bound() {
+        let (mut graph, first, second) = recursive_pair(true);
+        let boundary = declaration(3);
+        graph.declare(boundary, "boundary".into(), true, Some(vec![Effect::Time]));
+        graph.call(Some(second), boundary, false);
+        let original = graph.solve_with_external(&BTreeMap::new());
+        let facts = graph.facts(&original);
+        let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
+        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&boundary].effects(), Some(Vec::new()));
+        assert_eq!(facts[&boundary].effective, Some(vec![Effect::Time]));
+        assert!(!facts[&boundary].redundant_clause);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+        let all_removed = graph.solve_with(&BTreeSet::from([first, second, boundary]), &BTreeMap::new());
+        assert!(all_removed.values().all(|summary| summary.effects() == Some(Vec::new())));
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_captures_error_without_erasing_filesystem_work() {
+        let first = declaration(1);
+        let second = declaration(2);
+        let mut graph = EffectGraph::default();
+        graph.declare(first, "capturing".into(), true, Some(vec![Effect::Fs]));
+        graph.declare(second, "fallible".into(), true, Some(vec![Effect::Fs, Effect::Error]));
+        graph.require(Some(second), Effect::Fs, false);
+        graph.require(Some(second), Effect::Error, false);
+        graph.require(Some(first), Effect::Error, true);
+        graph.call(Some(first), second, true);
+        graph.call(Some(second), first, false);
+        let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
+        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Fs]));
+        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Error, Effect::Fs]));
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_refuses_finite_proof_for_unknown_dependency() {
+        let (mut graph, first, second) = recursive_pair(true);
+        graph.unknown(Some(second), "opaque".into());
+        let original = graph.solve_with_external(&BTreeMap::new());
+        let facts = graph.facts(&original);
+        let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
+        assert_eq!(counterfactual[&first].effects(), None);
+        assert_eq!(counterfactual[&second].effects(), None);
+        assert_eq!(counterfactual[&first].unknown_chain, ["second", "opaque"]);
+        assert_eq!(counterfactual[&second].unknown_chain, ["opaque"]);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_distinguishes_modules_with_identical_local_spans() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let body = declaration(1).body;
+            let first = EffectDeclarationId { namespace: Some(Name::intern("first_module")), body };
+            let second = EffectDeclarationId { namespace: Some(Name::intern("second_module")), body };
+            let mut graph = EffectGraph::default();
+            graph.declare(first, "first".into(), true, Some(vec![Effect::Time]));
+            graph.declare(second, "second".into(), true, Some(vec![Effect::Time]));
+            graph.call(Some(first), second, false);
+            graph.call(Some(second), first, false);
+            let singleton = graph.solve_with(&BTreeSet::from([first]), &BTreeMap::new());
+            assert_eq!(singleton[&first].effects(), Some(vec![Effect::Time]));
+            assert_eq!(singleton[&second].effects(), Some(vec![Effect::Time]));
+            let joint = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
+            assert_eq!(joint[&first].effects(), Some(Vec::new()));
+            assert_eq!(joint[&second].effects(), Some(Vec::new()));
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "unclaused declarations belong to the effect graph")]
+    fn joint_clause_counterfactual_rejects_external_body_selection() {
+        let (mut graph, first, _) = recursive_pair(true);
+        let remote = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(1), 1, 1) };
+        graph.call(Some(first), remote, false);
+        let external = BTreeMap::from([(remote, EffectSummary { known: vec![Effect::Time], unknown_chain: Vec::new() })]);
+        let local = graph.solve_with(&BTreeSet::from([first]), &external);
+        assert_eq!(local[&first].effects(), Some(vec![Effect::Time]));
+        graph.solve_with(&BTreeSet::from([first, remote]), &external);
+    }
+
+    #[test]
+    fn joint_clause_counterfactual_preserves_external_unknown_boundary() {
+        let local = declaration(1);
+        let remote = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(1), 1, 1) };
+        let mut graph = EffectGraph::default();
+        graph.declare(local, "local".into(), true, None);
+        graph.call(Some(local), remote, false);
+        let external = BTreeMap::from([(remote, EffectSummary { known: vec![Effect::Fs], unknown_chain: vec!["remote".into(), "opaque".into()] })]);
+        let summaries = graph.solve_with_external(&external);
+        assert_eq!(summaries[&local].effects(), None);
+        assert_eq!(summaries[&local].known, vec![Effect::Fs]);
+        assert_eq!(summaries[&local].unknown_chain, external[&remote].unknown_chain);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(super) enum DeferredEffectKind {
