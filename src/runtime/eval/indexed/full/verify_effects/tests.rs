@@ -3361,3 +3361,22 @@ assert descend("kept", 2) == Ok("kept")
         execute_both(&program);
     });
 }
+
+#[test]
+fn producer_context_record_loop_fields_keep_empty_list_contracts() {
+    on_large_stack(|| {
+        for rows in ["[{args: []}, {args: [\"-z\"]}]", "[{args: [\"-z\"]}, {args: []}]", "[{args: [], labels: [\"a\"]}, {args: [\"-z\"], labels: []}]"] {
+            let source = format!("pure alternate() -> Bool {{ false }}\npure sizes() -> List[Int] {{ collect {{ for case in {rows} {{ yield case.args.len() }} }} }}\nassert sizes() == {}\n", if rows.starts_with("[{args: []") { "[0, 1]" } else { "[1, 0]" });
+            let program = fixture(&source);
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let sizes = function(&program, "sizes");
+            let value = program.store.function_instruction_range(sizes).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+            let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags[value] = FullTag::ExprBool;
+            forged.store.data[value] = program.store.data[boolean];
+            assert!(FullVerifier::verify(&forged).is_err(), "incompatible actual row item accepted: {rows}");
+        }
+    });
+}

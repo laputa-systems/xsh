@@ -250,6 +250,40 @@ mod tests {
     }
 
     #[test]
+    fn list_literal_rows_resolve_nested_empty_items_before_field_use() {
+        for rows in ["[{args: []}, {args: [\"-z\"]}]", "[{args: [\"-z\"]}, {args: []}]", "[{args: [], labels: [\"a\"]}, {args: [\"-z\"], labels: []}]"] {
+            let source = format!("pure sizes() -> List[Int] {{ collect {{ for case in {rows} {{ yield case.args.len() }} }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let receiver = crate::source::Span::new(SourceId::new(0), source.find("case.args").unwrap(), source.find("case.args").unwrap() + 4);
+            let Type::Record(fields) = checked.expr_types.get(&receiver).expect("checked loop receiver") else { panic!("checked record receiver") };
+            assert_eq!(fields.get(&crate::symbol::Name::intern("args")), Some(&Type::List(Box::new(Type::Str))), "{rows}");
+        }
+    }
+
+    #[test]
+    fn list_literal_row_refinement_preserves_authored_any_and_rejects_incompatible_fields() {
+        let source = "pure sizes(items: List[Any]) -> List[Int] { collect { for case in [{args: items}, {args: []}] { yield case.args.len() } } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let start = source.find("case.args").unwrap();
+        let Type::Record(fields) = &checked.expr_types[&crate::source::Span::new(SourceId::new(0), start, start + 4)] else { panic!("checked record receiver") };
+        assert_eq!(fields.get(&crate::symbol::Name::intern("args")), Some(&Type::List(Box::new(Type::Any))));
+        for rows in ["[{args: [7]}, {args: [\"word\"]}]", "[{args: [], count: 7}, {args: [\"word\"]}]"] {
+            let field = if rows.contains("count") { "count" } else { "args" };
+            let source = format!("pure sizes() -> Int {{ for case in {rows} {{ let _ = case.{field} }}; 7 }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{rows}: incompatible row accepted");
+        }
+    }
+
+    #[test]
     fn generic_command_words_require_available_checked_bindings() {
         let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
