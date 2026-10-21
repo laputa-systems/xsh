@@ -6930,10 +6930,10 @@ impl<'a> FullDecoder<'a> {
         mut binding: impl FnMut(usize, &T) -> Result<(), IrVerifyError>,
         mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<(), IrVerifyError> {
+        charge(1)?;
         let mut pending = vec![(target, source_type)];
         let mut slots = rustc_hash::FxHashSet::default();
         while let Some((target, source_type)) = pending.pop() {
-            charge(1)?;
             match target {
                 decode::CompTargetView::Discard => {}
                 decode::CompTargetView::Slot(slot) => {
@@ -6943,6 +6943,7 @@ impl<'a> FullDecoder<'a> {
                 decode::CompTargetView::Record { mut fields } => {
                     record(&source_type)?;
                     for selected in &mut fields {
+                        charge(1)?;
                         let (name, target, _) = selected?;
                         let ty = field(&source_type, name)?.ok_or_else(|| IrVerifyError::new("record target source field is missing"))?;
                         pending.push((target, ty));
@@ -38508,6 +38509,11 @@ assert shared == null
         let captures = |function: usize| program.store.functions[function].captures.bounds(program.store.captures.len()).unwrap();
         let apply_capture = program.store.captures[captures(owner)].iter().find(|capture| capture.slot_and_flags & (1 << 31) != 0).unwrap();
         assert!(program.store.captures[captures(clear)].iter().any(|capture| capture.slot_and_flags & (1 << 31) != 0 && capture.binding_identity == apply_capture.binding_identity));
+        let reader_index = captures(owner).find(|&index| program.store.captures[index].binding_identity == apply_capture.binding_identity).unwrap();
+        let mut readonly_reader = (*program).clone();
+        readonly_reader.store.captures[reader_index].slot_and_flags &= !(1 << 31);
+        let error = FullVerifier::verify(&readonly_reader).expect_err("reader flags must match actual shared storage");
+        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type"), "{error:?}");
         let decoder = function_view_decoder(&program.store, owner);
         let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Call { function, .. }) if function.id.index() == clear)).unwrap();
         let body = first_if_body_block(&program, "apply");
@@ -38529,6 +38535,55 @@ assert shared == null
         assert!(malformed.store.captures[captures(clear)].iter().any(|capture| capture.binding_identity == apply_capture.binding_identity && capture.slot_and_flags & (1 << 31) != 0));
         let error = FullVerifier::verify(&malformed).unwrap_err();
         assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type"), "{error:?}");
+    }
+
+    #[test]
+    fn checked_comprehensions_authenticate_unused_record_targets() {
+        for (row, wrong, target, row_value, wrong_value) in [
+            ("{present: Int}", "{other: Int}", "{present: _}", "{present: 1}", "{other: 1}"),
+            ("{present: Int}", "Int", "{}", "{present: 1}", "1"),
+            ("{present: Leaf}", "{present: Int}", "{present: {value: _}}", "{present: {value: 1}}", "{present: 1}"),
+        ] {
+          for (result, body) in [("List[UInt]", format!("[7 for {target} in rows]")), ("Map[UInt]", format!("{{[\"value\"]: 7 for {target} in rows}}"))] {
+            let source = format!("type Leaf = {{value: Int}}\ntype Row = {row}\ntype Wrong = {wrong}\npure make(rows: List[Row], wrong: List[Wrong]) -> {result} {{ let _ = wrong; {body} }}\nassert make([{row_value}], [{wrong_value}]).len() == 1\n");
+            let program = Arc::new(fixture("checked-unused-record-target.xsh", &source));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "make");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let iterable = range.clone().find_map(|instruction| {
+                let qualifiers = match decoder.expression_view(instruction) {
+                    Ok(schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. }) => qualifiers,
+                    _ => return None,
+                };
+                qualifiers.filter_map(|qualifier| match qualifier.unwrap() {
+                    super::decode::CompQualifierView::For { target: super::decode::CompTargetView::Record { mut fields }, iter, .. } => {
+                        if let Some(field) = fields.next() {
+                            let (name, _, _) = field.unwrap();
+                            assert_eq!(name.as_str(), "present");
+                        }
+                        Some(iter.raw() as usize)
+                    }
+                    _ => None,
+                }).next()
+            }).unwrap();
+            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            assert!(matches!(decoder.expression_view(iterable).unwrap(), schema::ExprView::Param(0)));
+            let mut malformed = (*program).clone();
+            malformed.store.data[iterable] = program.store.data[wrong];
+            malformed.store.checked_expr_types.retain(|fact| fact.is_contract() || fact.instruction as usize != iterable);
+            assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(iterable).unwrap(), schema::ExprView::Param(1)));
+            let error = FullVerifier::verify(&malformed).expect_err("unused record target must prove its selected field");
+            assert!(error.message.contains("source field") || error.message.contains("record"), "{error:?}");
+          }
+        }
     }
 
     #[test]
@@ -38554,6 +38609,20 @@ assert order == 123
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() {
                 evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let generic = Arc::new(fixture("checked-generic-unsigned-list-arguments.xsh", r#"pure copy(value, keys: List[UInt]) { {key: value for key in keys} }
+pure number() -> Map[UInt, Int] { copy(7, [1, 2]) }
+pure text() -> Map[UInt, Str] { copy("value", [1, 2]) }
+assert number().len() == 2
+assert text().len() == 2
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*generic.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&generic));
+            for step in 0..generic.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(generic.store.source_id, 0, 0)).unwrap().unwrap();
             }
         }
         let failed = Arc::new(fixture("checked-unsigned-list-negative-argument.xsh", r#"pure count(keys: List[UInt]) -> Int { keys.len() }

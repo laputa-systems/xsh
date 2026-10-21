@@ -265,7 +265,8 @@ Typed callable signatures and nominal payloads retain independent producer proof
 The exact optional-payload carrier preserves the original optional producer for
 those incomplete runtime checks. Matching fresh collection and comprehension
 inputs retain all element, spread, iterable, filter, and body proofs under the
-actual checked gate. A fresh list receiver can obtain a set element contract only
+actual checked gate. Every comprehension target proves its record nodes and
+selected fields from the actual iterable item, including empty and unused targets. A fresh list receiver can obtain a set element contract only
 when the selected registered method returns exactly the gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.

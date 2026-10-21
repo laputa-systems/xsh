@@ -2647,10 +2647,11 @@ impl<'a> ProducerProof<'a> {
                 let Type::List(item) = expected.unvalidated() else { return Err(IrVerifyError::new("ground list comprehension has no list contract")) };
                 for qualifier in &mut qualifiers {
                     match qualifier? {
-                        super::super::decode::CompQualifierView::For { iter, .. } => {
+                        super::super::decode::CompQualifierView::For { target, iter, .. } => {
                             let source = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
                             self.budget.charge_clone(&source)?;
-                            if source.iteration_item_type().is_none() { return Err(IrVerifyError::new("ground comprehension source has no item type")); }
+                            let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
+                            self.verify_comprehension_target(target, &item)?;
                             self.expression(owner, iter.raw() as usize, source, false);
                         }
                         super::super::decode::CompQualifierView::If { condition, .. } => self.verify_condition(owner, condition.raw() as usize, ConditionRole::Control)?,
@@ -2663,10 +2664,11 @@ impl<'a> ProducerProof<'a> {
                 let Type::Map(key_type, value_type) = expected.unvalidated() else { return Err(IrVerifyError::new("ground map comprehension has no map contract")) };
                 for qualifier in &mut qualifiers {
                     match qualifier? {
-                        super::super::decode::CompQualifierView::For { iter, .. } => {
+                        super::super::decode::CompQualifierView::For { target, iter, .. } => {
                             let source = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
                             self.budget.charge_clone(&source)?;
-                            if source.iteration_item_type().is_none() { return Err(IrVerifyError::new("ground comprehension source has no item type")); }
+                            let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
+                            self.verify_comprehension_target(target, &item)?;
                             self.expression(owner, iter.raw() as usize, source, false);
                         }
                         super::super::decode::CompQualifierView::If { condition, .. } => self.verify_condition(owner, condition.raw() as usize, ConditionRole::Control)?,
@@ -4287,6 +4289,17 @@ impl<'a> ProducerProof<'a> {
         };
         self.expression(decoder.owner, source.0, source.1, false);
         Ok(Some(Arc::new(projected)))
+    }
+
+    fn verify_comprehension_target(&mut self, target: super::super::decode::CompTargetView<'_>, item: &Type) -> Result<(), IrVerifyError> {
+        FullDecoder::visit_comp_target_evidence(target, item,
+            |source| if matches!(source.unvalidated(), Type::Record(_)) { Ok(()) } else { Err(IrVerifyError::new("ground comprehension record target has a non-record item")) },
+            |source, name| Ok(match (*source).unvalidated() {
+                Type::Record(fields) => fields.get(&name),
+                _ => None,
+            }),
+            |_, _| Ok(()),
+            |amount| self.budget.charge(amount))
     }
 
     fn comprehension_binding_type(&mut self, decoder: &FullDecoder<'a>, comprehension: usize, iter: usize, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
