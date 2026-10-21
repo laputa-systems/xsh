@@ -4,8 +4,16 @@ Status: active, 2026-10-17. The owner authorized bounded isolated edits,
 local commits and integration, pinned fetches, and owned Docker/KVM operations.
 Pushing remains forbidden.
 
-The owner's 2026-10-20 direction keeps accepted work on
-`campaign/full-inference-integration`. Do not merge this campaign to `master`.
+The owner's 2026-10-21 direction authorizes incremental merges to `master`
+and removal of completed, integrated worktrees. Unfinished compiler work stays
+on `campaign/full-inference-integration`. Pushing remains forbidden.
+
+Master now includes the four foundation commits through `c44e47016`.
+A fresh isolated replay passes all 46 canonical-launcher tests. The earlier
+pinned warning-denied check passed for the warning repair. No fresh full Rust,
+native, or performance gate accompanies this merge. Later inference commits
+remain on the campaign branch: even the focused-green `8f80bc2f5` checkpoint
+still fails existing XSH corpus preparation and is not ready for master.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
