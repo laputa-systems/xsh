@@ -115,15 +115,15 @@ fn indexed_allocation_error(kind: &str, span: Span) -> RuntimeError {
     error
 }
 
-fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredValue>, RuntimeError> {
+fn indexed_range_values<T>(start: i64, end: i64, span: Span, integer: impl FnMut(i64) -> T) -> Result<Vec<T>, RuntimeError> {
     let count = usize::try_from(start.abs_diff(end))
         .map_err(|_| indexed_allocation_error("range", span))?;
     let mut values = Vec::new();
     values.try_reserve_exact(count).map_err(|_| indexed_allocation_error("range", span))?;
     if start <= end {
-        values.extend((start..end).map(LoweredValue::Int));
+        values.extend((start..end).map(integer));
     } else {
-        values.extend((end + 1..=start).rev().map(LoweredValue::Int));
+        values.extend((end + 1..=start).rev().map(integer));
     }
     Ok(values)
 }
@@ -888,7 +888,8 @@ pub(super) fn indexed_range_value(
 ) -> Result<LoweredValue, RuntimeError> {
     let start = indexed_range_bound(&start, "start", span)?;
     let end = indexed_range_bound(&end, "end", span)?;
-    Ok(LoweredValue::List(indexed_range_values(start, end, span)?))
+    let items = indexed_range_values(start, end, span, Value::Int)?;
+    Ok(LoweredValue::Stream(Box::new(StreamValue::from_values_live("range", items))))
 }
 
 pub(super) fn indexed_tag_value(
@@ -1189,7 +1190,9 @@ pub(super) fn indexed_frame_apply_value(
             let start = values.next().expect("range start operand");
             let end = values.next().expect("range end operand");
             assert!(values.next().is_none(), "range has two operands");
-            indexed_range_value(start, end, span)
+            let mut value = indexed_range_value(start, end, span)?;
+            evaluator.register_returned_lowered_stream(&mut value, span)?;
+            Ok(value)
         }
         ExprView::Tag {
             type_name, name, wire, fields,

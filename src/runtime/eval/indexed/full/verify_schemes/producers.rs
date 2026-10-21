@@ -652,9 +652,11 @@ impl GroundProducerIndex {
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
             let Some(&tag) = store.tags.get(fact.instruction as usize) else { continue };
-            if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue) { continue; }
+            if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue | FullTag::ExprRange | FullTag::ExprCapture) { continue; }
             let ty = store.semantic.to_type(fact.type_id)?;
             if (tag == FullTag::ExprCheckedValue && ty.contains_typed_callable())
+                || (tag == FullTag::ExprRange && matches!(&ty, Type::Stream(_)))
+                || (tag == FullTag::ExprCapture && matches!(&ty, Type::Result(ok, _) if crate::runtime::eval::stream_return_item(ok).is_some()))
                 || fact.authenticates_result_constructor(tag, &ty)?
             { checked_producers.push(index); }
         }
@@ -4043,6 +4045,10 @@ impl<'a> ProducerProof<'a> {
                     FullTag::StmtFor | FullTag::StmtForRecord => {
                         let (schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. }) = decoder.statement_view(instruction)? else { unreachable!() };
                         Some((iter.raw() as usize, CapturedResultUse::Iterate))
+                    }
+                    FullTag::ExprRange => {
+                        errors.push(Type::Error);
+                        None
                     }
                     FullTag::StmtAssert => {
                         errors.push(Type::ErrorFamily(Type::assertion_error_family()));
