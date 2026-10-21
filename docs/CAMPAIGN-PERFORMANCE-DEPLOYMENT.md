@@ -27,6 +27,12 @@ and 42 adapter tests on both sources. The optional `inference_performance`
 configuration and module command cover section 12 measurements only. They
 require explicit reference products and reject missing canonical counters;
 full inference acceptance remains closed. No actual timing result follows.
+Master now includes the published HTTP dependency updates through `25592b9a8`.
+The h12tiny family is at 0.4.0, with `rustls-webpki` 0.103.16 and both
+WebPKI root packages at 1.0.10. The first update passes 25 focused networking
+checks. The second passes a pinned offline verification-profile `xsh-net`
+check. All dependencies come from the registry. Both updates are integrated
+into the campaign branch.
 No fresh full Rust, native, or performance gate accompanies these merges.
 Later inference commits remain on the campaign branch: even the focused-green
 `8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
@@ -107,9 +113,23 @@ implementation effect contracts and retain concrete Result error transport.
 On Linux, `unix.uptime_seconds` now requires `fs`, matching its shipped file
 reader; other platforms retain `process`. Fresh combined qualification remains
 required before any compiler-prefix merge to master.
-The separate named-cause source checks successfully but fails preparation when
-its propagated Err is behind a named-argument Match carrier. Repair remains
-mandatory; no fabricated success type or broad verifier fallback is accepted.
+Process default and driver binding repairs pass their two focused controls.
+Configured Range proof repair `d1b5534ba` passes seven focused controls and
+all seven original canonical process and stack controls. These repairs close
+the individually reproduced causes of all 25 failures. A fresh combined
+canonical run remains required.
+Named-cause repair `4d4c93a81` passes 67 focused controls on its isolated source
+and is integrated. The verifier authenticates the exact binding subjects,
+payload and cause without inventing a success type. Merged test extension
+`f91ef3f8d` covers both explicit returns and the original implicit tail with
+the same five physical mutations. That extension still needs execution.
+
+The owner also requested isolated Laputa certificate hardening. Laputa commit
+`2549eb0` removes unauthenticated live certificate downloads, updates packaged
+roots and runtimes, and makes CA package dependencies explicit. Static checks
+pass. Runtime checks, signed trust-release publication and XSH distrust-policy
+enforcement remain pending. The production signing public key is not provisioned.
+These security changes do not supply inference or deployment acceptance credit.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
