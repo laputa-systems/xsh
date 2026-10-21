@@ -291,9 +291,6 @@ impl Checker {
                     continue;
                 };
                 let def = program.arena.function_def(id);
-                let infers_parameters = program.arena.params(def.params).iter().any(|parameter| {
-                    parameter.annotation.is_none() && parameter.default.is_none()
-                });
                 if decl.kind() == Some(CallableKind::Stream) {
                     self.check_body_before_callers(program, source, decl, &declarations, def);
                     self.generalize_pending_function(program, id);
@@ -312,14 +309,9 @@ impl Checker {
                             None
                         };
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
-                        if infers_parameters {
-                            self.check_body_before_callers(program, source, decl, &declarations, def);
-                            self.generalize_pending_function(program, id);
-                        }
-                    } else if infers_parameters {
-                        self.check_body_before_callers(program, source, decl, &declarations, def);
-                        self.generalize_pending_function(program, id);
                     }
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
+                    self.generalize_pending_function(program, id);
                     continue;
                 }
                 let body_span = program.arena.span(program.arena.block(def.body).span);
