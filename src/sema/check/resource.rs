@@ -391,7 +391,15 @@ impl Analyzer<'_> {
         match *kind {
             ArenaStmtKind::Return(value) => {
                 if let Some(value) = value {
-                    if let Some(holds) = self.expr_or_run_may_hold(value) {
+                    let holds = self.expr_or_run_may_hold(value).or_else(|| {
+                        let ArenaExprOrRun::Expr(expression) = value else { return None; };
+                        if self.checker.statement_positions.get(&self.program.arena.stmt(stmt).span) != Some(&super::StatementPosition::Statement)
+                            || self.checker.statement_positions.get(&self.program.arena.expr(expression).span) != Some(&super::StatementPosition::Statement)
+                            || !matches!(self.program.arena.expr(expression).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. })
+                        { return None; }
+                        self.proc_completion_may_hold(expression)
+                    });
+                    if let Some(holds) = holds {
                         self.transfers.insert(ResourceTransferSite::Return(stmt), holds);
                     }
                 } else {
@@ -505,6 +513,68 @@ impl Analyzer<'_> {
         if let Some(holds) = holds {
             self.transfers.insert(ResourceTransferSite::BlockValue(block), holds);
         }
+    }
+
+    fn proc_completion_may_hold(&self, expression: ExprId) -> Option<bool> {
+        let mut pending = vec![ArenaChild::Expr(expression)];
+        let mut holds_resource = false;
+        let mut checked_leaf = false;
+        while let Some(child) = pending.pop() {
+            match child {
+                ArenaChild::Expr(expression) => {
+                    if let Some(holds) = self.expr_may_hold(expression) {
+                        holds_resource |= holds;
+                        checked_leaf = true;
+                        continue;
+                    }
+                    if self.checker.statement_positions.get(&self.program.arena.expr(expression).span) != Some(&super::StatementPosition::Statement) { return None; }
+                    match self.program.arena.expr(expression).kind {
+                        ArenaExprKind::If { branches, else_value } => {
+                            pending.extend(self.program.arena.if_expr_branches(branches).iter().map(|branch| ArenaChild::Expr(branch.value)));
+                            pending.push(ArenaChild::Expr(else_value));
+                        }
+                        ArenaExprKind::Match { arms, .. } => {
+                            let arms = self.program.arena.match_expr_arms(arms);
+                            if arms.is_empty() { return None; }
+                            pending.extend(arms.iter().map(|arm| ArenaChild::Expr(arm.value)));
+                        }
+                        ArenaExprKind::ValueBlock(block) => pending.push(ArenaChild::Block(block)),
+                        _ => return None,
+                    }
+                }
+                ArenaChild::Block(block) => {
+                    let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last()?;
+                    pending.push(ArenaChild::Stmt(tail));
+                }
+                ArenaChild::Stmt(statement) => {
+                    let node = self.program.arena.stmt(statement);
+                    if let Some(holds) = self.expression_may_hold_resource(node.span) {
+                        holds_resource |= holds;
+                        checked_leaf = true;
+                        continue;
+                    }
+                    match node.kind {
+                        ArenaStmtKind::Expr(expression) | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => pending.push(ArenaChild::Expr(expression)),
+                        ArenaStmtKind::If { branches, else_block: Some(else_block) }
+                            if self.checker.statement_positions.get(&node.span) == Some(&super::StatementPosition::Statement) =>
+                        {
+                            pending.extend(self.program.arena.if_branches(branches).iter().map(|branch| ArenaChild::Block(branch.block)));
+                            pending.push(ArenaChild::Block(else_block));
+                        }
+                        ArenaStmtKind::Match { arms, .. }
+                            if self.checker.statement_positions.get(&node.span) == Some(&super::StatementPosition::Statement) =>
+                        {
+                            let arms = self.program.arena.match_arms(arms);
+                            if arms.is_empty() { return None; }
+                            pending.extend(arms.iter().map(|arm| ArenaChild::Block(arm.block)));
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => return None,
+            }
+        }
+        checked_leaf.then_some(holds_resource)
     }
 
     fn expr_or_run_may_hold(&self, value: ArenaExprOrRun) -> Option<bool> {
@@ -929,6 +999,68 @@ mod tests {
         assert!(!output.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == Some(DiagnosticCode::CheckUseAfterRelease)
         }));
+    }
+
+    #[test]
+    fn structured_return_resource_publication_requires_every_checked_leaf() {
+        let source = concat!(
+            "pure number(value: Int) -> Int { value }\n",
+            "pure text(value: Str) -> Str { value }\n",
+            "proc left(action, value, count: Int) { return if count == 0 { action(value) } else { right(action, value, count - 1) } }\n",
+            "proc right(action, value, count: Int) { left(action, value, count) }\n",
+            "let integer: Result[Int] = left(number, 7, 2)\n",
+            "let string: Result[Str] = right(text, \"kept\", 2)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let checked = Checker::check_arena_with_options(program, source, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let returned = return_stmt(program, "left");
+        let site = ResourceTransferSite::Return(returned);
+        assert_eq!(checked.resource_transfer(site), Some(true));
+        let facts = checked.checked_declarations.functions.values().find(|declaration| declaration.name.as_str() == "left")
+            .and_then(|declaration| declaration.scheme_body_facts.as_ref()).unwrap();
+        let resource_facts = facts.expression_types().iter().filter_map(|(&expression, ty)| {
+            ty.contains_parameter().then_some((program.arena.expr(expression).span, ty.may_hold_resource()))
+        }).chain(facts.tail_types().iter().filter_map(|(&statement, ty)| {
+            ty.contains_parameter().then_some((program.arena.stmt(statement).span, ty.may_hold_resource()))
+        })).collect();
+        let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(control))) = program.arena.stmt(returned).kind else { panic!("expected actual structured return"); };
+        let control_span = program.arena.expr(control).span;
+        assert_eq!(checked.statement_positions.get(&program.arena.stmt(returned).span), Some(&super::super::StatementPosition::Statement));
+        assert_eq!(checked.statement_positions.get(&control_span), Some(&super::super::StatementPosition::Statement));
+        assert!(!facts.expression_types().contains_key(&control));
+        assert!(!checked.expr_types.contains_key(&control_span));
+        let missing_leaf = facts.expression_types().iter().find_map(|(&expression, ty)| {
+            let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+            matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "action")
+                .then_some((expression, ty))
+        }).map(|(expression, ty)| {
+            assert!(ty.contains_parameter());
+            program.arena.expr(expression).span
+        }).unwrap();
+        assert!(!checked.expr_types.contains_key(&missing_leaf));
+        program.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            checker.expr_types = checked.expr_types.clone();
+            checker.statement_positions = checked.statement_positions.clone();
+            let mut analyzer = Analyzer {
+                checker: &checker, program, root_statements: program.statements, modules: Vec::new(),
+                blocks: FxHashSet::default(), diagnostics: Vec::new(), transfers: FxHashMap::default(),
+                same_scope_assignments: FxHashSet::default(), suppressed_body_transfers: FxHashMap::default(),
+                scheme_body_resource_facts: resource_facts, diagnosed: FxHashSet::default(),
+                cancel_calls: std::cell::OnceCell::new(), value_sites_by_binding: std::cell::OnceCell::new(),
+                declaration_sites_by_span: std::cell::OnceCell::new(),
+            };
+            assert!(!analyzer.scheme_body_resource_facts.contains_key(&control_span));
+            analyzer.publish_statement_transfer(returned, &program.arena.stmt(returned).kind, &FxHashSet::default());
+            assert_eq!(analyzer.transfers.get(&site), Some(&true));
+            assert_eq!(analyzer.scheme_body_resource_facts.remove(&missing_leaf), Some(true));
+            assert_eq!(analyzer.transfers.remove(&site), Some(true));
+            analyzer.publish_statement_transfer(returned, &program.arena.stmt(returned).kind, &FxHashSet::default());
+            assert!(!analyzer.transfers.contains_key(&site));
+        });
     }
 
     #[test]

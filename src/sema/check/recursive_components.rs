@@ -575,6 +575,51 @@ mod tests {
         }
     }
 
+    fn assert_recursive_proc_return_expression(completion: &str) {
+        let source = format!(
+            "proc left(action, value, count: Int) {{ return {completion} }}\nproc right(action, value, count: Int) {{ left(action, value, count) }}\npure number(payload: Int) -> Int {{ payload }}\npure text(input: Str) -> Str {{ input }}\nlet integer: Result[Int] = left(number, 7, 2)\nlet string: Result[Str] = right(text, \"value\", 2)\n"
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{completion}: {:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{completion}: {:?}", checked.diagnostics);
+        for declaration in checked.checked_declarations.functions.values().filter(|declaration| declaration.name == "left" || declaration.name == "right") {
+            let scheme = declaration.scheme.as_ref().unwrap();
+            assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Proc);
+            assert!(scheme.callable().is_quantified());
+        }
+    }
+
+    #[test]
+    fn recursive_proc_return_if_keeps_callback_envelopes() {
+        assert_recursive_proc_return_expression("if count == 0 { action(value) } else { right(action, value, count - 1) }");
+    }
+
+    #[test]
+    fn recursive_proc_return_match_keeps_callback_envelopes() {
+        assert_recursive_proc_return_expression("match count { 0 => action(value); _ => right(action, value, count - 1) }");
+    }
+
+    #[test]
+    fn structured_proc_returns_preserve_context_scope_escape_rejection() {
+        let source = "proc values(flag: Bool) [] { return range(0, 2) }\nlet created = values(true)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for completion in [
+            "range(0, 2)",
+            "if flag { range(0, 2) } else { range(0, 2) }",
+            "match flag { true => { range(0, 2) }; false => { range(0, 2) } }",
+        ] {
+            let source = format!("proc escaping(flag: Bool) [env, error] {{ return env ({{X: \"inner\"}}) {{ return {completion} }}? }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{completion}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckContextScopeEscape)), "{completion}: {:?}", checked.diagnostics);
+        }
+    }
+
     #[test]
     fn omitted_proc_return_with_authored_parameters_prepares_unit_constructor_roles() {
         let source = concat!(

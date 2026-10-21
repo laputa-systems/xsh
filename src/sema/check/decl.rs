@@ -395,7 +395,7 @@ impl Checker {
                 &generalized_body_types,
                 &constructor_producers,
                 &self.result_constructors,
-                if pending.kind() == crate::sema::types::CallableKind::Stream { super::scheme_body::BodyCompletion::Producer } else { super::scheme_body::BodyCompletion::Function },
+                match pending.kind() { crate::sema::types::CallableKind::Stream => super::scheme_body::BodyCompletion::Producer, crate::sema::types::CallableKind::Proc => super::scheme_body::BodyCompletion::Procedure, crate::sema::types::CallableKind::Pure => super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,

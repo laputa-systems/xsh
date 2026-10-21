@@ -678,11 +678,15 @@ impl Checker {
         if actual == Type::Any {
             self.record_dynamic_require_receiver(arena, source, id, expected);
         }
-        self.record_checked_stream_origin(arena, id, &actual);
-        let span = arena.arena.expr(id).span;
-        self.checked_schema_origins.remove(&span);
-        if let Some(schema) = self.derive_checked_schema_origin(arena, id) { self.checked_schema_origins.insert(span, schema); }
+        self.record_checked_expression_origins(arena, id, &actual);
         actual
+    }
+
+    pub(super) fn record_checked_expression_origins(&mut self, arena: &ArenaProgram, expression: ExprId, actual: &Type) {
+        self.record_checked_stream_origin(arena, expression, actual);
+        let span = arena.arena.expr(expression).span;
+        self.checked_schema_origins.remove(&span);
+        if let Some(schema) = self.derive_checked_schema_origin(arena, expression) { self.checked_schema_origins.insert(span, schema); }
     }
 
     /// Records how a `.require(T)?` fix on this `Any` expression is written:
@@ -1217,7 +1221,7 @@ impl Checker {
             ArenaExprKind::If {
                 branches,
                 else_value,
-            } => self.check_if_expr_arena(arena, source, *branches, *else_value, expectation),
+            } => self.check_if_expr_arena(arena, source, *branches, *else_value, expectation, super::stmt::TailCheckingPurpose::Value),
             ArenaExprKind::Unary { op, expr: inner } => {
                 let operand = self.check_unary_arena(arena, source, *op, *inner);
                 // `-5` where a bounded integer is wanted is a literal with
@@ -1459,7 +1463,7 @@ impl Checker {
                 Type::Bool
             }
             ArenaExprKind::Match { value, arms } => {
-                self.check_match_expr_arena(arena, source, *value, *arms, expectation, expr.span)
+                self.check_match_expr_arena(arena, source, *value, *arms, expectation, expr.span, super::stmt::TailCheckingPurpose::Value)
             }
             ArenaExprKind::ListComp {
                 expr: body,
@@ -2241,13 +2245,14 @@ impl Checker {
         Type::Record(record.into())
     }
 
-    fn check_if_expr_arena(
+    pub(super) fn check_if_expr_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         branches: ArenaRange,
         else_value: ExprId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: super::stmt::TailCheckingPurpose,
     ) -> Type {
         let mut inferred = None;
         let initial_stream_state = self.stream_mutable_state();
@@ -2275,12 +2280,9 @@ impl Checker {
                 super::types::next_branch_expectation(expectation, inferred.as_ref())
             };
             let diagnostics_before = self.diagnostics.len();
-            let actual = self.check_expr_with_expectation_arena(
-                arena,
-                source,
-                branch.value,
-                branch_expectation,
-            );
+            let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
+                self.check_proc_completion_expression_arena(arena, source, branch.value)
+            } else { self.check_expr_with_expectation_arena(arena, source, branch.value, branch_expectation) };
             let contextual_error = self.diagnostics.len() != diagnostics_before;
             let value_span = arena.arena.expr(branch.value).span;
             let merged = if actual != Type::Unknown && !contextual_error && !infer_branches {
@@ -2335,12 +2337,9 @@ impl Checker {
             super::types::next_branch_expectation(expectation, inferred.as_ref())
         };
         let diagnostics_before = self.diagnostics.len();
-        let else_ty = self.check_expr_with_expectation_arena(
-            arena,
-            source,
-            else_value,
-            else_expectation,
-        );
+        let else_ty = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
+            self.check_proc_completion_expression_arena(arena, source, else_value)
+        } else { self.check_expr_with_expectation_arena(arena, source, else_value, else_expectation) };
         let contextual_error = self.diagnostics.len() != diagnostics_before;
         let else_span = arena.arena.expr(else_value).span;
         if self.stream_expr_may_complete(arena, else_value) { stream_reaching.push(self.stream_mutable_state()); }
@@ -2821,7 +2820,7 @@ impl Checker {
         }
     }
 
-    fn check_match_expr_arena(
+    pub(super) fn check_match_expr_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -2829,6 +2828,7 @@ impl Checker {
         arms: ArenaRange,
         expectation: Option<super::types::TypeExpectation<'_>>,
         span: Span,
+        purpose: super::stmt::TailCheckingPurpose,
     ) -> Type {
         let expected = expectation.map(super::types::TypeExpectation::context);
         let value_ty = self.check_expr_arena(arena, source, value, None);
@@ -2866,7 +2866,9 @@ impl Checker {
             let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
             let arm_expectation = if infer_branches { None } else { super::types::next_branch_expectation(expectation, inferred.as_ref()) };
             let diagnostics_before = self.diagnostics.len();
-            let actual = self.check_expr_with_expectation_arena(arena, source, arm.value, arm_expectation);
+            let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
+                self.check_proc_completion_expression_arena(arena, source, arm.value)
+            } else { self.check_expr_with_expectation_arena(arena, source, arm.value, arm_expectation) };
             let merged = if !infer_branches && self.diagnostics.len() == diagnostics_before {
                 inferred.as_ref().and_then(|previous| super::types::merge_checked_branches(arm_expectation, previous, &actual))
             } else { None };

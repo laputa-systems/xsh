@@ -960,8 +960,12 @@ impl Checker {
     }
 
     pub(super) fn record_stream_return(&mut self, arena: &ArenaProgram, value: Option<ArenaExprOrRun>, actual: &Type, expected: &Type, span: Span) {
+        let origin = match value { Some(ArenaExprOrRun::Expr(value)) => self.stream_expr_origin(arena, value), _ => StreamOrigins::default() };
+        self.record_stream_return_origin(origin, actual, expected, span);
+    }
+
+    pub(super) fn record_stream_return_origin(&mut self, mut origin: StreamOrigins, actual: &Type, expected: &Type, span: Span) {
         let Some(owner) = self.stream_origin_owner else { return };
-        let mut origin = match value { Some(ArenaExprOrRun::Expr(value)) => self.stream_expr_origin(arena, value), _ => StreamOrigins::default() };
         if expected.is_result() && !actual.is_result() {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(span); return; } }
         }
