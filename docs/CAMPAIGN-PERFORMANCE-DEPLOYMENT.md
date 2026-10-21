@@ -29,9 +29,12 @@ indexed routes. Ordinary and generic lowering share Result-stream adaptation.
 A corrected coordinated callee mutation passes target/effect/header assertions,
 then is accepted when the new stream-owner proof is omitted and rejected when
 it is retained. The earlier wrong-ID mutation establishes no bypass.
-The inherited merged boundary is running in
-`.work/wt/full-inference-iteration-qualified`; combined qualification remains
-pending. The producer lane retains the source and work-limit repairs below.
+The inherited merged boundary in `.work/wt/full-inference-iteration-qualified`
+finishes with 549 passes and 22 failures, zero ignored. The iteration controls
+and ordinary neighbors pass. All failures belong to the preceding producer
+boundary; its unsigned-membership failure now passes. The producer lane's
+guard, aggregate and work-limit repairs remain unmerged, so this source is
+not a qualified compiler baseline.
 
 Source `01b6b5a64` adds actual paired-comparator controls. All three selected
 XSHT tests pass after integration in `.work/wt/full-inference-paired-qualified`.
