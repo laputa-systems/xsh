@@ -977,6 +977,12 @@ pub enum AnnotationFactKind {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct BindingSchemaFacts {
+    expectation: Option<super::constants::SchemaExpectation>,
+    origin: Option<super::constants::SchemaExpectation>,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     id: Option<BindingId>,
@@ -991,7 +997,7 @@ pub(super) struct Binding {
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
-    schema_expectation: Option<super::constants::SchemaExpectation>,
+    schemas: BindingSchemaFacts,
 }
 
 impl Binding {
@@ -1009,7 +1015,7 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
-            schema_expectation: None,
+            schemas: BindingSchemaFacts::default(),
         }
     }
 
@@ -1129,10 +1135,10 @@ impl PendingFunctionSig {
         }
     }
 
-    pub(super) fn generalized_effect_scope(&self) -> Option<&super::constraints::EffectGeneralization> {
+    pub(super) fn generalized_scope(&self) -> Option<&super::constraints::CallableGeneralizationScope> {
         match &self.callable {
             PendingCallable::Provisional(_) => None,
-            PendingCallable::Generalized(callable) => Some(&callable.effect_scope),
+            PendingCallable::Generalized(callable) => Some(&callable.generalization_scope),
         }
     }
 
@@ -1171,7 +1177,7 @@ impl PendingFunctionSig {
     pub(super) fn generalize(
         &mut self,
         callable: Arc<super::schemes::CallableScheme>,
-        effect_scope: super::constraints::EffectGeneralization,
+        generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1183,7 +1189,7 @@ impl PendingFunctionSig {
         );
         self.callable = PendingCallable::Generalized(GeneralizedCallable {
             callable,
-            effect_scope,
+            generalization_scope,
             body_types,
             tail_types,
             registered_calls,
@@ -1195,7 +1201,7 @@ impl PendingFunctionSig {
 #[derive(Clone, Debug)]
 struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
-    effect_scope: super::constraints::EffectGeneralization,
+    generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1768,6 +1774,7 @@ pub struct Checker {
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    checked_schema_origins: BTreeMap<Span, super::constants::SchemaExpectation>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
@@ -2193,6 +2200,7 @@ impl Checker {
             argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             record_constructor_instances: BTreeMap::new(),
+            checked_schema_origins: BTreeMap::new(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,

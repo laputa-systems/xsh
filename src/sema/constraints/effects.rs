@@ -9,9 +9,13 @@ static NEXT_EFFECT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct EffectVariableId(u64);
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct EffectGeneralization {
-    pub(super) bindings: BTreeMap<EffectVariableId, crate::sema::schemes::SchemeEffectParameterId>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CallableGeneralizationScope {
+    pub(super) owner: super::CallableApplicationScope,
+    pub(super) types: BTreeMap<super::TypeVariableId, crate::sema::schemes::SchemeTypeParameterId>,
+    pub(super) rows: BTreeMap<super::RowVariableId, crate::sema::schemes::SchemeRowParameterId>,
+    pub(super) effects: BTreeMap<EffectVariableId, crate::sema::schemes::SchemeEffectParameterId>,
+    pub(super) applications: BTreeMap<super::CallableApplicationId, u32>,
 }
 
 pub(crate) type EffectPredicate = crate::sema::effects::EffectPredicate<EffectVariableId>;
@@ -311,9 +315,9 @@ impl TypeConstraints {
     pub(crate) fn resolve_generalized_effect(
         &self,
         contract: &EffectContract<EffectVariableId>,
-        scope: &EffectGeneralization,
+        scope: &CallableGeneralizationScope,
     ) -> Result<EffectContract<crate::sema::schemes::SchemeEffectParameterId>, super::SchemeOperationError> {
-        self.resolve_effect(contract)?.substitute(|id| scope.bindings.get(id).copied()
+        self.resolve_effect(contract)?.substitute(|id| scope.effects.get(id).copied()
             .map(EffectContract::variable).ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound)))
     }
 

@@ -4744,7 +4744,7 @@ impl Checker {
         for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
             let mut binding = Binding::new(ty, false);
             binding.stream_origins = super::stream_origins::StreamOrigins::formal(stream_owner, index);
-            binding.schema_expectation = schema;
+            binding.schemas = super::BindingSchemaFacts { expectation: schema.clone(), origin: schema };
             self.define(name, binding, span);
         }
         let body_tail = arena
@@ -4758,10 +4758,11 @@ impl Checker {
             self.boundary.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
                 let origin = self.stream_block_origin(arena, def.body);
+                let schema = self.checked_block_schema(arena, def.body);
                 self.inferred_returns
                     .as_mut()
                     .unwrap()
-                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin });
+                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin, schema });
             }
             if checking_application_return {
                 let candidates = self.inferred_returns.take().unwrap();
@@ -4904,7 +4905,7 @@ impl Checker {
         self.publish_parameter_types(arena, def);
         for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
             let mut binding = Binding::new(ty, false);
-            binding.schema_expectation = schema;
+            binding.schemas = super::BindingSchemaFacts { expectation: schema.clone(), origin: schema };
             binding.stream_origins = super::stream_origins::StreamOrigins::formal(stream_owner, index);
             self.define(name, binding, span);
         }
@@ -5151,6 +5152,10 @@ impl Checker {
         } else {
             None
         };
+        let origin = match initializer {
+            ArenaExprOrRun::Expr(expression) => self.checked_schema_for_expr(arena, expression),
+            ArenaExprOrRun::Run(_) => None,
+        };
         let schema = schema.or_else(|| match initializer {
             ArenaExprOrRun::Expr(expression) => self.schema_expectation_for_expr(arena, expression),
             ArenaExprOrRun::Run(_) => None,
@@ -5179,7 +5184,7 @@ impl Checker {
             binding.latent_stream_error = latent_stream_error;
             binding.stream_origins = stream_origins;
         }
-        self.set_binding_schema_arena(arena, target, schema);
+        self.set_binding_schema_arena(arena, target, super::BindingSchemaFacts { expectation: schema, origin });
     }
 
     fn expression_may_have_latent_stream_error(
@@ -5312,25 +5317,22 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         target: BindingTargetId,
-        schema: Option<super::super::constants::SchemaExpectation>,
+        schemas: super::BindingSchemaFacts,
     ) {
         match &arena.arena.binding_target(target).kind {
             ArenaBindingTargetKind::Name(name) => {
                 if let Some(binding) = self.current_scope_mut().get_mut(name) {
-                    binding.schema_expectation = schema;
+                    binding.schemas = schemas;
                 }
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in arena.arena.destructure_fields(*fields) {
-                    let child = schema
-                        .as_ref()
-                        .and_then(|context| {
-                            context
-                                .value_context()
-                                .children
-                                .get(&super::super::constants::SchemaComponent::Field(field.name))
-                        })
-                        .cloned();
+                    let project = |schema: &Option<super::super::constants::SchemaExpectation>| schema
+                        .as_ref().and_then(|schema| schema.value_context().children
+                            .get(&super::super::constants::SchemaComponent::Field(field.name))).cloned();
+                    let child = super::BindingSchemaFacts {
+                        expectation: project(&schemas.expectation), origin: project(&schemas.origin),
+                    };
                     self.set_binding_schema_arena(arena, field.target, child);
                 }
             }
@@ -5730,7 +5732,11 @@ impl Checker {
                 Some(ArenaExprOrRun::Expr(expression)) => self.stream_expr_origin(arena, expression),
                 _ => super::stream_origins::StreamOrigins::default(),
             };
-            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin });
+            let schema = match value {
+                Some(ArenaExprOrRun::Expr(expression)) => self.checked_schema_for_expr(arena, expression),
+                _ => None,
+            };
+            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema });
         }
         if !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
@@ -6582,6 +6588,7 @@ impl Checker {
             self.expr_types.insert(arena.arena.stmt(id).span, actual.clone());
         }
         self.record_checked_stream_tail(arena, id, &actual);
+        self.record_checked_tail_schema(arena, id);
         self.advance_stream_flow(arena, id);
         actual
     }

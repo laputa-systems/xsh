@@ -469,6 +469,43 @@ mod tests {
     }
 
     #[test]
+    fn inferred_return_schema_retains_actual_constructor_identity() {
+        let declarations = "type Disk = { mount: Str, used: Int }\ntype Other = { mount: Str, used: Int }\n";
+        let original = root_schema_contract(&format!("{declarations}proc describe(mount: Str) -> Result[Disk] {{ Disk(mount: mount, used: mount.byte_len()) }}\n"));
+        let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ Disk(mount: mount, used: mount.byte_len()) }}\n"));
+        assert!(original.equivalent_to(&inferred));
+        for body in ["Other(mount: mount, used: mount.byte_len())", "{ mount: mount, used: mount.byte_len() }"] {
+            let changed = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));
+            assert!(!original.equivalent_to(&changed), "{body}");
+        }
+    }
+
+    #[test]
+    fn inferred_return_schema_follows_aliases_and_every_completing_return() {
+        let declarations = "type Disk = { mount: Str, used: Int }\ntype Other = { mount: Str, used: Int }\n";
+        for body in [
+            "let result = Disk(mount: mount, used: 7); result",
+            "if mount == \"early\" { return Disk(mount: mount, used: 7) }; Disk(mount: mount, used: 9)",
+            "if mount == \"early\" { let result = Disk(mount: mount, used: 7); result } else { Disk(mount: mount, used: 9) }",
+            "match mount { \"early\" => Disk(mount: mount, used: 7); _ => Disk(mount: mount, used: 9) }",
+        ] {
+            let original = root_schema_contract(&format!("{declarations}proc describe(mount: Str) -> Result[Disk] {{ {body} }}\n"));
+            let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));
+            assert!(original.equivalent_to(&inferred), "{body}");
+        }
+        let original = root_schema_contract(&format!("{declarations}proc describe(mount: Str) -> Result[Disk] {{ Disk(mount: mount, used: 7) }}\n"));
+        for body in [
+            "if mount == \"early\" { return Other(mount: mount, used: 7) }; Disk(mount: mount, used: 9)",
+            "if mount == \"early\" { Disk(mount: mount, used: 7) } else { Other(mount: mount, used: 9) }",
+            "if mount == \"early\" { Disk(mount: mount, used: 7) } else { { mount: mount, used: 9 } }",
+            "var result = Disk(mount: mount, used: 7); result = Other(mount: mount, used: 9); let alias = result; alias",
+        ] {
+            let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));
+            assert!(!original.equivalent_to(&inferred), "{body}");
+        }
+    }
+
+    #[test]
     fn checked_callable_value_contract_distinguishes_calls_from_references() {
         let source = "pure integer(value: Int) -> Int { value }\nlet action = integer\nlet number = integer(1)\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

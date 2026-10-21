@@ -58,7 +58,7 @@ impl Checker {
             ArenaExprKind::Ident(_) => self
                 .lookup_value_binding_for_expr(arena, expression)
                 .binding()?
-                .schema_expectation
+                .schemas.expectation
                 .clone(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 self.schema_expectation_for_expr(arena, base)?
@@ -221,6 +221,104 @@ impl Checker {
             | ArenaExprKind::TempDirScope { .. }
             | ArenaExprKind::ResourceScope { .. } => None,
         }
+    }
+
+    pub(super) fn checked_schema_for_expr(
+        &self, arena: &ArenaProgram, expression: ExprId,
+    ) -> Option<super::super::constants::SchemaExpectation> {
+        self.checked_schema_origins.get(&arena.arena.expr(expression).span).cloned()
+    }
+
+    fn derive_checked_schema_origin(
+        &self, arena: &ArenaProgram, expression: ExprId,
+    ) -> Option<super::super::constants::SchemaExpectation> {
+        use super::super::constants::{SchemaComponent, SchemaExpectation};
+        let span = arena.arena.expr(expression).span;
+        if let Some(constructor) = self.record_constructor_instances.get(&span) {
+            return self.record_constructors.instance_expectation(&arena.arena, constructor.instance.definition, &constructor.instance.arguments).ok();
+        }
+        match arena.arena.expr(expression).kind {
+            ArenaExprKind::If { branches, else_value } => return Self::common_checked_schema(
+                arena.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain([else_value])
+                    .filter(|&value| self.stream_expr_may_complete(arena, value))
+                    .map(|value| self.checked_schema_for_expr(arena, value))),
+            ArenaExprKind::Match { arms, .. } => return Self::common_checked_schema(
+                arena.arena.match_expr_arms(arms).iter().map(|arm| arm.value)
+                    .filter(|&value| self.stream_expr_may_complete(arena, value))
+                    .map(|value| self.checked_schema_for_expr(arena, value))),
+            ArenaExprKind::ValueBlock(block) => return self.checked_block_schema(arena, block),
+            ArenaExprKind::Call { args, .. }
+                if self.result_constructors.get(&span) == Some(&super::CheckedResultConstructor::Ok) => {
+                    let argument = arena.arena.call_args(args).first()?;
+                    let value = match argument.kind {
+                        crate::syntax::arena::ArenaCallArgKind::Positional(value)
+                        | crate::syntax::arena::ArenaCallArgKind::Named { value, .. } => value,
+                        _ => return None,
+                    };
+                    let mut schema = SchemaExpectation::default();
+                    schema.insert_child(SchemaComponent::Success, self.checked_schema_for_expr(arena, value)?);
+                    return Some(schema);
+                }
+            _ => {}
+        }
+        match arena.arena.expr(expression).kind {
+            ArenaExprKind::Ident(_) => {
+                let binding = self.lookup_value_binding_for_expr(arena, expression).binding()?;
+                (!binding.mutable).then(|| binding.schemas.origin.clone()).flatten()
+            }
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => self.checked_schema_for_expr(arena, base)?
+                .value_context().children.get(&SchemaComponent::Field(name)).cloned(),
+            ArenaExprKind::Try(inner) => self.checked_schema_for_expr(arena, inner)?
+                .children.get(&SchemaComponent::Success).cloned(),
+            ArenaExprKind::Index { base, .. } => {
+                let context = self.checked_schema_for_expr(arena, base)?;
+                let component = match self.expr_types.get(&arena.arena.expr(base).span)?.unvalidated() {
+                    Type::List(_) => SchemaComponent::Item,
+                    Type::Map(_, _) => SchemaComponent::Value,
+                    _ => return None,
+                };
+                context.value_context().children.get(&component).cloned()
+            }
+            ArenaExprKind::Require { .. } | ArenaExprKind::Call { .. } => self.schema_expectation_for_expr(arena, expression),
+            _ => None,
+        }
+    }
+
+    pub(super) fn common_checked_schema(
+        candidates: impl IntoIterator<Item = Option<super::super::constants::SchemaExpectation>>,
+    ) -> Option<super::super::constants::SchemaExpectation> {
+        let mut candidates = candidates.into_iter();
+        let first = candidates.next()??;
+        candidates.all(|candidate| candidate.as_ref() == Some(&first)).then_some(first)
+    }
+
+    pub(super) fn checked_block_schema(
+        &self, arena: &ArenaProgram, block: BlockId,
+    ) -> Option<super::super::constants::SchemaExpectation> {
+        let statement = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
+        let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
+        self.checked_schema_origins.get(&span).cloned()
+    }
+
+    pub(super) fn record_checked_tail_schema(&mut self, arena: &ArenaProgram, statement: crate::syntax::arena::StmtId) {
+        use crate::syntax::arena::ArenaStmtKind;
+        let statement = arena.arena.stmt(arena.arena.core_stmt_id(statement));
+        let schema = match statement.kind {
+            ArenaStmtKind::Expr(value) => self.checked_schema_for_expr(arena, value),
+            ArenaStmtKind::TailBareIdent(name) => self.lookup_value_binding_at(name, statement.span)
+                .binding().filter(|binding| !binding.mutable).and_then(|binding| binding.schemas.origin.clone()),
+            ArenaStmtKind::If { branches, else_block: Some(otherwise) } => Self::common_checked_schema(
+                arena.arena.if_branches(branches).iter().map(|branch| branch.block).chain([otherwise])
+                    .filter(|&block| self.stream_block_may_complete(arena, block))
+                    .map(|block| self.checked_block_schema(arena, block))),
+            ArenaStmtKind::Match { arms, .. } => Self::common_checked_schema(
+                arena.arena.match_arms(arms).iter().map(|arm| arm.block)
+                    .filter(|&block| self.stream_block_may_complete(arena, block))
+                    .map(|block| self.checked_block_schema(arena, block))),
+            _ => None,
+        };
+        self.checked_schema_origins.remove(&statement.span);
+        if let Some(schema) = schema { self.checked_schema_origins.insert(statement.span, schema); }
     }
 
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
@@ -579,6 +677,9 @@ impl Checker {
             self.record_dynamic_require_receiver(arena, source, id, expected);
         }
         self.record_checked_stream_origin(arena, id, &actual);
+        let span = arena.arena.expr(id).span;
+        self.checked_schema_origins.remove(&span);
+        if let Some(schema) = self.derive_checked_schema_origin(arena, id) { self.checked_schema_origins.insert(span, schema); }
         actual
     }
 

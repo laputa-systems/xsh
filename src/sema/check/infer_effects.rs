@@ -543,7 +543,7 @@ impl Checker {
         let declarations = &self.declaration_inference;
         self.effect_graph.bind_scopes(
             |owner, contract| {
-                let scope = declarations.pending(super::FunctionDeclarationId::new(owner)).and_then(|declaration| declaration.generalized_effect_scope());
+                let scope = declarations.pending(super::FunctionDeclarationId::new(owner)).and_then(|declaration| declaration.generalized_scope());
                 match scope {
                     Some(scope) => constraints.resolve_generalized_effect(contract, scope),
                     None => constraints.resolve_effect(contract)?.substitute(|_| Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))),
@@ -902,7 +902,7 @@ impl Checker {
     ) -> bool {
         let Some(owner) = self.boundary.effect_owner else { return false; };
         let Some(declaration) = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)) else { return false; };
-        let (Some(scope), Some(callable)) = (declaration.generalized_effect_scope(), declaration.generalized()) else { return false; };
+        let (Some(scope), Some(callable)) = (declaration.generalized_scope(), declaration.generalized()) else { return false; };
         self.type_constraints.resolve_generalized_effect(contract, scope).is_ok_and(|contract| callable.requirements().effect_predicates.contains(&predicate(contract)))
     }
 

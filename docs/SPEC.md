@@ -3978,6 +3978,12 @@ record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
 renaming while preserving nominal types, labels, schemas, and effects.
 
+A return inferred from a checked record constructor retains that constructor's
+schema identity through immutable aliases and agreeing completing branches or
+early returns. A proc's inferred success envelope retains the same identity.
+A structurally equal raw record or a different constructor does not establish
+that schema identity.
+
 The checker infers mutually recursive pure parameters together before checking
 callers. Those parameters remain monomorphic. A parameter that the recursive
 bodies leave undetermined needs an annotation.

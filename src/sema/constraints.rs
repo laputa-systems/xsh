@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[path = "constraints/effects.rs"]
 mod effect_constraints;
-pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId, EffectGeneralization};
+pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId, CallableGeneralizationScope};
 #[path = "constraints/applications.rs"]
 mod application_constraints;
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
@@ -258,7 +258,7 @@ pub(crate) struct ConstraintMetrics {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GeneralizedTypes {
     pub(crate) types: Vec<SchemeType>,
-    pub(crate) effect_scope: EffectGeneralization,
+    pub(crate) generalization_scope: CallableGeneralizationScope,
     pub(crate) type_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) row_parameters: Vec<SchemeRowParameter>,
     pub(crate) requirements: CallableRequirements,
@@ -595,7 +595,11 @@ impl TypeConstraints {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(GeneralizedTypes {
             types,
-            effect_scope: EffectGeneralization { bindings: generalization.effect_ids },
+            generalization_scope: CallableGeneralizationScope {
+                owner: CallableApplicationScope::Invocation,
+                types: generalization.type_ids, rows: generalization.row_ids,
+                effects: generalization.effect_ids, applications: generalization.applications,
+            },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
             requirements: CallableRequirements { effect_parameters: generalization.effect_parameters, ..CallableRequirements::default() },
@@ -681,7 +685,11 @@ impl TypeConstraints {
         Ok((
             GeneralizedTypes {
                 types,
-                effect_scope: EffectGeneralization { bindings: generalization.effect_ids },
+                generalization_scope: CallableGeneralizationScope {
+                    owner: CallableApplicationScope::Declaration(owner),
+                    types: generalization.type_ids, rows: generalization.row_ids,
+                    effects: generalization.effect_ids, applications: generalization.applications,
+                },
                 type_parameters: generalization.type_parameters,
                 row_parameters: generalization.row_parameters,
                 requirements,
@@ -775,6 +783,46 @@ impl TypeConstraints {
         origin: Span,
     ) -> Result<InstantiatedScheme, SchemeOperationError> {
         self.instantiate_callable(scheme.callable(), level, origin, crate::sema::constraints::CallableApplicationScope::Invocation)
+    }
+
+    pub(crate) fn reuse_callable_instance(
+        &mut self,
+        callable: &CallableScheme,
+        scope: &CallableGeneralizationScope,
+        owner: crate::sema::check::EffectDeclarationId,
+        origin: Span,
+    ) -> Result<InstantiatedScheme, SchemeOperationError> {
+        self.commit_constraint_transaction(|this| {
+            if scope.owner != CallableApplicationScope::Declaration(owner) {
+                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+            }
+            let type_arguments = scope.types.iter().map(|(&variable, &parameter)| (parameter, Type::Inference(variable))).collect::<BTreeMap<_, _>>();
+            let row_arguments = scope.rows.iter().map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
+            let effect_arguments = scope.effects.iter().map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
+            if type_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.type_parameters().iter().copied().collect()
+                || row_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.row_parameters().iter().map(|parameter| parameter.id).collect()
+                || effect_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.requirements().effect_parameters.iter().copied().collect()
+            {
+                return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+            }
+            for ty in type_arguments.values() { this.resolve(ty)?; }
+            for &row in row_arguments.values() { this.row_representative_root(row)?; }
+            for &effect in effect_arguments.values() { this.resolve_effect(&super::effects::EffectContract::variable(effect))?; }
+            let mut applications = scope.applications.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+            applications.sort_unstable();
+            if applications.len() != callable.requirements().applications.len()
+                || applications.iter().enumerate().any(|(index, (ordinal, id))| *ordinal as usize != index
+                    || this.applications.entries.get(id).is_none_or(|application| application.owner != scope.owner))
+            {
+                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+            }
+            let params = callable.params().iter().map(|parameter| this.instantiate_scheme_type(
+                &parameter.ty, &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0,
+            )).collect::<Result<Vec<_>, _>>()?;
+            let return_type = this.instantiate_scheme_type(callable.return_type(), &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0)?;
+            Ok(InstantiatedScheme { params, return_type, type_arguments, row_arguments, effect_arguments,
+                applications: applications.into_iter().map(|(_, id)| id).collect() })
+        })
     }
 
     pub(crate) fn instantiate_callable(

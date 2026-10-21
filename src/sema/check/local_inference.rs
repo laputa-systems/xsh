@@ -361,6 +361,7 @@ impl Checker {
         let stream_stmt_results = std::mem::take(&mut self.stream_stmt_results);
         let projections = std::mem::take(&mut self.projections);
         let record_constructor_instances = std::mem::take(&mut self.record_constructor_instances);
+        let checked_schema_origins = std::mem::take(&mut self.checked_schema_origins);
         let requirement_targets = std::mem::take(&mut self.requirement_targets);
         let requirement_expected_targets = std::mem::take(&mut self.requirement_expected_targets);
         let condition_proofs = std::mem::take(&mut self.condition_proofs);
@@ -403,6 +404,7 @@ impl Checker {
         self.stream_stmt_results = stream_stmt_results;
         self.projections = projections;
         self.record_constructor_instances = record_constructor_instances;
+        self.checked_schema_origins = checked_schema_origins;
         self.requirement_targets = requirement_targets;
         self.requirement_expected_targets = requirement_expected_targets;
         self.condition_proofs = condition_proofs;

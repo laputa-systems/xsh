@@ -440,6 +440,20 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn inferred_callable_result_patterns_constrain_the_application_result() {
+        accepts("pure number(payload: Int) -> Result[Int] { Ok(payload) }\npure text(input: Str) -> Result[Str] { Ok(input) }\nproc relay(action, value) { match action(value) { Ok(result) => Ok(result); Err(problem) => Err(problem) } }\nlet integer: Result[Int] = relay(number, 7)\nlet string: Result[Str] = relay(text, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_recursive_proc_arms_keep_the_existing_result_join() {
+        for returned in ["Int", "Result[Int]"] {
+            let body = if returned == "Int" { "payload" } else { "Ok(payload)" };
+            let source = format!("pure number(payload: Int) -> {returned} {{ {body} }}\nproc first(action: pure(payload: Int) -> {returned}, value: Int, count: Int) [] -> Result[Int] {{ if count == 0 {{ action(value) }} else {{ second(action, value, count - 1) }} }}\nproc second(action: pure(payload: Int) -> {returned}, value: Int, count: Int) [] -> Result[Int] {{ first(action, value, count) }}\nlet result: Result[Int] = first(number, 7, 2)\n");
+            accepts(&source);
+        }
+    }
+
+    #[test]
     fn inferred_callable_mutual_proc_components_keep_effect_scopes_separate() {
         accepts("proc left(action, value, count: Int) { if count == 0 { action(value) } else { right(action, value, count - 1) } }\nproc right(action, value, count: Int) { left(action, value, count) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet integer: Result[Int] = left(number, 7, 2)\nlet string: Result[Str] = right(text, \"value\", 2)\n");
     }

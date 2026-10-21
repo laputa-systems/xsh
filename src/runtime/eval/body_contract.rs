@@ -226,4 +226,14 @@ mod tests {
         let CheckedBodyContractError::Preparation(actual) = checked_body_contracts(checked, &parsed.arena, &sources, source_id).unwrap_err() else { panic!("preserve the checked diagnostic") };
         assert_eq!(actual, expected);
     }
+
+    #[test]
+    fn inferred_return_schema_preserves_prepared_constructor_body_contract() {
+        let original = "type Disk = { mount: Str, used: Int }\nproc disk(mount: Str) -> Result[Disk] { Disk(mount: mount, used: mount.byte_len()) }\nproc used(mount: Str) [error] -> Result[Int] { disk(mount)?.used }\n";
+        let candidate = original.replacen(" -> Result[Disk]", "", 1);
+        let original = snapshots(original);
+        let candidate = snapshots(&candidate);
+        assert_eq!(original.len(), candidate.len());
+        assert!(original.iter().zip(&candidate).all(|(old, new)| old.preserved_by(new)));
+    }
 }

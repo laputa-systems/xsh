@@ -1376,3 +1376,48 @@ fn generic_arguments_registered_spreads_use_the_selected_layout() {
         }
     }
 }
+
+const CAPTURED_CALLABLE_SOURCE: &str = "error CallbackError = invalid(message: Str)\nvar calls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nproc side(payload: Int) [error] -> Int { defer close(); calls = calls + 1; assert payload > 0; payload }\npure data(payload: Int) -> Result[Int, CallbackError] { Err(CallbackError.invalid(message: \"stored\")) }\nproc invoke(action, value) { let result = try { action(value) }; {result} }\nproc observe(payload: Int) [error] { let returned = invoke(side, payload)?; {result: returned.result, calls, closed} }\nproc data_run() [error] { let returned = invoke(data, 7)?; returned.result }\n";
+
+#[test]
+fn generic_captured_callable_invocations_preserve_error_and_cleanup() {
+    let (program, sources, source_id) = record_form_program(CAPTURED_CALLABLE_SOURCE);
+    for force_frames in [false, true] {
+        for payload in [7, 0] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
+            let returned = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Int(payload)], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(record)) = returned else { panic!("the outer result carries the captured invocation") };
+            let Value::Record(record) = *record else { panic!("the invocation returns its lifecycle observations") };
+            assert_eq!(record.get("calls"), Some(&Value::Int(1)), "frames={force_frames} payload={payload}");
+            assert_eq!(record.get("closed"), Some(&Value::Int(1)), "frames={force_frames} payload={payload}");
+            if payload == 7 { assert_eq!(record.get("result"), Some(&Value::ok(Value::Int(7)))); }
+            else {
+                let Some(Value::Result(ResultValue::Err(error))) = record.get("result") else { panic!("the actual invocation error is captured") };
+                let Value::Error(error) = error.as_ref() else { panic!("capture retains the actual error value") };
+                assert_eq!((&*error.family, &*error.variant, &*error.kind), ("AssertionError", "Failed", "AssertionError.Failed"));
+                assert!(error.message.contains("payload > 0"), "{}", error.message);
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_captured_callable_results_remain_data() {
+    let (program, sources, source_id) = record_form_program(CAPTURED_CALLABLE_SOURCE);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("data_run")));
+        let returned = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Result(ResultValue::Ok(data)) = returned else { panic!("capture succeeds when the callback returns an Err as data") };
+        let Value::Result(ResultValue::Err(error)) = *data else { panic!("the callback result is retained inside capture success") };
+        let Value::Error(error) = *error else { panic!("the original nominal error is retained as data") };
+        assert_eq!((&*error.family, &*error.variant, &*error.message), ("CallbackError", "invalid", "stored"));
+    }
+}

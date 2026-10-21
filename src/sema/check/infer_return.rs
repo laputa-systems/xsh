@@ -15,6 +15,7 @@ pub(super) struct InferredReturn {
     pub(super) ty: Type,
     pub(super) span: Span,
     pub(super) origin: super::stream_origins::StreamOrigins,
+    pub(super) schema: Option<crate::sema::constants::SchemaExpectation>,
 }
 
 struct ReturnDeclaration {
@@ -548,6 +549,7 @@ impl Checker {
                 self.inference_reachable = true;
                 self.check_body_before_callers(program, source, decl, &declarations, def);
                 let candidates = self.inferred_returns.take().unwrap();
+                let schema = Self::common_checked_schema(candidates.iter().map(|candidate| candidate.schema.clone()));
                 let mut inferred = None;
                 for candidate in candidates {
                     inferred = Some(match inferred {
@@ -585,6 +587,7 @@ impl Checker {
                 }
                 self.function_return_types.insert(body_span, ty.clone());
                 self.update_pending_return_type(program, def, ty.clone());
+                self.update_pending_return_schema(program, def, schema);
                 if ty != Type::Invalid {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::InferredPureReturn { body: body_span },
@@ -704,6 +707,14 @@ impl Checker {
         self.type_constraints = probe.type_constraints;
         self.return_conflicts = Some(conflicts);
         let owner = self.effect_declaration_id(program, def.body);
+        let schema = Self::common_checked_schema(candidates.iter().map(|candidate| {
+            let schema = candidate.schema.clone()?;
+            if candidate.ty.is_result() { Some(schema) } else {
+                let mut wrapped = crate::sema::constants::SchemaExpectation::default();
+                wrapped.insert_child(crate::sema::constants::SchemaComponent::Success, schema);
+                Some(wrapped)
+            }
+        }));
         let inferred = self.normalize_inferred_proc_returns(owner, candidates, &propagated);
 
         let conflicts = self.return_conflicts.take().unwrap_or_default();
@@ -740,6 +751,7 @@ impl Checker {
         };
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
+        self.update_pending_return_schema(program, def, schema);
     }
 
     pub(super) fn normalize_inferred_proc_returns(

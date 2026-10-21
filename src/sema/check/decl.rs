@@ -377,7 +377,7 @@ impl Checker {
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
         self.declaration_inference
             .pending_mut(declaration)?
-            .generalize(callable, generalized.effect_scope, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, generalized.generalization_scope, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -487,6 +487,21 @@ impl Checker {
             && let Some(shape) = signature.provisional_mut()
         {
             shape.return_ty = ty;
+        }
+    }
+
+    pub(super) fn update_pending_return_schema(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+        schema: Option<crate::sema::constants::SchemaExpectation>,
+    ) {
+        let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+        if def.return_ty_defaulted
+            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+            && let Some(shape) = signature.provisional_mut()
+        {
+            shape.return_schema = schema;
         }
     }
 

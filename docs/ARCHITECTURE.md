@@ -196,6 +196,16 @@ assignment, requirement, and default checks remain exact. Prepared schemas compa
 structurally, including conversion order, nominal names, wire mappings, and error
 names. Preparation failures retain their original diagnostic.
 
+Inferred return schemas come from checked constructor, requirement, callable,
+and immutable binding provenance. Scoped bindings retain contextual schema
+expectations separately from the schema proven by their initializer. Checked
+expression and tail origins are rebuilt in probes, then carried with the
+existing return candidates. Completing branches and early returns must agree
+on schema identity; equal record shapes do not supply that identity. The
+ordinary proc return envelope places a plain constructor's schema under
+Success. Mutable reads without an authenticated origin do not establish a
+return schema.
+
 The checker publishes successful binary selections at their executable source
 identities. Comparison-chain pairs have canonical ordinal paths and use the
 preceding actual right operand as the next left domain. Constant preparation

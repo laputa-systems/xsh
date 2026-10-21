@@ -93,6 +93,10 @@ mod tests {
     }
 
     fn generic_application_scheme(constraints: &mut TypeConstraints) -> crate::sema::schemes::CallableScheme {
+        generic_application_scheme_with_scope(constraints).0
+    }
+
+    fn generic_application_scheme_with_scope(constraints: &mut TypeConstraints) -> (crate::sema::schemes::CallableScheme, super::super::CallableGeneralizationScope) {
         let callee = constraints.fresh_at_level(span(), 1);
         let value = constraints.fresh_at_level(span(), 1);
         let application = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Immediate);
@@ -107,7 +111,31 @@ mod tests {
         let params = ["action", "value"].into_iter().map(|name| crate::sema::schemes::SchemeParameter {
             name: Name::intern(name), ty: types.next().unwrap(), schema_expectation: None, defaulted: false, rest: false,
         }).collect();
-        crate::sema::schemes::CallableScheme::new(generalized.type_parameters, generalized.row_parameters, params, types.next().unwrap(), None, false, generalized.requirements).unwrap()
+        let scheme = crate::sema::schemes::CallableScheme::new(generalized.type_parameters, generalized.row_parameters, params, types.next().unwrap(), None, false, generalized.requirements).unwrap();
+        (scheme, generalized.generalization_scope)
+    }
+
+    #[test]
+    fn callable_requirement_monomorphic_rebinding_keeps_original_cells_and_owner() {
+        SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let (scheme, scope) = generic_application_scheme_with_scope(&mut constraints);
+            let CallableApplicationScope::Declaration(owner) = scope.owner else { unreachable!() };
+            let counts = (constraints.variables.len(), constraints.rows.len(), constraints.applications.entries.len());
+            let first = constraints.reuse_callable_instance(&scheme, &scope, owner, span()).unwrap();
+            let second = constraints.reuse_callable_instance(&scheme, &scope, owner, span()).unwrap();
+            assert_eq!(first.type_arguments, second.type_arguments);
+            assert_eq!(first.row_arguments, second.row_arguments);
+            assert_eq!(first.effect_arguments, second.effect_arguments);
+            assert_eq!(first.applications, second.applications);
+            assert_eq!(first.params, second.params);
+            assert_eq!(first.return_type, second.return_type);
+            assert_eq!(counts, (constraints.variables.len(), constraints.rows.len(), constraints.applications.entries.len()));
+            assert_eq!(constraints.callable_application_reference(first.applications[0]).unwrap().scope, scope.owner);
+            let other = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 2, 3) };
+            assert!(constraints.reuse_callable_instance(&scheme, &scope, other, span()).is_err());
+            assert!(TypeConstraints::default().reuse_callable_instance(&scheme, &scope, owner, span()).is_err());
+        });
     }
 
     #[test]
@@ -227,13 +255,13 @@ mod tests {
             assert_eq!(generalized.requirements.effect_parameters.len(), 1);
             assert!(generalized.types[0].closed_ground_type().is_none());
             assert!(generalized.types[0].contains_parameter());
-            let rebound = constraints.resolve_generalized_effect(&EffectContract::variable(effect), &generalized.effect_scope).unwrap();
+            let rebound = constraints.resolve_generalized_effect(&EffectContract::variable(effect), &generalized.generalization_scope).unwrap();
             let crate::sema::schemes::SchemeType::Callable { effects, .. } = &generalized.types[0] else { unreachable!() };
             assert_eq!(&rebound, effects);
             let foreign = TypeConstraints::default().fresh_effect_at_level(span(), 1);
-            assert!(constraints.resolve_generalized_effect(&EffectContract::variable(foreign), &generalized.effect_scope).is_err());
+            assert!(constraints.resolve_generalized_effect(&EffectContract::variable(foreign), &generalized.generalization_scope).is_err());
             let later = constraints.fresh_effect_at_level(span(), 1);
-            assert!(matches!(constraints.resolve_generalized_effect(&EffectContract::variable(later), &generalized.effect_scope), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound))));
+            assert!(matches!(constraints.resolve_generalized_effect(&EffectContract::variable(later), &generalized.generalization_scope), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound))));
             let mut types = generalized.types.into_iter();
             let parameter = crate::sema::schemes::SchemeParameter {
                 name: Name::intern("action"), ty: types.next().unwrap(), schema_expectation: None, defaulted: false, rest: false,
