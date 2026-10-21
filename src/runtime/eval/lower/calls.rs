@@ -1,5 +1,5 @@
 use super::{
-    Arc, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, CallArgument, CallableParamType,
+    Arc, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, CallArgument, CallableParamType, CheckedCallParameters,
     CompactLowerConstructProbe, ExprId, FxHashMap, FxHashSet, LoweredCallArg, LoweredFunctionKey,
     CheckedFunctionTarget, LoweredHashVerifyFileArgs, LoweredProcessCommandArgv, LoweredRecordEntry,
     LoweredStrPredicate,
@@ -22,38 +22,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let function = self.function_index().checked_target_key(target)?;
-        let params = self
-            .compact_function_sig_for_key(function)
-            .map(|signature| signature.params.clone());
         let span = self.program.arena.expr(id).span;
-        let scheme = self.checked_function_scheme(function).filter(|scheme| {
-            !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()
-        });
-        if args.iter().any(|argument| argument.splice)
-            && (scheme.is_some() || self.bodies.call_instantiations.contains_key(&id))
-        {
-            let Some(rest_slot) = scheme.and_then(Self::final_rest_slot) else {
-                let splice_span = args
-                    .iter()
-                    .find(|argument| argument.splice)
-                    .map_or(span, |argument| argument.span);
-                self.last_blocker_detail = Some((
-                    splice_span,
-                    "generic positional splice must target the final rest parameter".to_string(),
-                ));
-                return None;
-            };
-            self.validate_generic_rest_splices(id, args, rest_slot)?;
-        }
-        let lowered_args = self.lower_function_call_args(
-            args,
-            params.as_deref(),
-            self.call_argument_slots(id),
-            Some((function, 0)),
-            slots,
-            current_function,
-            item_slot,
-        )?;
+        let lowered_args = self.lower_checked_function_arguments(id, args, function, slots, current_function, item_slot)?;
         let lowered = self.lower_checked_function_call_values(
             function,
             lowered_args,
@@ -93,15 +63,51 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
+    pub(super) fn lower_checked_function_arguments<T>(
+        &mut self, id: ExprId, args: &[CallArgument<T>], function: LoweredFunctionKey,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+    ) -> Option<Vec<LoweredCallArg>> {
+        let span = self.program.arena.expr(id).span;
+        let params = self
+            .compact_function_sig_for_key(function)
+            .map(|signature| signature.params.clone());
+        let scheme = self.checked_function_scheme(function);
+        if args.iter().any(|argument| argument.splice)
+            && (scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()) || self.bodies.call_instantiations.contains_key(&id))
+        {
+            let Some(rest_slot) = scheme.as_deref().and_then(Self::final_rest_slot) else {
+                let splice_span = args
+                    .iter()
+                    .find(|argument| argument.splice)
+                    .map_or(span, |argument| argument.span);
+                self.last_blocker_detail = Some((
+                    splice_span,
+                    "generic positional splice must target the final rest parameter".to_string(),
+                ));
+                return None;
+            };
+            self.validate_generic_rest_splices(id, args, rest_slot)?;
+        }
+        self.lower_function_call_args(
+            args,
+            scheme.as_deref().map(|scheme| CheckedCallParameters::Scheme(scheme.params())).or_else(|| params.as_deref().map(CheckedCallParameters::Ground)),
+            self.call_argument_slots(id),
+            Some((function, 0)),
+            slots,
+            current_function,
+            item_slot,
+        )
+    }
+
     fn checked_function_scheme(
         &self,
         function: LoweredFunctionKey,
-    ) -> Option<&crate::sema::schemes::TypeScheme> {
+    ) -> Option<Arc<crate::sema::schemes::TypeScheme>> {
         match function {
             LoweredFunctionKey::Qualified(name) => self
                 .qualified_schemes
                 .get(&name)
-                .map(|scheme| scheme.as_ref()),
+                .cloned(),
             LoweredFunctionKey::Name(_) => None,
         }
         .or_else(|| {
@@ -114,7 +120,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.declarations
                 .scheme_bodies
                 .get(&body_span)
-                .map(|facts| facts.scheme().as_ref())
+                .map(|facts| Arc::clone(facts.scheme()))
         })
     }
 
@@ -345,7 +351,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered.extend(
             self.lower_function_call_args(
                 args,
-                params.as_deref(),
+                params.as_deref().map(CheckedCallParameters::Ground),
                 self.bodies
                     .api_calls
                     .get(&call)
@@ -464,7 +470,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let args = self
             .lower_function_call_args(
                 args,
-                params.as_deref(),
+                params.as_deref().map(CheckedCallParameters::Ground),
                 self.module_call_plan(call)
                     .and_then(|plan| script_argument_slots(plan, params.as_deref()?)),
                 Some((LoweredFunctionKey::Qualified(qualified), 0)),
@@ -596,7 +602,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             let args = self.lower_function_call_args(
                 &args_vec,
-                Some(&callable.sig.params),
+                Some(CheckedCallParameters::Ground(&callable.sig.params)),
                 self.call_argument_slots(id),
                 None,
                 slots,
@@ -626,7 +632,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         {
             let args = self.lower_function_call_args(
                 &args_vec,
-                Some(&alias.signature.params),
+                Some(CheckedCallParameters::Ground(&alias.signature.params)),
                 self.call_argument_slots(id),
                 None,
                 slots,
@@ -795,7 +801,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let params = sig.params.clone();
                     let args = self.lower_function_call_args(
                         &args_vec,
-                        Some(&params),
+                        Some(CheckedCallParameters::Ground(&params)),
                         self.call_argument_slots(id),
                         None,
                         slots,

@@ -1186,3 +1186,193 @@ fn generic_assignment_validated_and_scalar_compounds_keep_their_domains() {
         }
     }
 }
+
+fn argument_calls_preserve_payloads(definition: &str) {
+    let source = format!("{definition}\npure number() -> Int {{ call(7) }}\npure text() -> Str {{ call(\"value\") }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, expected, "{definition} {name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_spreads_and_rest_execute_after_frontend_disposal() {
+    for definition in [
+        "pure select(value, flag: Bool) { let _ = flag; value }\npure call(value) { select(...{flag: true, value: value}) }",
+        "pure select(value, flag: Bool) { let _ = flag; value }\npure call(value) { let args = {flag: true, value: value}; select(...args) }",
+        "pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value) { let _ = head(value); head(value, 1, 2) }",
+        "pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value) { let tail = [1, 2]; head(value, @tail) }",
+        "pure head(value, flag: Bool, ...items: List[Int]) { let _ = flag; let _ = items; value }\npure call(value) { let tail = [1, 2]; head(...{flag: true, value: value}, @tail) }",
+    ] { argument_calls_preserve_payloads(definition); }
+}
+
+#[test]
+fn generic_arguments_defaults_execute_after_frontend_disposal() {
+    for definition in [
+        "pure select(value, flag: Bool = false) { let _ = flag; value }\npure call(value) { select(value) }",
+        "pure select(value, flag: Bool = false) { let _ = flag; value }\npure call(value) { select(flag: true, value: value) }",
+        "pure call(value, flag = false) { let _ = flag; value }",
+    ] { argument_calls_preserve_payloads(definition); }
+}
+
+#[test]
+fn generic_arguments_defaults_keep_the_declaration_scope() {
+    let source = "let fallback = 7\npure select(value, count: Int = fallback, trailing: Int = 0) { let _ = trailing; {value, count} }\npure call(value) { let fallback = 99; let _ = fallback; select(trailing: 1, value: value) }\npure number() { call(7) }\npure text() { call(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the selected default stays in the returned record") };
+            assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
+            assert_eq!(fields.get("count"), Some(&Value::Int(7)), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_spreads_and_splices_keep_source_entry_order() {
+    let source = "pure select(value, first: Int, ...items: List[Int]) { {value, first, items} }\npure call(value) { var trace = 0; let result = select(...{value: {trace = trace * 10 + 1; value}, first: {trace = trace * 10 + 2; 2}}, @{trace = trace * 10 + 3; [3, 4]}); {value: result.value, trace, first: result.first, items: result.items} }\npure number() { call(7) }\npure text() { call(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the call returns its checked observations") };
+            assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
+            assert_eq!(fields.get("trace"), Some(&Value::Int(123)), "{name} frames={force_frames}");
+            assert_eq!(fields.get("first"), Some(&Value::Int(2)), "{name} frames={force_frames}");
+            assert_eq!(fields.get("items"), Some(&Value::List(vec![Value::Int(3), Value::Int(4)])), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_ordinary_interior_defaults_keep_the_declaration_scope() {
+    let source = "let fallback = 7\npure select(value: Int, count: Int = fallback, trailing: Int = 0) { let _ = trailing; {value, count} }\npure call(value: Int) { let fallback = 99; let _ = fallback; select(trailing: 1, value: value) }\npure number() { call(7) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+        let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary call returns its checked record") };
+        assert_eq!(fields.get("value"), Some(&Value::Int(7)), "frames={force_frames}");
+        assert_eq!(fields.get("count"), Some(&Value::Int(7)), "frames={force_frames}");
+    }
+}
+
+#[test]
+fn generic_arguments_defaults_run_after_supplied_entries_once() {
+    let source = "var trace = 0\nproc tick(digit: Int) [] -> Int { trace = trace * 10 + digit; digit }\nproc select(value, left: Int = tick(3), right: Int = tick(4)) [error] { let _ = left; let _ = right; value }\nproc call(value, supplied: Bool) [error] { let result = if supplied { select(right: tick(2), value: {let _ = tick(1); value}) } else { select({let _ = tick(1); value}) }; result? }\nproc number(supplied: Bool) [error] { let value = call(7, supplied)?; {value, trace} }\nproc text(supplied: Bool) [error] { let value = call(\"value\", supplied)?; {value, trace} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for supplied in [false, true] {
+            for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(supplied)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the checked default call succeeds") };
+                let Value::Record(fields) = *fields else { panic!("the call returns its observations") };
+                assert_eq!(fields.get("value"), Some(&expected), "{name} supplied={supplied} frames={force_frames}");
+                assert_eq!(fields.get("trace"), Some(&Value::Int(if supplied { 213 } else { 134 })), "{name} supplied={supplied} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_defaults_preserve_failure_and_cleanup() {
+    let source = "error ArgumentError = invalid(message: Str)\nvar closed = 0\nvar later = 0\nproc close() [] { closed = closed + 1 }\nproc fail() [error] -> Result[Int, ArgumentError] { defer close(); Err(ArgumentError.invalid(message: \"default failed\")) }\nproc next() [] -> Int { later = later + 1; 4 }\nproc select(value, left: Int = fail()?, right: Int = next()) [error] { let _ = left; let _ = right; value }\nproc call(value, omitted: Bool) [error] { let result = if omitted { select(value) } else { select(value, 1, 2) }; result? }\nproc number(omitted: Bool) [error] { let result = try { call(7, omitted)? }; {result, closed, later} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for omitted in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the outer caller catches the actual default failure") };
+            let Value::Record(fields) = *fields else { panic!("the caller returns failure observations") };
+            assert_eq!(fields.get("closed"), Some(&Value::Int(i64::from(omitted))), "omitted={omitted} frames={force_frames}");
+            assert_eq!(fields.get("later"), Some(&Value::Int(0)), "omitted={omitted} frames={force_frames}");
+            if omitted {
+                let Some(Value::Result(ResultValue::Err(error))) = fields.get("result") else { panic!("the default preserves its error result") };
+                let Value::Error(error) = error.as_ref() else { panic!("the actual nominal error is preserved") };
+                assert_eq!((&*error.family, &*error.variant, &*error.message), ("ArgumentError", "invalid", "default failed"));
+            } else { assert_eq!(fields.get("result"), Some(&Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))))); }
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_stream_defaults_keep_pull_and_cleanup_ownership() {
+    let source = "var created = 0\nvar pulls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nstream rows() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 1; pulls = pulls + 100; yield 2 }\nproc make() [error] -> Stream[Int] { created = created + 1; rows() }\nproc supplied() [error] -> Stream[Int] { created = created + 10; rows() }\nproc select(value, items: Stream[Int] = make()) [error] { for item in items { let _ = item; break }; value }\nproc call(value, omitted: Bool) [error] { let result = if omitted { select(value) } else { select(value, supplied()) }; result? }\nproc number(omitted: Bool) [error] { let value = call(7, omitted)?; {value, created, pulls, closed} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for omitted in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the lazy default stream remains owned by the callee") };
+            let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
+            for (name, expected) in [("value", 7), ("created", if omitted { 1 } else { 10 }), ("pulls", 1), ("closed", 1)] {
+                assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} omitted={omitted} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_ground_layouts_keep_default_and_rest_meanings() {
+    let source = "pure increment(number: Int = 1) -> Int { number + 1 }\npure total(...items: List[Int]) -> Int { var result = 0; for item in items { result += item }; result }\npure call(value) { let tail = [3, 4]; {value, omitted: increment(), explicit: increment(2), empty: total(), rest: total(1, 2), spliced: total(@tail)} }\npure number() { call(7) }\npure text() { call(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary helpers retain their checked parameter layouts") };
+            assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
+            for (field, value) in [("omitted", 2), ("explicit", 3), ("empty", 0), ("rest", 3), ("spliced", 7)] {
+                assert_eq!(fields.get(field), Some(&Value::Int(value)), "{name}.{field} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_arguments_registered_spreads_use_the_selected_layout() {
+    let source = "pure call(value) { let args = {prefix: \"a\"}; {value, matched: \"abc\".starts_with(...args), data: bytes.from_text(...{text: \"data\"})} }\npure number() { call(7) }\npure text() { call(\"value\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the registered calls retain their selected outputs") };
+            assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
+            assert_eq!(fields.get("matched"), Some(&Value::Bool(true)), "{name} frames={force_frames}");
+            assert_eq!(fields.get("data"), Some(&Value::Bytes(b"data".to_vec())), "{name} frames={force_frames}");
+        }
+    }
+}

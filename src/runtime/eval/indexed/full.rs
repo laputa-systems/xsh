@@ -17125,9 +17125,9 @@ impl FullVerifier {
                             ));
                         }
                     }
-                    FullCallableContract::Scheme(_) if param.flags & 0b110 != 0 => {
+                    FullCallableContract::Scheme(_) if param.flags & 2 != 0 && param.flags & 4 == 0 => {
                         return Err(IrVerifyError::new(
-                            "generic function parameters cannot have defaults",
+                            "generic default parameter requires an expression entry",
                         ));
                     }
                     FullCallableContract::Scheme(_) => {}
@@ -24183,7 +24183,7 @@ assert apply(40) == 42
         let mut defaulted_scheme_param = program.clone();
         defaulted_scheme_param.store.params[identity_param].flags |= 2;
         let error = FullVerifier::verify(&defaulted_scheme_param).unwrap_err();
-        assert_eq!(error.message, "generic function parameters cannot have defaults");
+        assert_eq!(error.message, "generic default parameter requires an expression entry");
 
         let numeric_program = fixture(
             "generic-int-to-uint-substitution.xsh",

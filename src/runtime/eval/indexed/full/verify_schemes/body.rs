@@ -380,6 +380,17 @@ pub(super) fn verify_body(
     let mut writers = slots.clone();
     let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, ty)| (slot, LocalBinding { ty, mutable: false, initializer: None })).collect() }] };
     let scope = LexicalScope { frame: 0, loop_depth: 0 };
+    let function = IrFunctionId::from_raw(decoder.owner).and_then(|owner| store.functions.get(owner.index())).ok_or_else(|| IrVerifyError::new("generic default has no function owner"))?;
+    let parameter_count = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic default parameter range is invalid"))?.len();
+    let mut default_bindings = BTreeMap::new();
+    for (&slot, binding) in &scopes.frames[0].bindings {
+        if slot >= parameter_count {
+            budget.charge_scheme_clone(&binding.ty)?;
+            default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: false, initializer: None });
+        }
+    }
+    let default_scope = LexicalScope { frame: scopes.frames.len(), loop_depth: 0 };
+    scopes.frames.push(LexicalFrame { parent: None, bindings: default_bindings });
     let mut pending = vec![Obligation::Block { statements: statements.into(), position: 0, scope, value: None }];
     let mut visited = BTreeSet::new();
     let mut visited_statements = BTreeSet::new();
@@ -533,6 +544,18 @@ pub(super) fn verify_body(
                             pending.push(Obligation::Expression(source.raw() as usize, scope));
                             continue;
                         }
+                    }
+                    schema::StmtView::DefaultParameter { slot, value, kind, check, .. } => {
+                        if slot >= parameter_count { return Err(IrVerifyError::new("generic default does not target a parameter")); }
+                        let expected = scope.slot_type(&scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic default has no parameter contract"))?;
+                        budget.charge_scheme_clone(expected)?;
+                        let expected = expected.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic default requires a concrete parameter contract"))?;
+                        if super::super::lowered_type_from_type(&expected)? != super::super::lowered_type_from_type(&store.semantic.to_type_with_budget(kind.id, &mut budget.semantic_types)?)? { return Err(IrVerifyError::new("generic default representation disagrees with its parameter")); }
+                        let actual = expression_type(types, value.raw() as usize, budget)?;
+                        if let Some(check) = check {
+                            if check.ty.materialize()? != expected || !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic default check disagrees with its parameter")); }
+                        } else if !body_type_matches(&actual, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic default value disagrees with its parameter")); }
+                        nested.push(Obligation::Expression(value.raw() as usize, default_scope));
                     }
                     schema::StmtView::Expr { value, .. } => expressions.push(value.raw() as usize),
                     schema::StmtView::Return { value: returned } => {
@@ -2202,6 +2225,145 @@ mod tests {
             assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic call argument does not match its checked parameter slot");
         }
         prepare("pure identity(value) { value }\npure selected(rows: Map[Str, Int]) -> Map[Str, Int] { identity({[\"first\"]: 1, ...rows, [\"last\"]: 2}) }");
+    }
+
+    fn argument_default_operand(program: &FullProgram, owner: usize) -> (usize, usize, BTreeSet<usize>) {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let root = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::DefaultParameter { value, .. }) => Some(value.raw() as usize), _ => None,
+        }).unwrap();
+        let mut pending = vec![root];
+        let mut owned = BTreeSet::new();
+        let mut literal = None;
+        while let Some(instruction) = pending.pop() {
+            assert!(owned.insert(instruction));
+            match decoder.expression_view(instruction).unwrap() {
+                schema::ExprView::ValueBlock { mut body, .. } => for statement in &mut body {
+                    let statement = statement.unwrap().raw() as usize;
+                    assert!(owned.insert(statement));
+                    let (schema::StmtView::Let { value, .. } | schema::StmtView::Value { value }) = decoder.statement_view(statement).unwrap() else { panic!("the default retains only its ANF declarations and value") };
+                    pending.push(value.raw() as usize);
+                },
+                schema::ExprView::Bool(_) => assert!(literal.replace(instruction).is_none()),
+                schema::ExprView::Param(_) => {},
+                _ => panic!("the default fixture has one authentic Bool producer"),
+            }
+        }
+        (root, literal.unwrap(), owned)
+    }
+
+    #[test]
+    fn generic_arguments_defaults_authenticate_actual_values_and_scope() {
+        let program = prepare("pure choose(value, flag: Bool = false) { let _ = \"wrong\"; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let (root, literal, owned) = argument_default_operand(&program, owner);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let wrong = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str(_)))).unwrap();
+        let wrong_type = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == wrong).unwrap().ty;
+        let wrong_node = program.store.scheme_types[wrong_type.index()];
+        assert_eq!(wrong_node.tag, FullSchemeTypeTag::Ground);
+        let mut changed = program.clone();
+        changed.store.tags[literal] = program.store.tags[wrong];
+        changed.store.data[literal] = program.store.data[wrong];
+        for fact in &program.store.scheme_body_facts {
+            if owned.contains(&(fact.instruction as usize)) {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+                node.first = wrong_node.first;
+            }
+        }
+        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scope = scopes[scheme.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&changed.store);
+        let root_type = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == root).unwrap().ty;
+        assert_eq!(decode_scheme_type(&changed.store, scope, root_type, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::Str));
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic default value disagrees with its parameter");
+        let mut escaped = program.clone();
+        escaped.store.tags[literal] = super::super::super::FullTag::ExprParam;
+        let start = escaped.store.extra.len() as u32;
+        escaped.store.extra.push(1);
+        escaped.store.data[literal] = crate::runtime::eval::indexed::IrData::new(start, 1);
+        assert_eq!(FullVerifier::verify(&escaped).unwrap_err().message, "generic body reads an uninitialized slot");
+    }
+
+    #[test]
+    fn generic_arguments_default_entries_require_unique_matching_parameters() {
+        let program = prepare("pure choose(value, first: Bool = false, second: Bool = true) { let _ = first; let _ = second; value }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let entries = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::DefaultParameter { .. }))).collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2);
+        let mut changed = program.clone();
+        let words = changed.store.data[entries[1]].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(changed.store.extra[words.start], 2);
+        changed.store.extra[words.start] = 1;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "parameter default entry does not match its parameter");
+        let mut missing = program.clone();
+        let parameter = program.store.functions[owner].params.start as usize + 1;
+        missing.store.params[parameter].flags &= !4;
+        assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "generic default parameter requires an expression entry");
+    }
+
+    #[test]
+    fn generic_arguments_actual_payloads_must_fit_the_selected_scheme() {
+        let program = prepare("pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value, other) { let _ = other; head(value, 1, 2) }");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "call").unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("the caller retains its independent payload binders") };
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let argument = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Call { mut args, .. } | schema::ExprView::DirectPureCall { mut args, .. }) => match args.next().unwrap().unwrap() { super::super::super::decode::CallArgView::Single(value) => Some(value.raw() as usize), _ => None },
+            _ => None,
+        }).unwrap();
+        let changed = retarget_record_operand(&program, owner, scheme, argument, 0, 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic call argument does not match its checked scheme fact");
+    }
+
+    #[test]
+    fn generic_arguments_actual_splices_must_fit_the_rest_domain() {
+        let program = prepare("pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value, items: List[Int], wrong: List[Str]) { let _ = wrong; head(value, @items) }");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "call").unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("the caller retains its actual rest domains") };
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let argument = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. }) => args.filter_map(|arg| match arg.unwrap() { super::super::super::decode::CallArgView::Splice(value) => Some(value.raw() as usize), _ => None }).next(),
+            _ => None,
+        }).unwrap();
+        let (declaration, initializer) = record_operand_binding(&program, owner, argument);
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()];
+        assert_eq!(wrong.tag, FullSchemeTypeTag::List);
+        let wrong_item = program.store.scheme_types[SchemeTypeId::from_raw(wrong.first).unwrap().index()];
+        assert_eq!(wrong_item.tag, FullSchemeTypeTag::Ground);
+        let mut changed = program.clone();
+        let words = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = 2;
+        for fact in &program.store.scheme_body_facts {
+            if [argument, declaration, initializer].contains(&(fact.instruction as usize)) {
+                let node = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, FullSchemeTypeTag::List);
+                let item = &mut changed.store.scheme_types[SchemeTypeId::from_raw(node.first).unwrap().index()];
+                assert_eq!(item.tag, FullSchemeTypeTag::Ground);
+                item.first = wrong_item.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic call argument does not match its checked scheme fact");
+    }
+
+    #[test]
+    fn generic_arguments_default_calls_keep_the_owner_effect_ceiling() {
+        let program = prepare("proc ordinary() [error] -> Int { 7 }\nproc environmental() [env] -> Int { let _ = env.get(\"XSH_GENERIC_DEFAULT\"); 7 }\nproc choose(value, count: Int = ordinary()) [error] { let _ = count; value }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Call { .. }))).unwrap();
+        let environmental = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "environmental").unwrap();
+        let schema::ExprView::Call { function, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        assert_eq!(program.store.string(program.store.functions[function.id.index()].name).unwrap(), "ordinary");
+        let mut changed = program.clone();
+        let words = changed.store.data[call].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = IrFunctionId::new(environmental).unwrap().raw();
+        changed.store.checked_call_targets.iter_mut().find(|target| target.instruction as usize == call).unwrap().function = IrFunctionId::new(environmental).unwrap();
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, format!("executable operation requires effect env outside its owner contract at callable {owner}, instruction {call} ExprCall"));
     }
 
 }

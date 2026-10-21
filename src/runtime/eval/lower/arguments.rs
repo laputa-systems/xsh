@@ -1,16 +1,16 @@
 use super::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, BuildPatternRow,
-    CallArgument, CallableParamType, CompactLowerConstructProbe, DurationValue, ExprId, FxHashMap,
+    CallArgument, CheckedCallParameters, CompactLowerConstructProbe, DurationValue, ExprId, FxHashMap,
     LoweredArgumentValues, LoweredCallArg, LoweredFunctionKey, LoweredRecordEntry, Name,
     PathValue, SlotScope, Span, Type, api_spec,
     compact_checked_type_is_concrete, compact_error_family_info,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
-    pub(super) fn validate_generic_rest_splices(
+    pub(super) fn validate_generic_rest_splices<T>(
         &mut self,
         call: ExprId,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         rest_slot: usize,
     ) -> Option<()> {
         if !args.iter().any(|argument| argument.splice) {
@@ -79,9 +79,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .collect()
     }
 
-    pub(super) fn lower_call_argument(
+    pub(super) fn lower_call_argument<T>(
         &mut self,
-        argument: &CallArgument,
+        argument: &CallArgument<T>,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -205,9 +205,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    pub(super) fn lower_call_args(
+    pub(super) fn lower_call_args<T>(
         &mut self,
-        args: &[CallArgument],
+        args: &[CallArgument<T>],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -515,10 +515,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     /// Arrange named entries in their checked slots. Named calls evaluate their
     /// entries in source order before reaching here, so slot order is free.
-    pub(super) fn lower_function_call_args(
+    pub(super) fn lower_function_call_args<T>(
         &mut self,
-        args: &[CallArgument],
-        params: Option<&[CallableParamType]>,
+        args: &[CallArgument<T>],
+        params: Option<CheckedCallParameters<'_>>,
         argument_slots: Option<&[usize]>,
         definition: Option<(LoweredFunctionKey, usize)>,
         slots: &mut SlotScope,
@@ -549,35 +549,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut values = Vec::new();
         for (slot, entries) in by_slot.into_iter().enumerate() {
             if entries.is_empty() {
-                let signature_parameter = params?.get(slot)?;
-                if signature_parameter.rest {
+                if params?.is_rest(slot)? {
                     continue;
                 }
-                let definitions = self.function_index();
-                let parameter = definition.and_then(|(key, skip)| {
-                    definitions.definition(key).and_then(|def| {
-                        self.program
-                            .arena
-                            .params(self.program.arena.function_def(def.id).params)
-                            .get(slot + skip)
-                    })
-                });
-                let Some(default) = parameter.and_then(|parameter| parameter.default) else {
-                    values.push(LoweredCallArg::Default(
-                        slot + definition.map_or(0, |(_, skip)| skip),
-                    ));
-                    continue;
-                };
-                let value = if let Some(constant) = crate::sema::constants::LiteralConstant::analyze(
-                    &self.program.arena,
-                    default,
-                    &FxHashMap::default(),
-                ) {
-                    self.lower_record_default(&constant.in_type(&signature_parameter.ty))?
-                } else {
-                    self.lower_expr(default, slots, current_function, item_slot)?
-                };
-                values.push(LoweredCallArg::Single(value));
+                values.push(LoweredCallArg::Default(slot + definition.map_or(0, |(_, skip)| skip)));
+                continue;
             }
             for arg in entries {
                 let value = self.lower_call_argument(arg, slots, current_function, item_slot)?;
@@ -635,8 +611,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 }
 
-fn first_invalid_generic_rest_splice(
-    args: &[CallArgument],
+fn first_invalid_generic_rest_splice<T>(
+    args: &[CallArgument<T>],
     rest_slot: usize,
     argument_slots: Option<&[usize]>,
 ) -> Option<usize> {

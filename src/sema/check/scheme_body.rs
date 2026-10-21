@@ -183,7 +183,7 @@ fn comprehension_bindings(
     Some(available)
 }
 
-fn is_body_expression(
+pub(super) fn is_body_expression(
     program: &ArenaProgram,
     bindings: &ResolvedBindings,
     available: &FxHashSet<BindingId>,
@@ -223,7 +223,7 @@ fn is_body_expression(
                 if !types.contains_key(&expression) { return false; }
                 pending.extend(program.arena.comparison_chain_operands(pairs));
             }
-            ArenaExprKind::Unary { expr, .. } => {
+            ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
                 if !types.contains_key(&expression) { return false; }
                 pending.push(expr);
             }
@@ -292,8 +292,8 @@ fn is_body_expression(
                     && !result_constructors.contains_key(&program.arena.expr(expression).span) { return false; }
                 for argument in program.arena.call_args(args) {
                     match argument.kind {
-                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => pending.push(value),
-                        _ => return false,
+                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }
+                        | ArenaCallArgKind::NamedSpread { value, .. } | ArenaCallArgKind::Splice { value, .. } => pending.push(value),
                     }
                 }
             }
@@ -639,6 +639,46 @@ mod ordinary_body_tests {
     #[test]
     fn generic_comprehension_filters_retain_the_ordinary_status_condition() {
         accepts("pure copy(value, selected: Status) { [item for item in [value] if selected] }", "pure number(selected: Status) -> List[Int] { copy(7, selected) }\npure text(selected: Status) -> List[Str] { copy(\"value\", selected) }");
+    }
+
+    #[test]
+    fn generic_arguments_named_order_preserves_the_payload_binder() {
+        accepts("pure select(value, flag: Bool) { let _ = flag; value }\npure call(value) { select(flag: true, value: value) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_named_spreads_preserve_the_payload_binder() {
+        accepts("pure select(value, flag: Bool) { let _ = flag; value }\npure call(value) { select(...{flag: true, value: value}) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_local_spreads_keep_the_checked_record_shape() {
+        accepts("pure select(value, flag: Bool) { let _ = flag; value }\npure call(value) { let args = {flag: true, value: value}; select(...args) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_rest_calls_preserve_the_fixed_payload() {
+        accepts("pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value) { let _ = head(value); head(value, 1, 2) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_rest_splices_keep_the_actual_list_domain() {
+        accepts("pure head(value, ...items: List[Int]) { let _ = items; value }\npure call(value, tail: List[Int]) { head(value, @tail) }", "let number: Int = call(7, [1, 2])\nlet text: Str = call(\"value\", [])");
+    }
+
+    #[test]
+    fn generic_arguments_omitted_defaults_keep_the_declaration_contract() {
+        accepts("pure select(value, flag: Bool = false) { let _ = flag; value }\npure call(value) { select(value) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_explicit_defaults_keep_the_supplied_payload() {
+        accepts("pure select(value, flag: Bool = false) { let _ = flag; value }\npure call(value) { select(flag: true, value: value) }", "let number: Int = call(7)\nlet text: Str = call(\"value\")");
+    }
+
+    #[test]
+    fn generic_arguments_inferred_default_types_remain_independent_of_calls() {
+        accepts("pure select(value, flag = false) { let _ = flag; value }", "let number: Int = select(7)\nlet text: Str = select(\"value\", true)");
     }
 
     #[test]

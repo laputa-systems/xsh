@@ -1357,8 +1357,11 @@ fn verify_body_expression(
         schema::ExprView::Call { function, args, .. } | schema::ExprView::DirectPureCall { function, args, .. } => {
             let mut arguments = Vec::new();
             for argument in args {
-                let super::decode::CallArgView::Single(value) = argument? else { return Err(IrVerifyError::new("generic body call requires explicit fixed arguments")) };
-                arguments.push(child(value, budget)?);
+                arguments.push(match argument? {
+                    super::decode::CallArgView::Single(value) => Some((child(value, budget)?, false)),
+                    super::decode::CallArgView::Splice(value) => Some((child(value, budget)?, true)),
+                    super::decode::CallArgView::Default(slot) => { budget.charge(1)?; if slot as usize != arguments.len() { return Err(IrVerifyError::new("generic default argument has an invalid slot")); } None },
+                });
             }
             let target = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
             if store.function_metadata[function.id.index()].flags & 1 != 0 {
@@ -1384,12 +1387,26 @@ fn verify_body_expression(
             match target.contract {
                 FullCallableContract::Scheme(_) => ty.clone(),
                 FullCallableContract::Ground(signature) => {
-                    if store.semantic.signature_param_count(signature)? != arguments.len() { return Err(IrVerifyError::new("generic body call signature has incompatible arguments or effects")); }
+                    let count = store.semantic.signature_param_count(signature)?;
+                    budget.charge(count)?;
+                    let parameters = (0..count).map(|slot| store.semantic.signature_param(signature, slot)).collect::<Result<Vec<_>, _>>()?;
+                    let rest = parameters.iter().position(|(_, _, flags)| flags & 2 != 0);
+                    if rest.is_some_and(|slot| slot + 1 != count) { return Err(IrVerifyError::new("generic rest parameter is not final")); }
+                    let fixed = rest.unwrap_or(count);
+                    let required = parameters[..fixed].iter().rposition(|(_, _, flags)| flags & 1 == 0).map_or(0, |slot| slot + 1);
+                    if arguments.len() < required || rest.is_none() && arguments.len() > count { return Err(IrVerifyError::new("generic body call signature has incompatible arguments or effects")); }
                     for (index, actual) in arguments.iter().enumerate() {
-                        let (_, expected, flags) = store.semantic.signature_param(signature, index)?;
-                        if flags != 0 { return Err(IrVerifyError::new("generic body call requires fixed required parameters")); }
+                        let (_, expected, flags) = parameters[index.min(fixed)];
+                        let Some((actual, splice)) = actual else {
+                            if index >= fixed || flags & 1 == 0 { return Err(IrVerifyError::new("generic default argument has no matching parameter")); }
+                            continue;
+                        };
                         let expected = store.semantic.to_type_with_budget(expected, &mut budget.semantic_types)?;
-                        if !body_type_matches_ground(actual, &expected) { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
+                        let expected = if index >= fixed && !splice {
+                            let Type::List(item) = expected else { return Err(IrVerifyError::new("generic rest parameter has no list domain")) };
+                            *item
+                        } else { expected };
+                        if *splice && index < fixed || !body_type_matches_ground(actual, &expected) { return Err(IrVerifyError::new("generic body call argument disagrees with its checked parameter")); }
                     }
                     let result = if target.checked_return_type != IR_NONE { TypeId::from_raw(target.checked_return_type).ok_or_else(|| IrVerifyError::new("generic body call result is invalid"))? } else { store.semantic.signature_return_type(signature)? };
                     SchemeType::Ground(store.semantic.to_type_with_budget(result, &mut budget.semantic_types)?)
@@ -2245,15 +2262,38 @@ fn verify_symbolic_call_arguments(
     let arguments = args.collect::<Result<Vec<_>, _>>()?;
     let params = bounded(target.params, &store.params, "generic target parameter range is invalid")?;
     let scheme_params = bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?;
-    if arguments.len() != params.len() || params.len() != scheme_params.len() || params.iter().any(|parameter| parameter.flags & 3 != 0) {
-        return Err(IrVerifyError::new("generic composition target requires explicit fixed arguments"));
+    if params.len() != scheme_params.len() {
+        return Err(IrVerifyError::new("generic call parameters do not match checked parameter slots"));
     }
-    for (argument, parameter) in arguments.iter().zip(scheme_params) {
-        let super::decode::CallArgView::Single(value) = argument else { return Err(IrVerifyError::new("generic composition call requires explicit fixed arguments")) };
+    let rest = params.iter().position(|parameter| parameter.flags & 1 != 0);
+    if rest.is_some_and(|slot| slot + 1 != params.len()) { return Err(IrVerifyError::new("generic rest parameter is not final")); }
+    let fixed = rest.unwrap_or(params.len());
+    let required = params[..fixed].iter().rposition(|parameter| parameter.flags & 2 == 0).map_or(0, |slot| slot + 1);
+    if arguments.len() < required || rest.is_none() && arguments.len() > fixed {
+        return Err(IrVerifyError::new("generic call arguments do not match checked parameter slots"));
+    }
+    for (slot, argument) in arguments.iter().enumerate() {
+        budget.charge(1)?;
+        let parameter = &scheme_params[slot.min(fixed)];
+        let expected = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
+        let mut expected = substitute_scheme_type(&expected, callee_scope, substitution, budget, 0)?;
+        let value = match argument {
+            super::decode::CallArgView::Default(actual) if slot < fixed && *actual as usize == slot && params[slot].flags & 2 != 0 => continue,
+            super::decode::CallArgView::Default(_) => return Err(IrVerifyError::new("generic default argument has no matching parameter")),
+            super::decode::CallArgView::Single(value) if slot < fixed => value,
+            super::decode::CallArgView::Single(value) => {
+                expected = match expected {
+                    SchemeType::List(item) => *item,
+                    SchemeType::Ground(Type::List(item)) => SchemeType::Ground(*item),
+                    _ => return Err(IrVerifyError::new("generic rest parameter has no list domain")),
+                };
+                value
+            }
+            super::decode::CallArgView::Splice(value) if slot >= fixed && rest.is_some() => value,
+            super::decode::CallArgView::Splice(_) => return Err(IrVerifyError::new("generic fixed parameter cannot be supplied by a splice")),
+        };
         let actual = scheme_body_fact_type(store, caller_scheme, value.raw(), FullSchemeBodyFactKind::Expression)?.ok_or_else(|| IrVerifyError::new("generic call argument has no checked scheme fact"))?;
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
-        let expected = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
-        let expected = substitute_scheme_type(&expected, callee_scope, substitution, budget, 0)?;
         let matches = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
         if !matches { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
     }
@@ -2297,12 +2337,9 @@ fn verify_instantiated_call_arguments(
         return Err(IrVerifyError::new("generic rest parameter is not final"));
     }
     let fixed_count = rest_index.unwrap_or(params.len());
-    if arguments.len() < fixed_count
-        || (rest_index.is_none() && arguments.len() != params.len())
-    {
-        return Err(IrVerifyError::new(
-            "generic call arguments do not match checked parameter slots",
-        ));
+    let required = params[..fixed_count].iter().rposition(|parameter| parameter.flags & 2 == 0).map_or(0, |slot| slot + 1);
+    if arguments.len() < required || (rest_index.is_none() && arguments.len() > params.len()) {
+        return Err(IrVerifyError::new("generic call arguments do not match checked parameter slots"));
     }
     let rest_item = rest_index
         .map(|index| {
@@ -2316,9 +2353,8 @@ fn verify_instantiated_call_arguments(
     let mut checked_arguments = Vec::with_capacity(arguments.len());
     for (index, argument) in arguments.iter().enumerate() {
         let (value, expected_scheme_type, expected_ground_type, is_splice) = match argument {
-            super::decode::CallArgView::Default(_) => {
-                return Err(IrVerifyError::new("generic call cannot use a default argument"));
-            }
+            super::decode::CallArgView::Default(slot) if index < fixed_count && *slot as usize == index && params[index].flags & 2 != 0 => continue,
+            super::decode::CallArgView::Default(_) => return Err(IrVerifyError::new("generic default argument has no matching parameter")),
             super::decode::CallArgView::Single(value) if index < fixed_count => {
                 (value, Some(scheme_params[index].ty), None, false)
             }

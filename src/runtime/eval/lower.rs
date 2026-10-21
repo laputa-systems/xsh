@@ -84,13 +84,24 @@ pub(super) struct LoweredArgumentValues {
 /// retain their real source identity for constant planning; record fields use
 /// the checked projection source and the value already lowered from it.
 #[derive(Clone)]
-pub(super) struct CallArgument {
+pub(super) struct CallArgument<T = Type> {
     pub(super) name: Option<Name>,
     pub(super) splice: bool,
     pub(super) source: ArgumentValueSource,
-    pub(super) ty: Type,
+    pub(super) ty: T,
     pub(super) span: Span,
     pub(super) lowered: Option<BuildExprId>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CheckedCallParameters<'a> {
+    Ground(&'a [CallableParamType]),
+    Scheme(&'a [crate::sema::schemes::SchemeParameter]),
+}
+
+impl CheckedCallParameters<'_> {
+    fn len(self) -> usize { match self { Self::Ground(parameters) => parameters.len(), Self::Scheme(parameters) => parameters.len() } }
+    fn is_rest(self, slot: usize) -> Option<bool> { match self { Self::Ground(parameters) => parameters.get(slot).map(|parameter| parameter.rest), Self::Scheme(parameters) => parameters.get(slot).map(|parameter| parameter.rest) } }
 }
 
 struct LoweredFsFilesArgs {
@@ -2757,20 +2768,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ));
             return Err(CompactFunctionBlocker::ParamType);
         }
-        if scheme.is_some()
-            && let Some(parameter) = self
-                .program
-                .arena
-                .params(def.params)
-                .iter()
-                .find(|parameter| parameter.default.is_some())
-        {
-            self.last_blocker_detail = Some((
-                self.program.arena.span(parameter.span),
-                "generic function parameters with defaults are not lowerable".to_string(),
-            ));
-            return Err(CompactFunctionBlocker::ParamDefault);
-        }
         for (index, param) in self.program.arena.params(def.params).iter().enumerate() {
             let scheme_parameter = scheme
                 .as_ref()
@@ -2853,7 +2850,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                     return Err(CompactFunctionBlocker::ParamDefault);
                 };
-                let prepared = self
+                let prepared = if scheme.is_some() { None } else { self
                     .declarations
                     .prepared_constants
                     .analyze_expression(&self.program.arena, expr)
@@ -2864,7 +2861,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .filter(|value| lowered_value_matches(kind, value))
                     .or_else(|| {
                         lower_const_param_default(&self.program.arena, expr, kind, Some(expected))
-                    });
+                    }) };
                 if let Some(value) = prepared {
                     self.record_prepared_tag_schemas(&value).ok_or(CompactFunctionBlocker::ParamDefault)?;
                     Some(value)
@@ -2903,10 +2900,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let captures = self.append_immutable_top_level_captures(&mut slots, scheme_body_facts.as_ref().map(|facts| facts.read_bindings()));
         let blockers_before = self.output.blocker_events;
         let mut default_prefix = Vec::new();
+        let mut scheme_default_types = BTreeMap::new();
+        let mut scheme_default_visited = FxHashSet::default();
         for (slot, expr, kind, check) in expression_defaults {
-            let value = self
-                .lower_expr(expr, &mut slots, Some(def.name), None)
-                .ok_or(CompactFunctionBlocker::ParamDefault)?;
+            let value = if let Some(facts) = scheme_body_facts.as_ref() {
+                self.lower_scheme_lazy_expression(expr, &mut slots, def.name, facts, &mut scheme_default_visited, &mut scheme_default_types)
+            } else { self.lower_expr(expr, &mut slots, Some(def.name), None) }.ok_or(CompactFunctionBlocker::ParamDefault)?;
             default_prefix.push(push_build_row!(
                 self,
                 stmt,
@@ -2927,7 +2926,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let (mut body, scheme_body_types, scheme_tail_types) =
             if let Some(facts) = scheme_body_facts.as_ref() {
-                self.lower_scheme_body(def.body, &mut slots, def.name, facts)
+                self.lower_scheme_body(def.body, &mut slots, def.name, facts, scheme_default_types, scheme_default_visited)
                     .ok_or(CompactFunctionBlocker::Body)?
             } else {
                 let body = self
@@ -3079,6 +3078,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope,
         current_function: Name,
         facts: &SchemeBodyFacts,
+        mut lowered_types: BTreeMap<BuildExprId, SchemeType>,
+        mut visited: FxHashSet<ExprId>,
     ) -> Option<(
         Vec<BuildStmtId>, BTreeMap<BuildExprId, SchemeType>, BTreeMap<BuildStmtId, SchemeType>,
     )> {
@@ -3087,8 +3088,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
         let (&tail, prefix) = statements.split_last()?;
         let mut body = Vec::new();
-        let mut lowered_types = BTreeMap::new();
-        let mut visited = FxHashSet::default();
         for &statement in prefix {
             self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
         }
@@ -3525,6 +3524,60 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types.insert(checked, ty.clone());
     }
 
+    fn lower_scheme_call_arguments(
+        &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
+        plan: Option<&crate::sema::schemes::RegisteredCallPlan>,
+        slots: &mut SlotScope, current_function: Name, facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        body: &mut Vec<BuildStmtId>,
+    ) -> Option<Vec<CallArgument<SchemeType>>> {
+        use crate::sema::arguments::{ArgumentValueSource, expand_scheme_named_arguments};
+        let expanded = match expand_scheme_named_arguments(self.program, self.program.arena.call_args(args), |value| facts.expression_types().get(&value).cloned()) {
+            Ok(arguments) => arguments,
+            Err(error) => { self.last_blocker_detail = Some((error.span, error.message)); return None; }
+        };
+        let mut record_entry = None;
+        let mut arguments = Vec::with_capacity(expanded.len());
+        for argument in expanded {
+            let value = match argument.value {
+                ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => {
+                    record_entry = None;
+                    self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?
+                }
+                ArgumentValueSource::RecordField { record, field } => {
+                    let base = match record_entry {
+                        Some((entry, value)) if entry == argument.entry_index => value,
+                        _ => {
+                            let value = self.lower_scheme_expression(record, slots, current_function, facts, visited, lowered_types, body)?;
+                            record_entry = Some((argument.entry_index, value));
+                            value
+                        }
+                    };
+                    let ty = Self::scheme_record_field(lowered_types.get(&base)?, field)?;
+                    let value = push_build_row!(self, expr, BuildExprRow::Field { base, name: field.as_str(), span: argument.span });
+                    self.publish_scheme_expression(value, ty, slots, lowered_types, body)
+                }
+                ArgumentValueSource::CheckedType => { let _ = self.block_scheme_lowering_expr(expression); return None; },
+            };
+            let value = if let Some(plan) = plan {
+                let slot = *plan.argument_slots.get(arguments.len())?;
+                match plan.argument_checks.get(slot).and_then(Option::as_ref) {
+                    Some(check) => self.lower_scheme_registered_argument(value, check, argument.span, slots, lowered_types, body),
+                    None => value,
+                }
+            } else { value };
+            arguments.push(CallArgument {
+                name: argument.name,
+                splice: matches!(argument.value, ArgumentValueSource::PositionalSplice(_)),
+                source: argument.value,
+                ty: argument.ty,
+                span: argument.span,
+                lowered: Some(value),
+            });
+        }
+        Some(arguments)
+    }
+
     fn lower_scheme_registered_argument(
         &mut self,
         original: BuildExprId,
@@ -3744,6 +3797,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let start = match start { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
                 let end = match end { Some(value) => Some(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?), None => None };
                 push_build_row!(self, expr, BuildExprRow::Slice { base, start, end, span })
+            }
+            ArenaExprKind::Try(value) => {
+                let span = self.propagation_span(expression, value, slots);
+                let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
+                push_build_row!(self, expr, BuildExprRow::Try { value, span })
             }
             ArenaExprKind::Unary { op, expr } => {
                 let value = self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?;
@@ -3991,27 +4049,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } => {
+                if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
+                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let function = self.function_index().checked_target_key(target)?;
+                    let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None)?;
+                    let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
+                    if let Some(instantiation) = self.bodies.call_instantiations.get(&expression).cloned()
+                        && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
+                    { return self.block_scheme_lowering_expr(expression); }
+                    return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
                 let plan = facts.registered_calls().get(&expression).cloned();
                 let receiver = if plan.as_ref().is_some_and(|plan| plan.receiver.is_some()) {
                     let (ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. }) = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
                     Some(self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?)
                 } else { None };
                 if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
-                let arguments = self.program.arena.call_args(args).to_vec();
+                let arguments = self.lower_scheme_call_arguments(expression, args, plan.as_deref(), slots, current_function, facts, visited, lowered_types, body)?;
                 let mut values = Vec::with_capacity(arguments.len());
-                for (source_slot, argument) in arguments.into_iter().enumerate() {
-                    let value = match argument.kind {
-                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
-                        _ => return self.block_scheme_lowering_expr(expression),
-                    };
-                    let mut lowered = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
-                    if let Some(plan) = &plan {
-                        let slot = *plan.argument_slots.get(source_slot)?;
-                        if let Some(check) = plan.argument_checks.get(slot).and_then(Option::as_ref) {
-                            lowered = self.lower_scheme_registered_argument(lowered, check, self.program.arena.expr(value).span, slots, lowered_types, body);
-                        }
-                    }
-                    values.push(lowered);
+                for argument in arguments {
+                    if argument.splice { return self.block_scheme_lowering_expr(expression); }
+                    values.push(argument.lowered?);
                 }
                 if let Some(constructor) = self.bodies.checked_control_flow.result_constructors.get(&span).copied() {
                     match constructor {
@@ -4053,22 +4112,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     registered = Some(plan);
                     lowered
-                } else {
-                    let target = *self.bodies.selected_function_calls.get(&expression)?;
-                    let function = self.function_index().checked_target_key(target)?;
-                    let ordering = self.call_argument_slots(expression).map(<[usize]>::to_vec)
-                        .unwrap_or_else(|| (0..values.len()).collect());
-                    if ordering.len() != values.len() { return self.block_scheme_lowering_expr(expression); }
-                    let mut ordered = vec![None; values.len()];
-                    for (value, slot) in values.into_iter().zip(ordering) {
-                        if ordered.get_mut(slot)?.replace(LoweredCallArg::Single(value)).is_some() { return self.block_scheme_lowering_expr(expression); }
-                    }
-                    let lowered = self.lower_checked_function_call_values(function, ordered.into_iter().collect::<Option<Vec<_>>>()?, span, Some(current_function))?;
-                    if let Some(instantiation) = self.bodies.call_instantiations.get(&expression).cloned()
-                        && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
-                    { return self.block_scheme_lowering_expr(expression); }
-                    lowered
-                }
+                } else { return self.block_scheme_lowering_expr(expression); }
             }
             _ => return self.block_scheme_lowering_expr(expression),
         };

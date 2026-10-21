@@ -3812,7 +3812,8 @@ checked effect contract. Required parameters in `stream` declarations, callable 
 A checked quantified body can use lexical `let` and `var` bindings, including
 record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
 `while`, and `loop`, with `break`,
-`continue`, and explicit value returns. Each mutable local has one type within
+`continue`, explicit value returns, and ordinary `?` propagation through the
+callable's checked error boundary. Each mutable local has one type within
 an activation: every assignment must fit the same type, even when different
 calls instantiate that type differently. Field, list-index, and map-key
 assignments retain the selected storage type, including a shared type parameter.
@@ -3891,8 +3892,13 @@ body; an annotation does not replace proof of its actual input.
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
 source order.
-User function calls must supply every fixed required parameter, by position or
-name. Registered calls must have a selected pure signature with no host
+User function calls bind fixed required parameters by position, name, or a
+finite record's named spread. Source entries evaluate once in written order;
+spreads project the checked record fields before the next entry. Trailing items
+and positional list splices fill only the final rest parameter. Omitted defaults
+run in the callee's declaration scope after supplied entries, in parameter
+order; an explicit argument skips its default. The same rules apply when the
+selected callee has an ordinary concrete signature. Registered calls must have a selected pure signature with no host
 effects; their receiver domain and argument layout are fixed while checking
 the declaration. A caller never supplies type evidence for choosing that
 declaration's operations. Unsigned argument and map-key contracts keep the
@@ -3903,9 +3909,9 @@ diagnostic, including dynamically selected calls and captured mutable or
 resource state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing
-defaulted parameters. Calls to user functions with defaulted or rest parameters
-remain unsupported within a quantified body. A fully concrete inferred
-signature has no such body restriction.
+defaulted parameters. Their named spreads retain the selected argument layout
+and ordinary checks. A fully concrete inferred signature has no such body
+restriction.
 
 Ordinary ground pure helpers called from a quantified body keep their usual
 syntax, including branches, loops, mutation, patterns, defaults, rest arguments,
@@ -3952,8 +3958,10 @@ existing behavior. A positional splice that could expand into a fixed parameter 
 the final rest parameter currently blocks lowering. The body restriction above
 still applies to quantified declarations that have rest parameters.
 
-Even after `xsht check` succeeds, a well-typed quantified pure declaration with
-any defaulted parameter currently blocks lowering for the whole function.
+A quantified declaration may have defaulted parameters under the same concrete
+default-type rules above. A default can call a selected function and propagate
+its actual error when the enclosing callable permits that error. Defaults retain
+the ordinary failure and cleanup behavior, including lazy stream ownership.
 
 ### 9.3 Return types
 

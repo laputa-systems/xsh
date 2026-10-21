@@ -98,6 +98,26 @@ analysis supplies reachable loop exits, including bare `Unit` exits, even
 when ordinary producer demand is absent. Preparation retains no frontend tree
 for execution and performs no runtime type solving.
 
+Argument expansion shares one source-entry traversal for ordinary `Type` facts
+and generalized `SchemeType` facts. Each spread requires a checked finite closed
+record. The existing binding map selects destination slots; lowering reads a
+borrowed ground or scheme parameter layout and preserves source evaluation order.
+Registered argument checks remain attached to their checked source entries.
+
+Generic default expressions join the declaration's existing type, selected-call,
+and capture census before generalization. They lower to the ordinary lazy
+`DefaultParameter` prefix, including literal defaults. Omitted interior slots
+carry the ordinary default token to the callee. Every supplied argument evaluates
+before that prefix, and each supplied slot skips its default. Default expression
+scopes expose the declaration's captures; formal names enter scope for the body.
+
+Cold generic verification proves actual fixed arguments, rest items and splices
+against the selected callable contract. Default prefixes require unique matching
+parameter entries, concrete checked parameter representations, actual value and
+check compatibility, and independent expression and effect proof. Their lexical
+frames exclude formal slots. Resource-bearing default block results use the same
+transfer and cleanup authority as other lazy body values.
+
 A generic constant-key projection follows actual immutable initializer
 instructions in their lexical creation scopes. It does not infer a key from the
 claimed result type. Generalization replaces monomorphic projection residues

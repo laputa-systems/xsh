@@ -15,11 +15,11 @@ pub enum ArgumentValueSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpandedArgument {
+pub struct ExpandedArgument<T = Type> {
     pub entry_index: usize,
     pub name: Option<Name>,
     pub value: ArgumentValueSource,
-    pub ty: Type,
+    pub ty: T,
     pub span: Span,
 }
 
@@ -36,12 +36,36 @@ pub fn expand_named_arguments(
     args: &[ArenaCallArg],
     mut checked_type: impl FnMut(ExprId) -> Option<Type>,
 ) -> Result<Vec<ExpandedArgument>, ArgumentExpansionError> {
+    expand_named_arguments_inner(program, args, |value| Some(checked_type(value).unwrap_or(Type::Unknown)), |ty| match ty {
+        Type::Record(fields) => Some(fields.iter().map(|(name, ty)| (*name, ty.clone())).collect()),
+        _ => None,
+    })
+}
+
+pub(crate) fn expand_scheme_named_arguments(
+    program: &ArenaProgram,
+    args: &[ArenaCallArg],
+    checked_type: impl FnMut(ExprId) -> Option<super::schemes::SchemeType>,
+) -> Result<Vec<ExpandedArgument<super::schemes::SchemeType>>, ArgumentExpansionError> {
+    use super::schemes::SchemeType;
+    expand_named_arguments_inner(program, args, checked_type, |ty| match ty {
+        SchemeType::Record { fields, tail: super::schemes::SchemeRowTail::Closed } => Some(fields.into_iter().collect()),
+        SchemeType::Ground(Type::Record(fields)) => Some(fields.iter().map(|(name, ty)| (*name, SchemeType::Ground(ty.clone()))).collect()),
+        _ => None,
+    })
+}
+
+fn expand_named_arguments_inner<T>(
+    program: &ArenaProgram, args: &[ArenaCallArg],
+    mut checked_type: impl FnMut(ExprId) -> Option<T>,
+    record_fields: impl Fn(T) -> Option<Vec<(Name, T)>>,
+) -> Result<Vec<ExpandedArgument<T>>, ArgumentExpansionError> {
     let mut expanded = Vec::new();
     for (entry_index, arg) in args.iter().enumerate() {
         let (expr, name, span, splice) = match arg.kind {
             ArenaCallArgKind::NamedSpread { value, span } => {
                 let span = program.arena.span(span);
-                let Some(Type::Record(fields)) = checked_type(value) else {
+                let Some(fields) = checked_type(value).and_then(&record_fields) else {
                     return Err(ArgumentExpansionError {
                         span,
                         message: "named argument spread requires a checked finite Record".into(),
@@ -54,14 +78,14 @@ pub fn expand_named_arguments(
                     });
                 }
                 expanded.extend(
-                    fields.iter().map(|(field, ty)| ExpandedArgument {
+                    fields.into_iter().map(|(field, ty)| ExpandedArgument {
                             entry_index,
-                            name: Some(*field),
+                            name: Some(field),
                             value: ArgumentValueSource::RecordField {
                                 record: value,
-                                field: *field,
+                                field,
                             },
-                            ty: ty.clone(),
+                            ty,
                             span,
                         }),
                 );
@@ -85,7 +109,7 @@ pub fn expand_named_arguments(
             } else {
                 ArgumentValueSource::Expression(expr)
             },
-            ty: checked_type(expr).unwrap_or(Type::Unknown),
+            ty: checked_type(expr).ok_or_else(|| ArgumentExpansionError { span, message: "call argument has no checked type".into() })?,
             span,
         });
     }

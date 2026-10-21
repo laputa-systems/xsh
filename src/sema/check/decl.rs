@@ -33,6 +33,7 @@ fn collect_body_type_facts(
     checked: &BTreeMap<Span, Type>,
     bindings: &super::ResolvedBindings,
     selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+    defaults: &[ExprId],
 ) -> (
     BTreeMap<ExprId, Type>,
     BTreeMap<StmtId, Type>,
@@ -45,6 +46,7 @@ fn collect_body_type_facts(
 
     let arena = &program.arena;
     let mut pending = vec![(ArenaChild::Block(body), BodyFactUse::Executable)];
+    pending.extend(defaults.iter().map(|&value| (ArenaChild::Expr(value), BodyFactUse::Executable)));
     let mut expressions = FxHashSet::default();
     let mut statements = FxHashSet::default();
     let mut blocks = FxHashSet::default();
@@ -166,8 +168,9 @@ impl Checker {
                 .cloned()
                 .unwrap_or_else(|| shape.return_ty().clone()),
         );
+        let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (body_types, tail_types, expression_spans, read_bindings, local_statements) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.resolved_bindings, &self.selected_function_calls);
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.resolved_bindings, &self.selected_function_calls, &defaults);
         let calls = expression_spans.iter().filter_map(|&span| {
             self.pending_call_instantiations.get(&span).map(|(callable, instantiated)| {
                 (span, (Arc::clone(callable), instantiated.clone()))
@@ -243,7 +246,6 @@ impl Checker {
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
-                if program.arena.params(definition.params).iter().any(|parameter| parameter.rest || parameter.default.is_some()) { return None; }
                 let id = FunctionDeclarationId::new(super::EffectDeclarationId {
                     namespace: target.namespace,
                     body: program.arena.span(program.arena.block(definition.body).span),
@@ -283,7 +285,11 @@ impl Checker {
                 &generalized_body_types,
                 &self.result_constructors,
                 super::scheme_body::BodyCompletion::Function,
-            ) {
+            ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
+                program, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
+                &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,
+                &generalized_body_types, &self.result_constructors, value,
+            )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
@@ -2307,11 +2313,11 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+        let (types, _, spans, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls, &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &BTreeMap::new());
+        let (unselected_types, _, _, unselected_reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
@@ -2330,7 +2336,7 @@ mod imported_pure_tests {
             let _symbols = program.symbol_owner().enter();
             assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+            let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls, &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {
