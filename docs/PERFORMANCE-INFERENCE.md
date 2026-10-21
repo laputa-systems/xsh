@@ -301,31 +301,36 @@ The effect sites separate direct operations from called capabilities.
 also covers `env` under SPEC 9.6. `write_streamed_line` writes and flushes
 output, while `count_one` combines it with `count_input`. `number_width` reads
 `Path.metadata` inside `if let Ok`, so its `fs` effect has a direct source
-operation but its `error` effect is a useful negative inference control.
-These bodies show required capabilities. The current checker must determine
-whether it can derive them without explicit private clauses.
+operation and its `error` effect remains a negative inference control. These
+source facts do not establish whether a retained clause is an intentional
+capability contract.
 
-Site 439 distinguishes a `Result` value from an error effect.
-`plan_json_remote` declares
-`[error]` and returns `Result[types.RemoteRetrieval]`. Its body projects fields
-into a record. `plan_json_node` applies `?` to the result at line 126. Source
-review finds no body operation that explains the callee's `error` effect. Only
-the current checker can determine whether it infers an `error` effect for this
-body. The source does not establish whether the annotation expresses an
-intentional contract.
+Three bounded annotation-pair probes against the matching `a57c981` source and
+products tested representative relationships. These results are diagnostic
+for that pair only. For `read_file`, both forms checked and revealed
+`Result[Bytes, Error]`; both preserved the caller's `?`, printed `4` for the
+same input, and rejected a pure caller. This demonstrates inference in the
+reduced body, not whole-`wc` equivalence. For `files0_input`, the erased effect
+clause still propagated the imported `gnu.quote_maybe` `env` effect: a caller
+restricted to `[error]` was rejected in both forms. The return pair differed:
+the annotated call revealed `Record`, while the erased call revealed
+`Result[Record, Error]`; direct field access succeeded only for the annotated
+form. Site 111 is therefore a current
+source meaning/elaboration selector, not evidence of a missing inference
+relationship. SPEC 9.3 says a private proc's plain value tail defaults to
+`Result[T]`, while an explicit `-> Input` preserves the direct record result.
+Deleting this annotation alone changes the return contract. This does not
+establish author intent or classify other Proc return annotations. Site 110's
+`env` edge is independently inferable in this reduced probe, which does not
+classify the entire effect cohort.
 
-Three focused pairs can test these paths. First, retain the
-`InputResult` fields and the `count_one` consumer while testing inference of
-`count_input`'s return. Second, compare `number_width`'s handled metadata
-result with `read_file`'s propagated `read_bytes` and `bytes_lines` errors. Add a
-private wrapper around `gnu.quote_maybe` to separate direct from imported
-effect-summary propagation. Third, retain `plan_json_remote`'s result type and
-the caller's `?`, then compare it with a neighbor whose body performs an
-effectful operation. Preserve source meanings in both versions and classify
-the results only after running the current checker. The sample contains
-concrete body and caller source, so it has no known source-level
-unavailable-information blocker. The checker still must prove it can derive
-these relationships.
+For site 439, the reduced `plan_json_remote` pair checked with and without its
+annotations, the caller's `?` worked in both forms, and both printed the same
+target. Revealed output was `Result[Record, Error]` in both forms. This confirms
+the reduced structural result shape but does not prove nominal
+`RemoteRetrieval` identity or author intent. None of these probes is a full
+practical-root comparison or removal credit; remaining sample relationships
+stay unclassified until evidence establishes them.
 
 For the 149 empty Maps, the annotation bytes encode 145 single-argument forms
 and four explicit key/value forms.
