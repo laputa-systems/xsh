@@ -78,9 +78,20 @@ by the verifier; mandatory physical propagation proofs now reject it at the
 nearest applicable function boundary while preserving local captures.
 The census assertion now counts physical statements independently and compares
 complete writer and return sets with the old traversal. Its old exact count
-described the removed expression walk. Fresh qualification of the merged source
-is running with an expected 703 controls, matching products, eight corpus checks
-and twelve runtime controls. No merged acceptance follows before those finish.
+described the removed expression walk. The first merged run passes 702 of 703
+controls; the remaining old test requires resolver calls that unique bindings
+no longer need. Test-only repair `4ec6ac8a8` asserts exact zero for those bindings
+and retains nonvacuous ordered-query bounds for actual mutable replacements.
+
+Fresh source `7b6a9629c` passes all 703 controls, eight corpus diagnostic checks
+and twelve runtime controls, with zero failures, ignores or native skips.
+Matching verification products are 36,406,008 bytes for `xsh` and 44,412,944
+bytes for `xsht`. Source and products remain unchanged. The corpus candidate
+is still the 202-effect diagnostic probe; no historical removal or paired runtime
+credit follows. The full canonical boundary is next for this integration prefix.
+The separate named-cause source checks successfully but fails preparation when
+its propagated Err is behind a named-argument Match carrier. Repair remains
+mandatory; no fabricated success type or broad verifier fallback is accepted.
 
 Previous focused source `50b9d543e` passes 684 merged controls with zero failures
 or ignores. Matching verification products build: `xsh` is 36,324,192 bytes
