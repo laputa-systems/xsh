@@ -4587,6 +4587,14 @@ impl Checker {
         }
     }
 
+    fn record_callable_body_check_entry(&mut self) {
+        self.function_body_check_entries = self
+            .function_body_check_entries
+            .checked_add(1)
+            .expect("function body check entry count overflowed");
+        self.type_constraints.record_function_body_check_entry();
+    }
+
     pub(super) fn check_function_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4628,11 +4636,7 @@ impl Checker {
         {
             return;
         }
-        self.function_body_check_entries = self
-            .function_body_check_entries
-            .checked_add(1)
-            .expect("function body check entry count overflowed");
-        self.type_constraints.record_function_body_check_entry();
+        self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
         self.collect_function_local_constraints(arena, source, def, pure);
         let enclosing_boundary = self.enter_callable_boundary();
@@ -4826,6 +4830,7 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
+        self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
         self.collect_stream_local_constraints(arena, source, def);
         let enclosing_boundary = self.enter_callable_boundary();
@@ -5004,6 +5009,7 @@ impl Checker {
             );
         }
 
+        self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
         self.push_deferred_capture_scope();
         let enclosing_boundary = self.enter_callable_boundary();

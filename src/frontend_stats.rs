@@ -1815,6 +1815,19 @@ mod tests {
     }
 
     #[test]
+    fn frontend_stats_counts_stream_and_signal_hook_body_entries() {
+        let baseline = measure_source("empty.xsh", "");
+        for (path, source) in [
+            ("stream.xsh", "stream values() [] -> Stream[Int] { yield 7 }\n"),
+            ("hook.xsh", "on SIGINT [] {\n}\n"),
+        ] {
+            let measured = measure_source(path, source);
+            assert_eq!(measured.diagnostics, 0, "{path}");
+            assert!(measured.function_body_check_entries > baseline.function_body_check_entries, "{path}");
+        }
+    }
+
+    #[test]
     fn inference_work_json_has_exactly_twenty_nonnegative_integer_fields() {
         let file = measure_source("work-counts.xsh", SOURCE);
         let json = file_json(&file);

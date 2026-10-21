@@ -378,8 +378,8 @@ do not create output type nodes. Runtime-owned callable substitutions remain
 outside these frontend output counts.
 
 The same record reports `function_body_check_entries` separately. It counts
-actual function-body entries across the root, imported modules, and checker
-probes; repeated generic calls may increase `scheme_instantiations` without
+actual Pure, Proc, Stream and signal-hook body entries across the root,
+imported modules and checker probes; repeated generic calls may increase `scheme_instantiations` without
 increasing source body checks. `output_type_nodes` and `evidence_nodes` are
 counted from the final merged compact output once, not reconstructed from
 solver counters or intermediate checker snapshots. `semantic_retained_bytes`
