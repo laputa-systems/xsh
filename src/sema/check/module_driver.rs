@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use super::module_record::{
     CheckedModuleFacts, ModuleRecord, ModuleRecordCache, ModuleRecordKey, ModuleRecords,
 };
-use super::infer_effects::{EffectDeclarationId, EffectGraph};
+use super::infer_effects::{EffectDeclarationId, EffectGraph, EffectScopeFailure};
 
 #[cfg(test)]
 thread_local! {
@@ -165,7 +165,7 @@ impl Checker {
                     embedded_bodies: true,
                     ..options
                 };
-                let (effect_graph, root_summaries, root_origins) = Self::solve_file_effect_probes(
+                let effect_probe = Self::solve_file_effect_probes(
                     |provisional, provisional_origins| {
                         let mut probe = Self::session_effect_checker(
                             record_options,
@@ -189,6 +189,10 @@ impl Checker {
                     &summaries,
                     &origin_summaries,
                 );
+                let (effect_graph, root_summaries, root_origins) = match effect_probe {
+                    Ok(effects) => effects,
+                    Err(failure) => return Self::rejected_effect_scope(failure),
+                };
                 let mut checker = Self::session_effect_checker(
                     record_options,
                     byte_script_arguments,
@@ -334,14 +338,8 @@ impl Checker {
                 )
             });
             if !record.is_embedded() {
-                signatures.insert(
-                    module.key.clone(),
-                    checked
-                        .signature
-                        .as_ref()
-                        .expect("checked user module retains its exported signature")
-                        .clone(),
-                );
+                if let Some(signature) = &checked.signature { signatures.insert(module.key.clone(), signature.clone()); }
+                else { assert!(checked.output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "a rejected module reports a checking failure"); }
             }
             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
             origin_summaries.extend(checked.output.stream_origin_summaries.clone());
@@ -400,7 +398,7 @@ impl Checker {
                 .text()
         });
         let byte_script_arguments = record.args_domain() == ArgsDomain::Bytes;
-        let (effect_graph, local_summaries, local_origins) = Self::solve_file_effect_probes(
+        let effect_probe = Self::solve_file_effect_probes(
             |provisional, provisional_origins| {
                 let mut probe = Self::session_effect_checker(
                     options,
@@ -431,6 +429,10 @@ impl Checker {
             dependency_summaries,
             dependency_origins,
         );
+        let (effect_graph, local_summaries, local_origins) = match effect_probe {
+            Ok(effects) => effects,
+            Err(failure) => return Self::rejected_effect_scope(failure),
+        };
 
         let mut checker = Self::session_effect_checker(
             options,
@@ -487,6 +489,26 @@ impl Checker {
         }
     }
 
+    fn rejected_effect_scope(failure: EffectScopeFailure) -> CheckedModuleFacts {
+        let note = match failure.cause {
+            crate::sema::constraints::SchemeOperationError::Resolution(_) => "an effect relationship escaped its bounded checking problem",
+            crate::sema::constraints::SchemeOperationError::Build(_) => "an effect parameter or call substitution is outside its declaration scope",
+            crate::sema::constraints::SchemeOperationError::Constraint(_) => "the selected call has incompatible type relationships",
+            crate::sema::constraints::SchemeOperationError::Application(_) => "the callable application has no checked invocation relationship",
+            crate::sema::constraints::SchemeOperationError::Effects(_) => "the invocation effect relationships cannot be resolved",
+        };
+        let diagnostic = crate::diagnostic::Diagnostic::error("effect contract cannot be bound to its checked declaration")
+            .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+            .with_label(crate::diagnostic::Label::primary(failure.owner.body, "effect contract is not publishable"))
+            .with_note(note);
+        CheckedModuleFacts {
+            signature: None,
+            output: CheckOutput { diagnostics: vec![diagnostic], ..CheckOutput::default() },
+            module_diagnostic_position: 0,
+            suppressed_body_transfers: ResourceTransferFacts::default(),
+        }
+    }
+
     fn session_effect_checker(
         options: CheckOptions,
         byte_script_arguments: bool,
@@ -517,21 +539,22 @@ impl Checker {
         ) -> Self,
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         external_origins: &super::stream_origins::StreamOriginSummaries,
-    ) -> (
+    ) -> Result<(
         EffectGraph,
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         super::stream_origins::StreamOriginSummaries,
-    ) {
+    ), EffectScopeFailure> {
         let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
             let mut checker = probe(provisional.clone(), provisional_origins.clone());
-            let solved = checker.effect_graph.solve_with_external(external);
+            checker.bind_effect_graph()?;
+            let solved = checker.effect_graph.solve_with_external(external)?;
             checker.settle_stream_origin_dependencies(external_origins);
             if (!checker.provisional_effects_read.get() || solved == provisional)
                 && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
             {
-                return (checker.effect_graph, solved, checker.stream_origin_outputs);
+                return Ok((checker.effect_graph, solved, checker.stream_origin_outputs));
             }
             provisional = solved;
             provisional_origins = checker.stream_origin_outputs;
@@ -618,10 +641,7 @@ impl Checker {
         summaries.extend(facts.iter().map(|(&id, fact)| {
             (
                 id,
-                EffectSummary {
-                    known: fact.required.clone().unwrap_or_default(),
-                    unknown_chain: fact.unknown_chain.clone(),
-                },
+                EffectSummary::from_effect_fact(id, fact).expect("checked module facts retain their declaration effect scope"),
             )
         }));
     }
@@ -1134,13 +1154,11 @@ mod tests {
             .clone();
         assert!(Arc::ptr_eq(&first_record, &second_record));
         assert!(first_output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Time))
         }));
         assert!(second_output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Time))
         }));
         let byte_output = session.check(byte.statements, byte_source, CheckOptions::for_execution());
@@ -1460,7 +1478,7 @@ mod tests {
             CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let generic = checked.checked_declarations.functions.values().find(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty())).unwrap();
-        assert_eq!(generic.scheme.as_ref().unwrap().effects(), Some([crate::syntax::node::Effect::Io].as_slice()));
+        assert_eq!(generic.scheme.as_ref().unwrap().effects().concrete().unwrap(), Some(vec![crate::syntax::node::Effect::Io]));
         assert!(generic.scheme_body_facts.is_some());
         for (source, code) in [
             (format!("{helper}proc traced(value, label: Str) [] {{ let observed = mark(label); value }}\n"), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
@@ -1505,7 +1523,7 @@ mod tests {
             let [binder] = scheme.type_parameters() else { panic!("one declaration-owned type parameter") };
             assert_eq!(scheme.params()[0].ty, SchemeType::Parameter(*binder));
             assert_eq!(scheme.return_type(), &SchemeType::Result(Box::new(SchemeType::Parameter(*binder)), Box::new(SchemeType::Ground(Type::Error))));
-            assert_eq!(scheme.effects(), Some([].as_slice()));
+            assert_eq!(scheme.effects().concrete().unwrap(), Some(vec![]));
             assert!(declaration.scheme_body_facts.is_some());
         }
     }
@@ -2384,8 +2402,7 @@ mod tests {
             .collect::<Vec<_>>(),
         );
         assert!(output.function_effect_facts.values().any(|fact| {
-            fact.effective
-                .as_ref()
+            fact.effective.concrete().expect("finite checked effect fixture")
                 .is_some_and(|effects| effects.contains(&crate::syntax::node::Effect::Io))
         }));
     }
@@ -2419,19 +2436,19 @@ mod tests {
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(
             output.callable_effects.get("observe"),
-            Some(&Some(vec![crate::syntax::node::Effect::Io]))
+            Some(&crate::sema::effects::CheckedEffects::finite([crate::syntax::node::Effect::Io]))
         );
         assert!(output.function_effect_facts.iter().any(|(identity, fact)| {
             identity.namespace.is_none()
                 && identity.body.source_id == root_source
-                && fact.effective.as_ref().is_some_and(|effects| {
+                && fact.effective.concrete().expect("finite checked effect fixture").is_some_and(|effects| {
                     effects.contains(&crate::syntax::node::Effect::Io)
                 })
         }));
         assert!(output.function_effect_facts.iter().any(|(identity, fact)| {
             identity.namespace == Some(helper_name)
                 && identity.body.source_id == helper_source
-                && fact.effective.as_ref().is_some_and(|effects| {
+                && fact.effective.concrete().expect("finite checked effect fixture").is_some_and(|effects| {
                     effects.contains(&crate::syntax::node::Effect::Time)
                 })
         }));

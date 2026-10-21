@@ -1,4 +1,4 @@
-use super::{CallableAlias, Checker, FunctionParamSig, FunctionSig, Name, Span, Type};
+use super::{CallableAlias, Checker, FunctionParamSig, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::TypedCallable;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ExprId, StmtId};
@@ -43,6 +43,13 @@ impl Checker {
         let Some(named) = self.resolve_callable_alias_target(arena, id) else { return actual; };
         let span = arena.arena.expr(id).span;
         let contract = self.function_call_contract(&named.signature, span);
+        let effects = match contract.effects {
+            super::InvocationEffects::Checked(effects) => effects,
+            super::InvocationEffects::Pending(_) => {
+                self.error(span, "callable value has no settled declaration effect contract", DiagnosticCode::CheckLocalInference);
+                return Type::Invalid;
+            }
+        };
         if let Some(instance) = contract.instantiation.clone() { self.record_pending_call_instantiation(span, instance); }
         let callable = Type::Callable(Arc::new(TypedCallable {
             pure: named.pure,
@@ -51,7 +58,7 @@ impl Checker {
                     name: parameter.name, ty: parameter.ty, defaulted: parameter.defaulted, rest: parameter.rest,
                 }).collect(),
                 return_ty: Box::new(contract.return_ty),
-                effects: crate::sema::types::CallableEffects::from_clause(contract.effects),
+                effects,
             },
         }));
         self.record_selected_function_value(span, &named.signature);
@@ -138,12 +145,13 @@ impl Checker {
             callee: callee.clone(), arguments: arguments.into(), result: result.clone(), effects,
             proc_returns: previous.map(|application| application.proc_returns).unwrap_or_else(|| Arc::from([])), kind: if self.boundary.in_pure { CallableKindRequirement::Pure } else { CallableKindRequirement::Immediate }, span,
         };
+        let invocation_effects = application.effects.clone();
         if let Err(error) = self.type_constraints.register_source_callable_application(scope, application) {
             self.error(span, &format!("callable application requirement failed: {error:?}"), DiagnosticCode::CheckCallableMismatch);
             return Some(Type::Invalid);
         }
         if !self.boundary.in_pure {
-            self.record_effect_contract(&None, "inferred callable application");
+            self.check_callable_invocation_contract(&crate::sema::types::CallableEffects::from_contract(invocation_effects), "inferred callable application", span);
             self.invalidate_mutable_narrowings();
         }
         Some(result)
@@ -299,106 +307,29 @@ impl Checker {
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
-        let effects = match self.type_constraints.resolve_effect(callable.sig.effects.contract()) {
-            Ok(contract) => crate::sema::types::CallableEffects::from_contract(contract).concrete(),
-            Err(_) => Err(crate::sema::types::UnresolvedCallableEffects),
-        };
-        let Ok(effects) = effects else {
-            self.error(span, "callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
-            return Type::Invalid;
-        };
-        // A callable type has no rest parameter and no defaults, so a call
-        // whose argument count is decided at run time cannot be checked.
-        if let Some(arg) = args.iter().find(|arg| {
-            matches!(
-                arg.kind,
-                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }
-            )
-        }) {
-            self.error(
-                super::call_arg_span_arena(arena, &arg.kind),
-                "a call through a callable type passes each argument explicitly; it cannot splice or spread them",
-                DiagnosticCode::CheckCallableMismatch,
-            );
-            for arg in args {
-                match arg.kind {
-                    ArenaCallArgKind::Splice { value, .. }
-                    | ArenaCallArgKind::NamedSpread { value, .. } => {
-                        self.check_expr_arena(arena, source, value, None);
-                    }
-                    _ => {
-                        self.check_call_arg_arena(arena, source, &arg.kind, None);
-                    }
-                }
-            }
-            return return_ty;
-        }
+        let effects = if callable.pure {
+            crate::sema::types::CallableEffects::finite([])
+        } else { callable.sig.effects.clone() };
         let name = match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) | ArenaExprKind::Field { name, .. } => name.to_string(),
             _ => "callable value".to_string(),
         };
-        let signature = FunctionSig::ground(
-            if callable.pure {
-                crate::sema::types::CallableKind::Pure
-            } else {
-                crate::sema::types::CallableKind::Proc
-            },
-            None,
-            false,
-            None,
-            None,
-            callable
-                .sig
-                .params
-                .iter()
-                .map(|param| FunctionParamSig {
-                    name: param.name,
-                    ty: param.ty.clone(),
-                    schema_expectation: Some(Default::default()),
-                    defaulted: false,
-                    rest: false,
-                })
-                .collect(),
-            return_ty.clone(),
-            None,
-            effects,
-            false,
-            true,
-        )
-        .expect("a typed callable has a closed contract");
-        let contract = self.function_call_contract(&signature, span);
+        let contract = super::FunctionCallContract {
+            params: callable.sig.params.iter().map(|parameter| FunctionParamSig {
+                name: parameter.name, ty: parameter.ty.clone(), schema_expectation: None,
+                defaulted: parameter.defaulted, rest: parameter.rest,
+            }).collect(),
+            return_ty: return_ty.clone(), effects: super::InvocationEffects::Checked(effects),
+            effect_declaration: None, definition_target: None, instantiation: None,
+        };
         if !callable.pure {
             if self.boundary.in_pure {
-                self.error(
-                    span,
-                    "effectful proc is not allowed in pure functions",
-                    DiagnosticCode::CheckPureEffect,
-                );
-            } else {
-                // With no declaration behind it, the bound itself is the
-                // contract: each effect is required of the caller, and a
-                // missing clause is recorded as unknown.
-                self.check_resolved_callable_effects(&signature, &name, span);
-            }
+                self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
+            } else { self.check_function_invocation_effects(&contract, &name, span); }
         }
-        self.check_function_call_arguments_arena(
-            arena,
-            source,
-            args,
-            &contract.params,
-            span,
-            checked_argument,
-        );
-        if !callable.pure {
-            // A procedure may change mutable lexical captures before the next statement.
-            self.invalidate_mutable_narrowings();
-        }
-        let propagation_effects = if callable.pure {
-            &[][..]
-        } else {
-            contract.effects.as_deref().unwrap_or(&crate::syntax::node::Effect::ALL)
-        };
-        self.record_callee_propagation(Some(propagation_effects), &return_ty, span);
+        self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument);
+        if !callable.pure { self.invalidate_mutable_narrowings(); }
+        self.record_invocation_propagation(&contract.effects, &return_ty, span);
         self.typed_callable_calls.insert(span, callable.clone());
         return_ty
     }
@@ -461,6 +392,11 @@ mod inferred_callable_tests {
     #[test]
     fn inferred_callable_clients_do_not_choose_the_declaration_shape() {
         accepts("pure text(input: Str) -> Str { input }\npure number(payload: Int) -> Int { payload }\nlet text_result: Str = apply(text, \"value\")\nlet number_result: Int = apply(number, 7)\npure apply(action, value) { action(value) }\n");
+    }
+
+    #[test]
+    fn inferred_callable_default_calls_keep_declaration_ownership() {
+        accepts("proc make() [] -> Int { 1 }\nproc choose(marker, x: Int = make()) [] { marker }\nlet integer: Int = choose(7)?\nlet text: Str = choose(\"value\")?\n");
     }
 
     #[test]

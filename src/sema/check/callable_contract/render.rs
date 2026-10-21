@@ -151,7 +151,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     if let Some(schema) = scheme.return_schema() {
         parts.push(format!("return-schema={}", render_schema(schema, identities)));
     }
-    parts.push(format!("effects={}", render_effects(scheme.effects())));
+    parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     parts.join(" ")
 }
 
@@ -198,14 +198,7 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
                 rendered.push_str(&render_schema(schema, identities));
             }
             rendered.push_str(" effects=");
-            rendered.push_str(&match effects {
-                crate::sema::effects::EffectContract::Unknown => "unknown".to_owned(),
-                crate::sema::effects::EffectContract::Known(expression) => {
-                    let mut terms = expression.direct().iter().map(|effect| format!("{effect:?}").to_lowercase()).collect::<Vec<_>>();
-                    terms.extend(expression.variables().map(|(id, mask)| format!("E{}&{}", names.effects[id], render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
-                    format!("[{}]", terms.join(", "))
-                }
-            });
+            rendered.push_str(&render_bound_effects(effects, names));
             rendered
         }
         SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities)),
@@ -396,6 +389,17 @@ fn render_schema_component(component: SchemaComponent) -> String {
         SchemaComponent::Optional => "optional".to_owned(),
         SchemaComponent::Success => "success".to_owned(),
         SchemaComponent::Error => "error".to_owned(),
+    }
+}
+
+fn render_bound_effects(effects: &crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames) -> String {
+    match effects {
+        crate::sema::effects::EffectContract::Unknown => "unknown".to_owned(),
+        crate::sema::effects::EffectContract::Known(expression) => {
+            let mut terms = expression.direct().iter().map(|effect| effect.as_str().to_owned()).collect::<Vec<_>>();
+            terms.extend(expression.variables().map(|(id, mask)| format!("E{}&{}", names.effects[id], render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
+            format!("[{}]", terms.join(", "))
+        }
     }
 }
 

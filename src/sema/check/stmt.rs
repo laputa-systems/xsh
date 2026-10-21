@@ -5165,7 +5165,7 @@ impl Checker {
                     || !alias.signature.scheme().explicit_return()
                     || (!alias.pure
                         && (alias.signature.scheme().inferred_effects()
-                            || alias.signature.scheme().effects().is_none())))
+                            || !alias.signature.scheme().effects().is_known())))
             {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", DiagnosticCode::CheckCallableAliasExport);
             }

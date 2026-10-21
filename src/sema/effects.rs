@@ -6,6 +6,70 @@ pub struct CallableEffects {
     contract: EffectContract<crate::sema::constraints::EffectVariableId>,
 }
 
+/// A checked declaration owns its bound effect parameter ordinals.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CheckedEffectScope {
+    owner: Option<crate::sema::check::EffectDeclarationId>,
+    parameters: std::sync::Arc<[crate::sema::schemes::SchemeEffectParameterId]>,
+}
+
+impl CheckedEffectScope {
+    pub fn owner(&self) -> Option<crate::sema::check::EffectDeclarationId> { self.owner }
+
+    pub fn parameter_count(&self) -> usize { self.parameters.len() }
+
+    pub(crate) fn new(owner: crate::sema::check::EffectDeclarationId, parameters: std::sync::Arc<[crate::sema::schemes::SchemeEffectParameterId]>) -> Self {
+        Self { owner: Some(owner), parameters }
+    }
+
+    pub(crate) fn parameters(&self) -> &[crate::sema::schemes::SchemeEffectParameterId] { &self.parameters }
+
+    pub(crate) fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + std::mem::size_of_val(self.parameters.as_ref())
+    }
+}
+
+/// Bound effect parameters are local to the owning checked callable contract.
+/// Concrete projection distinguishes an unknown contract from a bound expression.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedEffects {
+    contract: EffectContract<crate::sema::schemes::SchemeEffectParameterId>,
+}
+
+impl Default for CheckedEffects {
+    fn default() -> Self { Self::unknown() }
+}
+
+impl CheckedEffects {
+    pub fn finite(effects: impl IntoIterator<Item = Effect>) -> Self {
+        Self::from_contract(EffectContract::finite(EffectSet::new(effects)))
+    }
+
+    pub fn unknown() -> Self { Self::from_contract(EffectContract::Unknown) }
+
+    pub fn concrete(&self) -> Result<Option<Vec<Effect>>, UnresolvedCallableEffects> {
+        self.contract.concrete()
+    }
+
+    pub fn is_known(&self) -> bool { matches!(self.contract, EffectContract::Known(_)) }
+
+    pub fn is_symbolic(&self) -> bool {
+        matches!(&self.contract, EffectContract::Known(expression) if expression.closed().is_none())
+    }
+
+    pub(crate) fn from_clause(effects: Option<impl IntoIterator<Item = Effect>>) -> Self {
+        Self::from_contract(EffectContract::from_clause(effects))
+    }
+
+    pub(crate) fn from_contract(contract: EffectContract<crate::sema::schemes::SchemeEffectParameterId>) -> Self {
+        Self { contract }
+    }
+
+    pub(crate) fn contract(&self) -> &EffectContract<crate::sema::schemes::SchemeEffectParameterId> { &self.contract }
+
+    pub(crate) fn retained_bytes(&self) -> usize { self.contract.retained_bytes() }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnresolvedCallableEffects;
 

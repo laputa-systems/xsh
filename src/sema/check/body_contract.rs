@@ -1,7 +1,7 @@
 use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
-use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_schema, schema_identities};
+use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_identities};
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
@@ -39,6 +39,7 @@ pub(crate) struct SemanticBodyContract {
     span_paths: BTreeMap<Span, NodePath>,
     schemas: Arc<BTreeMap<TypeDefId, SchemaIdentity>>,
     effects: Option<FunctionEffectFact>,
+    effect_owner: Option<Arc<TypeScheme>>,
     symbol_owner: SymbolOwner,
 }
 
@@ -330,7 +331,7 @@ impl SemanticBodyContract {
 
     pub(crate) fn preserved_by_instance(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
         self.source_name == candidate.source_name && self.owner == candidate.owner
-            && self.operations == candidate.operations && same_effect_fact(self.effects.as_ref(), candidate.effects.as_ref())
+            && self.operations == candidate.operations && self.same_effect_fact(candidate, instance)
             && self.selections.len() == candidate.selections.len()
             && self.selections.iter().all(|(path, left)| candidate.selections.get(path)
                 .is_some_and(|right| self.same_selection(left, right, candidate, instance)))
@@ -382,25 +383,28 @@ impl SemanticBodyContract {
     }
 }
 
-fn same_effect_fact(left: Option<&FunctionEffectFact>, right: Option<&FunctionEffectFact>) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) => {
-            left.effective == right.effective && left.required == right.required && left.unknown_chain == right.unknown_chain
-                && left.inference_allowed == right.inference_allowed
-                && (left.inferred == right.inferred || !left.inferred && right.inferred && left.inference_allowed
-                    && left.redundant_clause && left.effective.is_some() && left.effective == left.required
-                    && left.unknown_chain.is_empty())
-        }
-        _ => false,
+impl SemanticBodyContract {
+    fn same_effect_fact(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>) -> bool {
+        let (left, right) = match (&self.effects, &candidate.effects) {
+            (None, None) => return true,
+            (Some(left), Some(right)) => (left, right),
+            _ => return false,
+        };
+        let matches = |left_effects: &crate::sema::effects::CheckedEffects, right_effects: &crate::sema::effects::CheckedEffects| {
+            match (&self.effect_owner, &candidate.effect_owner) {
+                (Some(left_owner), Some(right_owner)) => match instance {
+                    Some(instance) => instance.specialize_effects(right_effects, right_owner).as_ref() == Some(left_effects),
+                    None => same_bound_effects(left_effects, left_owner, right_effects, right_owner, &self.schemas, &candidate.schemas),
+                },
+                _ => !left_effects.is_symbolic() && !right_effects.is_symbolic() && left_effects == right_effects,
+            }
+        };
+        matches(&left.effective, &right.effective) && matches(&left.required, &right.required)
+            && left.unknown_chain == right.unknown_chain && left.inference_allowed == right.inference_allowed
+            && (left.inferred == right.inferred || !left.inferred && right.inferred && left.inference_allowed
+                && left.redundant_clause && left.effective.is_known() && left.effective == left.required
+                && left.unknown_chain.is_empty())
     }
-}
-
-fn canonical_effects(fact: &FunctionEffectFact) -> FunctionEffectFact {
-    let canonical = |effects: &Option<Vec<Effect>>| effects.as_ref().map(|effects| {
-        Effect::ALL.into_iter().filter(|effect| effects.contains(effect)).collect()
-    });
-    FunctionEffectFact { effective: canonical(&fact.effective), required: canonical(&fact.required), ..fact.clone() }
 }
 
 type OwnerKey = (Arc<str>, BodyContractOwner);
@@ -574,7 +578,7 @@ impl Capture<'_> {
         let key = (self.source_name(span.source_id)?, owner);
         self.bodies.entry(key.clone()).or_insert_with(|| SemanticBodyContract {
             source_name: Arc::clone(&key.0), owner, operations: BTreeMap::new(), selections: BTreeMap::new(),
-            expr_paths: BTreeMap::new(), span_paths: BTreeMap::new(), schemas: Arc::clone(&self.schemas), effects: None,
+            expr_paths: BTreeMap::new(), span_paths: BTreeMap::new(), schemas: Arc::clone(&self.schemas), effects: None, effect_owner: None,
             symbol_owner: self.program.symbol_owner().clone(),
         });
         Ok(key)
@@ -613,7 +617,12 @@ impl Capture<'_> {
                             return Err(BodyContractError::MissingEffectFact(declaration.body));
                         }
                         if fact.is_some() { self.seen_effects.insert(identity); }
-                        self.bodies.get_mut(&owner).unwrap().effects = fact.map(canonical_effects);
+                        if fact.is_some_and(|fact| fact.scope.owner().is_some_and(|owner| owner != identity)) {
+                            return Err(BodyContractError::UnmappedFact(declaration.body));
+                        }
+                        let body = self.bodies.get_mut(&owner).unwrap();
+                        body.effects = fact.cloned();
+                        body.effect_owner = declaration.scheme.clone();
                         let definition_span = self.program.arena.stmt(statement).span;
                         for declaration_span in [definition_span, declaration.body] {
                             for ordinal in 0..self.program.arena.params(self.program.arena.function_def(definition).params).len() {
@@ -1267,10 +1276,10 @@ mod tests {
         let reordered = declaration("proc say() [fs, io] { print \"hello\" }\n");
         assert!(first.preserved_by(&reordered));
         let mut changed = first.clone();
-        changed.effects.as_mut().unwrap().required = Some(vec![Effect::Fs]);
+        changed.effects.as_mut().unwrap().required = crate::sema::effects::CheckedEffects::finite([Effect::Fs]);
         assert!(!first.preserved_by(&changed));
         let mut unknown = first.clone();
-        unknown.effects.as_mut().unwrap().required = None;
+        unknown.effects.as_mut().unwrap().required = crate::sema::effects::CheckedEffects::unknown();
         unknown.effects.as_mut().unwrap().unknown_chain = vec!["opaque callback".to_owned()];
         assert!(!first.preserved_by(&unknown));
         assert!(unknown.preserved_by(&unknown));
@@ -1328,7 +1337,7 @@ mod tests {
         let inferred = declaration("proc again() { if false { again() } }\n");
         assert!(!recursive.preserved_by(&inferred));
         let opaque = declaration("proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n");
-        assert!(opaque.effect_fact().unwrap().required.is_none());
+        assert!(!opaque.effect_fact().unwrap().required.is_known());
         assert!(!opaque.effect_fact().unwrap().unknown_chain.is_empty());
         assert!(opaque.preserved_by(&opaque));
     }

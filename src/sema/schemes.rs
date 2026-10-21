@@ -1,7 +1,7 @@
 use super::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
 use super::types::{ModuleExportType, Type};
 use super::callable_application::CallableApplication;
-use super::effects::{EffectContract, EffectPredicate};
+use super::effects::{CheckedEffects, EffectContract, EffectPredicate};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use crate::sema::validated::Validation;
@@ -89,7 +89,7 @@ pub(crate) struct CallableMonotype {
 pub(crate) struct TypeScheme {
     kind: crate::sema::types::CallableKind,
     callable: Arc<CallableScheme>,
-    effects: Option<Arc<[Effect]>>,
+    effects: CheckedEffects,
     inferred_effects: bool,
 }
 
@@ -203,19 +203,21 @@ impl TypeScheme {
             explicit_return,
             CallableRequirements::default(),
         )?);
-        Self::with_callable(kind, callable, effects, inferred_effects)
+        Self::with_callable(kind, callable, CheckedEffects::from_clause(effects), inferred_effects)
     }
 
     pub(crate) fn with_callable(
         kind: crate::sema::types::CallableKind,
         callable: Arc<CallableScheme>,
-        effects: Option<Vec<Effect>>,
+        effects: CheckedEffects,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
+        let effect_ids = callable.requirements().effect_parameters.iter().copied().collect();
+        validate_effect_contract(effects.contract(), &effect_ids, &mut BTreeSet::new())?;
         if callable.is_quantified() {
             match kind {
                 crate::sema::types::CallableKind::Pure => {}
-                crate::sema::types::CallableKind::Proc if effects.is_some() => {}
+                crate::sema::types::CallableKind::Proc if effects.is_known() => {}
                 crate::sema::types::CallableKind::Proc => return Err(SchemeBuildError::UnresolvedEffects),
                 crate::sema::types::CallableKind::Stream => return Err(SchemeBuildError::UnsupportedCallableKind),
             }
@@ -223,7 +225,7 @@ impl TypeScheme {
         Ok(Self {
             kind,
             callable,
-            effects: effects.map(Arc::from),
+            effects,
             inferred_effects,
         })
     }
@@ -260,8 +262,8 @@ impl TypeScheme {
         self.callable.explicit_return()
     }
 
-    pub(crate) fn effects(&self) -> Option<&[Effect]> {
-        self.effects.as_deref()
+    pub(crate) fn effects(&self) -> &CheckedEffects {
+        &self.effects
     }
 
     pub(crate) fn inferred_effects(&self) -> bool {
@@ -272,9 +274,7 @@ impl TypeScheme {
         use std::mem::size_of;
         size_of::<Self>()
             .saturating_add(self.callable.retained_bytes())
-            .saturating_add(self.effects.as_ref().map_or(0, |effects| {
-                effects.len() * size_of::<Effect>()
-            }))
+            .saturating_add(self.effects.retained_bytes().saturating_sub(size_of::<CheckedEffects>()))
     }
 
     pub(crate) fn map_ground_types(&self, mut map: impl FnMut(&mut Type)) -> Self {
@@ -1365,8 +1365,8 @@ mod tests {
                     schema_expectation: None, defaulted: false, rest: false }],
                 SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Ground(Type::Error))),
                 None, false, crate::sema::schemes::CallableRequirements::default()).unwrap());
-            assert_eq!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, Arc::clone(&callable), None, true), Err(SchemeBuildError::UnresolvedEffects));
-            assert!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, callable, Some(Vec::new()), true).is_ok());
+            assert_eq!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, Arc::clone(&callable), super::CheckedEffects::unknown(), true), Err(SchemeBuildError::UnresolvedEffects));
+            assert!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, callable, super::CheckedEffects::finite([]), true).is_ok());
         });
     }
 
@@ -1608,7 +1608,7 @@ mod tests {
         let scheme = TypeScheme::with_callable(
             crate::sema::types::CallableKind::Pure,
             Arc::clone(&callable),
-            None,
+            super::CheckedEffects::unknown(),
             false,
         )
         .unwrap();

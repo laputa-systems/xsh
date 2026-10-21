@@ -146,9 +146,6 @@ impl Checker {
         if pending.generalized().is_some() {
             return Some(());
         }
-        if pending.kind() == crate::sema::types::CallableKind::Proc && self.collecting_effects {
-            return None;
-        }
         let shape = pending.provisional()?;
         let params = program.arena.params(def.params);
         let mut types = Vec::with_capacity(shape.params().len() + 1);
@@ -258,16 +255,11 @@ impl Checker {
                     || self.qualified_pures.values()
                         .any(|signature| signature.definition_target() == Some(*target)
                             && signature.scheme().kind() == crate::sema::types::CallableKind::Pure);
-                let finite_proc = pending.kind() == crate::sema::types::CallableKind::Proc
-                    && self.declaration_effects(pending.effect_declaration).is_some_and(|ceiling| {
-                        self.declaration_effects(Some(id.effect_declaration())).is_some_and(|effects| {
-                            effects.iter().all(|effect| Self::effects_covers(&ceiling, effect))
-                        })
-                    });
-                (pure || finite_proc).then_some(span)
+                let checked_proc = pending.kind() == crate::sema::types::CallableKind::Proc
+                    && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
+                (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
             checked_calls.extend(generalized.requirements.applications.iter()
-                .filter(|application| application.kind == crate::sema::callable_application::CallableKindRequirement::Pure)
                 .map(|application| application.span));
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
@@ -385,7 +377,7 @@ impl Checker {
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
         self.declaration_inference
             .pending_mut(declaration)?
-            .generalize(callable, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, generalized.effect_scope, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -433,7 +425,7 @@ impl Checker {
             return Some(signature.clone());
         }
         let pending = self.declaration_inference.pending(declaration)?;
-        let effects = self.declaration_effects(pending.effect_declaration());
+        let effects = self.declaration_effects(pending.effect_declaration()).into_checked()?;
         let inferred_effects = pending
             .effect_declaration()
             .is_some_and(|id| self.effect_graph.is_inferred(id));
@@ -476,7 +468,7 @@ impl Checker {
             params,
             return_ty,
             return_schema,
-            effects,
+            effects.concrete().ok()?,
             inferred_effects,
             explicit_return,
         )
@@ -510,14 +502,21 @@ impl Checker {
         self.generalize_pending_function(program, def_id)?;
         let pending = self.declaration_inference.pending(declaration)?.clone();
         let callable = Arc::clone(pending.generalized()?);
-        let effects = effect_fact.and_then(|fact| fact.effective.clone());
+        let effects = match (pending.kind, effect_fact) {
+            (_, Some(fact)) => fact.effective.clone(),
+            (crate::sema::types::CallableKind::Pure, None) => super::CheckedEffects::unknown(),
+            (_, None) => {
+                self.error(program.arena.span(program.arena.block(def.body).span), "function has no checked effect contract", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        };
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
         if pending.kind == crate::sema::types::CallableKind::Proc
             && (callable.is_quantified())
-            && effects.is_none()
+            && !effects.is_known()
         {
             self.error(program.arena.span(program.arena.block(def.body).span),
-                "generic proc requires a finite checked effect contract", DiagnosticCode::CheckLocalInference);
+                "generic proc requires a known checked effect contract", DiagnosticCode::CheckLocalInference);
             return None;
         }
         let scheme = Arc::new(
@@ -1486,7 +1485,7 @@ pub(super) fn callable_type_from_function_signature(
     Some(super::CallableType {
         params,
         return_ty: Box::new(scheme.return_type().closed_ground_type()?),
-        effects: crate::sema::types::CallableEffects::from_clause(scheme.effects().map(<[_]>::to_vec)),
+        effects: crate::sema::types::CallableEffects::from_contract(scheme.effects().contract().substitute(|_| Err(())).ok()?),
     })
 }
 

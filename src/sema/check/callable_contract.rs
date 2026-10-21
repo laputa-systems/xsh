@@ -40,6 +40,13 @@ pub(crate) struct CallableInstanceEvidence {
 }
 
 impl CallableInstanceEvidence {
+    pub(crate) fn specialize_effects(&self, effects: &crate::sema::effects::CheckedEffects, owner: &Arc<TypeScheme>) -> Option<crate::sema::effects::CheckedEffects> {
+        if !Arc::ptr_eq(owner, &self.scheme) { return None; }
+        let instantiated = self.constraints.instantiate_effect_contract(effects, &self.instance).ok()?;
+        let resolved = self.constraints.resolve_effect(instantiated.contract()).ok()?;
+        Some(crate::sema::effects::CheckedEffects::from_clause(resolved.concrete().ok()?))
+    }
+
     pub(crate) fn specialize(&self, ty: &SchemeType, owner: &Arc<TypeScheme>) -> Option<crate::sema::types::Type> {
         if !Arc::ptr_eq(owner, &self.scheme) { return None; }
         self.constraints.resolve_instance_operand(ty, &self.instance, self.origin).ok()
@@ -98,6 +105,15 @@ pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&Schem
     BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
 }
 
+pub(super) fn same_bound_effects(
+    left: &crate::sema::effects::CheckedEffects, left_owner: &TypeScheme,
+    right: &crate::sema::effects::CheckedEffects, right_owner: &TypeScheme,
+    left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
+) -> bool {
+    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas };
+    equivalence.scheme(left_owner, right_owner) && equivalence.effects(left.contract(), right.contract())
+}
+
 pub(super) fn same_bound_operand(
     left: &SchemeType, left_owner: &TypeScheme, right: &SchemeType, right_owner: &TypeScheme,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
@@ -122,7 +138,12 @@ impl CheckedCallableContract {
     /// Free and nominal identities, labels, schemas, layout, and effects remain
     /// part of the contract; annotation and inference provenance do not.
     pub fn equivalent_to(&self, other: &Self) -> bool {
-        same_effects(self.scheme.effects(), other.scheme.effects()) && self.same_shape(other)
+        let mut equivalence = BoundEquivalence {
+            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
+            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
+        };
+        equivalence.scheme(&self.scheme, &other.scheme)
+            && equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
     }
 
     /// Tests whether this concrete contract is an exact instance of the given
@@ -141,7 +162,6 @@ impl CheckedCallableContract {
 
         if self.is_generic() { return Err(ContractComparisonError::NonConcreteOriginal); }
         if self.kind() != generalized.kind()
-            || !same_effects(self.scheme.effects(), generalized.scheme.effects())
             || self.scheme.params().len() != generalized.scheme.params().len()
         {
             return Ok(None);
@@ -171,6 +191,17 @@ impl CheckedCallableContract {
             constraints.constrain_annotation(expected, actual, origin)
                 .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         }
+        constraints.solve_callable_applications().map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
+        let expected_effects = constraints.instantiate_effect_contract(generalized.scheme.effects(), &instance)
+            .map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        let actual_effects = self.scheme.effects().contract().substitute(|_| Err(ContractComparisonError::NonConcreteOriginal))?;
+        match constraints.constrain_effect(crate::sema::effects::EffectPredicate::Equal(actual_effects.clone(), expected_effects.contract().clone())) {
+            Ok(()) => {}
+            Err(crate::sema::constraints::EffectConstraintError::Mismatch) => return Ok(None),
+            Err(_) => return Err(ContractComparisonError::CannotEstablishConstraints),
+        }
+        constraints.finish_effect_constraints().map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        if constraints.resolve_effect(expected_effects.contract()).map_err(|_| ContractComparisonError::UnresolvedInstance)? != actual_effects { return Ok(None); }
         for (expected, actual) in instantiated.zip(&ground) {
             let resolved = constraints.resolve(expected).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
             if &resolved != actual { return Ok(None); }
@@ -178,14 +209,20 @@ impl CheckedCallableContract {
         Ok(Some(CallableInstanceEvidence { constraints, instance, scheme: Arc::clone(&generalized.scheme), origin }))
     }
 
-    /// Joins finite effect requirements for the same checked callable shape.
-    /// An unrestricted effect clause remains unrestricted in the result.
+    /// Joins effect requirements under the same checked callable binder scope.
+    /// An unknown contract remains unknown in the result.
     pub fn join_effects(&self, other: &Self) -> Option<Self> {
         if !self.same_shape(other) { return None; }
-        let effects = match (self.scheme.effects(), other.scheme.effects()) {
-            (Some(left), Some(right)) => Some(crate::syntax::node::Effect::ALL.into_iter().filter(|effect| left.contains(effect) || right.contains(effect)).collect()),
-            _ => None,
+        let mut equivalence = BoundEquivalence {
+            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
+            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
         };
+        if !equivalence.scheme(&self.scheme, &other.scheme) { return None; }
+        let right = other.scheme.effects().contract().substitute(|id| {
+            equivalence.effects.iter().find_map(|(left, right)| (right == id).then_some(*left))
+                .map(crate::sema::effects::EffectContract::variable).ok_or(())
+        }).ok()?;
+        let effects = crate::sema::effects::CheckedEffects::from_contract(self.scheme.effects().contract().clone().union(right));
         Some(Self {
             scheme: Arc::new(TypeScheme::with_callable(self.scheme.kind(), Arc::clone(self.scheme.callable()), effects,
                 self.scheme.inferred_effects() || other.scheme.inferred_effects()).ok()?),
@@ -210,7 +247,8 @@ impl CheckedCallableContract {
         }).collect::<Option<Vec<_>>>()?;
         let ty = Type::Callable(Arc::new(TypedCallable { pure, sig: CallableType {
             params, return_ty: Box::new(self.scheme.return_type().closed_ground_type()?),
-            effects: crate::sema::types::CallableEffects::from_clause(if pure { None } else { self.scheme.effects().map(<[_]>::to_vec) }),
+            effects: crate::sema::types::CallableEffects::from_contract(if pure { crate::sema::effects::EffectContract::Unknown }
+                else { self.scheme.effects().contract().substitute(|_| Err(())).ok()? }),
         } }));
         let mut pending = vec![&ty];
         while let Some(ty) = pending.pop() {
@@ -258,14 +296,6 @@ impl CheckOutput {
     }
 }
 
-fn same_effects(left: Option<&[crate::syntax::node::Effect]>, right: Option<&[crate::syntax::node::Effect]>) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) => left.iter().all(|effect| right.contains(effect)) && right.iter().all(|effect| left.contains(effect)),
-        _ => false,
-    }
-}
-
 fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
     let mut pending = vec![schema];
     while let Some(schema) = pending.pop() {
@@ -303,11 +333,32 @@ impl BoundEquivalence<'_> {
             || !self.parameters(left.params(), right.params())
             || !self.ty(left.return_type(), right.return_type())
             || !self.schema(left.return_schema(), right.return_schema())
+            || !self.requirements(left.callable().requirements(), right.callable().requirements())
         { return false; }
         left.row_parameters().iter().all(|left| {
             self.rows.get(&left.id).and_then(|id| right.row_parameters().iter().find(|parameter| parameter.id == *id))
                 .is_some_and(|right| left.lacks == right.lacks)
         })
+    }
+
+    fn requirements(&mut self, left: &crate::sema::schemes::CallableRequirements, right: &crate::sema::schemes::CallableRequirements) -> bool {
+        left.applications.len() == right.applications.len()
+            && left.effect_predicates.len() == right.effect_predicates.len()
+            && left.applications.iter().zip(&right.applications).all(|(left, right)| {
+                left.kind == right.kind && left.arguments.len() == right.arguments.len()
+                    && left.proc_returns.len() == right.proc_returns.len()
+                    && self.ty(&left.callee, &right.callee) && self.ty(&left.result, &right.result)
+                    && self.effects(&left.effects, &right.effects)
+                    && left.arguments.iter().zip(right.arguments.iter()).all(|(left, right)| left.kind == right.kind && self.ty(&left.ty, &right.ty))
+                    && left.proc_returns.iter().zip(right.proc_returns.iter()).all(|(left, right)| {
+                        left.propagated_errors.len() == right.propagated_errors.len() && self.ty(&left.result, &right.result)
+                            && left.propagated_errors.iter().zip(right.propagated_errors.iter()).all(|(left, right)| self.ty(left, right))
+                    })
+            })
+            && left.effect_predicates.iter().zip(&right.effect_predicates).all(|(left, right)| {
+                left.try_map_contracts(|contract| contract.substitute(|id| self.effects.get(id).copied()
+                    .map(crate::sema::effects::EffectContract::variable).ok_or(()))).is_ok_and(|left| &left == right)
+            })
     }
 
     fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
@@ -496,7 +547,7 @@ mod tests {
                     parameter.schema_expectation = None;
                     parameter
                 }).collect(), checked.scheme.return_type().clone(), None, checked.scheme.explicit_return(),
-                checked.scheme.effects().map(<[_]>::to_vec), checked.scheme.inferred_effects()).unwrap()),
+                checked.scheme.effects().concrete().unwrap(), checked.scheme.inferred_effects()).unwrap()),
             symbol_owner: checked.symbol_owner.clone(),
             schema_identities: Arc::clone(&checked.schema_identities),
         };
@@ -613,7 +664,7 @@ mod tests {
                 let mut contract = instance_contract(&owner, vec![instance_parameter(SchemeType::Ground(Type::Int))],
                     SchemeType::Ground(result), Vec::new(), Vec::new(), None);
                 contract.scheme = Arc::new(TypeScheme::with_callable(crate::sema::types::CallableKind::Pure,
-                    Arc::clone(contract.scheme.callable()), None, false).unwrap());
+                    Arc::clone(contract.scheme.callable()), crate::sema::effects::CheckedEffects::unknown(), false).unwrap());
                 contract
             };
             let integer = concrete(Type::Int);
@@ -696,7 +747,7 @@ mod tests {
             assert_eq!(make(parameter.clone(), None).is_instance_of(&make(parameter.clone(), Some(Vec::new()))), Ok(false));
             let mut pure = original.clone();
             pure.scheme = Arc::new(TypeScheme::with_callable(crate::sema::types::CallableKind::Pure,
-                Arc::clone(original.scheme.callable()), original.scheme.effects().map(<[_]>::to_vec), false).unwrap());
+                Arc::clone(original.scheme.callable()), original.scheme.effects().clone(), false).unwrap());
             assert_eq!(original.is_instance_of(&pure), Ok(false));
         });
     }

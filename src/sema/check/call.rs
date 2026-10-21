@@ -225,9 +225,7 @@ impl Checker {
         self.record_effect_contract(callee_effects, callee_name);
         if self.defer_effect_diagnostics {
             self.defer_callable_effects(
-                None,
                 callee_effects.clone(),
-                false,
                 Vec::new(),
                 callee_name,
                 span,
@@ -390,8 +388,8 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_callable_effects(
-                        &alias.signature,
+                    self.check_function_invocation_effects(
+                        &contract,
                         &alias.name.to_string(),
                         span,
                     );
@@ -403,7 +401,7 @@ impl Checker {
             if !alias.pure {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
+            self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
             return contract.return_ty;
         }
 
@@ -463,8 +461,8 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_declaration_effects(
-                        sig.effect_declaration,
+                    self.check_function_invocation_effects(
+                        &sig,
                         &name.as_str(),
                         span,
                     );
@@ -474,7 +472,7 @@ impl Checker {
                 );
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
-                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.pures.get(&name).copied()
@@ -484,7 +482,7 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.streams.get(&name).copied()
@@ -498,8 +496,8 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_resolved_declaration_effects(
-                        sig.effect_declaration,
+                    self.check_function_invocation_effects(
+                        &sig,
                         &name.as_str(),
                         span,
                     );
@@ -507,7 +505,7 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             return self.check_constructor_call_arena(
@@ -635,7 +633,7 @@ impl Checker {
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -650,12 +648,12 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
+                        self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -670,12 +668,12 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
+                        self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_callee_propagation(contract.effects.as_deref(), &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
                     return contract.return_ty;
                 }
                 if module == "Path" {
@@ -1465,8 +1463,7 @@ impl Checker {
                 .type_constraints
                 .instantiate_callable(callable, signature.solver_level(), span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
                 .expect("a checked pending callable scheme instantiates");
-            let instantiation = (!callable.type_parameters().is_empty()
-                || !callable.row_parameters().is_empty())
+            let instantiation = callable.is_quantified()
                 .then(|| (Arc::clone(callable), instantiated.clone()));
             let params = callable
                 .params()
@@ -1486,10 +1483,13 @@ impl Checker {
                 instantiation,
             )
         };
+        let effects = self.instantiate_invocation_effects(signature.kind(), signature.effect_declaration(),
+            self.declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
+            .expect("a checked declaration retains its invocation effect scope");
         Some(super::FunctionCallContract {
             params,
             return_ty,
-            effects: self.declaration_effects(signature.effect_declaration()),
+            effects,
             effect_declaration: signature.effect_declaration(),
             definition_target: signature.definition_target(),
             instantiation,
@@ -1510,9 +1510,11 @@ impl Checker {
             .type_constraints
             .instantiate_callable(&callable, 1, span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
             .expect("a checked function scheme instantiates");
-        let call_instantiation = (!callable.type_parameters().is_empty()
-            || !callable.row_parameters().is_empty())
+        let call_instantiation = callable.is_quantified()
             .then(|| (callable, instantiated.clone()));
+        let effects = self.instantiate_invocation_effects(scheme.kind(), signature.effect_declaration(),
+            super::DeclarationEffects::Checked(scheme.effects().clone()), Some(&instantiated))
+            .expect("a checked function scheme retains its invocation effect scope");
         let params = scheme
             .params()
             .iter()
@@ -1528,7 +1530,7 @@ impl Checker {
         super::FunctionCallContract {
             params,
             return_ty: instantiated.return_type,
-            effects: scheme.effects().map(<[_]>::to_vec),
+            effects,
             effect_declaration: signature.effect_declaration(),
             definition_target: signature.definition_target(),
             instantiation: call_instantiation,

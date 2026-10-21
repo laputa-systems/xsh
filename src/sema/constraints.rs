@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[path = "constraints/effects.rs"]
 mod effect_constraints;
-pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId};
+pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId, EffectGeneralization};
 #[path = "constraints/applications.rs"]
 mod application_constraints;
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
@@ -258,6 +258,7 @@ pub(crate) struct ConstraintMetrics {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GeneralizedTypes {
     pub(crate) types: Vec<SchemeType>,
+    pub(crate) effect_scope: EffectGeneralization,
     pub(crate) type_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) row_parameters: Vec<SchemeRowParameter>,
     pub(crate) requirements: CallableRequirements,
@@ -593,6 +594,7 @@ impl TypeConstraints {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(GeneralizedTypes {
             types,
+            effect_scope: EffectGeneralization { bindings: generalization.effect_ids },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
             requirements: CallableRequirements { effect_parameters: generalization.effect_parameters, ..CallableRequirements::default() },
@@ -677,6 +679,7 @@ impl TypeConstraints {
         Ok((
             GeneralizedTypes {
                 types,
+                effect_scope: EffectGeneralization { bindings: generalization.effect_ids },
                 type_parameters: generalization.type_parameters,
                 row_parameters: generalization.row_parameters,
                 requirements,

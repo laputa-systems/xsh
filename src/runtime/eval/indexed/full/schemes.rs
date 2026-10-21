@@ -365,8 +365,9 @@ impl FullBuilder {
             .return_schema()
             .map(|expectation| self.intern_scheme_schema(expectation))
             .transpose()?;
+        let checked_effects = scheme.effects().concrete().map_err(|_| IrBuildError::format("unresolved_scheme_effects", None, 0, 0))?;
         let effects_start = self.store.scheme_effects.len();
-        if let Some(effects) = scheme.effects() {
+        if let Some(effects) = &checked_effects {
             self.store.scheme_effects.extend_from_slice(effects);
         }
         let effects = super::table_range(effects_start, self.store.scheme_effects.len())?;
@@ -381,7 +382,7 @@ impl FullBuilder {
             effects,
             body_facts: IrRange::default(),
             callable_kind,
-            has_effects: scheme.effects().is_some(),
+            has_effects: checked_effects.is_some(),
             explicit_return: scheme.explicit_return(),
             inferred_effects: scheme.inferred_effects(),
             reserved: [0; 3],

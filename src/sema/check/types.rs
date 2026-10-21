@@ -153,6 +153,33 @@ impl Checker {
         }
     }
 
+    pub(super) fn record_invocation_propagation(
+        &mut self,
+        effects: &super::InvocationEffects,
+        return_ty: &Type,
+        span: Span,
+    ) {
+        let super::InvocationEffects::Checked(effects) = effects else {
+            if !self.collecting_effects {
+                self.error(span, "invocation error flow has no settled effect contract", DiagnosticCode::CheckLocalInference);
+            }
+            return;
+        };
+        let contract = match self.type_constraints.resolve_effect(effects.contract()) {
+            Ok(contract) => contract,
+            Err(_) => {
+                self.error(span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
+        let may_error = match contract {
+            crate::sema::effects::EffectContract::Unknown => false,
+            crate::sema::effects::EffectContract::Known(expression) => expression.direct().contains(Effect::Error)
+                || expression.variables().any(|(_, mask)| mask.contains(Effect::Error)),
+        };
+        self.record_callee_propagation(Some(if may_error { &[Effect::Error] } else { &[] }), return_ty, span);
+    }
+
     pub(super) fn record_callee_propagation(
         &mut self,
         effects: Option<&[Effect]>,

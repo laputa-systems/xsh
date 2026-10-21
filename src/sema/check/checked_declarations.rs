@@ -317,7 +317,7 @@ impl Checker {
                 return_ty: sig.scheme().return_type().closed_ground_type()?,
                 return_type_expr: def.return_ty,
                 inferred_effects: sig.scheme().inferred_effects(),
-                effects: sig.scheme().effects().map(<[_]>::to_vec),
+                effects: sig.scheme().effects().concrete().ok()?,
             })
         });
         self.checked_declarations.functions.insert(id, CheckedFunctionDeclaration {

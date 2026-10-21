@@ -446,6 +446,7 @@ pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
+pub use crate::sema::effects::{CheckedEffectScope, CheckedEffects, UnresolvedCallableEffects};
 use self::infer_effects::{DeferredEffectCheck, EffectGraph, EffectSummary};
 use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
@@ -579,7 +580,7 @@ pub struct CheckOutput {
     pub stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
-    pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub callable_effects: FxHashMap<String, CheckedEffects>,
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
     pub(crate) stream_origin_summaries: stream_origins::StreamOriginSummaries,
     pub assertion_effect_spans: BTreeSet<Span>,
@@ -1128,6 +1129,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_effect_scope(&self) -> Option<&super::constraints::EffectGeneralization> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.effect_scope),
+        }
+    }
+
     pub(super) fn generalized_body_types(
         &self,
     ) -> Option<&BTreeMap<ExprId, super::schemes::SchemeType>> {
@@ -1163,6 +1171,7 @@ impl PendingFunctionSig {
     pub(super) fn generalize(
         &mut self,
         callable: Arc<super::schemes::CallableScheme>,
+        effect_scope: super::constraints::EffectGeneralization,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1174,6 +1183,7 @@ impl PendingFunctionSig {
         );
         self.callable = PendingCallable::Generalized(GeneralizedCallable {
             callable,
+            effect_scope,
             body_types,
             tail_types,
             registered_calls,
@@ -1185,6 +1195,7 @@ impl PendingFunctionSig {
 #[derive(Clone, Debug)]
 struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
+    effect_scope: super::constraints::EffectGeneralization,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
@@ -1238,10 +1249,28 @@ pub(super) struct FunctionParamSig {
 }
 
 #[derive(Clone, Debug)]
+pub(super) enum DeclarationEffects {
+    Pending(EffectDeclarationId),
+    Checked(CheckedEffects),
+}
+
+impl DeclarationEffects {
+    fn into_checked(self) -> Option<CheckedEffects> {
+        match self { Self::Pending(_) => None, Self::Checked(effects) => Some(effects) }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum InvocationEffects {
+    Pending(EffectDeclarationId),
+    Checked(crate::sema::types::CallableEffects),
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct FunctionCallContract {
     pub(super) params: Vec<FunctionParamSig>,
     pub(super) return_ty: Type,
-    pub(super) effects: Option<Vec<Effect>>,
+    pub(super) effects: InvocationEffects,
     pub(super) effect_declaration: Option<EffectDeclarationId>,
     pub(super) definition_target: Option<CheckedFunctionTarget>,
     instantiation: Option<PendingCallInstantiation>,
@@ -1289,7 +1318,7 @@ impl FunctionSig {
         let scheme = super::schemes::TypeScheme::with_callable(
             kind,
             Arc::new(callable),
-            effects,
+            CheckedEffects::from_clause(effects),
             inferred_effects,
         )
         .ok()?;
@@ -2572,25 +2601,25 @@ impl Checker {
         }
     }
 
-    fn callable_effects(&self) -> FxHashMap<String, Option<Vec<Effect>>> {
+    fn callable_effects(&self) -> FxHashMap<String, CheckedEffects> {
         let mut effects = FxHashMap::default();
         for (name, declaration) in &self.procs {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, declaration) in &self.streams {
             effects.insert(
                 name.to_string(),
-                self.declaration_effects(Some(declaration.effect_declaration())),
+                self.declaration_effects(Some(declaration.effect_declaration())).into_checked().expect("published declaration effect contract"),
             );
         }
         for (name, sig) in self.qualified_procs.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         for (name, sig) in self.qualified_streams.iter() {
-            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
+            effects.insert(name.to_string(), sig.scheme().effects().clone());
         }
         effects
     }

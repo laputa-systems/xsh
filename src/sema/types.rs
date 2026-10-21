@@ -9,7 +9,7 @@ use xsh_registry::types::BuiltinTypeName;
 #[path = "types/resource.rs"]
 mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
-pub use super::effects::{CallableEffects, UnresolvedCallableEffects};
+pub use super::effects::CallableEffects;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();

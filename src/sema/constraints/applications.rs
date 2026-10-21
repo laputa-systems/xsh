@@ -227,6 +227,13 @@ mod tests {
             assert_eq!(generalized.requirements.effect_parameters.len(), 1);
             assert!(generalized.types[0].closed_ground_type().is_none());
             assert!(generalized.types[0].contains_parameter());
+            let rebound = constraints.resolve_generalized_effect(&EffectContract::variable(effect), &generalized.effect_scope).unwrap();
+            let crate::sema::schemes::SchemeType::Callable { effects, .. } = &generalized.types[0] else { unreachable!() };
+            assert_eq!(&rebound, effects);
+            let foreign = TypeConstraints::default().fresh_effect_at_level(span(), 1);
+            assert!(constraints.resolve_generalized_effect(&EffectContract::variable(foreign), &generalized.effect_scope).is_err());
+            let later = constraints.fresh_effect_at_level(span(), 1);
+            assert!(matches!(constraints.resolve_generalized_effect(&EffectContract::variable(later), &generalized.effect_scope), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound))));
             let mut types = generalized.types.into_iter();
             let parameter = crate::sema::schemes::SchemeParameter {
                 name: Name::intern("action"), ty: types.next().unwrap(), schema_expectation: None, defaulted: false, rest: false,

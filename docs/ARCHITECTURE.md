@@ -342,6 +342,18 @@ A deferred Proc return envelope refers to an explicit application identity and
 uses the existing ground Result/error join policy; type-cell equality alone
 cannot establish application-result provenance.
 
+Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
+`FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable
+effect projection retain these contracts. Concrete projection returns an unknown
+contract separately from a finite set and rejects unresolved bound expressions.
+Bound effect ordinals belong to one declaring callable. Graph edges substitute
+the actual call's effect arguments before joining contributions from another
+owner. Defaults belong to their declaring callable through the actual parameter
+expression spans. A semantic body comparison uses the same retained callable
+instance as its header comparison. Raw effect-term equality proves only equality
+within one owner scope. Indexed symbolic effect serialization remains unavailable
+until the physical store can retain and verify that scoped evidence.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 
