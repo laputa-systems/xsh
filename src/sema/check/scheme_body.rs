@@ -107,7 +107,7 @@ pub(super) fn supports_generalized_body(
         }
     }
     match tail_statement.kind {
-        ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| available.contains(identity) || captures.contains(identity) && tails.get(&tail).is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))),
+        ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| read_binding_is_available(bindings, &available, captures, identity, tails.get(&tail))),
         ArenaStmtKind::Expr(expression) => is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression),
         ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function) => is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression),
         ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
@@ -126,6 +126,19 @@ pub(super) fn supports_generalized_body(
         }
         _ => false,
     }
+}
+
+fn read_binding_is_available(
+    bindings: &ResolvedBindings,
+    available: &FxHashSet<BindingId>,
+    captures: &FxHashSet<BindingId>,
+    binding: &BindingId,
+    ty: Option<&crate::sema::schemes::SchemeType>,
+) -> bool {
+    available.contains(binding)
+        || (captures.contains(binding)
+            || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_))))
+            && ty.is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))
 }
 
 fn declare_target_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, target: crate::syntax::arena::BindingTargetId, available: &mut FxHashSet<BindingId>) -> bool {
@@ -200,8 +213,7 @@ pub(super) fn is_body_expression(
     while let Some(expression) = pending.pop() {
         match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(_) => {
-                if !bindings.expressions.get(&expression).is_some_and(|binding| available.contains(binding)
-                    || captures.contains(binding) && types.get(&expression).is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))) { return false; }
+                if !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
@@ -317,6 +329,30 @@ mod ordinary_body_tests {
         let checked = Checker::check_arena(&parsed.arena, &source);
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn generic_named_constants_keep_independent_parameter_instances() {
+        accepts(
+            "const marker = \"constant:\"\npure attach(value) { {marker: marker, value: value} }",
+            "let integer = attach(42)\nlet number: Int = integer.value\nlet text = attach(\"demo\")\nlet word: Str = text.value\nlet label: Str = text.marker",
+        );
+    }
+
+    #[test]
+    fn generic_named_constant_tails_keep_independent_parameter_instances() {
+        accepts(
+            "const marker = \"constant:\"\npure read(value) { marker }",
+            "let integer: Str = read(42)\nlet text: Str = read(\"demo\")",
+        );
+    }
+
+    #[test]
+    fn generic_parameter_shadowing_keeps_its_own_binding() {
+        accepts(
+            "const marker = \"constant:\"\npure attach(marker) { {value: marker} }",
+            "let integer = attach(42)\nlet number: Int = integer.value\nlet text = attach(\"demo\")\nlet word: Str = text.value",
+        );
     }
 
     #[test]
