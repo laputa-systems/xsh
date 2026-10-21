@@ -841,7 +841,7 @@ impl Default for FullStore {
 }
 
 impl FullStore {
-    fn direct_error_transfer_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+    fn try_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
         if self.tags.get(instruction) != Some(&FullTag::ExprTry) { return Ok(None); }
         let data = self.data.get(instruction).ok_or_else(|| IrVerifyError::new("error transfer has no instruction payload"))?;
         let mut payload = FullCursor::new(self.payload(data.range())?);
@@ -851,8 +851,12 @@ impl FullStore {
         if self.locations.get(location.index()).is_none() || self.location_sources.get(location.index()).is_none() {
             return Err(IrVerifyError::new("error transfer location is out of bounds"));
         }
-        let tag = self.tags.get(value).ok_or_else(|| IrVerifyError::new("error transfer source is out of bounds"))?;
-        Ok((*tag == FullTag::ExprErr).then_some(value))
+        self.tags.get(value).ok_or_else(|| IrVerifyError::new("error transfer source is out of bounds"))?;
+        Ok(Some(value))
+    }
+
+    fn direct_error_transfer_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        Ok(self.try_operand(instruction)?.filter(|&value| self.tags[value] == FullTag::ExprErr))
     }
 
     #[inline(always)]
@@ -12543,6 +12547,23 @@ impl<'a> FullDecoder<'a> {
         Ok(Some((value.raw() as usize, cause.map(|cause| cause.raw() as usize))))
     }
 
+    fn argument_binding_match(&self, instruction: usize) -> Result<Option<IndexedArgumentBinding>, IrVerifyError> {
+        if !self.instruction_range.contains(&instruction) {
+            return Err(IrVerifyError::new("argument binding match belongs to another owner"));
+        }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(instruction)? else { return Ok(None) };
+        if arms.len() != 1 { return Ok(None); }
+        let (pattern, guard, result) = arms.next().transpose()?.ok_or_else(|| IrVerifyError::new("argument binding match has no arm"))?;
+        if guard.is_some() { return Ok(None); }
+        let schema::PatternView::Bind { slot } = self.checked_pattern_view(pattern.raw())? else { return Ok(None) };
+        let source = value.raw() as usize;
+        let result = result.raw() as usize;
+        if !self.instruction_range.contains(&source) || !self.instruction_range.contains(&result) {
+            return Err(IrVerifyError::new("argument binding match child belongs to another owner"));
+        }
+        Ok(Some(IndexedArgumentBinding { instruction, source, pattern: pattern.raw(), slot, result }))
+    }
+
     fn checked_condition_proves_nonnull(
         &self,
         condition: usize,
@@ -15483,16 +15504,39 @@ fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32
     Ok(None)
 }
 
+struct IndexedArgumentBinding {
+    instruction: usize,
+    source: usize,
+    pattern: u32,
+    slot: usize,
+    result: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IndexedCompletionContext {
+    Value,
+    PropagatedResult,
+}
+
 fn indexed_expr_can_complete(
     decoder: &FullDecoder<'_>,
     instruction: usize,
     depth: usize,
 ) -> Result<bool, IrVerifyError> {
+    indexed_expr_can_complete_in(decoder, instruction, depth, IndexedCompletionContext::Value)
+}
+
+fn indexed_expr_can_complete_in(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    depth: usize,
+    context: IndexedCompletionContext,
+) -> Result<bool, IrVerifyError> {
     if depth > decoder.instruction_range.len() {
         return Ok(true);
     }
     let child = |child_index: u32| {
-        indexed_expr_can_complete(decoder, child_index as usize, depth + 1)
+        indexed_expr_can_complete_in(decoder, child_index as usize, depth + 1, IndexedCompletionContext::Value)
     };
     let sequence = |children: Vec<u32>| -> Result<bool, IrVerifyError> {
         for child_expr in children {
@@ -15502,6 +15546,22 @@ fn indexed_expr_can_complete(
         }
         Ok(true)
     };
+
+    if context == IndexedCompletionContext::PropagatedResult {
+        match decoder.store.tags.get(instruction) {
+            Some(FullTag::ExprErr) => {
+                let schema::ExprView::Err { .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                return Ok(false);
+            }
+            Some(FullTag::ExprMatch) => {
+                if let Some(binding) = decoder.argument_binding_match(instruction)? {
+                    return Ok(child(binding.source as u32)?
+                        && indexed_expr_can_complete_in(decoder, binding.result, depth + 1, IndexedCompletionContext::PropagatedResult)?);
+                }
+            }
+            _ => {}
+        }
+    }
 
     Ok(match decoder.expression_view(instruction)? {
         schema::ExprView::Binary {
@@ -15608,7 +15668,7 @@ fn indexed_expr_can_complete(
             }
         }
         schema::ExprView::ResultFallback { left, .. } => child(left.raw())?,
-        schema::ExprView::Try { value, .. } => decoder.direct_error_transfer(instruction)?.is_none() && child(value.raw())?,
+        schema::ExprView::Try { value, .. } => indexed_expr_can_complete_in(decoder, value.raw() as usize, depth + 1, IndexedCompletionContext::PropagatedResult)?,
         schema::ExprView::Require { value, .. }
         | schema::ExprView::CheckedValue { value, .. }
         | schema::ExprView::PathFrom { value, .. }

@@ -3359,7 +3359,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Try { value, .. } => {
-                if self.prove_direct_error_transfer(&decoder, instruction)?.is_some() { return Ok(()); }
+                if self.prove_error_transfer(&decoder, instruction)?.is_some() { return Ok(()); }
                 let source = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground propagation has no result contract"))?;
                 let Type::Result(ok, _) = source.unvalidated() else { return Err(IrVerifyError::new("ground propagation source is not a result")) };
                 if !ok.matches_expected(&expected) { return Err(IrVerifyError::new("ground propagation payload disagrees with its expected contract")); }
@@ -3581,9 +3581,49 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn prove_direct_error_transfer(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+    fn prove_error_transfer(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         self.budget.charge(2)?;
-        let Some((value, cause)) = decoder.direct_error_transfer(instruction)? else { return Ok(None) };
+        let Some(mut operand) = self.store.try_operand(instruction)? else { return Ok(None) };
+        let mut bindings = Vec::new();
+        let (value, cause) = loop {
+            self.budget.charge(1)?;
+            if !decoder.instruction_range.contains(&operand) {
+                return Err(IrVerifyError::new("error transfer source belongs to another owner"));
+            }
+            match decoder.expression_view(operand)? {
+                schema::ExprView::Err { value, cause } => break (value.raw() as usize, cause.map(|cause| cause.raw() as usize)),
+                schema::ExprView::MatchExpr { .. } => {
+                    self.budget.charge(1)?;
+                    let Some(binding) = decoder.argument_binding_match(operand)? else { return Ok(None) };
+                    if bindings.len() >= decoder.instruction_range.len() {
+                        return Err(IrVerifyError::new("error transfer binding chain exceeds its owner"));
+                    }
+                    operand = binding.result;
+                    self.budget.charge(1)?;
+                    bindings.push(binding);
+                }
+                _ => return Ok(None),
+            }
+        };
+        for binding in bindings {
+            self.budget.charge(5)?;
+            let identity = ProducerBinding::ScopedDeclaration(binding.result, binding.slot);
+            let owner = &self.index.owners[&decoder.owner];
+            let source = owner.pattern_sources.get(&identity)
+                .ok_or_else(|| IrVerifyError::new("error transfer binding has no authenticated pattern source"))?;
+            if source.source != binding.source || source.pattern != binding.pattern || !source.preceding.is_empty()
+                || owner.parents[binding.source - owner.range.start] != Some(binding.instruction)
+                || owner.parents[binding.result - owner.range.start] != Some(binding.instruction)
+                || owner.region_bindings.get(&(binding.result, binding.slot)) != Some(&identity)
+                || owner.writers.get(&identity).is_some_and(|writers| !writers.is_empty())
+                || owner.storage_bindings.contains_key(&identity)
+                || matches!(owner.header_binding(self.store, decoder.owner, binding.slot)?, Some(ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_)))
+            { return Err(IrVerifyError::new("error transfer binding differs from its physical source")); }
+            let actual = self.declared_type(decoder, binding.source)?
+                .ok_or_else(|| IrVerifyError::new("error transfer argument has no actual producer contract"))?;
+            let fact = DeclaredProducerFact { owner: decoder.owner, instruction: binding.source, ty: Arc::clone(&actual) };
+            self.expression_with_fact(decoder.owner, binding.source, actual, false, Some(fact));
+        }
         let error = self.need_context(decoder, value)?.ok_or_else(|| IrVerifyError::new("direct error transfer has no actual error contract"))?;
         if !error.matches_expected(&Type::Error) { return Err(IrVerifyError::new("direct error transfer payload is not an error")); }
         self.expression(decoder.owner, value, Arc::clone(&error), false);
@@ -3635,6 +3675,7 @@ impl<'a> ProducerProof<'a> {
     fn derive_captured_error_types(&mut self, decoder: &FullDecoder<'a>, capture: usize) -> Result<Vec<Type>, IrVerifyError> {
         let mut errors = Vec::new();
         let mut skipped = BTreeSet::new();
+        let mut recorded_transfers = BTreeSet::new();
         let mut pending = vec![capture];
         while let Some(instruction) = pending.pop() {
             self.budget.charge(1)?;
@@ -3648,7 +3689,9 @@ impl<'a> ProducerProof<'a> {
                 { errors.push(Type::Error); }
                 let result = match self.store.tags[instruction] {
                     FullTag::ExprTry => {
-                        if let Some(error) = self.prove_direct_error_transfer(decoder, instruction)? {
+                        self.budget.charge(1)?;
+                        if recorded_transfers.contains(&instruction) { None }
+                        else if let Some(error) = self.prove_error_transfer(decoder, instruction)? {
                             self.budget.charge_clone(&error)?;
                             errors.push((*error).clone());
                             None
@@ -3659,8 +3702,16 @@ impl<'a> ProducerProof<'a> {
                     }
                     FullTag::StmtExpr => {
                         let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
-                        if decoder.direct_error_transfer(value.raw() as usize)?.is_some() { None }
-                        else { Some((value.raw() as usize, CapturedResultUse::Discard)) }
+                        let value = value.raw() as usize;
+                        if self.store.tags[value] == FullTag::ExprTry
+                            && let Some(error) = self.prove_error_transfer(decoder, value)?
+                        {
+                            self.budget.charge_clone(&error)?;
+                            errors.push((*error).clone());
+                            self.budget.charge(1)?;
+                            recorded_transfers.insert(value);
+                            None
+                        } else { Some((value, CapturedResultUse::Discard)) }
                     }
                     FullTag::StmtFor | FullTag::StmtForRecord => {
                         let (schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. }) = decoder.statement_view(instruction)? else { unreachable!() };
