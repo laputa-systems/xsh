@@ -37,6 +37,8 @@ integration, clean tracked files, and no open handles. Their generated Cargo
 outputs are discarded. Branches remain. The temporary foundation and diagnostic
 qualification checkouts are also removed. Active work, qualified products, failed-run evidence,
 and checkouts containing useful probes or corpus data remain intact.
+Both completed performance-adapter checkouts are removed after their merged
+checks pass; their accepted commits remain on master and the campaign branch.
 Seven superseded assignment, comprehension, context, iteration, operator,
 paired-comparison and repaired qualification checkouts are also removed.
 Their raw qualification logs remain under
@@ -56,7 +58,16 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Current focused source `9f66593f3` passes 676 merged controls, with zero failures
+Current focused source `50b9d543e` passes 684 merged controls with zero failures
+or ignores. Matching verification products build: `xsh` is 36,324,192 bytes
+and `xsht` is 44,329,432 bytes. All twelve runner, resource, constructor and
+comprehension selectors pass, each selecting one test with zero skips and
+unchanged source/product pins. The fresh diagnostic replay passes all four
+Laputa source checks. Four XSH checks still fail: two slice-contract and six
+checked-input-disagreement diagnostic instances. The frozen candidate remains
+the 202-effect probe. No paired runtime, interface or removal credit follows.
+
+Previous focused source `9f66593f3` passes 676 merged controls, with zero failures
 or ignores. Its NonEmpty repair has eleven focused passes and independent
 approval. Fresh literals require actual members; splices require independent
 NonEmpty evidence. Comprehensions retain that validation only from their
@@ -75,8 +86,9 @@ checks, and reuses inherited lexical bindings only during the writer census.
 The 16/32/64/128-writer cases, scope boundaries, early returns and forged
 inputs pass. A separately reproduced scoped-callable baseline failure is also
 fixed without dropping context initialization or effect/resource checks.
-Fresh merged qualification and matching-product corpus replay are running;
-the twenty producer and two slice failures below are not yet claimed closed.
+Fresh merged qualification and matching-product replay produce the results
+above. The remaining XSH failures stay owned by the producer lane; this is
+not a qualified full compiler baseline.
 
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
