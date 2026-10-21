@@ -1,6 +1,9 @@
 #[path = "../../../crates/xsh-fuzz/tests/support/inference_oracle.rs"]
 mod inference_oracle;
 
+#[path = "effect_reference_tests.rs"]
+mod effect_reference_tests;
+
 use inference_oracle as oracle;
 use super::{
     ConstraintConflict, ConstraintResolutionError, ConstraintType, GeneralizedTypes, RowShape,
