@@ -207,6 +207,15 @@ impl Checker {
                 diagnostics,
             );
         }
+        let mut typed_callable_calls = BTreeMap::new();
+        for (span, callable) in std::mem::take(&mut self.typed_callable_calls) {
+            let mut ty = Type::Callable(callable);
+            finalize_type(constraints, &mut ty, span, &mut reported, diagnostics);
+            if let Type::Callable(callable) = ty {
+                typed_callable_calls.insert(span, callable);
+            }
+        }
+        self.typed_callable_calls = typed_callable_calls;
         let fallback = Span::at(crate::source::SourceId::new(0), 0);
         for signature in self.declaration_inference.pending_iter_mut() {
             if let Some(shape) = signature.provisional_mut() {

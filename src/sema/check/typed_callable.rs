@@ -30,7 +30,7 @@ impl Checker {
         }
         let Some(target) = expected_typed_callable(expected) else {
             if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
-                return self.materialize_callable_argument(arena, id, actual);
+                return self.materialize_callable_value(arena, id, actual);
             }
             return actual;
         };
@@ -39,9 +39,13 @@ impl Checker {
         self.fit_named_callable(named, &actual, target, span)
     }
 
-    fn materialize_callable_argument(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
+    pub(super) fn materialize_callable_value(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
         let Some(named) = self.resolve_callable_alias_target(arena, id) else { return actual; };
         let span = arena.arena.expr(id).span;
+        self.materialize_named_callable(named, span)
+    }
+
+    fn materialize_named_callable(&mut self, named: CallableAlias, span: Span) -> Type {
         let contract = self.function_call_contract(&named.signature, span);
         let effects = match contract.effects {
             super::InvocationEffects::Checked(effects) => effects,
@@ -108,7 +112,7 @@ impl Checker {
                     | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
                 };
                 let mut ty = self.check_expr_arena(arena, source, value, None);
-                if matches!(ty, Type::Pure | Type::Proc) { ty = self.materialize_callable_argument(arena, value, ty); }
+                if matches!(ty, Type::Pure | Type::Proc) { ty = self.materialize_callable_value(arena, value, ty); }
                 checked.insert(value, ty);
             }
             match crate::sema::arguments::expand_named_arguments(arena, args, |value| Some(checked.get(&value).expect("every application source argument is checked").clone())) {
@@ -228,6 +232,15 @@ impl Checker {
             );
             return Type::Invalid;
         };
+        if named.signature.scheme().callable().is_quantified() {
+            let actual = self.materialize_named_callable(named, span);
+            if actual == Type::Invalid { return Type::Invalid; }
+            let diagnostic_count = self.diagnostics.len();
+            self.expect_type(&expected, &actual, span);
+            if self.diagnostics.len() != diagnostic_count { return Type::Invalid; }
+            self.expr_types.insert(span, expected.clone());
+            return expected;
+        }
         let Some(signature) = super::decl::callable_type_from_function_signature(&named.signature)
         else {
             self.error(
@@ -237,8 +250,17 @@ impl Checker {
             );
             return Type::Invalid;
         };
-        // Effect summaries are not solved while they are being collected, and
-        // assigning a callable requires no effect by itself.
+        if expected.contains_inference() {
+            let actual = Type::Callable(Arc::new(TypedCallable {
+                pure: named.pure,
+                sig: signature,
+            }));
+            let diagnostic_count = self.diagnostics.len();
+            self.expect_type(&expected, &actual, span);
+            if self.diagnostics.len() != diagnostic_count { return Type::Invalid; }
+            self.expr_types.insert(span, expected.clone());
+            return expected;
+        }
         if let Some(reason) = target.mismatch(named.pure, &signature, !self.collecting_effects) {
             self.error(
                 span,
@@ -353,7 +375,7 @@ impl Checker {
 
 #[cfg(test)]
 mod inferred_callable_tests {
-    use crate::diagnostic::Severity;
+    use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::sema::check::Checker;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
@@ -364,6 +386,12 @@ mod inferred_callable_tests {
         let checked = Checker::check_arena(&parsed.arena, source);
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    fn checked(source: &str) -> crate::sema::check::CheckOutput {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        Checker::check_arena(&parsed.arena, source)
     }
 
     #[test]
@@ -501,5 +529,180 @@ mod inferred_callable_tests {
     #[test]
     fn inferred_callable_uncaptured_use_retains_the_original_error_contribution() {
         accepts("proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc twice(action, value) { let _ = try { action(value) }; action(value) }\nproc bounded() [env, error] -> Result[Int] { twice(fallible, 7) }\n");
+    }
+
+    #[test]
+    fn mutable_callable_reassignment_keeps_its_inferred_contract() {
+        let source = "pure add(value: Int, amount: Int = 1, ...rest: List[Int]) -> Int { value + amount + rest.len() }\npure subtract(value: Int, amount: Int = 1, ...rest: List[Int]) -> Int { value - amount + rest.len() }\npure exercise() -> Int { var operation = add; let labelled = operation(value: 40); let spread = operation(40, 1, 2, 3); operation = subtract; let reassigned = operation(value: 43); labelled + spread + reassigned }\n";
+        let checked = checked(source);
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        let calls = checked.typed_callable_calls.values().collect::<Vec<_>>();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|call| call.as_ref() == calls[0].as_ref()));
+        let signature = &calls[0].sig;
+        assert_eq!(signature.params.len(), 3);
+        assert_eq!(signature.params[0].ty, crate::sema::types::Type::Int);
+        assert!(!signature.params[0].defaulted);
+        assert_eq!(signature.params[1].ty, crate::sema::types::Type::Int);
+        assert!(signature.params[1].defaulted);
+        assert_eq!(
+            signature.params[2].ty,
+            crate::sema::types::Type::List(Box::new(crate::sema::types::Type::Int))
+        );
+        assert!(signature.params[2].rest);
+        assert_eq!(signature.return_ty.as_ref(), &crate::sema::types::Type::Int);
+    }
+
+    #[test]
+    fn quantified_callable_targets_choose_independent_instances() {
+        let source = "pure identity(value) { value }\nlet integer_identity: pure(value: Int) -> Int = identity\nlet text_identity: pure(value: Str) -> Str = identity\nlet integer: Int = integer_identity(42)\nlet text: Str = text_identity(\"demo\")\nlet alias = identity\nlet direct_integer: Int = alias(43)\nlet direct_text: Str = alias(\"more\")\n";
+        let checked = checked(source);
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        let calls = checked.typed_callable_calls.values().collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().any(|call| {
+            call.sig.params[0].ty == crate::sema::types::Type::Int
+                && call.sig.return_ty.as_ref() == &crate::sema::types::Type::Int
+        }));
+        assert!(calls.iter().any(|call| {
+            call.sig.params[0].ty == crate::sema::types::Type::Str
+                && call.sig.return_ty.as_ref() == &crate::sema::types::Type::Str
+        }));
+    }
+
+    #[test]
+    fn stream_producer_alias_keeps_its_lazy_call_contract() {
+        let source = "stream values(value: Int) -> Stream[Int] { yield value }\nproc make() -> Result[Stream[Int]] { let create = values; Ok(create(42)) }\n";
+        let checked = checked(source);
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        assert_eq!(checked.selected_function_calls.len(), 1);
+    }
+
+    #[test]
+    fn mutable_inferred_proc_keeps_its_solved_effect_contract() {
+        let source = "proc read(value: Int) { let _ = env.get(\"XSH_MUTABLE_CALLABLE\"); value }\nproc read_again(value: Int) { let _ = env.get(\"XSH_MUTABLE_CALLABLE\"); value }\nproc exercise(value: Int) { var operation = read; let first = operation(value); operation = read_again; operation(value) }\n";
+        let checked = checked(source);
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        let expected = crate::sema::effects::CheckedEffects::finite([crate::syntax::node::Effect::Env]);
+        assert_eq!(checked.callable_effects.get("read"), Some(&expected));
+        assert_eq!(checked.callable_effects.get("read_again"), Some(&expected));
+        assert_eq!(checked.callable_effects.get("exercise"), Some(&expected));
+        let calls = checked.typed_callable_calls.values().collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|call| {
+            call.sig.effects.concrete().expect("solved callable effect contract")
+                == Some(vec![crate::syntax::node::Effect::Env])
+        }));
+    }
+
+    #[test]
+    fn mutable_generic_callable_instantiates_once_and_rejects_a_later_type_change() {
+        let source = "pure identity(value) { value }\npure exercise() { var current = identity; let integer: Int = current(42); current = identity; let text = current(\"demo\"); }\n";
+        let checked = checked(source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{source}\n{:?}", checked.diagnostics);
+        assert_eq!(
+            errors[0].code,
+            Some(DiagnosticCode::CheckTypeMismatch),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)),
+            "{source}\n{:?}", checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn mutable_generic_callable_compacts_value_instances_separately_from_calls() {
+        let source = "pure identity(value) { value }\npure exercise() -> Int { var operation = identity; let first: Int = operation(41); operation = identity; first + operation(42) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let mut sources = crate::source::SourceMap::new();
+        let source_id = sources.add_file("mutable-generic-callable-facts.xsh", source);
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
+            "{source}\n{:?}", checked.diagnostics
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(declarations.diagnostics.is_empty(), "{source}\n{:?}", declarations.diagnostics);
+        let expression_at = |start: usize, end: usize| {
+            let span = crate::source::Span::new(source_id, start, end);
+            (0..parsed.arena.arena.expr_tags.len())
+                .map(crate::syntax::arena::ExprId::from_index)
+                .find(|id| parsed.arena.arena.expr(*id).span == span)
+                .unwrap_or_else(|| panic!("missing expression at {span:?}"))
+        };
+        let initial_start = source.find("var operation = identity").unwrap() + "var operation = ".len();
+        let assigned_start = source.find("operation = identity").unwrap() + "operation = ".len();
+        let identity_end = "identity".len();
+        let initial = expression_at(initial_start, initial_start + identity_end);
+        let assigned = expression_at(assigned_start, assigned_start + identity_end);
+        let initial_target = declarations.bodies.selected_function_calls.get(&initial).unwrap();
+        let assigned_target = declarations.bodies.selected_function_calls.get(&assigned).unwrap();
+        assert_eq!(initial_target.name.as_str(), "identity");
+        assert_eq!(assigned_target, initial_target);
+        let initial_instance = declarations.bodies.call_instantiations.get(&initial).unwrap();
+        let assigned_instance = declarations.bodies.call_instantiations.get(&assigned).unwrap();
+        assert_eq!(initial_instance, assigned_instance);
+        assert_eq!(initial_instance.type_arguments().len(), 1);
+        assert_eq!(
+            initial_instance.type_arguments().values().next().unwrap().closed_ground_type(),
+            Some(crate::sema::types::Type::Int)
+        );
+        assert!(initial_instance.row_arguments().is_empty());
+        assert!(initial_instance.effect_arguments().is_empty());
+        for fragment in ["operation(41)", "operation(42)"] {
+            let start = source.find(fragment).unwrap();
+            let call = expression_at(start, start + fragment.len());
+            assert!(declarations.bodies.typed_callable_calls.contains_key(&call));
+            assert!(!declarations.bodies.selected_function_calls.contains_key(&call));
+            assert_eq!(
+                declarations.bodies.expr_types.get(&call),
+                Some(&crate::sema::types::Type::Int)
+            );
+        }
+    }
+
+    #[test]
+    fn mutable_callable_reassignment_rejects_parameter_return_and_effect_changes() {
+        for source in [
+            "pure number(value: Int) -> Int { value }\npure text(value: Str) -> Str { value }\npure exercise() { var operation = number; operation = text; }\n",
+            "pure number(value: Int) -> Int { value }\npure text(value: Int) -> Str { \"demo\" }\npure exercise() { var operation = number; operation = text; }\n",
+            "proc plain(value: Int) [] -> Int { value }\nproc environmental(value: Int) [env] -> Int { let _ = env.get(\"XSH_MUTABLE_CALLABLE\"); value }\nproc exercise() [] { var operation = plain; operation = environmental; }\n",
+        ] {
+            let checked = checked(source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{:?}", checked.diagnostics);
+            assert_eq!(
+                errors[0].code,
+                Some(DiagnosticCode::CheckCallableMismatch),
+                "{source}\n{:?}", checked.diagnostics
+            );
+            assert!(
+                !checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)),
+                "{source}\n{:?}", checked.diagnostics
+            );
+        }
     }
 }

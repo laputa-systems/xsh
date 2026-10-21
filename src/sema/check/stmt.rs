@@ -5085,6 +5085,16 @@ impl Checker {
                 schema.clone(),
             )
         };
+        let actual = if mutable
+            && ty.is_none()
+            && matches!(arena.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
+            && let ArenaExprOrRun::Expr(expression) = initializer
+            && (actual == Type::Pure || actual == Type::Proc)
+        {
+            self.materialize_callable_value(arena, expression, actual)
+        } else {
+            actual
+        };
         let callable_alias = if generic_module_alias.is_some() {
             generic_module_alias
         } else if !mutable && ty.is_none() {

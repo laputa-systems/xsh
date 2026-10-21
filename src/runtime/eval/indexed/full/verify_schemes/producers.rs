@@ -3214,8 +3214,10 @@ impl<'a> ProducerProof<'a> {
                 for target in targets {
                     let incoming = self.incoming.entry(target).or_default();
                     if !incoming.contains(&instruction) { incoming.push(instruction); }
-                    self.function(target);
-                    self.call_arguments(&decoder, target, &arguments)?;
+                    if matches!(self.store.functions[target].contract, FullCallableContract::Ground(_)) {
+                        self.function(target);
+                        self.call_arguments(&decoder, target, &arguments)?;
+                    }
                 }
                 Ok(())
             }
