@@ -87,8 +87,6 @@ assert order == 132
     assert!(error.message.contains("requires effect error"), "{error:?}");
 }
 
-
-
 #[test]
 fn process_handle_cancel_preserves_compacted_named_defaults() {
     let mut program = fixture(r#"
@@ -189,6 +187,64 @@ if count == 7 {
     let error = FullVerifier::verify(&wrong_owner).unwrap_err();
     assert!(error.message.contains("identity") || error.message.contains("identities"), "{error:?}");
 }
+
+#[test]
+fn parallel_worker_callbacks_preserve_driver_bindings() {
+    let actual = fixture(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/stack-depth/par-map-worker-recursion.xsh")));
+    assert!(actual.store.tags.contains(&FullTag::ExprPipeline));
+    let mut program = fixture(r#"
+var order = 0
+proc start() [] -> Int { order = order * 10 + 1; 0 }
+proc end() [] -> Int { order = order * 10 + 2; 3 }
+pure wrong() -> Bool { true }
+let rows = [0] |> range(end: end(), start: start())
+assert rows.collect() == [0, 1, 2]
+assert order == 21
+let repeated = [0] |> range(0, 3) |> range(0, 4)
+assert repeated.collect() == [0, 1, 2, 3]
+let values = rows |> par-map(jobs: 2) { |item| item + 1 }
+assert values == [1, 2, 3]
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let mut ranges = Vec::new();
+    for instruction in 0..program.store.tags.len() {
+        if program.store.tags[instruction] != FullTag::ExprPipeline { continue; }
+        let decoder = driver_projection_decoder(&program, instruction);
+        let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        for stage in &mut stages {
+            if let StageView::Range { start, end } = stage.unwrap() {
+                let bounds = indexed_configured_range_bounds_with(&decoder, start.raw(), end.raw(), &mut |_| Ok(())).unwrap().unwrap();
+                ranges.push((end.raw() as usize, bounds.end_subject as usize, bounds.end_slot));
+            }
+        }
+    }
+    assert_eq!(ranges.len(), 3);
+    let boolean = program.store.function_instruction_range(function(&program, "wrong")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    for (position, expected) in [(1, 3), (2, 4)] {
+        let mut wrong_domain = program.clone();
+        let subject = ranges[position].1;
+        let actual = match driver_projection_decoder(&program, subject).expression_view(subject).unwrap() {
+            schema::ExprView::Int(value) => value,
+            schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Int(value), _)) => *value,
+            _ => panic!("range bound is not the original integer producer"),
+        };
+        assert_eq!(actual, expected);
+        wrong_domain.store.tags[subject] = FullTag::ExprBool;
+        wrong_domain.store.data[subject] = program.store.data[boolean];
+        let error = FullVerifier::verify(&wrong_domain).unwrap_err();
+        assert!(error.message.contains("producer") || error.message.contains("contract"), "{error:?}");
+    }
+    let mut wrong_stage = program.clone();
+    assert_ne!(ranges[1].2, ranges[2].2);
+    wrong_stage.store.data[ranges[1].0] = program.store.data[ranges[2].0];
+    let error = FullVerifier::verify(&wrong_stage).unwrap_err();
+    assert!(error.message.contains("binding") || error.message.contains("slot"), "{error:?}");
+}
+
+
 
 #[test]
 fn checked_field_reads_preserve_terminating_guards() {

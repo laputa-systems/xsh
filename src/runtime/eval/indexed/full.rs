@@ -15382,19 +15382,36 @@ fn indexed_identity_match_subject(
     }
 }
 
-/// Resolves the ordered, checked argument bindings generated for a configured
-/// range stage. Other match shapes and unbound parameters provide no proof.
 fn indexed_configured_range_bound_subjects(
     decoder: &FullDecoder<'_>,
     start: u32,
     end: u32,
 ) -> Result<Option<(u32, u32)>, IrVerifyError> {
+    Ok(indexed_configured_range_bounds_with(decoder, start, end, &mut |_| Ok(()))?
+        .map(|bounds| (bounds.start_subject, bounds.end_subject)))
+}
+
+struct IndexedConfiguredRangeBounds {
+    start_subject: u32,
+    end_subject: u32,
+    end_root: usize,
+    end_pattern: u32,
+    end_slot: usize,
+}
+
+fn indexed_configured_range_bounds_with(
+    decoder: &FullDecoder<'_>,
+    start: u32,
+    end: u32,
+    charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+) -> Result<Option<IndexedConfiguredRangeBounds>, IrVerifyError> {
     let mut bindings = FxHashMap::default();
     let mut current = start as usize;
     let mut seen_matches = rustc_hash::FxHashSet::default();
     let mut seen_subjects = rustc_hash::FxHashSet::default();
     let mut terminal_slot = None;
     for _ in 0..decoder.instruction_range.len() {
+        charge(1)?;
         if !decoder.instruction_range.contains(&current)
             || !seen_matches.insert(current)
             || seen_subjects.contains(&current)
@@ -15425,12 +15442,14 @@ fn indexed_configured_range_bound_subjects(
         {
             return Ok(None);
         }
+        charge(1)?;
         seen_subjects.insert(subject);
         let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())?
         else {
             return Ok(None);
         };
-        if bindings.insert(slot, value.raw()).is_some() {
+        charge(1)?;
+        if bindings.insert(slot, (value.raw(), result.raw() as usize, pattern.raw())).is_some() {
             return Ok(None);
         }
         let result = result.raw() as usize;
@@ -15449,7 +15468,8 @@ fn indexed_configured_range_bound_subjects(
     let Some(terminal_slot) = terminal_slot else {
         return Ok(None);
     };
-    let Some(&start_subject) = bindings.get(&terminal_slot) else {
+    charge(1)?;
+    let Some(&(start_subject, _, _)) = bindings.get(&terminal_slot) else {
         return Ok(None);
     };
     let end = end as usize;
@@ -15462,10 +15482,11 @@ fn indexed_configured_range_bound_subjects(
     let schema::ExprView::Param(end_slot) = decoder.expression_view(end)? else {
         return Ok(None);
     };
-    let Some(&end_subject) = bindings.get(&end_slot) else {
+    charge(1)?;
+    let Some(&(end_subject, end_root, end_pattern)) = bindings.get(&end_slot) else {
         return Ok(None);
     };
-    Ok(Some((start_subject, end_subject)))
+    Ok(Some(IndexedConfiguredRangeBounds { start_subject, end_subject, end_root, end_pattern, end_slot }))
 }
 
 fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32) -> Result<Option<i64>, IrVerifyError> {
