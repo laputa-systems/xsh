@@ -216,23 +216,33 @@ Its 89-test checker/runtime group and four imported-read/nominal controls pass.
 The final payload and type forgery control passes, and matching verification
 products pass the unchanged native constant witness. Prepared expressions keep
 their ordinary leaf semantics and a separate authenticated data-work budget.
-The ordinary generic proof bound is unchanged. Mutable-callable reassignment
-still fails unresolved-call checking and has its own implementation lane.
+The ordinary generic proof bound is unchanged. The isolated mutable-callable
+repair passes compatible and incompatible assignment controls. Ground runtime
+reassignment passes, but generic runtime preparation still fails. Stream aliases
+also remain unresolved. Neither class is qualified for integration.
 
 The reviewed producer repair passes all 74 verifier-effect controls, including
 both original 128-use bounds, without exclusions or raised limits.
 It obtains statement ancestry during the existing ownership walk and retains
 the original resolver for owners with expression-region bindings.
-Matching products are building; the original 27 native failures remain pending.
+The repair is integrated through `489b304cb`. All 88 selected controls pass on
+that assembly. Matching isolated products build, and the original 27 native
+failures now yield 17 passes and ten failures, with no ignores. The remaining
+failures are eight btop cases and two expr cases. A conditional-record follow-up
+passes its runtime and corruption controls. Actual btop preparation then reaches
+a separate empty-set receiver proof failure. The expr spread proofs remain open.
+Test adapter repair `bc7e8fffe` preserves the concrete effect assertions after
+the checked-effect representation change. All five affected integration tests pass.
 Stream checkpoint `49ec18214` passes ten of eleven focused controls, including
 staged callback effects and rollback. Checked command-body proof remains red.
 These isolated results do not qualify the combined regression boundary.
 Work-counter repair `ab26826b9` passes nine focused controls and a non-test
 check. It counts discarded diagnostics and nested retained type nodes.
-Independent review finds no blocker in that checkpoint. Merged adaptation must
-count the newly retained proc-return site evidence and check actual Stream/hook
-body-entry coverage. Integration and merged replay remain required before
-performance use.
+Independent review finds no blocker in that checkpoint. Adaptation `d5ecb43f1`
+counts retained generic body evidence, including proc-return sites, without
+inventing output types. All fifteen focused counter controls pass on its merged
+source. Actual Stream and signal-hook body-entry coverage remains under test.
+Integration and merged replay remain required before performance use.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
