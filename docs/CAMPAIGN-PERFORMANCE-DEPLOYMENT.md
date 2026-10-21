@@ -21,6 +21,20 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Source `323a3e52a` is integrated after independent review of contextual
+aggregate producer proofs. Fresh aggregate carriers require an authenticated
+consumer; every physical record entry remains proved, including overwritten
+values. Checked storage retains actual source-domain obligations. Native
+argument facts retain exact owner/instruction identity, and the mandatory
+census revisits only its collected pattern candidates. Eleven focused controls
+pass, including the tracked generic-constructor preparation that previously
+exhausted the unchanged work bound. The merged boundary in
+`.work/wt/full-inference-context-qualified` finishes with 521 passes and 23
+failures. Seventeen are new regressions: existing checked-value producers are
+rejected, and two driver-projection controls exhaust the work bound. The six
+inherited optional-field failures remain. The producer lane owns all repairs;
+this source is not qualified and earns no corpus or annotation-removal credit.
+
 Source `26d87d2bc` is integrated with reviewed generic operator contracts and
 a shared comparison-chain representation containing each real operand once.
 Ordinary depth-8/depth-12 preparation emits 60/88 rows, versus 3,574/57,334
