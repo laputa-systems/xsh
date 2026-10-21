@@ -47,6 +47,11 @@ Five completed body, compiler, contract-comparison and driver-projection
 checkouts are also removed after clean ancestry and ownership checks.
 Their complete scratch trees remain under
 `.work/tmp/full-inference-retired-lanes/`. Their branches remain available.
+Four completed interface, record-form, scalar-contract and graph-verification
+checkouts are removed under the same checks. Their complete scratch trees remain
+in that directory. The imported-source reproducer and dirty iteration prototype
+remain untouched. The prototype's patch lines match the accepted iteration edits
+at `c0a282df8`, apart from seven later added stream-error verification lines.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
