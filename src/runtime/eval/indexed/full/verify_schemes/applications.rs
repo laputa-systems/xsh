@@ -104,7 +104,10 @@ fn selected(store: &FullStore, application: &Application, argument_slots: IrRang
             budget.charge_clone(&callable.sig.return_ty)?;
             let effects = callable.sig.effects.contract();
             if let EffectContract::Known(expression) = effects { budget.charge(expression.variables().count())?; }
-            let kind = if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc };
+            let kind = callable.kind;
+            if kind == crate::sema::types::CallableKind::Stream {
+                return Err(IrVerifyError::new("ground stream callable applications require a stream callable carrier"));
+            }
             let effects = EffectContract::from_clause(effects.clone().for_invocation(kind).concrete().map_err(|_| IrVerifyError::new("ground application callable effects remain unresolved"))?);
             (kind, parameters,
                 SchemeType::Ground(callable.sig.return_ty.as_ref().clone()), effects)
@@ -402,7 +405,7 @@ mod tests {
             let scheme = *builder.store.scheme(id).unwrap();
             let scope = scope(&builder.store, &scheme);
             let callback = |ty: Type, rest: bool, defaulted: bool| Type::Callable(Arc::new(TypedCallable {
-                pure: true, sig: CallableType {
+                kind: crate::sema::types::CallableKind::Pure, sig: CallableType {
                     params: if rest { vec![CallableParamType { name: Name::intern("items"), ty: Type::List(Box::new(ty.clone())), defaulted: false, rest: true }] }
                         else { vec![CallableParamType { name: Name::intern("payload"), ty: ty.clone(), defaulted: false, rest: false },
                             CallableParamType { name: Name::intern("scale"), ty: Type::Int, defaulted, rest: false }] },

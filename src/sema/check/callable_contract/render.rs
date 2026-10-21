@@ -310,7 +310,7 @@ fn render_type(ty: &Type) -> String {
             members.iter().map(render_type).collect::<Vec<_>>().join(", ")
         ),
         Type::Callable(callable) => render_callable_type(
-            if callable.pure { "pure" } else { "proc" },
+            callable_kind(callable.kind),
             &callable.sig,
         ),
         Type::Validated(validated) => {

@@ -123,7 +123,7 @@ mod tests {
         let effects = constraints.fresh_effect_at_level(owner.body, 1);
         constraints.register_callable_application(CallableApplicationScope::Declaration(owner), CallableApplication {
             callee, result, arguments: Arc::from([]), effects: EffectContract::variable(effects),
-            proc_returns: Arc::from([]), kind: CallableKindRequirement::Immediate, span: owner.body,
+            proc_returns: Arc::from([]), kind: CallableKindRequirement::Effectful, span: owner.body,
         }).unwrap();
     }
 
@@ -176,7 +176,7 @@ mod tests {
                 let formals = if generic_return { vec![returned.clone()] } else { Vec::new() };
                 let hole = constraints.fresh_at_level(declaration.body, 1);
                 let actual = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                    pure: true,
+                    kind: crate::sema::types::CallableKind::Pure,
                     sig: crate::sema::types::CallableType {
                         params: vec![crate::sema::types::CallableParamType {
                             name: crate::symbol::Name::intern("value"), ty: Type::Any, defaulted: false, rest: false,
@@ -211,7 +211,7 @@ mod tests {
             let first = constraints.fresh_effect_at_level(declaration.body, 1);
             let second = constraints.fresh_effect_at_level(declaration.body, 1);
             let callable = |effect| Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                pure: false,
+                kind: crate::sema::types::CallableKind::Proc,
                 sig: crate::sema::types::CallableType {
                     params: Vec::new(), return_ty: Box::new(Type::Int),
                     effects: crate::sema::types::CallableEffects::from_contract(EffectContract::variable(effect)),

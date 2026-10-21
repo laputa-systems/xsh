@@ -7784,6 +7784,9 @@ impl Evaluator {
                     declarations.static_callable_aliases.get(&arena.arena.expr(expression).span)
                 });
                 let value = if let Some(alias) = alias {
+                    if alias.kind == crate::sema::types::CallableKind::Stream {
+                        return Err(RuntimeError::new("module-load", "stream callable aliases require a stream callable carrier").with_span(span));
+                    }
                     let original = match value {
                         Value::Pure(function) | Value::Proc(function) => function.identity(),
                         _ => {
@@ -7805,7 +7808,7 @@ impl Evaluator {
                         DynamicFunction {
                             program: Arc::clone(module_program),
                             function: target,
-                            kind: if alias.pure {
+                            kind: if alias.kind == crate::sema::types::CallableKind::Pure {
                                 LoweredFunctionKind::Pure
                             } else {
                                 LoweredFunctionKind::Proc
@@ -7816,11 +7819,11 @@ impl Evaluator {
                     Arc::make_mut(&mut self.module_export_signatures).insert(
                         function,
                         super::ModuleExportSignature {
-                            pure: alias.pure,
+                            pure: (alias.kind == crate::sema::types::CallableKind::Pure),
                             sig: alias.signature.clone(),
                         },
                     );
-                    if alias.pure {
+                    if alias.kind == crate::sema::types::CallableKind::Pure {
                         Value::Pure(function.into())
                     } else {
                         Value::Proc(function.into())

@@ -465,6 +465,14 @@ type substitution to select wrapping or preservation. The executor does not
 inspect the returned payload to select an envelope, and formal values keep their
 ordinary data wrapping.
 
+Checked callable contracts and aliases retain the canonical `CallableKind`.
+The Rust `TypedCallable.kind` field replaces its former purity flag.
+`Type::Function(kind)` represents an opaque callable and replaces `Type::Pure`
+and `Type::Proc`. `Type::Stream(item)` continues to represent a produced stream.
+The semantic codec retains the kind for opaque and typed callables and rejects
+invalid kind tags. Authored callable annotations retain the existing Pure and
+Proc syntax. Stream callable contracts have no authored annotation syntax.
+
 The public Rust `Value::Pure` and `Value::Proc` variants carry an opaque
 `CallableValue`. Its declaration identity remains available through `identity()`;
 equality compares that identity rather than treating invocation evidence as part

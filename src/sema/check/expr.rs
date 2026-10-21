@@ -406,12 +406,17 @@ impl Checker {
         if let Some(declaration) = self.procs.get(&name).copied() {
             let target = self.local_function_target(declaration);
             self.record_function_value_target(span, target);
-            return Type::Proc;
+            return Type::Function(crate::sema::types::CallableKind::Proc);
         }
         if let Some(declaration) = self.pures.get(&name).copied() {
             let target = self.local_function_target(declaration);
             self.record_function_value_target(span, target);
-            return Type::Pure;
+            return Type::Function(crate::sema::types::CallableKind::Pure);
+        }
+        if let Some(declaration) = self.streams.get(&name).copied() {
+            let target = self.local_function_target(declaration);
+            self.record_function_value_target(span, target);
+            return Type::Function(crate::sema::types::CallableKind::Stream);
         }
         if api_spec().module(&name.as_str()).is_some() {
             self.diagnostics.push(
@@ -1392,7 +1397,7 @@ impl Checker {
                     ArenaExprKind::Ident(_)
                 ) && matches!(
                     self.lookup_value_binding_for_expr(arena, *callee),
-                    super::ValueBindingLookup::Found(binding) if binding.ty == Type::Proc
+                    super::ValueBindingLookup::Found(binding) if binding.ty == Type::Function(crate::sema::types::CallableKind::Proc)
                 );
                 let diagnostics_before = self.diagnostics.len();
                 let result =
@@ -1403,7 +1408,7 @@ impl Checker {
                     self.statically_resolved_call_spans.insert(expr.span);
                 }
                 let erased_proc_call = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Field { base, name } if name == "call"
-                    && self.expr_types.get(&arena.arena.expr(base).span) == Some(&Type::Proc));
+                    && self.expr_types.get(&arena.arena.expr(base).span) == Some(&Type::Function(crate::sema::types::CallableKind::Proc)));
                 if may_mutate || erased_proc_call {
                     self.invalidate_mutable_narrowings();
                 }

@@ -70,7 +70,7 @@ impl Evaluator {
             super::ValueView::Runtime(Value::Proc(callable)) | super::ValueView::Lowered(LoweredValue::Proc(callable)) => (callable, super::LoweredFunctionKind::Proc),
             _ => return Ok(false),
         };
-        if expected.pure() != (kind == super::LoweredFunctionKind::Pure) { return Ok(false); }
+        if expected.kind() != match kind { super::LoweredFunctionKind::Pure => crate::sema::types::CallableKind::Pure, super::LoweredFunctionKind::Proc => crate::sema::types::CallableKind::Proc } { return Ok(false); }
         let identity = callable.identity();
         let function = identity.as_name().map(LoweredFunctionKey::Name)
             .or_else(|| identity.as_qualified().map(LoweredFunctionKey::Qualified))

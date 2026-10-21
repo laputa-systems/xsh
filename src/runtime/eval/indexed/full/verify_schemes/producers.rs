@@ -1587,7 +1587,7 @@ impl<'a> ProducerProof<'a> {
         self.budget.charge(signature.params.len() + effects.as_ref().map_or(0, Vec::len) + 1)?;
         self.budget.charge_clone(&signature.return_ty)?;
         for parameter in &signature.params { self.budget.charge_clone(&parameter.ty)?; }
-        let callable = TypedCallable { pure, sig: signature.clone() };
+        let callable = TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig: signature.clone() };
         Ok(Some((base, receiver, callable)))
     }
 
@@ -3157,7 +3157,7 @@ impl<'a> ProducerProof<'a> {
             && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
         {
             decoder.function_reference_matches_callable(instruction, &expected)?;
-            self.slot(owner, instruction, slot, Arc::new(if callable.pure { Type::Pure } else { Type::Proc }))?;
+            self.slot(owner, instruction, slot, Arc::new(if callable.kind == crate::sema::types::CallableKind::Pure { Type::Function(crate::sema::types::CallableKind::Pure) } else { Type::Function(crate::sema::types::CallableKind::Proc) }))?;
             return Ok(());
         }
         if let schema::ExprView::FunctionRef { function, pure } = decoder.expression_view(instruction)?
@@ -3168,7 +3168,7 @@ impl<'a> ProducerProof<'a> {
                 super::super::FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
                 super::super::FullCallableContract::Scheme(_) => { decoder.function_reference_matches_callable(instruction, &expected)?; true },
             };
-            if pure != selected_pure || pure != callable.pure || !fits
+            if pure != selected_pure || pure != (callable.kind == crate::sema::types::CallableKind::Pure) || !fits
             { return Err(IrVerifyError::new("ground callable producer disagrees with its executable signature")); }
             if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.function(target.index()); }
             return Ok(());
@@ -3300,7 +3300,7 @@ impl<'a> ProducerProof<'a> {
                 let targets = self.function_targets(owner, callee.raw() as usize)?;
                 let contract = self.contract_type(signature.id)?;
                 let Type::Callable(callable) = contract.as_ref() else { return Err(IrVerifyError::new("typed producer call has no callable contract")) };
-                if callable.pure != pure { return Err(IrVerifyError::new("typed producer call kind disagrees with its contract")); }
+                if callable.kind != if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc } { return Err(IrVerifyError::new("typed producer call kind disagrees with its contract")); }
                 if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("typed producer call return disagrees with its checked contract")); }
                 self.expression(owner, callee.raw() as usize, Arc::clone(&contract), false);
                 let arguments = call_values(&decoder, instruction)?;
@@ -3394,7 +3394,7 @@ impl<'a> ProducerProof<'a> {
                 if let Some((base, receiver, callable)) = self.module_callable(&decoder, callee.raw() as usize)? {
                     let effects = callable.sig.effects.concrete()
                         .map_err(|_| IrVerifyError::new("callable effect contract is unresolved"))?;
-                    self.require_callable_effects(&decoder, instruction, effects.as_deref(), callable.pure)?;
+                    self.require_callable_effects(&decoder, instruction, effects.as_deref(), callable.kind == crate::sema::types::CallableKind::Pure)?;
                     if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("module callable result disagrees with its export contract")); }
                     self.expression(owner, base, receiver, false);
                     self.producer_owner_contract(owner)?;
@@ -3415,18 +3415,18 @@ impl<'a> ProducerProof<'a> {
                     && self.store.function_metadata[function_index(owner)?].callable_kind == crate::sema::types::CallableKind::Pure;
                 self.require_callable_effects(&decoder, instruction, None, pure)?;
                 if pure {
-                    self.expression(owner, callee.raw() as usize, Arc::new(Type::Pure), false);
+                    self.expression(owner, callee.raw() as usize, Arc::new(Type::Function(crate::sema::types::CallableKind::Pure)), false);
                 }
                 Ok(())
             }
-            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Pure => {
+            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Function(crate::sema::types::CallableKind::Pure) => {
                 let (target, _, target_pure) = decoder.function_reference_contract(function)?;
                 if !pure || !target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Pure {
                     return Err(IrVerifyError::new("erased pure callee has a non-pure executable target"));
                 }
                 Ok(())
             }
-            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Proc => {
+            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Function(crate::sema::types::CallableKind::Proc) => {
                 let (target, _, target_pure) = decoder.function_reference_contract(function)?;
                 if pure || target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Proc {
                     return Err(IrVerifyError::new("erased proc callee has a non-proc executable target"));
@@ -4215,7 +4215,7 @@ impl<'a> ProducerProof<'a> {
         let (result, parameters, effects, pure) = if let Some(bridge) = crate::stdlib::bridge_contract(op) {
             let effects = bridge.sig.effects.concrete()
                 .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
-            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.pure)
+            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.kind == crate::sema::types::CallableKind::Pure)
         } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan {
             (plan.signature.return_ty.clone(), plan.signature.params.iter().enumerate().map(|(slot, parameter)| {
                 let ty = if plan.word_conversions.iter().any(|conversion| conversion.slot == slot) {

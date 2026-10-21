@@ -260,9 +260,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let key = index.checked_target_key(target)?;
         let definition = index.definition(key)?;
         let matches_checked_type = match checked_type {
-            Type::Pure => definition.kind != CallableKind::Proc,
-            Type::Proc => definition.kind == CallableKind::Proc,
-            Type::Callable(expected) if instantiation.is_some() => expected.pure == (definition.kind != CallableKind::Proc),
+            Type::Function(kind) => definition.kind == *kind,
+            Type::Callable(expected) if instantiation.is_some() => expected.kind == definition.kind,
             Type::Callable(expected) => {
                 let signature = self.compact_function_sig_for_key(key)?;
                 let actual = crate::sema::types::CallableType {
@@ -270,7 +269,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return_ty: Box::new(signature.return_ty.clone()),
                     effects: crate::sema::types::CallableEffects::from_clause(signature.effects.clone()),
                 };
-                expected.mismatch(definition.kind != CallableKind::Proc, &actual, true).is_none()
+                expected.mismatch(definition.kind, &actual, true).is_none()
             }
             _ => return None,
         };
@@ -294,10 +293,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn lower_function_ref(&self, key: LoweredFunctionKey) -> Option<BuildExprId> {
-        let pure = self.function_index().definition(key).map_or_else(
-            || self.functions.is_none_or(|functions| functions.pure_contains(key)),
-            |function| function.kind != CallableKind::Proc,
-        );
+        let pure = match self.function_index().definition(key) {
+            Some(function) => match function.kind {
+                CallableKind::Pure => true,
+                CallableKind::Proc => false,
+                CallableKind::Stream => return None,
+            },
+            None => self.functions.is_none_or(|functions| functions.pure_contains(key)),
+        };
         Some(push_build_row!(
             self,
             expr,
@@ -544,8 +547,8 @@ mod tests {
         let (source, sources, parsed, mut declarations) = checked_program();
         let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
-        assert_eq!(declarations.bodies.expr_types.get(&expression), Some(&Type::Pure));
-        declarations.bodies.expr_types.insert(expression, Type::Proc);
+        assert_eq!(declarations.bodies.expr_types.get(&expression), Some(&Type::Function(crate::sema::types::CallableKind::Pure)));
+        declarations.bodies.expr_types.insert(expression, Type::Function(crate::sema::types::CallableKind::Proc));
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe
@@ -674,11 +677,11 @@ mod tests {
             .get(&span)
             .cloned()
             .expect("the checker publishes the shorthand target and type");
-        assert_eq!(checked_type, Some(Type::Pure));
+        assert_eq!(checked_type, Some(Type::Function(crate::sema::types::CallableKind::Pure)));
         declarations
             .bodies
             .selected_function_references
-            .insert(span, (target, Some(Type::Proc)));
+            .insert(span, (target, Some(Type::Function(crate::sema::types::CallableKind::Proc))));
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe

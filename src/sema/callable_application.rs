@@ -7,12 +7,12 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CallableKindRequirement {
     Pure,
-    Immediate,
+    Effectful,
 }
 
 impl CallableKindRequirement {
     pub(crate) fn accepts(self, kind: CallableKind) -> bool {
-        matches!((self, kind), (_, CallableKind::Pure) | (Self::Immediate, CallableKind::Proc))
+        matches!((self, kind), (_, CallableKind::Pure) | (Self::Effectful, CallableKind::Proc | CallableKind::Stream))
     }
 }
 

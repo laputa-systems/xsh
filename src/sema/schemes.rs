@@ -196,7 +196,6 @@ pub(crate) enum SchemeBuildError {
     RowLacksMismatch,
     UnresolvedEffects,
     UnresolvedCallableApplication,
-    UnsupportedCallableKind,
     UnresolvedSchema,
     DynamicType,
     BodyTypeNotBound,
@@ -967,13 +966,8 @@ impl SchemeType {
                     if monotype.has_schema_contract() {
                         return None;
                     }
-                    let pure = match kind {
-                        crate::sema::types::CallableKind::Pure => true,
-                        crate::sema::types::CallableKind::Proc => false,
-                        crate::sema::types::CallableKind::Stream => return None,
-                    };
                     Some(Type::Callable(Arc::new(super::types::TypedCallable {
-                        pure,
+                        kind: *kind,
                         sig: super::types::CallableType {
                             params: monotype.params().iter().map(|parameter| Some(super::types::CallableParamType {
                                 name: parameter.name,
@@ -1347,7 +1341,7 @@ mod tests {
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: SchemeType::Parameter(value), span }].into(),
                     proc_returns: Arc::from([]),
                     result: SchemeType::Parameter(discarded), effects: EffectContract::variable(effect),
-                    kind: CallableKindRequirement::Immediate, span,
+                    kind: CallableKindRequirement::Effectful, span,
                 }],
             };
             let make = |requirements| CallableScheme::new(vec![f, value, discarded], Vec::new(),

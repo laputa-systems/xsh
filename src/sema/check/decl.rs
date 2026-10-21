@@ -6,6 +6,7 @@ use super::{
     TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+use crate::sema::types::CallableKind;
 use crate::sema::check::{
     Binding, ContractParam, FunctionDeclarationId, FunctionParamSig, ModuleContractEntry,
     ModuleContractEntryKind, PendingCallable, PendingCallableShape, PendingFunctionParamSig,
@@ -1429,10 +1430,10 @@ impl Checker {
                                 && let Some(binding) = self.lookup(name)
                             {
                                 if let Some(alias) = &binding.callable_alias {
-                                    if alias.pure {
-                                        exports.pures.insert(name, alias.signature.clone());
-                                    } else {
-                                        exports.procs.insert(name, alias.signature.clone());
+                                    match alias.kind {
+                                        CallableKind::Pure => { exports.pures.insert(name, alias.signature.clone()); }
+                                        CallableKind::Proc => { exports.procs.insert(name, alias.signature.clone()); }
+                                        CallableKind::Stream => { exports.streams.insert(name, alias.signature.clone()); }
                                     }
                                 } else {
                                     exports.values.insert(name, binding.ty.clone());

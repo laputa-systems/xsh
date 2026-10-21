@@ -35,7 +35,7 @@ pub(super) fn infer_requirement_target(
     };
     if matches!(
         &ty,
-        Type::Any | Type::ErasedRecord | Type::DynamicModule | Type::Pure | Type::Proc
+        Type::Any | Type::ErasedRecord | Type::DynamicModule | Type::Function(_)
     ) {
         return None;
     }

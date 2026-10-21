@@ -1739,7 +1739,7 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
         let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
         program.symbol_owner().with_current(|| {
             let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
-            assert!(matches!(&parameters[0], Type::Record(fields) if fields.len() == 1 && fields.values().all(|ty| ty == &Type::Pure)));
+            assert!(matches!(&parameters[0], Type::Record(fields) if fields.len() == 1 && fields.values().all(|ty| ty == &Type::Function(crate::sema::types::CallableKind::Pure))));
         });
         for callback in [number.clone(), text.clone()] {
             let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), record(callback)], Span::at(source_id, 0)).unwrap().unwrap();
@@ -1846,7 +1846,7 @@ fn prepared_callable_host_call_checks_module_export_parameter_labels() {
             for (name, labels) in [("ordered", ["left", "right"]), ("swapped", ["right", "left"])] {
                 let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap().index();
                 let actual = program.invocation_callable_type(target, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default()).unwrap();
-                assert!(actual.pure);
+                assert!((actual.kind == crate::sema::types::CallableKind::Pure));
                 assert_eq!(actual.sig.params.len(), 2);
                 for (parameter, label) in actual.sig.params.iter().zip(labels) {
                     assert_eq!(parameter.name, Name::intern(label));

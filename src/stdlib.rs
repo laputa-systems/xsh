@@ -65,7 +65,7 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
             function: "type_name",
             op: RuntimeOp::BridgeTypeName,
             contract: || crate::sema::types::TypedCallable {
-                pure: true,
+                kind: crate::sema::types::CallableKind::Pure,
                 sig: crate::sema::types::CallableType {
                     params: vec![crate::sema::types::CallableParamType {
                         name: Name::intern("value"),
