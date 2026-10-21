@@ -4637,15 +4637,18 @@ impl Checker {
         let stream_owner = self.effect_declaration_id(arena, def.body);
         let enclosing_stream_owner = self.stream_origin_owner.replace(stream_owner);
         self.boundary.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
-        // A proc return probe infers only the top-level declaration it targets.
         let inferring = def.return_ty_defaulted
             && self.inferred_returns.is_some()
             && (pure || enclosing_boundary.current_return.is_none());
+        let checking_application_return = !pure && def.return_ty_defaulted && !inferring
+            && self.type_constraints.has_deferred_proc_returns(stream_owner);
         let outer_inference = if inferring {
             None
         } else {
             self.inferred_returns.take()
         };
+        let enclosing_propagations = checking_application_return.then(|| std::mem::take(&mut self.inferred_propagations));
+        if checking_application_return { self.inferred_returns = Some(Vec::new()); }
         let inferred_proc_return = (!pure && def.return_ty_defaulted && !inferring)
             .then(|| self.function_return_types.get(&body_span).cloned())
             .flatten();
@@ -4668,7 +4671,7 @@ impl Checker {
             })
             .flatten();
         self.boundary.expected_schema = self.boundary.return_schema.clone();
-        self.boundary.current_return = Some(super::ReturnContext::Function(return_ty.clone()));
+        self.boundary.current_return = Some(super::ReturnContext::Function(if checking_application_return { Type::Unknown } else { return_ty.clone() }));
         self.boundary.in_pure = pure;
         self.boundary.current_effects = if pure {
             None
@@ -4749,15 +4752,23 @@ impl Checker {
             .stmt_ids(arena.arena.block(def.body).statements)
             .last()
             .map(|tail| arena.arena.core_stmt_id(tail));
-        if inferring {
+        if inferring || checking_application_return {
             let enclosing_tail = std::mem::replace(&mut self.boundary.result_unit_function_tail, body_tail);
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
             self.boundary.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
+                let origin = self.stream_block_origin(arena, def.body);
                 self.inferred_returns
                     .as_mut()
                     .unwrap()
-                    .push((tail, body_span));
+                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin });
+            }
+            if checking_application_return {
+                let candidates = self.inferred_returns.take().unwrap();
+                let propagations = std::mem::take(&mut self.inferred_propagations);
+                let actual = self.normalize_inferred_proc_returns(stream_owner, candidates, &propagations);
+                self.inferred_propagations = enclosing_propagations.unwrap();
+                self.expect_type(&return_ty, &actual, body_span);
             }
         } else {
             let enclosing_tail = std::mem::replace(
@@ -5714,10 +5725,12 @@ impl Checker {
                 DiagnosticCode::CheckContextScopeEscape,
             );
         }
-        if self.inference_reachable
-            && let Some(returns) = &mut self.inferred_returns
-        {
-            returns.push((actual.clone(), span));
+        if self.inference_reachable && self.inferred_returns.is_some() {
+            let origin = match value {
+                Some(ArenaExprOrRun::Expr(expression)) => self.stream_expr_origin(arena, expression),
+                _ => super::stream_origins::StreamOrigins::default(),
+            };
+            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin });
         }
         if !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));

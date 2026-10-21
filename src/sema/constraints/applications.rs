@@ -12,10 +12,16 @@ static NEXT_APPLICATION: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CallableApplicationId(u64);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum CallableApplicationScope {
     Declaration(EffectDeclarationId),
     Invocation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct CallableApplicationReference {
+    pub(crate) scope: CallableApplicationScope,
+    pub(crate) ordinal: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +43,7 @@ impl From<ConstraintResolutionError> for CallableApplicationError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ScopedCallableApplication {
     pub(super) owner: CallableApplicationScope,
+    ordinal: u32,
     pub(super) application: CallableApplication<Type, super::EffectVariableId>,
     pub(super) binding: Option<StaticArgumentBinding>,
 }
@@ -50,6 +57,7 @@ pub(super) enum ApplicationDependency {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CallableApplications {
     pub(super) entries: BTreeMap<CallableApplicationId, ScopedCallableApplication>,
+    scopes: BTreeMap<CallableApplicationScope, Vec<CallableApplicationId>>,
     source_sites: BTreeMap<(Option<EffectDeclarationId>, crate::source::Span), CallableApplicationId>,
     watchers: BTreeMap<ApplicationDependency, BTreeSet<CallableApplicationId>>,
     pending: VecDeque<CallableApplicationId>,
@@ -175,7 +183,14 @@ mod tests {
                 Ok(())
             }).unwrap();
             assert_eq!(constraints.applications, before);
+            let reference = constraints.callable_application_reference(application_id).unwrap();
+            assert_eq!(reference.scope, owner());
+            assert_eq!(reference.ordinal, 0);
+            assert_eq!(constraints.referenced_callable_application(reference).unwrap(), application_id);
+            assert!(TypeConstraints::default().referenced_callable_application(reference).is_err());
             let envelope = constraints.defer_proc_application_return(application_id, &[], span(), 1).unwrap();
+            assert_eq!(constraints.defer_proc_application_return(application_id, &[], span(), 1).unwrap(), envelope);
+            assert_eq!(constraints.applications.entries[&application_id].application.proc_returns.len(), 1);
             let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(&[callee, value, envelope], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration).unwrap();
             assert_eq!(generalized.type_parameters.len(), 4);
             let mut types = generalized.types.into_iter();
@@ -443,7 +458,12 @@ pub(super) enum ApplicationChange {
 impl CallableApplications {
     pub(super) fn rollback(&mut self, change: ApplicationChange) {
         match change {
-            ApplicationChange::Fresh(id) => { self.entries.remove(&id); }
+            ApplicationChange::Fresh(id) => {
+                let application = self.entries.remove(&id).expect("application belongs to its journal");
+                let scope = self.scopes.get_mut(&application.owner).expect("application scope belongs to its journal");
+                assert_eq!(scope.pop(), Some(id));
+                if scope.is_empty() { self.scopes.remove(&application.owner); }
+            }
             ApplicationChange::Source(site, id) => { assert_eq!(self.source_sites.remove(&site), Some(id)); }
             ApplicationChange::Binding(id, binding) => {
                 self.entries.get_mut(&id).expect("application belongs to its journal").binding = binding;
@@ -498,6 +518,26 @@ impl CallableApplications {
 }
 
 impl TypeConstraints {
+    pub(crate) fn callable_application_reference(&self, id: CallableApplicationId) -> Result<CallableApplicationReference, CallableApplicationError> {
+        let application = self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        Ok(CallableApplicationReference { scope: application.owner, ordinal: application.ordinal })
+    }
+
+    pub(crate) fn referenced_callable_application(&self, reference: CallableApplicationReference) -> Result<CallableApplicationId, CallableApplicationError> {
+        self.applications.scopes.get(&reference.scope).and_then(|scope| scope.get(reference.ordinal as usize)).copied()
+            .ok_or_else(|| ConstraintResolutionError::ForeignVariable.into())
+    }
+
+    pub(crate) fn source_callable_application_reference(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Result<Option<CallableApplicationReference>, CallableApplicationError> {
+        let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
+        self.applications.source_sites.get(&(owner, span)).copied().map(|id| self.callable_application_reference(id)).transpose()
+    }
+
+    pub(crate) fn has_deferred_proc_returns(&self, owner: EffectDeclarationId) -> bool {
+        self.applications.scopes.get(&CallableApplicationScope::Declaration(owner)).into_iter().flatten()
+            .any(|id| !self.applications.entries[id].application.proc_returns.is_empty())
+    }
+
     pub(crate) fn source_callable_application(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Option<&CallableApplication<Type, super::EffectVariableId>> {
         let owner = match scope { CallableApplicationScope::Declaration(owner) => Some(owner), CallableApplicationScope::Invocation => None };
         self.applications.source_sites.get(&(owner, span)).and_then(|id| self.applications.entries.get(id)).map(|entry| &entry.application)
@@ -552,6 +592,19 @@ impl TypeConstraints {
     ) -> Result<Type, CallableApplicationError> {
         if !self.applications.entries.contains_key(&id) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
         self.commit_constraint_transaction(|this| {
+            if let Some(previous) = this.applications.entries[&id].application.proc_returns.iter().find(|envelope| envelope.span == span).cloned() {
+                if previous.propagated_errors.len() != propagated_errors.len() { return Err(CallableApplicationError::SourceShape(span)); }
+                this.apply_journaled(|this, changes| {
+                    for (expected, actual) in previous.propagated_errors.iter().zip(propagated_errors) {
+                        this.constrain_inner(expected, actual, span, false, 0, changes)
+                            .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
+                                expected, actual, contribution: span, initializer: None, established: None, resolution_error,
+                            }))?;
+                    }
+                    Ok::<_, CallableApplicationError>(())
+                })?;
+                return Ok(previous.result);
+            }
             let result = this.fresh_at_level(span, level);
             let envelope = crate::sema::callable_application::ProcReturnEnvelope {
                 result: result.clone(), propagated_errors: propagated_errors.to_vec().into(), span,
@@ -661,7 +714,10 @@ impl TypeConstraints {
         self.resolve_effect(&application.effects)?;
         let id = CallableApplicationId(NEXT_APPLICATION.fetch_add(1, Ordering::Relaxed));
         self.apply_journaled(|this, changes| {
-            assert!(this.applications.entries.insert(id, ScopedCallableApplication { owner, application, binding: None }).is_none());
+            let scope = this.applications.scopes.entry(owner).or_default();
+            let ordinal = u32::try_from(scope.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?;
+            scope.push(id);
+            assert!(this.applications.entries.insert(id, ScopedCallableApplication { owner, ordinal, application, binding: None }).is_none());
             changes.push(ConstraintChange::Application(ApplicationChange::Fresh(id)));
             for dependency in dependencies { this.applications.watch(dependency, id, changes); }
             this.applications.enqueue(id, changes);

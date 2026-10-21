@@ -17,7 +17,7 @@ mod effect_constraints;
 pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId};
 #[path = "constraints/applications.rs"]
 mod application_constraints;
-pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope};
+pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);

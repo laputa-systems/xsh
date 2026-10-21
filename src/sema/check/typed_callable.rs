@@ -474,6 +474,16 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn inferred_callable_proc_formal_returns_keep_result_values_as_data() {
+        accepts("pure identity(payload) { payload }\nproc keep(action, value) { let _ = action(value); value }\nlet integer: Int = keep(identity, 7)?\nlet nested: Result[Int] = keep(identity, Ok(7))?\n");
+    }
+
+    #[test]
+    fn inferred_callable_proc_result_aliases_preserve_application_envelopes() {
+        accepts("pure plain(payload: Int) -> Int { payload }\npure result(input: Int) -> Result[Int] { Ok(input) }\nproc invoke(action, value) { let returned = action(value); returned }\nlet integer: Result[Int] = invoke(plain, 7)\nlet retained: Result[Int] = invoke(result, 8)\n");
+    }
+
+    #[test]
     fn inferred_callable_returned_values_keep_the_same_constraint_binding() {
         accepts("pure relay(action) { action }\npure apply(action, value) { let selected = relay(action); selected(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n");
     }

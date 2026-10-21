@@ -10,6 +10,13 @@ use crate::syntax::arena::{
     PatternId, StmtId,
 };
 
+#[derive(Clone)]
+pub(super) struct InferredReturn {
+    pub(super) ty: Type,
+    pub(super) span: Span,
+    pub(super) origin: super::stream_origins::StreamOrigins,
+}
+
 struct ReturnDeclaration {
     name: Name,
     names: Vec<Name>,
@@ -542,10 +549,10 @@ impl Checker {
                 self.check_body_before_callers(program, source, decl, &declarations, def);
                 let candidates = self.inferred_returns.take().unwrap();
                 let mut inferred = None;
-                for (candidate, span) in candidates {
+                for candidate in candidates {
                     inferred = Some(match inferred {
-                        None => candidate,
-                        Some(previous) => self.unify_inferred_returns(previous, candidate, span),
+                        None => candidate.ty,
+                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
@@ -685,7 +692,7 @@ impl Checker {
         let propagated = std::mem::take(&mut probe.inferred_propagations);
         if !candidates
             .iter()
-            .map(|(ty, _)| ty)
+            .map(|candidate| &candidate.ty)
             .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
             .any(produces_value)
         {
@@ -693,16 +700,12 @@ impl Checker {
             self.update_pending_return_type(program, def, ty);
             return;
         }
-        // Once a completion produces a value, a statement completion conflicts
-        // with it as any other disagreeing completion does.
+        if !clean { return; }
+        self.type_constraints = probe.type_constraints;
         self.return_conflicts = Some(conflicts);
-        let mut inferred: Option<Type> = None;
-        for (candidate, span) in candidates {
-            inferred = Some(match inferred {
-                None => candidate,
-                Some(previous) => self.unify_inferred_returns(previous, candidate, span),
-            });
-        }
+        let owner = self.effect_declaration_id(program, def.body);
+        let inferred = self.normalize_inferred_proc_returns(owner, candidates, &propagated);
+
         let conflicts = self.return_conflicts.take().unwrap_or_default();
         let body_span = program.arena.span(program.arena.block(def.body).span);
         if let Some((left, right, span)) = conflicts.into_iter().next() {
@@ -722,24 +725,70 @@ impl Checker {
             self.update_pending_return_type(program, def, Type::Invalid);
             return;
         }
-        if !clean {
-            return;
-        }
         let ty = if let Some(boundary) = boundary {
             self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), DiagnosticCode::CheckRequiredReturn);
             Type::Invalid
         } else {
-            match inferred.unwrap_or(Type::Invalid) {
+            match inferred {
                 Type::Invalid => Type::Invalid,
                 ty if !return_type_is_concrete(&ty) => {
                     self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                     Type::Invalid
                 }
-                ty => inferred_proc_return_envelope(ty, &propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>()),
+                ty => ty,
             }
         };
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
+    }
+
+    pub(super) fn normalize_inferred_proc_returns(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        candidates: Vec<InferredReturn>,
+        propagated: &[(Type, Span)],
+    ) -> Type {
+        let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
+        let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
+        if !candidates.iter().any(|candidate| candidate.origin.return_applications().iter().any(Option::is_some)) {
+            let mut inferred = None;
+            for candidate in candidates {
+                inferred = Some(match inferred {
+                    None => candidate.ty,
+                    Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
+                });
+            }
+            return inferred.map(|ty| inferred_proc_return_envelope(ty, &errors)).unwrap_or(Type::Invalid);
+        }
+        let mut inferred = None;
+        for candidate in candidates {
+            for application in candidate.origin.return_applications() {
+                let ty = if let Some(reference) = application {
+                    let Some(level) = level else {
+                        self.error(owner.body, "proc application return has no declaration inference scope", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    };
+                    if reference.scope != crate::sema::constraints::CallableApplicationScope::Declaration(owner) {
+                        self.error(candidate.span, "proc return application belongs to another declaration", DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                    match self.type_constraints.referenced_callable_application(reference)
+                        .and_then(|id| self.type_constraints.defer_proc_application_return(id, &errors, candidate.span, level))
+                    {
+                        Ok(ty) => ty,
+                        Err(error) => {
+                            self.error(candidate.span, &format!("proc return application requirement failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            return Type::Invalid;
+                        }
+                    }
+                } else { inferred_proc_return_envelope(candidate.ty.clone(), &errors) };
+                inferred = Some(match inferred {
+                    None => ty,
+                    Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
+                });
+            }
+        }
+        inferred.unwrap_or(Type::Invalid)
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {

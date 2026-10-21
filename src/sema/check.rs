@@ -1831,7 +1831,7 @@ pub struct Checker {
     pipeline_hole_types: BTreeMap<Span, Type>,
     /// Collected on first use; a checker checks one program.
     return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
-    inferred_returns: Option<Vec<(Type, Span)>>,
+    inferred_returns: Option<Vec<infer_return::InferredReturn>>,
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
