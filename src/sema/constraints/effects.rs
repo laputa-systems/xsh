@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(constraints.resolve_effect(&EffectContract::variable(first)).unwrap(), finite([Effect::Env]));
         constraints.finish_effect_constraints().unwrap();
         let callable = Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-            pure: false,
+            kind: crate::sema::types::CallableKind::Proc,
             sig: crate::sema::types::CallableType {
                 params: Vec::new(), return_ty: Box::new(Type::Int),
                 effects: crate::sema::types::CallableEffects::from_contract(EffectContract::variable(first)),
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(constraints.generalize_types(&[callable], 0).unwrap().types[0].closed_ground_type(), Some(resolved));
         let bound = constraints.fresh_effect_at_level(span(), 1);
         let callable = |effects| Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-            pure: false,
+            kind: crate::sema::types::CallableKind::Proc,
             sig: crate::sema::types::CallableType {
                 params: Vec::new(), return_ty: Box::new(Type::Int),
                 effects: crate::sema::types::CallableEffects::from_contract(effects),
@@ -466,7 +466,7 @@ mod tests {
                 fresh = Some(id);
                 let captured = constraints.fresh(span());
                 let callback = Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                    pure: false,
+                    kind: crate::sema::types::CallableKind::Proc,
                     sig: crate::sema::types::CallableType {
                         params: Vec::new(), return_ty: Box::new(Type::Int),
                         effects: crate::sema::types::CallableEffects::from_contract(EffectContract::variable(id)),

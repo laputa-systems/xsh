@@ -54,8 +54,7 @@ impl Type {
                 | Self::Path
                 | Self::Status
                 | Self::EnvPathList
-                | Self::Pure
-                | Self::Proc
+                | Self::Function(_)
                 | Self::Command
                 | Self::Unit => {}
             }

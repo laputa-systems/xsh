@@ -44,7 +44,7 @@ use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, 
 use crate::sema::check::{BindingId, CompactDeclOutput};
 use crate::sema::schemes::SchemeType;
 use crate::sema::types::{
-    CallableParamType, CallableType, ModuleExportType, Type, merge_list_literal_item_ty,
+    CallableKind, CallableParamType, CallableType, ModuleExportType, Type, merge_list_literal_item_ty,
 };
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName, Symbol};
@@ -5200,8 +5200,8 @@ pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
         LoweredType::FsRoot => Type::FsRoot,
         LoweredType::FsLock => Type::FsLock,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
-        LoweredType::Pure => Type::Pure,
-        LoweredType::Proc => Type::Proc,
+        LoweredType::Pure => Type::Function(crate::sema::types::CallableKind::Pure),
+        LoweredType::Proc => Type::Function(crate::sema::types::CallableKind::Proc),
         LoweredType::Error => Type::Error,
         LoweredType::Record => Type::ErasedRecord,
         LoweredType::Module => Type::DynamicModule,
@@ -5232,7 +5232,7 @@ fn executable_type(ty: &Type) -> Type {
         }
         Type::Callable(callable) => {
             Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                pure: callable.pure,
+                kind: callable.kind,
                 sig: executable_callable_type(&callable.sig),
             }))
         }
@@ -5315,10 +5315,11 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::FsLock => LoweredType::FsLock,
         Type::Stream(_) => LoweredType::Stream,
         Type::Set(_) => LoweredType::Set,
-        Type::Pure => LoweredType::Pure,
-        Type::Proc => LoweredType::Proc,
-        Type::Callable(callable) if callable.pure => LoweredType::Pure,
-        Type::Callable(_) => LoweredType::Proc,
+        Type::Function(crate::sema::types::CallableKind::Pure) => LoweredType::Pure,
+        Type::Function(crate::sema::types::CallableKind::Proc) => LoweredType::Proc,
+        Type::Callable(callable) if callable.kind == crate::sema::types::CallableKind::Pure => LoweredType::Pure,
+        Type::Callable(callable) if callable.kind == crate::sema::types::CallableKind::Proc => LoweredType::Proc,
+        Type::Callable(_) | Type::Function(crate::sema::types::CallableKind::Stream) => return None,
         Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
@@ -5341,7 +5342,9 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
 
 fn typed_callable_purity(ty: &Type) -> Option<bool> {
     match ty {
-        Type::Callable(callable) => Some(callable.pure),
+        Type::Callable(callable) => match callable.kind {
+            CallableKind::Pure => Some(true), CallableKind::Proc => Some(false), CallableKind::Stream => None,
+        },
         Type::Validated(validated) => typed_callable_purity(validated.base()),
         _ => None,
     }
@@ -6475,7 +6478,7 @@ impl<'a> FullDecoder<'a> {
         let signature = semantic
             .typed_callable_signature(ty)
             .map_err(|_| IrVerifyError::new("typed call signature is not a callable type"))?;
-        if semantic.typed_callable_is_pure(ty)? != pure {
+        if semantic.typed_callable_kind(ty)? != if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc } {
             return Err(IrVerifyError::new(
                 "typed call kind does not match its callable type",
             ));
@@ -8058,7 +8061,7 @@ impl<'a> FullDecoder<'a> {
                     ModuleExportType::Proc { sig, optional: false },
                 ) => {
                     let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                        pure: matches!(checked, ModuleExportType::Pure { .. }),
+                        kind: if matches!(checked, ModuleExportType::Pure { .. }) { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                         sig: sig.clone(),
                     }));
                     self.verify_registered_module_value(
@@ -9247,8 +9250,8 @@ impl<'a> FullDecoder<'a> {
             if let Type::Callable(callable) = expected
                 && actual.as_ref().is_none_or(|actual| {
                     matches!(
-                        (actual, callable.pure),
-                        (Type::Pure, true) | (Type::Proc, false)
+                        (actual, (callable.kind == crate::sema::types::CallableKind::Pure)),
+                        (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                     )
                 })
             {
@@ -9266,8 +9269,8 @@ impl<'a> FullDecoder<'a> {
             if let schema::ExprView::Param(slot) = self.expression_view(instruction)?
                 && let Type::Callable(callable) = expected
                 && matches!(
-                    (actual_type, callable.pure),
-                    (Type::Pure, true) | (Type::Proc, false)
+                    (actual_type, (callable.kind == crate::sema::types::CallableKind::Pure)),
+                    (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                 )
                 && let Some(initializer) = self.local_function_ref_initializer(slot)?
             {
@@ -9299,8 +9302,8 @@ impl<'a> FullDecoder<'a> {
                 } else if let Type::Callable(callable) = expected
                     && actual.as_ref().is_none_or(|actual| {
                         matches!(
-                            (actual, callable.pure),
-                            (Type::Pure, true) | (Type::Proc, false)
+                            (actual, (callable.kind == crate::sema::types::CallableKind::Pure)),
+                            (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                         )
                     })
                 {
@@ -9322,7 +9325,7 @@ impl<'a> FullDecoder<'a> {
                     ));
                 };
                 if target_pure != pure
-                    || callable.pure != pure
+                    || (callable.kind == crate::sema::types::CallableKind::Pure) != pure
                     || !self
                         .store
                         .semantic
@@ -9343,10 +9346,10 @@ impl<'a> FullDecoder<'a> {
                 let actual = match receiver {
                     Some(Type::Module(module)) => match module.exports.get(&Name::intern(name)) {
                         Some(ModuleExportType::Pure { sig, optional: false }) => {
-                            Some(crate::sema::types::TypedCallable { pure: true, sig: sig.clone() })
+                            Some(crate::sema::types::TypedCallable { kind: crate::sema::types::CallableKind::Pure, sig: sig.clone() })
                         }
                         Some(ModuleExportType::Proc { sig, optional: false }) => {
-                            Some(crate::sema::types::TypedCallable { pure: false, sig: sig.clone() })
+                            Some(crate::sema::types::TypedCallable { kind: crate::sema::types::CallableKind::Proc, sig: sig.clone() })
                         }
                         _ => None,
                     },
@@ -9669,7 +9672,7 @@ impl<'a> FullDecoder<'a> {
                 self.checked_expression_type(instruction as usize)?.as_ref().is_some_and(|actual| self.checked_type_fits(actual, expected))
             }
         };
-        if target_pure != pure || callable.pure != pure || !fits {
+        if target_pure != pure || (callable.kind == crate::sema::types::CallableKind::Pure) != pure || !fits {
             return Err(IrVerifyError::new(
                 "checked function reference tail disagrees with its target signature",
             ));
@@ -10434,7 +10437,7 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::FunctionRef { function, pure } => {
                 let (_, _, actual_pure) = self.function_reference_contract(function)?;
                 if actual_pure != pure { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
-                Ok(Some(if pure { Type::Pure } else { Type::Proc }))
+                Ok(Some(if pure { Type::Function(crate::sema::types::CallableKind::Pure) } else { Type::Function(crate::sema::types::CallableKind::Proc) }))
             }
             schema::ExprView::Int(_) => Ok(Some(Type::Int)),
             schema::ExprView::Str(_) => Ok(Some(Type::Str)),
@@ -11155,8 +11158,8 @@ impl<'a> FullDecoder<'a> {
                     ));
                 } else if let Type::Callable(callable) = &ty
                     && matches!(
-                        (actual_type, callable.pure),
-                        (Type::Pure, true) | (Type::Proc, false)
+                        (actual_type, (callable.kind == crate::sema::types::CallableKind::Pure)),
+                        (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                     )
                 {
                     return self.local_function_ref_matches_type(slot, &ty);
@@ -12563,7 +12566,7 @@ impl<'a> FullDecoder<'a> {
             FullTag::ExprTypedCall => {
                 charge(1)?;
                 let schema::ExprView::TypedCall { signature, pure, .. } = self.expression_view(instruction)? else { unreachable!() };
-                return Ok(!pure || !self.store.semantic.typed_callable_is_pure(signature.id)?);
+                return Ok(!pure || self.store.semantic.typed_callable_kind(signature.id)? != crate::sema::types::CallableKind::Pure);
             }
             FullTag::ExprModuleCall => {
                 charge(1)?;
@@ -17581,7 +17584,7 @@ impl FullVerifier {
                 let FullCallableContract::Ground(signature) = function.contract else {
                     return Err(IrVerifyError::new("private bridge declaration has no ground contract"));
                 };
-                if store.function_metadata[index].flags & 1 != u8::from(!contract.pure)
+                if store.function_metadata[index].flags & 1 != u8::from(contract.kind != crate::sema::types::CallableKind::Pure)
                     || !store.semantic.signature_matches_callable(signature, &contract.sig)?
                 {
                     return Err(IrVerifyError::new("private bridge declaration differs from its native contract"));
@@ -23029,7 +23032,7 @@ assert first([], [7])? == {key: "", text: "empty"}
         let words = forged.store.data[base].range().bounds(forged.store.extra.len()).unwrap();
         assert_eq!(forged.store.extra[words.start], 0);
         forged.store.extra[words.start] = 1;
-        let pure = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Pure).unwrap();
+        let pure = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Function(crate::sema::types::CallableKind::Pure)).unwrap();
         forged.store.checked_expr_types.retain(|fact| fact.instruction != projection);
         let insert = forged.store.checked_expr_types.partition_point(|fact| fact.instruction < projection);
         forged.store.checked_expr_types.insert(insert, FullCheckedExprType { instruction: projection, type_id: pure, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(function).unwrap())) });
@@ -23194,7 +23197,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             let apply = scheme_fixture_root_function(&forged, "apply");
             forged.store.function_metadata[apply].callable_kind = crate::sema::types::CallableKind::Pure;
             forged.store.function_metadata[apply].flags &= !1;
-            let ty = Type::Record(Arc::new(std::collections::BTreeMap::from([(Name::intern("handle"), Type::Pure)])));
+            let ty = Type::Record(Arc::new(std::collections::BTreeMap::from([(Name::intern("handle"), Type::Function(crate::sema::types::CallableKind::Pure))])));
             let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
             let captures = forged.store.functions[apply].captures.bounds(forged.store.captures.len()).unwrap();
             let capture = captures.into_iter().find(|&index| forged.store.string(forged.store.captures[index].name).unwrap() == "box").unwrap();
@@ -23286,7 +23289,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             }
             let mut forged = (*program).clone();
             let captures = forged.store.functions[install].captures.bounds(forged.store.captures.len()).unwrap();
-            let proc_type = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Proc).unwrap();
+            let proc_type = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Function(crate::sema::types::CallableKind::Proc)).unwrap();
             let capture = captures.into_iter().find(|&index| forged.store.string(forged.store.captures[index].name).unwrap() == "handle").unwrap();
             forged.store.captures[capture].type_id = proc_type;
             let error = FullVerifier::verify(&forged).unwrap_err();
@@ -23486,7 +23489,7 @@ assert apply(40) == 42
             FullVerifier::verify(&wrong_return).expect_err("a factory call cannot change its declared return contract");
             let mut wrong_kind = (*program).clone();
             let mut changed = (*contract).clone();
-            changed.pure = true;
+            changed.kind = crate::sema::types::CallableKind::Pure;
             let ty = SemanticPoolBuilder::default().intern_type(&mut wrong_kind.store.semantic, &Type::Callable(Arc::new(changed))).unwrap();
             wrong_kind.store.extra[words.start + 1] = 1;
             wrong_kind.store.extra[words.start + 2] = ty.raw();
@@ -23534,7 +23537,7 @@ assert apply(40) == 42
             let mut forged = (*program).clone();
             forged.store.checked_expr_types.retain(|fact| fact.is_contract());
             FullVerifier::verify(&forged).unwrap();
-            let nullable = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Optional(Box::new(Type::Pure))).unwrap();
+            let nullable = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Optional(Box::new(Type::Function(crate::sema::types::CallableKind::Pure)))).unwrap();
             let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
             forged.store.extra[words.start + 1] = nullable.raw();
             let error = FullVerifier::verify(&forged).unwrap_err();
@@ -24270,9 +24273,9 @@ assert order == "LU123"
                 && program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
             let fact = program.store.checked_expr_types.iter().find(|fact| fact.instruction == target.instruction).unwrap();
             let Type::Callable(callable) = program.store.semantic.to_type(fact.type_id).unwrap() else { panic!("materialized reference has a callable contract") };
-            assert!(callable.pure);
+            assert!((callable.kind == crate::sema::types::CallableKind::Pure));
             let Type::Callable(nested) = &callable.sig.params[0].ty else { panic!("the actual input is a nested callable") };
-            assert!(!nested.pure);
+            assert_eq!(nested.kind, crate::sema::types::CallableKind::Proc);
             assert_eq!(nested.sig.effects, crate::sema::types::CallableEffects::finite([Effect::Env]));
             let owner_range = program.store.function_instruction_range(number).unwrap();
             let slot_range = program.store.functions[number].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
@@ -24288,7 +24291,7 @@ assert order == "LU123"
             };
             let mut wrong_kind = program.clone();
             let mut changed = callable.clone();
-            Arc::make_mut(&mut changed).pure = false;
+            Arc::make_mut(&mut changed).kind = crate::sema::types::CallableKind::Proc;
             coordinate_claim(&mut wrong_kind, changed);
             let payload = program.store.data[target.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
             assert_eq!(program.store.extra[payload.end - 1], 1);
@@ -40811,7 +40814,7 @@ print $value
         let calls = function_instruction_indices(&program, "digest", FullTag::ExprModuleCall);
         assert_eq!(calls.len(), 1);
         let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-            pure: true,
+            kind: crate::sema::types::CallableKind::Pure,
             sig: crate::sema::types::CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Int),
@@ -40892,7 +40895,7 @@ test test_typed_callable_literal_containers {
         FullVerifier::verify(&program).unwrap();
 
         let scale = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-            pure: true,
+            kind: crate::sema::types::CallableKind::Pure,
             sig: crate::sema::types::CallableType {
                 params: vec![crate::sema::types::CallableParamType {
                     name: program_name(&program, "n"),
@@ -42635,7 +42638,7 @@ pure construct_failure() -> Result[Unit, Failure] {
     #[test]
     fn verifier_rejects_typed_callable_type_patterns() {
         let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-            pure: true,
+            kind: crate::sema::types::CallableKind::Pure,
             sig: CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
@@ -45185,8 +45188,8 @@ proc local() [env, error] -> Int {
                 LoweredType::Stream,
                 Type::Stream(Box::new(Type::Any)),
             ),
-            (LoweredType::Pure, Type::Pure),
-            (LoweredType::Proc, Type::Proc),
+            (LoweredType::Pure, Type::Function(crate::sema::types::CallableKind::Pure)),
+            (LoweredType::Proc, Type::Function(crate::sema::types::CallableKind::Proc)),
             (LoweredType::Error, Type::Error),
             (LoweredType::Record, Type::ErasedRecord),
             (LoweredType::Module, Type::DynamicModule),
@@ -45213,7 +45216,7 @@ proc local() [env, error] -> Int {
 
         let callable = |pure| {
             Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                pure,
+                kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                 sig: CallableType {
                     params: Vec::new(),
                     return_ty: Box::new(Type::Unit),

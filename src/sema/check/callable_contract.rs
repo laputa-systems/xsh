@@ -245,7 +245,7 @@ impl CheckedCallableContract {
             if parameter.defaulted || parameter.rest || parameter.schema_expectation.as_ref().is_some_and(schema_has_obligations) { return None; }
             Some(CallableParamType { name: parameter.name, ty: parameter.ty.closed_ground_type()?, defaulted: false, rest: false })
         }).collect::<Option<Vec<_>>>()?;
-        let ty = Type::Callable(Arc::new(TypedCallable { pure, sig: CallableType {
+        let ty = Type::Callable(Arc::new(TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig: CallableType {
             params, return_ty: Box::new(self.scheme.return_type().closed_ground_type()?),
             effects: crate::sema::types::CallableEffects::from_contract(if pure { crate::sema::effects::EffectContract::Unknown }
                 else { self.scheme.effects().contract().substitute(|_| Err(())).ok()? }),

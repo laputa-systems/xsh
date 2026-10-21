@@ -423,10 +423,10 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
-        if base_ty == Type::Proc {
+        if base_ty == Type::Function(crate::sema::types::CallableKind::Proc) {
             return self.check_proc_call_method_arena(arena, source, name, args, span);
         }
-        if base_ty == Type::Pure {
+        if base_ty == Type::Function(crate::sema::types::CallableKind::Pure) {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
         // Every other concrete receiver has no methods. Accepting the call as

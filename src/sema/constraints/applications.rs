@@ -48,7 +48,7 @@ impl std::fmt::Display for CallableApplicationError {
             Self::Constraint(conflict) => write!(formatter, "expected `{}`, found `{}`", conflict.expected, conflict.actual),
             Self::Layout(error) => formatter.write_str(&error.message),
             Self::Kind { required, actual } => {
-                let required = match required { CallableKindRequirement::Pure => "pure", CallableKindRequirement::Immediate => "pure or proc" };
+                let required = match required { CallableKindRequirement::Pure => "pure", CallableKindRequirement::Effectful => "pure or proc" };
                 let actual = match actual { CallableKind::Pure => "pure", CallableKind::Proc => "proc", CallableKind::Stream => "stream" };
                 write!(formatter, "requires a {required} callable, found a {actual} callable")
             }
@@ -102,7 +102,7 @@ mod tests {
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
     fn owner() -> CallableApplicationScope { CallableApplicationScope::Declaration(EffectDeclarationId { namespace: None, body: span() }) }
     fn callback(pure: bool, name: &str, ty: Type, default: bool, rest: bool) -> Type {
-        Type::Callable(Arc::new(TypedCallable { pure, sig: CallableType {
+        Type::Callable(Arc::new(TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig: CallableType {
             params: vec![CallableParamType { name: Name::intern(name), ty: if rest { Type::List(Box::new(ty.clone())) } else { ty.clone() }, defaulted: false, rest }]
                 .into_iter().chain(default.then(|| CallableParamType { name: Name::intern("scale"), ty: Type::Int, defaulted: true, rest: false })).collect(),
             return_ty: Box::new(if rest { Type::List(Box::new(ty)) } else { ty }),
@@ -124,7 +124,7 @@ mod tests {
     fn generic_application_scheme_with_scope(constraints: &mut TypeConstraints) -> (crate::sema::schemes::CallableScheme, super::super::CallableGeneralizationScope) {
         let callee = constraints.fresh_at_level(span(), 1);
         let value = constraints.fresh_at_level(span(), 1);
-        let application = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Immediate);
+        let application = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Effectful);
         constraints.register_callable_application(owner(), application).unwrap();
         let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
         let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(
@@ -174,7 +174,7 @@ mod tests {
             let first_value = constraints.fresh_at_level(span(), 1);
             let second_value = constraints.fresh_at_level(span(), 1);
             let first_application = application(&mut constraints, first_callback.clone(), vec![(StaticArgumentKind::Positional, first_value.clone())], CallableKindRequirement::Pure);
-            let second_application = application(&mut constraints, second_callback.clone(), vec![(StaticArgumentKind::Named(Name::intern("payload")), second_value.clone())], CallableKindRequirement::Immediate);
+            let second_application = application(&mut constraints, second_callback.clone(), vec![(StaticArgumentKind::Named(Name::intern("payload")), second_value.clone())], CallableKindRequirement::Effectful);
             let first_id = constraints.register_callable_application(CallableApplicationScope::Declaration(first_owner), first_application).unwrap();
             let second_id = constraints.register_callable_application(CallableApplicationScope::Declaration(second_owner), second_application).unwrap();
             let owners = BTreeSet::from([first_owner, second_owner]);
@@ -278,7 +278,7 @@ mod tests {
             ] {
                 let mut constraints = TypeConstraints::default();
                 let callee = constraints.fresh_at_level(span(), 1);
-                let requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Immediate);
+                let requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Effectful);
                 let application_id = constraints.register_callable_application(owner(), requirement.clone()).unwrap();
                 let alias = constraints.fresh_at_level(span(), 1);
                 constraints.constrain(&alias, &requirement.result, span()).unwrap();
@@ -301,7 +301,7 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let callee = constraints.fresh_at_level(span(), 1);
             let value = constraints.fresh_at_level(span(), 1);
-            let requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Immediate);
+            let requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Effectful);
             let application_id = constraints.register_callable_application(owner(), requirement.clone()).unwrap();
             let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
             let before = constraints.applications.clone();
@@ -488,7 +488,7 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let callee = constraints.fresh_at_level(span(), 1);
             let value = constraints.fresh_at_level(span(), 1);
-            let mut requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Immediate);
+            let mut requirement = application(&mut constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Effectful);
             requirement.effects = EffectContract::variable(constraints.fresh_effect_at_level(span(), 0));
             constraints.register_callable_application(owner(), requirement).unwrap();
             let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
@@ -550,7 +550,7 @@ mod tests {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();
             let actual = callback(true, "numbers", Type::Int, false, true);
-            let requirement = application(&mut constraints, actual.clone(), vec![(StaticArgumentKind::Positional, Type::Int), (StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Immediate);
+            let requirement = application(&mut constraints, actual.clone(), vec![(StaticArgumentKind::Positional, Type::Int), (StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Effectful);
             let id = constraints.register_callable_application(owner(), requirement.clone()).unwrap();
             constraints.solve_callable_applications().unwrap();
             assert_eq!(constraints.resolve(&requirement.result).unwrap(), Type::List(Box::new(Type::Int)));
@@ -573,12 +573,12 @@ mod tests {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();
             let actual = callback(false, "payload", Type::Int, true, false);
-            let requirement = application(&mut constraints, actual, vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Immediate);
+            let requirement = application(&mut constraints, actual, vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Effectful);
             constraints.register_callable_application(owner(), requirement.clone()).unwrap();
             constraints.solve_callable_applications().unwrap();
             assert_eq!(constraints.resolve_effect(&requirement.effects).unwrap().closed(), Some(EffectSet::new([Effect::Env, Effect::Error])));
             let foreign = TypeConstraints::default().fresh(span());
-            let requirement = application(&mut constraints, foreign, Vec::new(), CallableKindRequirement::Immediate);
+            let requirement = application(&mut constraints, foreign, Vec::new(), CallableKindRequirement::Effectful);
             assert!(matches!(constraints.register_callable_application(owner(), requirement), Err(CallableApplicationError::Resolution(ConstraintResolutionError::ForeignVariable))));
         });
     }
@@ -592,7 +592,7 @@ mod tests {
                 let mut id = None;
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| constraints.trial(|constraints| {
                     let callee = constraints.fresh_at_level(span(), 1);
-                    let requirement = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Immediate);
+                    let requirement = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Effectful);
                     id = Some(constraints.register_callable_application(owner(), requirement).unwrap());
                     constraints.constrain(&callee, &callback(true, "payload", Type::Int, true, false), span())?;
                     constraints.solve_callable_applications().unwrap();
@@ -952,7 +952,7 @@ impl TypeConstraints {
                     let callee = this.resolve(&application.callee)?;
                     if matches!(callee, Type::Inference(_)) { continue; }
                     let Type::Callable(callable) = callee else { return Err(CallableApplicationError::NotCallable(callee)); };
-                    let kind = if callable.pure { CallableKind::Pure } else { CallableKind::Proc };
+                    let kind = callable.kind;
                     if !application.kind.accepts(kind) { return Err(CallableApplicationError::Kind { required: application.kind, actual: kind }); }
                     let binding = crate::sema::arguments::bind_argument_layout(&callable.sig.params,
                         application.arguments.iter().map(|argument| (argument.kind, argument.span))).map_err(CallableApplicationError::Layout)?;
@@ -971,7 +971,7 @@ impl TypeConstraints {
                         .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
                             expected, actual, contribution: application.span, initializer: None, established: None, resolution_error,
                         }))?;
-                    let effects = if callable.pure { EffectContract::finite(EffectSet::default()) } else { callable.sig.effects.contract().clone() };
+                    let effects = if callable.kind == crate::sema::types::CallableKind::Pure { EffectContract::finite(EffectSet::default()) } else { callable.sig.effects.contract().clone() };
                     this.constrain_effect_inner(super::EffectPredicate::Equal(application.effects.clone(), effects), changes)
                         .map_err(CallableApplicationError::Effects)?;
                     let previous = this.applications.entries.get_mut(&id).unwrap().binding.replace(binding);

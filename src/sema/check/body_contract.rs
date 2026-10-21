@@ -296,7 +296,7 @@ struct NodeSelection {
     projection: Option<CheckedProjection>,
     typed_call: Option<Arc<TypedCallable>>,
     user_call: Option<(Arc<str>, Name)>,
-    alias: Option<(Name, bool, CallableType, bool, Option<(Arc<str>, Name)>)>,
+    alias: Option<(Name, bool, CallableType, crate::sema::types::CallableKind, Option<(Arc<str>, Name)>)>,
     arguments: Option<(Option<usize>, Vec<usize>)>,
     variant: Option<InferredVariant>,
     pattern_variant: Option<InferredVariantPattern>,
@@ -878,7 +878,7 @@ impl Capture<'_> {
                 if declarations.next().is_some() { return Err(BodyContractError::UnmappedFact(span)); }
                 Ok((self.source_name(body.source_id)?, declaration.name))
             }).transpose()?;
-            Ok::<_, BodyContractError>((alias.name, alias.method_call, alias.signature.clone(), alias.pure, definition))
+            Ok::<_, BodyContractError>((alias.name, alias.method_call, alias.signature.clone(), alias.kind, definition))
         }).transpose()?;
         let facts = &checked.checked_control_flow;
         let mut control = BTreeSet::new();

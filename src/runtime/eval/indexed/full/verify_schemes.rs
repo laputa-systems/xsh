@@ -3678,8 +3678,7 @@ fn runtime_complete_check_type(
         | Type::EnvPathList
         | Type::Error
         | Type::ProcessError
-        | Type::Pure
-        | Type::Proc
+        | Type::Function(_)
         | Type::Command
         | Type::ProcessHandle
         | Type::NetJob
@@ -3874,12 +3873,7 @@ fn verify_scheme_argument_evidence(
             };
             let callable = store.scheme_callable_monotype(node.first)?;
             let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
-            let pure = match callable.kind {
-                crate::sema::types::CallableKind::Pure => true,
-                crate::sema::types::CallableKind::Proc => false,
-                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable argument has no supported checked contract")),
-            };
-            if actual.pure != pure || actual.sig.params.len() != parameters.len() {
+            if actual.kind != callable.kind || actual.sig.params.len() != parameters.len() {
                 return Err(IrVerifyError::new("generic callable argument kind or arity disagrees with its contract"));
             }
             for (parameter, actual) in parameters.iter().zip(&actual.sig.params) {
@@ -4186,7 +4180,7 @@ pub(super) fn invocation_callable_type(
         }
     };
     if pure { sig.effects = crate::sema::types::CallableEffects::finite([]); }
-    Ok(crate::sema::types::TypedCallable { pure, sig })
+    Ok(crate::sema::types::TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig })
 }
 
 pub(super) fn instantiate_invocation(
@@ -4302,7 +4296,7 @@ fn instantiate_scheme_type_inner(
             let effects = effects::instantiate_contract(store, callable.effects, &substitution.effects, budget)?
                 .concrete().map_err(|_| IrVerifyError::new("ground callable effects remain unresolved"))?;
             Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                pure,
+                kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                 sig: crate::sema::types::CallableType { params, return_ty, effects: crate::sema::types::CallableEffects::from_clause(effects) },
             }))
         }

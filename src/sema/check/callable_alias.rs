@@ -11,7 +11,7 @@ pub struct StaticCallableAlias {
     pub name: Name,
     pub method_call: bool,
     pub signature: CallableType,
-    pub pure: bool,
+    pub kind: crate::sema::types::CallableKind,
     pub definition: Option<Span>,
 }
 
@@ -19,7 +19,7 @@ pub struct StaticCallableAlias {
 pub(super) struct CallableAlias {
     pub name: Name,
     pub signature: FunctionSig,
-    pub pure: bool,
+    pub kind: crate::sema::types::CallableKind,
 }
 
 impl CallableAlias {
@@ -28,7 +28,7 @@ impl CallableAlias {
             name: self.name,
             method_call: false,
             signature: super::decl::callable_type_from_function_signature(&self.signature)?,
-            pure: self.pure,
+            kind: self.kind,
             definition: self.signature.definition,
         })
     }
@@ -57,7 +57,7 @@ impl Checker {
             return None;
         }
         self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
-        self.expr_types.insert(program.arena.expr(expression).span, if alias.pure { Type::Pure } else { Type::Proc });
+        self.expr_types.insert(program.arena.expr(expression).span, Type::Function(alias.kind));
         Some(alias)
     }
 
@@ -67,7 +67,7 @@ impl Checker {
         expression: ExprId,
     ) -> Option<CallableAlias> {
         let span = program.arena.expr(expression).span;
-        if matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc)) {
+        if matches!(self.expr_types.get(&span), Some(Type::Function(_))) {
             let projected = match program.arena.expr(expression).kind {
                 ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
                 _ => self.projections.get(&span),
@@ -92,7 +92,7 @@ impl Checker {
                 return Some(target);
             }
         }
-        let (name, signature, pure) = match program.arena.expr(expression).kind {
+        let (name, signature, kind) = match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(name) => {
                 match self.lookup_value_binding_for_expr(program, expression) {
                     super::ValueBindingLookup::Found(binding) => {
@@ -102,10 +102,11 @@ impl Checker {
                     super::ValueBindingLookup::NoSite => {}
                 }
                 if let Some(signature) = self.pures.get(&name) {
-                    (name, self.local_function_signature(*signature)?, true)
+                    (name, self.local_function_signature(*signature)?, crate::sema::types::CallableKind::Pure)
+                } else if let Some(signature) = self.procs.get(&name) {
+                    (name, self.local_function_signature(*signature)?, crate::sema::types::CallableKind::Proc)
                 } else {
-                    let signature = self.local_function_signature(*self.procs.get(&name)?)?;
-                    (name, signature, false)
+                    (name, self.local_function_signature(*self.streams.get(&name)?)?, crate::sema::types::CallableKind::Stream)
                 }
             }
             ArenaExprKind::Field { base, name } => {
@@ -121,9 +122,11 @@ impl Checker {
                 }
                 let qualified = QualifiedName::new(namespace, name);
                 if let Some(signature) = self.qualified_pures.get(&qualified).cloned() {
-                    (name, signature, true)
+                    (name, signature, crate::sema::types::CallableKind::Pure)
+                } else if let Some(signature) = self.qualified_procs.get(&qualified) {
+                    (name, signature.clone(), crate::sema::types::CallableKind::Proc)
                 } else {
-                    (name, self.qualified_procs.get(&qualified)?.clone(), false)
+                    (name, self.qualified_streams.get(&qualified)?.clone(), crate::sema::types::CallableKind::Stream)
                 }
             }
             _ => return None,
@@ -131,7 +134,7 @@ impl Checker {
         Some(CallableAlias {
             name,
             signature,
-            pure,
+            kind,
         })
     }
 
@@ -158,15 +161,18 @@ impl Checker {
                 return Some(CallableAlias {
                     name,
                     signature: signature.clone(),
-                    pure: true,
+                    kind: crate::sema::types::CallableKind::Pure,
                 });
             }
             if let Some(signature) = self.qualified_procs.get(&qualified) {
                 return Some(CallableAlias {
                     name,
                     signature: signature.clone(),
-                    pure: false,
+                    kind: crate::sema::types::CallableKind::Proc,
                 });
+            }
+            if let Some(signature) = self.qualified_streams.get(&qualified) {
+                return Some(CallableAlias { name, signature: signature.clone(), kind: crate::sema::types::CallableKind::Stream });
             }
         }
         let (sig, pure) = match export {
@@ -185,7 +191,7 @@ impl Checker {
         }
         Some(CallableAlias {
             name,
-            pure,
+            kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
             signature: FunctionSig::ground(
                 if pure {
                     crate::sema::types::CallableKind::Pure

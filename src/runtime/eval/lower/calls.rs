@@ -616,7 +616,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::TypedCall {
                     callee,
-                    pure: callable.pure,
+                    pure: (callable.kind == crate::sema::types::CallableKind::Pure),
                     signature: Type::Callable(callable),
                     args,
                     span,
@@ -829,7 +829,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     // The checker typed `.call` on a dynamic proc handle as
                     // a Result without knowing what the proc returns.
-                    if self.checked_expr_type(base) == Some(Type::Proc) {
+                    if self.checked_expr_type(base) == Some(Type::Function(crate::sema::types::CallableKind::Proc)) {
                         return Some(push_build_row!(
                             self,
                             expr,

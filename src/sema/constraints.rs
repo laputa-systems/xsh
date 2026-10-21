@@ -747,6 +747,7 @@ impl TypeConstraints {
         id
     }
 
+    #[cfg(test)]
     pub(crate) fn metrics(&self) -> ConstraintMetrics {
         self.counters.metrics()
     }
@@ -1289,7 +1290,7 @@ impl TypeConstraints {
                 })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
                 let return_type = self.generalize_type(&callable.sig.return_ty, environment_level, generalization, depth + 1)?;
                 Ok(SchemeType::Callable {
-                    kind: if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
+                    kind: callable.kind,
                     monotype: Arc::new(CallableMonotype::new(params, return_type, None)),
                     effects,
                 })
@@ -1511,11 +1512,6 @@ impl TypeConstraints {
                 if monotype.has_schema_contract() {
                     return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema));
                 }
-                let pure = match kind {
-                    crate::sema::types::CallableKind::Pure => true,
-                    crate::sema::types::CallableKind::Proc => false,
-                    crate::sema::types::CallableKind::Stream => return Err(SchemeOperationError::Build(SchemeBuildError::UnsupportedCallableKind)),
-                };
                 let params = monotype.params().iter().map(|parameter| Ok(super::types::CallableParamType {
                     name: parameter.name,
                     ty: nested(self, &parameter.ty, depth + 1)?,
@@ -1523,7 +1519,7 @@ impl TypeConstraints {
                     rest: parameter.rest,
                 })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
                 Ok(Type::Callable(Arc::new(super::types::TypedCallable {
-                    pure,
+                    kind: *kind,
                     sig: CallableType {
                         params,
                         return_ty: Box::new(nested(self, monotype.return_type(), depth + 1)?),
@@ -3339,7 +3335,7 @@ impl TypeConstraints {
                 (Type::Callable(left), Type::Callable(right))
                     if expected.contains_inference() || actual.contains_inference() =>
                 {
-                    if left.pure != right.pure || left.sig.params.len() != right.sig.params.len()
+                    if left.kind != right.kind || left.sig.params.len() != right.sig.params.len()
                         || left.sig.params.iter().zip(&right.sig.params).any(|(left, right)| {
                             left.name != right.name || left.defaulted != right.defaulted || left.rest != right.rest
                         })
@@ -3356,7 +3352,7 @@ impl TypeConstraints {
                     let mut actual_signature = right.sig.clone();
                     self.resolve_callable_depth_inner(&mut actual_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                    if !left.pure {
+                    if !(left.kind == crate::sema::types::CallableKind::Pure) {
                         self.constrain_effect_inner(EffectPredicate::Covered(
                             actual_signature.effects.contract().clone(), expected_signature.effects.contract().clone(),
                         ), changes).map_err(|error| (expected.clone(), actual.clone(), match error {
@@ -4380,7 +4376,7 @@ mod tests {
 
     fn nested_callable(argument: Type, result: Type) -> Type {
         Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-            pure: true,
+            kind: crate::sema::types::CallableKind::Pure,
             sig: CallableType {
                 params: vec![crate::sema::types::CallableParamType {
                     name: crate::symbol::Name::intern("value"),

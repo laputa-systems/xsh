@@ -641,7 +641,7 @@ impl<'a> Linter<'a> {
         // the dynamic `Proc` or `Pure` only because the annotation asks for
         // one, so without it a later `.call` is checked against the
         // signature and the binding no longer takes another function.
-        if matches!(annotation, Type::Proc | Type::Pure)
+        if matches!(annotation, Type::Function(_))
             && matches!(
                 init.kind,
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }

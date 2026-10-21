@@ -127,7 +127,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 if let Some(bridge) = crate::stdlib::bridge_contract(op) {
                     let effects = bridge.sig.effects.concrete()
                         .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
-                    require(instruction, effects.as_deref(), bridge.pure, &mut captured)?;
+                    require(instruction, effects.as_deref(), bridge.kind == crate::sema::types::CallableKind::Pure, &mut captured)?;
                 } else { match crate::modules::signature::native_static_operation_effect_rule(op) {
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => {}

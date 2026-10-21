@@ -65,8 +65,7 @@ pub(super) enum TypeTag {
     ErrorVariant,
     ErrorFacet,
     ProcessError,
-    Pure,
-    Proc,
+    Function,
     Command,
     ProcessHandle,
     NetJob,
@@ -83,8 +82,7 @@ pub(super) enum TypeTag {
     // A closed union. `lhs` is the member count and `rhs` the offset of the
     // member type ids in `type_extra`, in the order the union lists them.
     Union,
-    TypedProc,
-    TypedPure,
+    Callable,
     // A base type narrowed by a validation. `lhs` is the base type id and
     // `rhs` the validation's code.
     Validated,
@@ -122,8 +120,6 @@ impl TypeTag {
                 | Self::EnvPathList
                 | Self::Error
                 | Self::ProcessError
-                | Self::Pure
-                | Self::Proc
                 | Self::Command
                 | Self::ProcessHandle
                 | Self::NetJob
@@ -286,7 +282,7 @@ impl SemanticPools {
     ) -> Result<bool, IrVerifyError> {
         let actual = self.to_signature(id, 0)?;
         Ok(expected
-            .mismatch(actual_pure, &actual, true)
+            .mismatch(if actual_pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, &actual, true)
             .is_none())
     }
 
@@ -295,7 +291,7 @@ impl SemanticPools {
         actual: &crate::sema::types::TypedCallable,
         expected: &crate::sema::types::TypedCallable,
     ) -> bool {
-        expected.mismatch(actual.pure, &actual.sig, true).is_none()
+        expected.mismatch(actual.kind, &actual.sig, true).is_none()
     }
 
     pub(super) fn signature_param_count(&self, id: SignatureId) -> Result<usize, IrVerifyError> {
@@ -402,18 +398,18 @@ impl SemanticPools {
                             let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
                                 IrVerifyError::new("module export signature id is invalid")
                             })?;
-                            let callable_tag = if kind == 1 {
-                                TypeTag::TypedProc
+                            let callable_kind = if kind == 1 {
+                                crate::sema::types::CallableKind::Proc
                             } else {
-                                TypeTag::TypedPure
+                                crate::sema::types::CallableKind::Pure
                             };
                             let Some(index) = self.type_tags.iter().enumerate().find_map(
                                 |(index, tag)| {
-                                    (*tag == callable_tag
+                                    (*tag == TypeTag::Callable
                                         && self
                                             .type_data
                                             .get(index)
-                                            .is_some_and(|data| data.lhs == signature.raw()))
+                                            .is_some_and(|data| data.lhs == signature.raw() && data.rhs == callable_kind as u32))
                                     .then_some(index)
                                 },
                             ) else {
@@ -478,7 +474,7 @@ impl SemanticPools {
         &self,
         id: TypeId,
     ) -> Result<SignatureId, IrVerifyError> {
-        if !matches!(self.type_tag(id)?, TypeTag::TypedProc | TypeTag::TypedPure) {
+        if !matches!(self.type_tag(id)?, TypeTag::Callable) {
             return Err(IrVerifyError::new(
                 "type id does not denote a typed callable",
             ));
@@ -493,9 +489,10 @@ impl SemanticPools {
         Ok(signature)
     }
 
-    pub(super) fn typed_callable_is_pure(&self, id: TypeId) -> Result<bool, IrVerifyError> {
+    pub(super) fn typed_callable_kind(&self, id: TypeId) -> Result<crate::sema::types::CallableKind, IrVerifyError> {
         self.typed_callable_signature(id)?;
-        Ok(self.type_tag(id)? == TypeTag::TypedPure)
+        crate::sema::types::CallableKind::from_encoded(self.type_data[id.index()].rhs)
+            .ok_or_else(|| IrVerifyError::new("typed callable kind is invalid"))
     }
 
     /// The member type ids of a union, in the order the union lists them.
@@ -569,7 +566,7 @@ impl SemanticPools {
         let Some(index) = self
             .type_tags
             .iter()
-            .position(|tag| matches!(tag, TypeTag::TypedProc | TypeTag::TypedPure))
+            .position(|tag| matches!(tag, TypeTag::Callable))
         else {
             return false;
         };
@@ -745,11 +742,11 @@ impl SemanticPools {
             },
             TypeTag::ErrorFacet => Type::ErrorFacet(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::ProcessError => Type::ProcessError,
-            TypeTag::Pure => Type::Pure,
-            TypeTag::Proc => Type::Proc,
-            TypeTag::TypedProc | TypeTag::TypedPure => {
+            TypeTag::Function => Type::Function(crate::sema::types::CallableKind::from_encoded(data.lhs)
+                .ok_or_else(|| IrVerifyError::new("function kind is invalid"))?),
+            TypeTag::Callable => {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                    pure: tag == TypeTag::TypedPure,
+                    kind: self.typed_callable_kind(id)?,
                     sig: self.to_signature_with_budget(
                         self.typed_callable_signature(id)?,
                         depth + 1,
@@ -896,8 +893,7 @@ impl SemanticPools {
             TypeTag::EnvPathList => Some("EnvPathList"),
             TypeTag::Error => Some("Error"),
             TypeTag::ProcessError => Some("ProcessError"),
-            TypeTag::Pure => Some("Pure"),
-            TypeTag::Proc => Some("Proc"),
+            TypeTag::Function => None,
             TypeTag::Command => Some("Command"),
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
@@ -968,7 +964,7 @@ impl SemanticPools {
                 }
                 Ok(format!("Union[{}]", members.join(", ")))
             }
-            TypeTag::TypedProc | TypeTag::TypedPure => {
+            TypeTag::Function | TypeTag::Callable => {
                 Ok(self
                     .to_type_inner(id, depth, &mut TypeMaterializationBudget::default())?
                     .to_string())
@@ -1226,13 +1222,16 @@ impl SemanticPools {
                         }
                     }
                 }
-                TypeTag::TypedProc | TypeTag::TypedPure => {
+                TypeTag::Function => {
+                    if data.rhs != 0 || crate::sema::types::CallableKind::from_encoded(data.lhs).is_none() {
+                        return Err(IrVerifyError::new("function marker kind is invalid"));
+                    }
+                }
+                TypeTag::Callable => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
                     let signature = self.typed_callable_signature(id)?;
-                    if data.rhs != 0 {
-                        return Err(IrVerifyError::new("typed callable type has invalid data"));
-                    }
+                    self.typed_callable_kind(id)?;
                     let count = self.signature_param_count(signature)?;
                     let mut defaulted = false;
                     for param in 0..count {
@@ -1312,7 +1311,8 @@ enum TypeKey {
     Aggregate(TypeTag, ShapeId, Box<[u32]>),
     /// Member type ids in the order the union lists them.
     Union(Box<[u32]>),
-    Callable(TypeTag, SignatureId),
+    Callable(crate::sema::types::CallableKind, SignatureId),
+    Function(crate::sema::types::CallableKind),
     /// A validation code and the base type it narrows.
     Validated(u32, TypeId),
     /// A nominal declaration's name and the record type it names.
@@ -1489,8 +1489,7 @@ impl SemanticPoolBuilder {
             ),
             Type::ErrorFacet(name) => named(TypeTag::ErrorFacet, *name),
             Type::ProcessError => scalar(TypeTag::ProcessError),
-            Type::Pure => scalar(TypeTag::Pure),
-            Type::Proc => scalar(TypeTag::Proc),
+            Type::Function(kind) => (TypeKey::Function(*kind), IrData::new(*kind as u32, 0), Vec::new()),
             Type::Command => scalar(TypeTag::Command),
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
@@ -1546,14 +1545,9 @@ impl SemanticPoolBuilder {
             }
             Type::Callable(callable) => {
                 let signature = self.intern_signature(pools, &callable.sig)?;
-                let tag = if callable.pure {
-                    TypeTag::TypedPure
-                } else {
-                    TypeTag::TypedProc
-                };
                 (
-                    TypeKey::Callable(tag, signature),
-                    IrData::new(signature.raw(), 0),
+                    TypeKey::Callable(callable.kind, signature),
+                    IrData::new(signature.raw(), callable.kind as u32),
                     Vec::new(),
                 )
             }
@@ -1570,7 +1564,8 @@ impl SemanticPoolBuilder {
             | TypeKey::NamedPair(tag, _, _)
             | TypeKey::Aggregate(tag, _, _) => *tag,
             TypeKey::Union(_) => TypeTag::Union,
-            TypeKey::Callable(tag, _) => *tag,
+            TypeKey::Callable(_, _) => TypeTag::Callable,
+            TypeKey::Function(_) => TypeTag::Function,
             TypeKey::Validated(_, _) => TypeTag::Validated,
             TypeKey::Nominal(_, _) => TypeTag::Nominal,
             TypeKey::Bounded(_, _, _) => TypeTag::Bounded,
@@ -2003,6 +1998,35 @@ mod tests {
     }
 
     #[test]
+    fn callable_kind_codec_preserves_markers_contracts_and_rejects_foreign_tags() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Stream] {
+                let marker = Type::Function(kind);
+                let marker_id = builder.intern_type(&mut pools, &marker).unwrap();
+                let mut signature = callable();
+                if kind == crate::sema::types::CallableKind::Stream {
+                    signature.return_ty = Box::new(Type::Stream(Box::new(Type::Int)));
+                    signature.effects = crate::sema::types::CallableEffects::finite([]);
+                }
+                let typed = Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: signature }));
+                let typed_id = builder.intern_type(&mut pools, &typed).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.to_type(marker_id).unwrap(), marker);
+                assert_eq!(pools.to_type(typed_id).unwrap(), typed);
+                assert_eq!(pools.typed_callable_kind(typed_id).unwrap(), kind);
+                let mut invalid = pools.clone();
+                invalid.type_data[marker_id.index()].lhs = 3;
+                assert!(invalid.verify().unwrap_err().message.contains("function marker kind"));
+                let mut invalid = pools.clone();
+                invalid.type_data[typed_id.index()].rhs = 3;
+                assert!(invalid.verify().unwrap_err().message.contains("callable kind"));
+            }
+        });
+    }
+
+    #[test]
     fn module_value_fields_resolve_exact_checked_callable_types() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let callable = CallableType {
@@ -2012,7 +2036,7 @@ mod tests {
             };
             let typed = |pure| {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
-                    pure,
+                    kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                     sig: callable.clone(),
                 }))
             };

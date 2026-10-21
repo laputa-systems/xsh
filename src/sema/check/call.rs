@@ -52,7 +52,6 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
-                SchemeBuildError::UnsupportedCallableKind => "target contains an unsupported callable kind",
                 SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",
             };
             format!("generic call instantiation failed: {reason}")
@@ -380,7 +379,7 @@ impl Checker {
                     .unwrap()
                     .method_call = true;
             }
-            if !alias.pure {
+            if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -398,7 +397,7 @@ impl Checker {
             self.check_function_contract_arguments_arena(
                 arena, source, args, &contract, span, checked_argument,
             );
-            if !alias.pure {
+            if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 self.invalidate_mutable_narrowings();
             }
             self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
@@ -1269,8 +1268,7 @@ impl Checker {
                                 Type::Any
                                 | Type::Unknown
                                 | Type::DynamicModule
-                                | Type::Pure
-                                | Type::Proc
+                                | Type::Function(_)
                                 | Type::Optional(_)
                                 | Type::Result(_, _) => false,
                                 _ => true,

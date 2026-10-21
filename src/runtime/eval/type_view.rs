@@ -84,8 +84,8 @@ impl<'a> ValueView<'a> {
                 Value::EnvPathList => Type::EnvPathList,
                 Value::Error(_) => Type::Error,
                 Value::RunError(_) => Type::ProcessError,
-                Value::Pure(_) => Type::Pure,
-                Value::Proc(_) => Type::Proc,
+                Value::Pure(_) => Type::Function(crate::sema::types::CallableKind::Pure),
+                Value::Proc(_) => Type::Function(crate::sema::types::CallableKind::Proc),
                 Value::Command(_) => Type::Command,
                 Value::ProcessHandle(_) => Type::ProcessHandle,
                 Value::NetJob(_) => Type::NetJob,
@@ -111,8 +111,8 @@ impl<'a> ValueView<'a> {
                 LoweredValue::Error(value) => {
                     if matches!(value.as_ref(), Value::RunError(_)) { Type::ProcessError } else { Type::Error }
                 }
-                LoweredValue::Pure(_) => Type::Pure,
-                LoweredValue::Proc(_) => Type::Proc,
+                LoweredValue::Pure(_) => Type::Function(crate::sema::types::CallableKind::Pure),
+                LoweredValue::Proc(_) => Type::Function(crate::sema::types::CallableKind::Proc),
                 LoweredValue::Command(_) => Type::Command,
                 LoweredValue::ProcessHandle(_) => Type::ProcessHandle,
                 LoweredValue::NetJob(_) => Type::NetJob,
@@ -355,14 +355,14 @@ pub(super) enum CallableContractView<'a> {
 }
 
 impl CallableContractView<'_> {
-    pub(super) fn pure(self) -> bool {
-        match self { Self::Value(callable) => callable.pure, Self::PureExport(_) => true, Self::ProcExport(_) => false }
+    pub(super) fn kind(self) -> crate::sema::types::CallableKind {
+        match self { Self::Value(callable) => callable.kind, Self::PureExport(_) => crate::sema::types::CallableKind::Pure, Self::ProcExport(_) => crate::sema::types::CallableKind::Proc }
     }
 
     pub(super) fn accepts(self, actual: &crate::sema::types::TypedCallable) -> bool {
-        if self.pure() != actual.pure { return false; }
+        if self.kind() != actual.kind { return false; }
         match self {
-            Self::Value(expected) => expected.mismatch(actual.pure, &actual.sig, true).is_none(),
+            Self::Value(expected) => expected.mismatch(actual.kind, &actual.sig, true).is_none(),
             Self::PureExport(expected) | Self::ProcExport(expected) => super::module_contract::signature_mismatch(&actual.sig, expected).is_none(),
         }
     }
@@ -370,7 +370,7 @@ impl CallableContractView<'_> {
 
 pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool {
     value_matches_type_with_contracts(value, ty, &mut |value, contract| match contract {
-        RetainedValueContract::Callable(callable) => value.scalar_type() == Some(if callable.pure() { Type::Pure } else { Type::Proc }),
+        RetainedValueContract::Callable(callable) => value.scalar_type() == Some(Type::Function(callable.kind())),
         RetainedValueContract::Stream(_) => value.stream().is_some(),
     })
 }
@@ -391,8 +391,7 @@ pub(super) fn value_matches_type_with_contracts(
         Type::UInt => value.integer().is_some_and(|value| value >= 0),
         Type::Null | Type::Bool | Type::Int | Type::Float | Type::Duration
         | Type::Str | Type::Bytes | Type::Digest | Type::Regex | Type::Path
-        | Type::Status | Type::EnvPathList | Type::ProcessError | Type::Pure
-        | Type::Proc | Type::Command | Type::ProcessHandle | Type::NetJob
+        | Type::Status | Type::EnvPathList | Type::ProcessError | Type::Function(_) | Type::Command | Type::ProcessHandle | Type::NetJob
         | Type::FsRoot | Type::FsLock | Type::Unit | Type::Tag(_) => value.scalar_type().as_ref() == Some(ty),
         Type::List(item) => value.all_list(|value| value_matches_type_with_contracts(value, item, accepts_contract)),
         Type::Map(key, item) => {

@@ -25,7 +25,7 @@ impl Checker {
         actual: Type,
         expected: Option<&Type>,
     ) -> Type {
-        if !matches!(actual, Type::Proc | Type::Pure) {
+        if !matches!(actual, Type::Function(_)) {
             return actual;
         }
         let Some(target) = expected_typed_callable(expected) else {
@@ -56,7 +56,7 @@ impl Checker {
         };
         if let Some(instance) = contract.instantiation.clone() { self.record_pending_call_instantiation(span, instance); }
         let callable = Type::Callable(Arc::new(TypedCallable {
-            pure: named.pure,
+            kind: named.kind,
             sig: super::CallableType {
                 params: contract.params.into_iter().map(|parameter| super::CallableParamType {
                     name: parameter.name, ty: parameter.ty, defaulted: parameter.defaulted, rest: parameter.rest,
@@ -112,7 +112,7 @@ impl Checker {
                     | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
                 };
                 let mut ty = self.check_expr_arena(arena, source, value, None);
-                if matches!(ty, Type::Pure | Type::Proc) { ty = self.materialize_callable_value(arena, value, ty); }
+                if matches!(ty, Type::Function(_)) { ty = self.materialize_callable_value(arena, value, ty); }
                 checked.insert(value, ty);
             }
             match crate::sema::arguments::expand_named_arguments(arena, args, |value| Some(checked.get(&value).expect("every application source argument is checked").clone())) {
@@ -147,7 +147,7 @@ impl Checker {
         });
         let application = CallableApplication {
             callee: callee.clone(), arguments: arguments.into(), result: result.clone(), effects,
-            proc_returns: previous.map(|application| application.proc_returns).unwrap_or_else(|| Arc::from([])), kind: if self.boundary.in_pure { CallableKindRequirement::Pure } else { CallableKindRequirement::Immediate }, span,
+            proc_returns: previous.map(|application| application.proc_returns).unwrap_or_else(|| Arc::from([])), kind: if self.boundary.in_pure { CallableKindRequirement::Pure } else { CallableKindRequirement::Effectful }, span,
         };
         let invocation_effects = application.effects.clone();
         if let Err(error) = self.type_constraints.register_source_callable_application(scope, application) {
@@ -176,7 +176,7 @@ impl Checker {
         };
         let (named, actual, selected_signature) = if let Some(binding) = binding {
             let actual = self.type_constraints.resolve(&binding.ty).ok()?;
-            if !matches!(actual, Type::Proc | Type::Pure) {
+            if !matches!(actual, Type::Function(_)) {
                 return None;
             }
             (binding.callable_alias.clone(), actual, None)
@@ -187,21 +187,21 @@ impl Checker {
                 Some(CallableAlias {
                     name,
                     signature: signature.clone(),
-                    pure: false,
+                    kind: crate::sema::types::CallableKind::Proc,
                 }),
-                Type::Proc,
+                Type::Function(crate::sema::types::CallableKind::Proc),
                 Some(signature),
             )
         } else {
-            let declaration = *self.pures.get(&name)?;
+            let (declaration, kind) = if let Some(declaration) = self.pures.get(&name) {
+                (*declaration, crate::sema::types::CallableKind::Pure)
+            } else {
+                (*self.streams.get(&name)?, crate::sema::types::CallableKind::Stream)
+            };
             let signature = self.local_function_signature(declaration)?;
             (
-                Some(CallableAlias {
-                    name,
-                    signature: signature.clone(),
-                    pure: true,
-                }),
-                Type::Pure,
+                Some(CallableAlias { name, signature: signature.clone(), kind }),
+                Type::Function(kind),
                 Some(signature),
             )
         };
@@ -252,7 +252,7 @@ impl Checker {
         };
         if expected.contains_inference() {
             let actual = Type::Callable(Arc::new(TypedCallable {
-                pure: named.pure,
+                kind: named.kind,
                 sig: signature,
             }));
             let diagnostic_count = self.diagnostics.len();
@@ -261,7 +261,7 @@ impl Checker {
             self.expr_types.insert(span, expected.clone());
             return expected;
         }
-        if let Some(reason) = target.mismatch(named.pure, &signature, !self.collecting_effects) {
+        if let Some(reason) = target.mismatch(named.kind, &signature, !self.collecting_effects) {
             self.error(
                 span,
                 &format!("`{}` does not fit `{expected}`: {reason}", named.name),
@@ -329,7 +329,7 @@ impl Checker {
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
-        let kind = if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc };
+        let kind = callable.kind;
         let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
         let name = match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) | ArenaExprKind::Field { name, .. } => name.to_string(),
@@ -343,13 +343,13 @@ impl Checker {
             return_ty: return_ty.clone(), effects: super::InvocationEffects::Checked(effects),
             effect_declaration: None, definition_target: None, instantiation: None,
         };
-        if !callable.pure {
+        if !(callable.kind == crate::sema::types::CallableKind::Pure) {
             if self.boundary.in_pure {
                 self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
             } else { self.check_function_invocation_effects(&contract, &name, span); }
         }
         self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument);
-        if !callable.pure { self.invalidate_mutable_narrowings(); }
+        if !(callable.kind == crate::sema::types::CallableKind::Pure) { self.invalidate_mutable_narrowings(); }
         self.record_invocation_propagation(&contract.effects, &return_ty, span);
         self.typed_callable_calls.insert(span, callable.clone());
         return_ty
@@ -584,7 +584,12 @@ mod inferred_callable_tests {
             !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
             "{source}\n{:?}", checked.diagnostics
         );
-        assert_eq!(checked.selected_function_calls.len(), 1);
+        let invocations = checked.selected_function_calls.iter()
+            .filter(|(span, _)| !checked.selected_function_value_references.contains(span))
+            .collect::<Vec<_>>();
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(&source[invocations[0].0.range()], "create(42)");
+        assert_eq!(invocations[0].1.name, crate::symbol::Name::intern("values"));
     }
 
     #[test]

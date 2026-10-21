@@ -36,8 +36,7 @@ pub(super) fn annotation_type_is_nontrivial(ty: &Type) -> bool {
             | Type::Result(_, _)
             | Type::Optional(_)
             | Type::Command
-            | Type::Pure
-            | Type::Proc
+            | Type::Function(_)
             | Type::Tag(_)
     )
 }
@@ -5082,7 +5081,7 @@ impl Checker {
             None
         };
         let actual = if let Some(alias) = &generic_module_alias {
-            if alias.pure { Type::Pure } else { Type::Proc }
+            Type::Function(alias.kind)
         } else {
             self.check_expr_with_schema_arena(
                 arena,
@@ -5096,7 +5095,7 @@ impl Checker {
             && ty.is_none()
             && matches!(arena.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
             && let ArenaExprOrRun::Expr(expression) = initializer
-            && (actual == Type::Pure || actual == Type::Proc)
+            && matches!(actual, Type::Function(_))
         {
             self.materialize_callable_value(arena, expression, actual)
         } else {
@@ -5200,7 +5199,7 @@ impl Checker {
             if self.current_exported
                 && (alias.signature.definition().is_none()
                     || !alias.signature.scheme().explicit_return()
-                    || (!alias.pure
+                    || (!(alias.kind == crate::sema::types::CallableKind::Pure)
                         && (alias.signature.scheme().inferred_effects()
                             || !alias.signature.scheme().effects().is_known())))
             {
@@ -7895,7 +7894,7 @@ mod reader_binding_identity_tests {
             let target_name = Name::intern("target");
             checker.current_scope_mut().get_mut(&target_name).unwrap().ty = Type::Callable(
                 Arc::new(crate::sema::types::TypedCallable {
-                    pure: true,
+                    kind: crate::sema::types::CallableKind::Pure,
                     sig: crate::sema::types::CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Int),
@@ -8013,7 +8012,7 @@ mod reader_binding_identity_tests {
             checker.procs.insert(target_name, function_declaration_id());
 
             let expected = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                pure: false,
+                kind: crate::sema::types::CallableKind::Proc,
                 sig: crate::sema::types::CallableType {
                     params: Vec::new(),
                     return_ty: Box::new(Type::Int),

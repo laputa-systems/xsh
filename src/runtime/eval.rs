@@ -901,7 +901,7 @@ impl ProducerDemand {
             let expression = program.arena.expr(*expression);
             let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = expression.kind else { return None };
             let crate::syntax::arena::ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else { return None };
-            (name.as_str().as_str() == "call" && matches!(declarations.bodies.expr_types.get(&base), Some(Type::Pure | Type::Proc))).then_some(expression.span)
+            (name.as_str().as_str() == "call" && matches!(declarations.bodies.expr_types.get(&base), Some(Type::Function(_)))).then_some(expression.span)
         })
     }
 
