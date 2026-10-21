@@ -11,7 +11,7 @@ use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::arena::{ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
-use crate::syntax::node::{BinaryOp, Effect, StreamStageKind};
+use crate::syntax::node::{BinaryOp, StreamStageKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -1276,7 +1276,7 @@ mod tests {
         let reordered = declaration("proc say() [fs, io] { print \"hello\" }\n");
         assert!(first.preserved_by(&reordered));
         let mut changed = first.clone();
-        changed.effects.as_mut().unwrap().required = crate::sema::effects::CheckedEffects::finite([Effect::Fs]);
+        changed.effects.as_mut().unwrap().required = crate::sema::effects::CheckedEffects::finite([crate::syntax::node::Effect::Fs]);
         assert!(!first.preserved_by(&changed));
         let mut unknown = first.clone();
         unknown.effects.as_mut().unwrap().required = crate::sema::effects::CheckedEffects::unknown();

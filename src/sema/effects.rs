@@ -228,10 +228,6 @@ impl EffectSet {
         Self(self.0 & !other.0)
     }
 
-    pub(crate) fn is_subset(self, other: Self) -> bool {
-        self.without(other).is_empty()
-    }
-
     pub(crate) fn prohibited_requirements(self) -> Self {
         Self::new(Effect::ALL.into_iter().filter(|required| {
             self.iter().any(|excluded| effect_covers(required, &excluded))
@@ -436,7 +432,7 @@ mod tests {
         assert_eq!(expression.substitute(|_| Ok::<_, ()>(Contract::Unknown)).unwrap(), Contract::Unknown);
         let zero = Contract::variable(1).masked(EffectSet::default());
         assert_eq!(zero.substitute::<u32, ()>(|_| panic!("erased dependency must not be read")).unwrap().closed(), Some(EffectSet::default()));
-        assert!(EffectSet::new([Effect::Env]).is_subset(EffectSet::new([Effect::Env, Effect::Error])));
+        assert!(EffectSet::new([Effect::Env]).without(EffectSet::new([Effect::Env, Effect::Error])).is_empty());
         assert_eq!(EffectSet::all().iter().collect::<Vec<_>>(), Effect::ALL);
         let mut constraints = crate::sema::constraints::TypeConstraints::default();
         let variable = constraints.fresh_effect_at_level(crate::source::Span::new(crate::source::SourceId::new(0), 0, 1), 1);
