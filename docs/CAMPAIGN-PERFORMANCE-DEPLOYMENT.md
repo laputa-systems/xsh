@@ -34,10 +34,11 @@ and runtime controls, and three execution controls on both routes. The execution
 group includes independent Int and Str Stream aliases, higher-order callbacks,
 lazy defaults and cleanup. Propagation consumer repair `dcca45911` resolves the
 existing handle before Result projection; its 15 controls pass and it is
-integrated. Reviewed generic-delegation proof repairs are running five focused
-controls. They share the actual Stream-owner demand rule and retain mandatory
-scheme-body and latent-error checks while limiting the duplicate ground walk
-to ground contracts.
+integrated. Generic-delegation controls pass for both runtime routes, late
+nominal errors, cleanup order and required Yield transfer facts. The cold
+item and effect mutations remain unqualified. Review also finds a propagation
+boundary inferred from Stream return shape instead of actual declaration kind.
+The runtime owner is repairing that boundary while preserving local Result catches.
 The runtime candidate is not integrated or fully qualified; the original
 captured-write and Repeat witness remains open.
 
@@ -63,8 +64,10 @@ formal Result data. Contextual empty-list returns, live-resource escape rejectio
 and missing-leaf resource-proof rejection pass. The escape repair checks the
 actual leaf before Unit consumption. Corpus
 classification and the inherited full acceptance gates remain open.
-The counter-getter build warning is fixed. XSHT still reports the known
-Send-proof recursion-depth warning. No performance qualification follows.
+The counter-getter build warning is fixed. Compiler-setting repair `4563d2c3f`
+lets the pinned compiler complete XSHT's recursive Send proof. The targeted
+verification-profile library check passes with compiler warnings denied.
+XSH solver and verifier budgets remain unchanged. No performance qualification follows.
 
 Master includes the four foundation commits through `c44e47016` and the
 independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
