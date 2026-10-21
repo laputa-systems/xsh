@@ -159,16 +159,17 @@ pub(crate) struct SchemeProcReturnSite {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NonmaterialEmptyConstructor {
-    List,
-    Map,
+pub(crate) enum NonmaterialConstructor {
+    EmptyList,
+    EmptyMap,
+    Record,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SchemeBodyFacts {
     scheme: Arc<TypeScheme>,
     expression_types: BTreeMap<ExprId, SchemeType>,
-    empty_constructors: BTreeMap<ExprId, NonmaterialEmptyConstructor>,
+    constructor_producers: BTreeMap<ExprId, NonmaterialConstructor>,
     tail_types: BTreeMap<StmtId, SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>,
     read_bindings: BTreeSet<super::check::BindingId>,
@@ -821,7 +822,7 @@ impl SchemeBodyFacts {
         Ok(Self {
             scheme,
             expression_types,
-            empty_constructors: BTreeMap::new(),
+            constructor_producers: BTreeMap::new(),
             tail_types,
             registered_calls: BTreeMap::new(),
             read_bindings: BTreeSet::new(),
@@ -846,13 +847,13 @@ impl SchemeBodyFacts {
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
     pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
 
-    pub(crate) fn with_empty_constructors(mut self, constructors: BTreeMap<ExprId, NonmaterialEmptyConstructor>) -> Self {
-        self.empty_constructors = constructors;
+    pub(crate) fn with_constructor_producers(mut self, constructors: BTreeMap<ExprId, NonmaterialConstructor>) -> Self {
+        self.constructor_producers = constructors;
         self
     }
 
-    pub(crate) fn empty_constructors(&self) -> &BTreeMap<ExprId, NonmaterialEmptyConstructor> {
-        &self.empty_constructors
+    pub(crate) fn constructor_producers(&self) -> &BTreeMap<ExprId, NonmaterialConstructor> {
+        &self.constructor_producers
     }
 
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
@@ -896,7 +897,7 @@ impl SchemeBodyFacts {
                     .map(SchemeType::retained_bytes)
                     .sum::<usize>(),
             )
-            .saturating_add(self.empty_constructors.len() * size_of::<(ExprId, NonmaterialEmptyConstructor)>())
+            .saturating_add(self.constructor_producers.len() * size_of::<(ExprId, NonmaterialConstructor)>())
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())

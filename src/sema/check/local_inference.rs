@@ -17,7 +17,7 @@ pub(super) struct LocalInference {
     aggregate_scopes: Vec<AggregateSeedScope>,
     solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
-    empty_constructors: BTreeMap<ExprId, crate::sema::schemes::NonmaterialEmptyConstructor>,
+    constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
     /// Expression facts recorded with inference identities since the last
     /// record-constructor publication; every other fact is already canonical.
@@ -58,7 +58,7 @@ impl LocalInference {
                 && other.aggregate_scopes.is_empty()
                 && other.solved_functions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
-                && other.empty_constructors.is_empty()
+                && other.constructor_producers.is_empty()
                 && other.checked_bindings.is_empty()
                 && other.unresolved_expr_types.is_empty(),
             "module owner preparation must contain only local-inference seeds"
@@ -280,19 +280,23 @@ impl Checker {
         program: &ArenaProgram,
         expression: ArenaExprOrRun,
     ) {
-        if empty_map_call_receiver(program, expression).is_some_and(|base| {
-            matches!(
-                self.lookup_value_binding_for_expr(program, base),
-                super::ValueBindingLookup::NoSite
-            )
-        }) {
+        if let ArenaExprOrRun::Expr(expression) = expression
+            && matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty())
+        {
+            self.local_inference.nonmaterial_expressions.insert(program.arena.expr(expression).span);
+            if !self.local_inference.collecting {
+                self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList);
+            }
+            return;
+        }
+        if matches!(expression, ArenaExprOrRun::Expr(expression) if self.is_checked_empty_map_constructor(program, expression)) {
             self.local_inference
                 .nonmaterial_expressions
                 .insert(super::expr::expr_or_run_span_arena(program, expression));
             if !self.local_inference.collecting
                 && let ArenaExprOrRun::Expr(expression) = expression
             {
-                self.local_inference.empty_constructors.insert(expression, crate::sema::schemes::NonmaterialEmptyConstructor::Map);
+                self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyMap);
             }
         }
     }
@@ -460,7 +464,7 @@ impl Checker {
             std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
         let aggregate_scopes = std::mem::take(&mut self.local_inference.aggregate_scopes);
-        let empty_constructors = std::mem::take(&mut self.local_inference.empty_constructors);
+        let constructor_producers = std::mem::take(&mut self.local_inference.constructor_producers);
         let probe = self.clone();
         self.checked_declarations = checked_declarations;
         self.resolved_type_expressions = resolved_type_expressions;
@@ -502,7 +506,7 @@ impl Checker {
         self.definitely_exiting_block_spans = definitely_exiting_block_spans;
         self.local_inference.checked_bindings = checked_bindings;
         self.local_inference.aggregate_scopes = aggregate_scopes;
-        self.local_inference.empty_constructors = empty_constructors;
+        self.local_inference.constructor_producers = constructor_producers;
         probe
     }
 
@@ -515,7 +519,8 @@ impl Checker {
         span: Span,
     ) -> Option<Type> {
         let aggregate = self.boundary.current_return.is_some()
-            && matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate));
+            && (matches!(initializer, ArenaExprOrRun::Expr(expression) if matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_)))
+                || matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate)));
         if aggregate {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
                 initializer: super::expr::expr_or_run_span_arena(program, initializer),
@@ -538,6 +543,22 @@ impl Checker {
         let ty = Type::Set(Box::new(variable.clone()));
         self.local_inference.bindings.insert(span, LocalBindingInference { ty: ty.clone(), holes: vec![variable], owner: self.local_inference_owner(), initializer: origin });
         self.type_constraints.resolve(&ty).ok()
+    }
+
+    pub(super) fn begin_record_constructor_scope(&mut self, program: &ArenaProgram, expression: ExprId) -> bool {
+        let span = program.arena.expr(expression).span;
+        if self.boundary.current_return.is_none()
+            || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
+            || self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end())
+        { return false; }
+        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new() });
+        true
+    }
+
+    pub(super) fn finish_record_constructor_scope(&mut self, program: &ArenaProgram, expression: ExprId) {
+        let scope = self.local_inference.aggregate_scopes.pop().expect("the checked record owns its constructor scope");
+        assert_eq!(scope.initializer, program.arena.expr(expression).span);
+        self.record_overwritten_constructor_producers(program, expression, &scope.origins, false);
     }
 
     pub(super) fn local_aggregate_record_fields(
@@ -579,26 +600,42 @@ impl Checker {
         }
     }
 
-    pub(super) fn nonmaterial_empty_constructors(&self) -> &BTreeMap<ExprId, crate::sema::schemes::NonmaterialEmptyConstructor> {
-        &self.local_inference.empty_constructors
+    pub(super) fn is_checked_empty_map_constructor(&self, program: &ArenaProgram, expression: ExprId) -> bool {
+        matches!(program.arena.expr(expression).kind, ArenaExprKind::Call { callee, args } if args.is_empty()
+            && matches!(program.arena.expr(callee).kind, ArenaExprKind::Field { base, .. } if matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(_))))
+            && self.api_calls.get(&program.arena.expr(expression).span).is_some_and(|call| {
+                call.receiver.is_none() && call.params.is_empty() && call.argument_slots.is_empty()
+                    && call.sig.pure && call.sig.effects.is_empty()
+                    && super::api_spec().module_overloads("map", "empty").is_some_and(|signatures| signatures.iter().any(|signature| std::ptr::eq(signature, call.sig)))
+            })
     }
 
-    fn record_overwritten_empty_constructors(
+    pub(super) fn nonmaterial_constructor_producers(&self) -> &BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor> {
+        &self.local_inference.constructor_producers
+    }
+
+    fn record_overwritten_constructor_producers(
         &mut self,
         program: &ArenaProgram,
         expression: ExprId,
         origins: &BTreeMap<Span, FreshAggregateOrigin>,
+        discarded: bool,
     ) {
         if self.local_inference.collecting || !origins.contains_key(&program.arena.expr(expression).span) {
             return;
         }
-        let mut candidates = BTreeSet::new();
-        collect_empty_list_constructors(program, expression, &mut candidates);
+        let mut candidates = BTreeMap::new();
+        collect_empty_constructors(program, expression, &mut candidates);
+        candidates.retain(|expression, kind| {
+            self.expr_types.get(&program.arena.expr(*expression).span).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference())
+                && (*kind != crate::sema::schemes::NonmaterialConstructor::EmptyMap || self.is_checked_empty_map_constructor(program, *expression))
+        });
         let mut surviving = BTreeSet::new();
-        collect_surviving_empty_lists(program, expression, origins, &mut surviving);
-        for expression in candidates.difference(&surviving) {
-            self.local_inference.empty_constructors.insert(*expression, crate::sema::schemes::NonmaterialEmptyConstructor::List);
+        if !discarded { collect_surviving_empty_constructors(program, expression, origins, &candidates, &mut surviving); }
+        for (&expression, &kind) in &candidates {
+            if !surviving.contains(&expression) { self.local_inference.constructor_producers.insert(expression, kind); }
         }
+        retain_nonmaterial_record_producers(program, expression, origins, &mut self.local_inference.constructor_producers);
     }
 
     fn local_inference_owner(&self) -> Option<super::EffectDeclarationId> {
@@ -810,6 +847,14 @@ impl Checker {
         if self.boundary.current_return.is_none() {
             return ordinary;
         }
+        let aggregate_scope = if self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer == super::expr::expr_or_run_span_arena(program, initializer)) {
+            let scope = self.local_inference.aggregate_scopes.pop().expect("the matching initializer owns its origin scope");
+            if let ArenaExprOrRun::Expr(expression) = initializer {
+                let discarded = matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name == "_");
+                self.record_overwritten_constructor_producers(program, expression, &scope.origins, discarded);
+            }
+            Some(scope)
+        } else { None };
         let Some(seed) = local_seed_kind(program, target, initializer, mutable) else {
             return ordinary;
         };
@@ -831,15 +876,6 @@ impl Checker {
         {
             return ordinary;
         }
-        let aggregate_scope = if matches!(seed, LocalSeed::Aggregate) {
-            let scope = self.local_inference.aggregate_scopes.pop()
-                .expect("aggregate initializer owns its origin scope");
-            assert_eq!(scope.initializer, super::expr::expr_or_run_span_arena(program, initializer));
-            if let ArenaExprOrRun::Expr(expression) = initializer {
-                self.record_overwritten_empty_constructors(program, expression, &scope.origins);
-            }
-            Some(scope)
-        } else { None };
         let inference = if let Some(inference) = self.local_inference.bindings.get(&span) {
             inference.clone()
         } else if matches!(seed, LocalSeed::Aggregate) {
@@ -1003,38 +1039,59 @@ fn local_seed_kind(
     }
 }
 
-fn collect_empty_list_constructors(program: &ArenaProgram, expression: ExprId, output: &mut BTreeSet<ExprId>) {
+fn collect_empty_constructors(program: &ArenaProgram, expression: ExprId, output: &mut BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>) {
     match program.arena.expr(expression).kind {
-        ArenaExprKind::List(elements) if elements.is_empty() => { output.insert(expression); }
+        ArenaExprKind::List(elements) if elements.is_empty() => { output.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList); }
         ArenaExprKind::List(elements) => for element in program.arena.list_elements(elements) {
-            if element.splice_span.is_none() { collect_empty_list_constructors(program, element.value, output); }
+            if element.splice_span.is_none() { collect_empty_constructors(program, element.value, output); }
         },
         ArenaExprKind::Record(fields) => for field in program.arena.record_fields(fields) {
             match field.kind {
-                ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } =>
-                    collect_empty_list_constructors(program, value, output),
+                ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } => collect_empty_constructors(program, value, output),
                 _ => {}
             }
         },
+        ArenaExprKind::Call { args, .. } if args.is_empty() => { output.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyMap); }
         _ => {}
     }
 }
 
-fn collect_surviving_empty_lists(
+fn collect_surviving_empty_constructors(
     program: &ArenaProgram,
     expression: ExprId,
     origins: &BTreeMap<Span, FreshAggregateOrigin>,
+    candidates: &BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     output: &mut BTreeSet<ExprId>,
 ) {
+    if candidates.contains_key(&expression) { output.insert(expression); return; }
     match origins.get(&program.arena.expr(expression).span) {
         Some(FreshAggregateOrigin::List(elements)) if elements.is_empty() => { output.insert(expression); }
         Some(FreshAggregateOrigin::List(elements)) => for element in program.arena.list_elements(*elements) {
-            if element.splice_span.is_none() { collect_surviving_empty_lists(program, element.value, origins, output); }
+            if element.splice_span.is_none() { collect_surviving_empty_constructors(program, element.value, origins, candidates, output); }
         },
         Some(FreshAggregateOrigin::Record(fields)) => for expression in fields.values().flatten() {
-            collect_surviving_empty_lists(program, *expression, origins, output);
+            collect_surviving_empty_constructors(program, *expression, origins, candidates, output);
         },
         None => {}
+    }
+}
+
+fn retain_nonmaterial_record_producers(
+    program: &ArenaProgram,
+    expression: ExprId,
+    origins: &BTreeMap<Span, FreshAggregateOrigin>,
+    constructors: &mut BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
+) {
+    let crate::syntax::arena::ArenaExprKind::Record(fields) = program.arena.expr(expression).kind else { return };
+    for field in program.arena.record_fields(fields) {
+        if let ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } = field.kind {
+            retain_nonmaterial_record_producers(program, value, origins, constructors);
+        }
+    }
+    if let Some(FreshAggregateOrigin::Record(fields)) = origins.get(&program.arena.expr(expression).span)
+        && fields.values().flatten().any(|expression| constructors.contains_key(expression))
+    {
+        constructors.insert(expression, crate::sema::schemes::NonmaterialConstructor::Record);
     }
 }
 
@@ -1156,6 +1213,60 @@ mod tests {
         let view = session.view_for_root(arena.statements, source_id);
         let output = session.check_view(&view, super::super::CheckOptions::default());
         check(&output);
+    }
+
+    #[test]
+    fn authored_callable_nonmaterial_constructors_prepare_before_raw_resolution() {
+        for header in ["pure keep(payload: Int) -> Int", "proc keep(payload: Int) [] -> Int"] {
+            let source = format!("{header} {{ let _ = {{items: map.empty(), payload}}; payload }}\n");
+            with_checked_local_source(&source, |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "keep").unwrap();
+                let scheme = declaration.scheme.as_ref().unwrap();
+                assert_eq!(scheme.params()[0].ty, crate::sema::schemes::SchemeType::Ground(Type::Int));
+                assert_eq!(scheme.return_type(), &crate::sema::schemes::SchemeType::Ground(Type::Int));
+                assert!(output.expr_types.values().all(|ty| !ty.contains_inference() && !ty.contains_recovery()));
+            });
+        }
+    }
+
+    #[test]
+    fn authored_callable_captures_keep_the_source_order_boundary() {
+        for header in ["pure keep() -> Int", "proc keep() [] -> Int"] {
+            for early in [true, false] {
+                let result = if header.starts_with("proc") { "return result" } else { "result" };
+                let function = format!("{header} {{ let _ = {{items: map.empty()}}; let result: Int = prefix; {result} }}\n");
+                let source = if early { format!("let prefix = 7\n{function}") } else { format!("{function}let prefix = 7\n") };
+                with_checked_local_source(&source, |output| {
+                    if early {
+                        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                        assert!(output.checked_declarations.functions.values().find(|declaration| declaration.name == "keep").unwrap().scheme.is_some());
+                    } else {
+                        assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)), "{:?}", output.diagnostics);
+                    }
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn authored_callable_recursive_effect_failure_keeps_publication_atomic() {
+        for forbidden in [false, true] {
+            let bound = if forbidden { "[]" } else { "[env]" };
+            let source = format!("proc left(count: Int) {bound} -> Int {{ let _ = {{items: map.empty()}}; if count == 0 {{ 0 }} else {{ right(count - 1) }} }}\nproc right(count: Int) [env] -> Int {{ let _ = env.get(\"XSH_AUTHORED_COMPONENT\"); if count == 0 {{ 0 }} else {{ left(count - 1) }} }}\n");
+            with_checked_local_source(&source, |output| {
+                let peers = output.checked_declarations.functions.values().filter(|declaration| declaration.name == "left" || declaration.name == "right").collect::<Vec<_>>();
+                assert_eq!(peers.len(), 2);
+                if forbidden {
+                    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", output.diagnostics);
+                    assert!(peers.iter().all(|declaration| declaration.scheme.is_none() && declaration.scheme_body_facts.is_none()));
+                    assert!(output.call_instantiations.is_empty());
+                } else {
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    assert!(peers.iter().all(|declaration| declaration.scheme.is_some()));
+                }
+            });
+        }
     }
 
     #[test]
@@ -1420,16 +1531,16 @@ mod tests {
             "pure sample(payload) { let state = {items: [], ...{items: [7]}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
             |output| {
                 assert_generic_payload_relationship(output, false);
-                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::List);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialConstructor::EmptyList);
             },
         );
     }
 
-    fn assert_nonmaterial_empty_role(output: &super::super::CheckOutput, expected: crate::sema::schemes::NonmaterialEmptyConstructor) {
+    fn assert_nonmaterial_empty_role(output: &super::super::CheckOutput, expected: crate::sema::schemes::NonmaterialConstructor) {
         let declaration = output.checked_declarations.functions.values().next().expect("generic declaration");
         let facts = declaration.scheme_body_facts.as_ref().expect("published body facts");
-        assert_eq!(facts.empty_constructors().len(), 1);
-        let (&expression, &role) = facts.empty_constructors().iter().next().expect("nonmaterial constructor");
+        assert_eq!(facts.constructor_producers().len(), 1);
+        let (&expression, &role) = facts.constructor_producers().iter().next().expect("nonmaterial constructor");
         assert_eq!(role, expected);
         assert!(!facts.expression_types().contains_key(&expression));
     }
@@ -1440,7 +1551,7 @@ mod tests {
             "pure sample(payload) { let _ = map.empty(); payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
             |output| {
                 assert_generic_payload_relationship(output, false);
-                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::Map);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialConstructor::EmptyMap);
             },
         );
     }
@@ -1451,8 +1562,32 @@ mod tests {
             "pure sample(payload) { let state = {...{items: []}, ...{items: [7]}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
             |output| {
                 assert_generic_payload_relationship(output, false);
-                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::List);
+                let declaration = output.checked_declarations.functions.values().next().unwrap();
+                let facts = declaration.scheme_body_facts.as_ref().unwrap();
+                assert_eq!(facts.constructor_producers().len(), 2);
+                assert!(facts.constructor_producers().values().any(|kind| *kind == crate::sema::schemes::NonmaterialConstructor::EmptyList));
+                assert!(facts.constructor_producers().values().any(|kind| *kind == crate::sema::schemes::NonmaterialConstructor::Record));
+                assert!(facts.constructor_producers().keys().all(|expression| !facts.expression_types().contains_key(expression)));
             },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_overwritten_empty_map_keeps_unrelated_generic_payload() {
+        with_checked_local_source(
+            "pure sample(payload) { let state = {items: map.empty(), ...{items: {[\"key\"]: 7}}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| {
+                assert_generic_payload_relationship(output, false);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialConstructor::EmptyMap);
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_surviving_empty_map_stays_ambiguous() {
+        with_checked_local_source(
+            "pure sample(payload) { let state = {items: map.empty(), payload}; state.payload }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", output.diagnostics),
         );
     }
 

@@ -353,6 +353,14 @@ Owners without expression-region bindings can skip expression-only ancestry.
 Owners with region bindings retain the physical parent walk. Exact slot overrides
 and ordered declaration lookup still establish visibility. This evidence contains
 no type or refinement.
+
+Generic body facts distinguish typed expressions from nonmaterial constructor producers.
+Empty lists, empty maps, and closed record wrappers retain their actual physical
+instructions and ordered field writers. The cold verifier reconstructs their
+producer shapes; an unresolved empty payload must be discarded or overwritten
+before the shape reaches typed storage, a call, projection, or return. Constructor
+facts carry no semantic type or scheme binder.
+
 Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation

@@ -485,6 +485,7 @@ pub(super) struct BodyProof {
 
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
+    constructors: &super::constructors::ConstructorFacts,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, SchemeType>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
@@ -622,7 +623,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, &scope, &scopes, &mut children, &mut visited, registered, propagation_return(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, &scope, &scopes, &mut children, &mut visited, registered, propagation_return(&scope, &scopes), budget, constant_budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -685,7 +686,12 @@ pub(super) fn verify_body(
                     }
                     schema::StmtView::LetRecord { source, target, .. } => {
                         if matches!(target, super::super::decode::CompTargetView::Discard) {
-                            expressions.push(source.raw() as usize);
+                            if constructors.contains_key(&(source.raw() as usize)) { super::constructors::discard(decoder, source.raw() as usize, constructors, &mut visited, budget, |instruction, budget| {
+                                let ty = expression_type(types, instruction, budget)?;
+                                expressions.push(instruction);
+                                Ok(ty)
+                            })?; }
+                            else { expressions.push(source.raw() as usize); }
                         } else {
                             let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic record declaration has no checked declaration fact"))?;
                             let actual = expression_type(types, source.raw() as usize, budget)?;
@@ -752,7 +758,14 @@ pub(super) fn verify_body(
                         if !matches!(process, schema::ExprView::RunCapture(_) | schema::ExprView::RunPipeline { .. }) { return Err(IrVerifyError::new("generic run statement has no process producer")); }
                         expressions.push(value.raw() as usize);
                     }
-                    schema::StmtView::Expr { value, .. } => expressions.push(value.raw() as usize),
+                    schema::StmtView::Expr { value, .. } => {
+                        if constructors.contains_key(&(value.raw() as usize)) { super::constructors::discard(decoder, value.raw() as usize, constructors, &mut visited, budget, |instruction, budget| {
+                            let ty = expression_type(types, instruction, budget)?;
+                            expressions.push(instruction);
+                            Ok(ty)
+                        })?; }
+                        else { expressions.push(value.raw() as usize); }
+                    },
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
                         let returned_site = store.scheme_application_returns.binary_search_by_key(&(instruction as u32), |site| site.instruction).ok()
@@ -903,7 +916,7 @@ mod tests {
     }
 
     fn declaration(program: &FullProgram) -> usize {
-        program.store.scheme_body_facts.iter().position(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).unwrap()
+        program.store.scheme_body_facts.iter().position(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).unwrap()
     }
 
     #[test]
@@ -929,7 +942,8 @@ mod tests {
     fn ordinary_generic_body_assignment_requires_mutable_declaration() {
         let program = prepare("proc keep(value) [] { var result = value; result = value; result }");
         let mut immutable = program.clone();
-        immutable.store.scheme_body_facts[declaration(&program)].kind = FullSchemeBodyFactKind::LocalImmutable;
+        let index = declaration(&program);
+        immutable.store.scheme_body_facts[index].value = super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(immutable.store.scheme_body_facts[index].ty().unwrap());
         assert_eq!(FullVerifier::verify(&immutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
     }
 
@@ -953,7 +967,7 @@ mod tests {
         let (owner, _) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let range = program.store.function_instruction_range(owner).unwrap();
-        let mutables = program.store.scheme_body_facts.iter().filter(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).map(|fact| {
+        let mutables = program.store.scheme_body_facts.iter().filter(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).map(|fact| {
             let schema::StmtView::Let { slot, .. } = decoder.statement_view(fact.instruction as usize).unwrap() else { unreachable!() };
             slot
         }).collect::<Vec<_>>();
@@ -984,7 +998,7 @@ mod tests {
         changed.store.extra[payload].fill(u32::MAX);
         for fact in &changed.store.scheme_body_facts {
             if [declaration, read].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, unsigned.tag);
                 node.first = unsigned.first;
             }
@@ -1045,7 +1059,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [arm.raw(), value.raw()].contains(&fact.instruction) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, alternate.tag);
                 node.first = alternate.first;
             }
@@ -1071,7 +1085,7 @@ mod tests {
         let mut changed = program.clone();
         for fact in &changed.store.scheme_body_facts {
             if [instruction, declaration, read].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.children.len, 0);
                 *node = claimed;
             }
@@ -1140,7 +1154,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, value].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, signed.tag);
                 node.first = signed.first;
             }
@@ -1173,7 +1187,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, right].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, signed.tag);
                 let item = SchemeTypeId::from_raw(node.first).unwrap();
                 let item = &mut changed.store.scheme_types[item.index()];
@@ -1217,7 +1231,7 @@ mod tests {
             changed.store.extra[payload.start] = 2;
             for fact in &changed.store.scheme_body_facts {
                 if [declaration, initializer, operand].contains(&(fact.instruction as usize)) {
-                    let node = &mut changed.store.scheme_types[fact.ty.index()];
+                    let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                     assert_eq!(node.tag, wrong.tag);
                     node.first = wrong.first;
                 }
@@ -1279,7 +1293,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
-                let result = changed.store.scheme_types[fact.ty.index()];
+                let result = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(result.tag, FullSchemeTypeTag::Result);
                 let actual_error = &mut changed.store.scheme_types[SchemeTypeId::from_raw(result.second).unwrap().index()];
                 assert_eq!(actual_error.tag, error.tag);
@@ -1311,7 +1325,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
-                let optional = changed.store.scheme_types[fact.ty.index()];
+                let optional = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(optional.tag, FullSchemeTypeTag::Optional);
                 let list = changed.store.scheme_types[SchemeTypeId::from_raw(optional.first).unwrap().index()];
                 assert_eq!(list.tag, FullSchemeTypeTag::List);
@@ -1376,7 +1390,7 @@ mod tests {
         changed.store.extra[payload.start] = 3;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, source].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, wrong.tag);
                 node.first = wrong.first;
             }
@@ -1408,7 +1422,7 @@ mod tests {
         changed.store.extra[payload.start] = 3;
         for fact in &changed.store.scheme_body_facts {
             if [branch, read].contains(&(fact.instruction as usize)) {
-                let ty = &mut changed.store.scheme_types[fact.ty.index()];
+                let ty = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(ty.tag, wrong.tag);
                 ty.first = wrong.first;
             }
@@ -1455,7 +1469,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if instructions.contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, wrong.tag);
                 if let Some(wrong_child) = wrong_child {
                     let child = SchemeTypeId::from_raw(node.first).unwrap();
@@ -1514,7 +1528,7 @@ mod tests {
         let mut changed = program.clone();
         for fact in &changed.store.scheme_body_facts {
             if [method, declaration, read].contains(&(fact.instruction as usize)) {
-                let node = changed.store.scheme_types[fact.ty.index()];
+                let node = changed.store.scheme_types[fact.ty().unwrap().index()];
                 let child = SchemeTypeId::from_raw(node.first).unwrap();
                 let child = &mut changed.store.scheme_types[child.index()];
                 assert_eq!(child.tag, unsigned.tag);
@@ -1563,7 +1577,7 @@ mod tests {
         let other = program.store.scheme_fields.iter().find(|field| program.store.string(field.name).unwrap() == "other").unwrap().name;
         for fact in &changed.store.scheme_body_facts {
             if [record, declaration, read].contains(&(fact.instruction as usize)) {
-                let node = changed.store.scheme_types[fact.ty.index()];
+                let node = changed.store.scheme_types[fact.ty().unwrap().index()];
                 let fields = node.children.bounds(changed.store.scheme_fields.len()).unwrap();
                 assert_eq!(fields.len(), 1);
                 assert_eq!(changed.store.string(changed.store.scheme_fields[fields.start].name).unwrap(), "item");
@@ -1595,7 +1609,7 @@ mod tests {
         changed.store.extra[payload.start] = to as u32;
         for fact in &changed.store.scheme_body_facts {
             if [read, declaration, initializer].contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, actual.tag);
                 assert_eq!(node.children.len, 0);
                 node.first = actual.first;
@@ -1687,9 +1701,9 @@ mod tests {
         let expected_item = program.store.scheme_types[SchemeTypeId::from_raw(expected_item).unwrap().index()];
         for fact in &target.store.scheme_body_facts {
             if output.contains(&(fact.instruction as usize)) {
-                let node = target.store.scheme_types[fact.ty.index()];
+                let node = target.store.scheme_types[fact.ty().unwrap().index()];
                 match node.tag {
-                    FullSchemeTypeTag::Ground => target.store.scheme_types[fact.ty.index()].first = expected.raw(),
+                    FullSchemeTypeTag::Ground => target.store.scheme_types[fact.ty().unwrap().index()].first = expected.raw(),
                     FullSchemeTypeTag::Set => {
                         let child = SchemeTypeId::from_raw(node.first).unwrap();
                         let item = &mut target.store.scheme_types[child.index()];
@@ -1758,7 +1772,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [read, declaration, initializer].contains(&(fact.instruction as usize)) {
-                let leaf = record_field_type(&changed.store, record_field_type(&changed.store, fact.ty, "nested"), "count");
+                let leaf = record_field_type(&changed.store, record_field_type(&changed.store, fact.ty().unwrap(), "nested"), "count");
                 let node = &mut changed.store.scheme_types[leaf.index()];
                 assert_eq!(node.tag, unsigned.tag);
                 node.first = unsigned.first;
@@ -1807,8 +1821,8 @@ mod tests {
         let mut result = program.clone();
         for fact in &result.store.scheme_body_facts {
             if output.contains(&(fact.instruction as usize)) {
-                assert_ne!(fact.ty, flag);
-                let node = &mut result.store.scheme_types[fact.ty.index()];
+                assert_ne!(fact.ty().unwrap(), flag);
+                let node = &mut result.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, FullSchemeTypeTag::Ground);
                 node.first = integer;
             }
@@ -1961,7 +1975,7 @@ mod tests {
         let mut changed_types = BTreeSet::new();
         for fact in &program.store.scheme_body_facts {
             if !instructions.contains(&(fact.instruction as usize)) { continue; }
-            let mut pending = vec![fact.ty];
+            let mut pending = vec![fact.ty().unwrap()];
             while let Some(ty) = pending.pop() {
                 if !changed_types.insert(ty) { continue; }
                 let node = &mut changed.store.scheme_types[ty.index()];
@@ -2000,7 +2014,7 @@ mod tests {
         let (owner, scheme) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
-        let locals = program.store.scheme_body_facts[facts].iter().filter(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).map(|fact| match decoder.statement_view(fact.instruction as usize).unwrap() { schema::StmtView::Let { slot, .. } => slot, _ => panic!("the mutable locals have simple declarations") }).collect::<Vec<_>>();
+        let locals = program.store.scheme_body_facts[facts].iter().filter(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).map(|fact| match decoder.statement_view(fact.instruction as usize).unwrap() { schema::StmtView::Let { slot, .. } => slot, _ => panic!("the mutable locals have simple declarations") }).collect::<Vec<_>>();
         assert_eq!(locals.len(), 2);
         let assignment = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. }) if slot == locals[1])).unwrap();
         let mut changed = program.clone();
@@ -2072,7 +2086,7 @@ mod tests {
         let mut budget = SchemeInstantiationBudget::new(&changed.store);
         for instruction in [value, source] {
             let fact = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction).unwrap();
-            let actual = decode_scheme_type(&changed.store, scope, fact.ty, &mut budget, 0).unwrap();
+            let actual = decode_scheme_type(&changed.store, scope, fact.ty().unwrap(), &mut budget, 0).unwrap();
             assert_eq!(actual.closed_ground_type(), Some(Type::List(Box::new(Type::Int))));
         }
         let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
@@ -2081,8 +2095,8 @@ mod tests {
             let retained = decode_scheme_type(&changed.store, scope, parameter.ty, &mut budget, 0).unwrap();
             assert_eq!(original, retained);
         }
-        for fact in program.store.scheme_body_facts.iter().filter(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable) {
-            assert_eq!(decode_scheme_type(&changed.store, scope, fact.ty, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::List(Box::new(Type::UInt))));
+        for fact in program.store.scheme_body_facts.iter().filter(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable) {
+            assert_eq!(decode_scheme_type(&changed.store, scope, fact.ty().unwrap(), &mut budget, 0).unwrap().closed_ground_type(), Some(Type::List(Box::new(Type::UInt))));
         }
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic compound assignment changes its list domain");
     }
@@ -2129,11 +2143,11 @@ mod tests {
         changed.store.extra[words.start + 1] = signed.first;
         for fact in &changed.store.scheme_body_facts {
             if fact.instruction as usize == selector {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, FullSchemeTypeTag::Ground);
                 node.first = signed.first;
             } else if fact.instruction as usize == requirement {
-                let result = changed.store.scheme_types[fact.ty.index()];
+                let result = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(result.tag, FullSchemeTypeTag::Result);
                 let node = &mut changed.store.scheme_types[result.first as usize];
                 assert_eq!(node.tag, FullSchemeTypeTag::Ground);
@@ -2251,10 +2265,16 @@ mod tests {
             let mut changed = program.clone();
             for fact in &mut changed.store.scheme_body_facts {
                 if [comprehension, declaration, read].contains(&(fact.instruction as usize)) {
-                    assert_eq!(changed.store.scheme_types[fact.ty.index()].tag, FullSchemeTypeTag::List);
+                    assert_eq!(changed.store.scheme_types[fact.ty().unwrap().index()].tag, FullSchemeTypeTag::List);
                     let mut validated = source_type;
-                    validated.first = fact.ty.raw();
-                    fact.ty = SchemeTypeId::new(changed.store.scheme_types.len()).unwrap();
+                    validated.first = fact.ty().unwrap().raw();
+                    let ty = SchemeTypeId::new(changed.store.scheme_types.len()).unwrap();
+                    fact.value = match fact.value {
+                        super::super::super::schemes::FullSchemeBodyFactValue::Expression(_) => super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty),
+                        super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(_) => super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(ty),
+                        super::super::super::schemes::FullSchemeBodyFactValue::LocalMutable(_) => super::super::super::schemes::FullSchemeBodyFactValue::LocalMutable(ty),
+                        _ => panic!("the selected fact has an expression or local type"),
+                    };
                     changed.store.scheme_types.push(validated);
                 }
             }
@@ -2267,7 +2287,7 @@ mod tests {
     fn generic_iteration_record_targets_authenticate_actual_field_domains() {
         let program = prepare("pure keep(value, other) { let {item: copy, ..} = {item: value, other}; let _ = copy; value }");
         let (owner, _) = generic_owner(&program);
-        let declaration = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::StmtLetRecord && program.store.scheme_body_facts.iter().any(|fact| fact.instruction as usize == *instruction && fact.kind == FullSchemeBodyFactKind::LocalImmutable)).unwrap();
+        let declaration = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::StmtLetRecord && program.store.scheme_body_facts.iter().any(|fact| fact.instruction as usize == *instruction && fact.kind() == FullSchemeBodyFactKind::LocalImmutable)).unwrap();
         let mut changed = program.clone();
         let words = changed.store.data[declaration].range().bounds(changed.store.extra.len()).unwrap();
         assert_eq!(changed.store.extra[words.start + 1], 1);
@@ -2279,11 +2299,11 @@ mod tests {
     #[test]
     fn generic_iteration_record_declarations_require_unique_complete_evidence() {
         let program = prepare("pure keep(value) { let {item: copy} = {item: value}; copy }");
-        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.kind == FullSchemeBodyFactKind::LocalImmutable && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::StmtLetRecord).unwrap();
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.kind() == FullSchemeBodyFactKind::LocalImmutable && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::StmtLetRecord).unwrap();
         let mut missing = program.clone();
-        missing.store.scheme_body_facts[fact].kind = FullSchemeBodyFactKind::Expression;
+        missing.store.scheme_body_facts[fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(missing.store.scheme_body_facts[fact].ty().unwrap());
         assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "generic body fact has an invalid instruction kind");
-        let duplicate = program.store.scheme_body_facts.iter().position(|other| other.kind == FullSchemeBodyFactKind::LocalImmutable && other.instruction != program.store.scheme_body_facts[fact].instruction).unwrap();
+        let duplicate = program.store.scheme_body_facts.iter().position(|other| other.kind() == FullSchemeBodyFactKind::LocalImmutable && other.instruction != program.store.scheme_body_facts[fact].instruction).unwrap();
         let mut changed = program.clone();
         changed.store.scheme_body_facts[duplicate].instruction = changed.store.scheme_body_facts[fact].instruction;
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic local declaration fact is duplicated");
@@ -2300,8 +2320,8 @@ mod tests {
         let changed = retarget_comprehension_operand(&program, owner, scheme, writer, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
         let mut immutable = program.clone();
-        let declaration = immutable.store.scheme_body_facts.iter_mut().find(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).unwrap();
-        declaration.kind = FullSchemeBodyFactKind::LocalImmutable;
+        let declaration = immutable.store.scheme_body_facts.iter_mut().find(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).unwrap();
+        declaration.value = super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(declaration.ty().unwrap());
         assert_eq!(FullVerifier::verify(&immutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
     }
 
@@ -2339,7 +2359,7 @@ mod tests {
         let (spare_slot, spare_type) = range.clone().filter_map(|instruction| match decoder.statement_view(instruction) {
             Ok(schema::StmtView::Let { slot, value, .. }) if slot != rows_slot => {
                 let fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == value.raw() as usize)?;
-                let ty = program.store.scheme_types[fact.ty.index()];
+                let ty = program.store.scheme_types[fact.ty().unwrap().index()];
                 (ty.tag == FullSchemeTypeTag::List).then_some((slot, ty))
             }
             _ => None,
@@ -2353,7 +2373,7 @@ mod tests {
         changed.store.extra[words.start] = spare_slot as u32;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, iter].contains(&(fact.instruction as usize)) {
-                let list = changed.store.scheme_types[fact.ty.index()];
+                let list = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(list.tag, FullSchemeTypeTag::List);
                 let item = &mut changed.store.scheme_types[SchemeTypeId::from_raw(list.first).unwrap().index()];
                 assert_eq!(item.tag, FullSchemeTypeTag::Parameter);
@@ -2419,7 +2439,7 @@ mod tests {
         changed.store.extra[payload.start] = 2;
         for fact in &changed.store.scheme_body_facts {
             if [declaration, initializer, read].contains(&(fact.instruction as usize)) {
-                let result = changed.store.scheme_types[fact.ty.index()];
+                let result = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(result.tag, FullSchemeTypeTag::Result);
                 let actual_error = &mut changed.store.scheme_types[SchemeTypeId::from_raw(result.second).unwrap().index()];
                 assert_eq!(actual_error.tag, error.tag);
@@ -2481,7 +2501,7 @@ mod tests {
         let (root, literal, owned) = argument_default_operand(&program, owner);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let wrong = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str(_)))).unwrap();
-        let wrong_type = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == wrong).unwrap().ty;
+        let wrong_type = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == wrong).unwrap().ty().unwrap();
         let wrong_node = program.store.scheme_types[wrong_type.index()];
         assert_eq!(wrong_node.tag, FullSchemeTypeTag::Ground);
         let mut changed = program.clone();
@@ -2489,7 +2509,7 @@ mod tests {
         changed.store.data[literal] = program.store.data[wrong];
         for fact in &program.store.scheme_body_facts {
             if owned.contains(&(fact.instruction as usize)) {
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                let node = &mut changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, FullSchemeTypeTag::Ground);
                 node.first = wrong_node.first;
             }
@@ -2497,7 +2517,7 @@ mod tests {
         let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
         let scope = scopes[scheme.index()].as_ref().unwrap();
         let mut budget = SchemeInstantiationBudget::new(&changed.store);
-        let root_type = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == root).unwrap().ty;
+        let root_type = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == root).unwrap().ty().unwrap();
         assert_eq!(decode_scheme_type(&changed.store, scope, root_type, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::Str));
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic default value disagrees with its parameter");
         let mut escaped = program.clone();
@@ -2562,7 +2582,7 @@ mod tests {
         changed.store.extra[words.start] = 2;
         for fact in &program.store.scheme_body_facts {
             if [argument, declaration, initializer].contains(&(fact.instruction as usize)) {
-                let node = changed.store.scheme_types[fact.ty.index()];
+                let node = changed.store.scheme_types[fact.ty().unwrap().index()];
                 assert_eq!(node.tag, FullSchemeTypeTag::List);
                 let item = &mut changed.store.scheme_types[SchemeTypeId::from_raw(node.first).unwrap().index()];
                 assert_eq!(item.tag, FullSchemeTypeTag::Ground);

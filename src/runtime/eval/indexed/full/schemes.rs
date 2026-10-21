@@ -79,6 +79,9 @@ pub(super) enum FullSchemeBodyFactKind {
     Tail,
     LocalImmutable,
     LocalMutable,
+    EmptyList,
+    EmptyMap,
+    RecordProducer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,9 +372,41 @@ pub(super) struct FullRowEvidenceField {
 pub(super) struct FullSchemeBodyFact {
     pub(super) instruction: u32,
     pub(super) function: IrFunctionId,
-    pub(super) ty: SchemeTypeId,
-    pub(super) kind: FullSchemeBodyFactKind,
-    pub(super) reserved: [u8; 3],
+    pub(super) value: FullSchemeBodyFactValue,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullSchemeBodyFactValue {
+    Expression(SchemeTypeId),
+    Tail(SchemeTypeId),
+    LocalImmutable(SchemeTypeId),
+    LocalMutable(SchemeTypeId),
+    EmptyList,
+    EmptyMap,
+    RecordProducer,
+}
+
+impl FullSchemeBodyFact {
+    pub(super) fn kind(self) -> FullSchemeBodyFactKind {
+        match self.value {
+            FullSchemeBodyFactValue::Expression(_) => FullSchemeBodyFactKind::Expression,
+            FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
+            FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
+            FullSchemeBodyFactValue::LocalMutable(_) => FullSchemeBodyFactKind::LocalMutable,
+            FullSchemeBodyFactValue::EmptyList => FullSchemeBodyFactKind::EmptyList,
+            FullSchemeBodyFactValue::EmptyMap => FullSchemeBodyFactKind::EmptyMap,
+            FullSchemeBodyFactValue::RecordProducer => FullSchemeBodyFactKind::RecordProducer,
+        }
+    }
+
+    pub(super) fn ty(self) -> Option<SchemeTypeId> {
+        match self.value {
+            FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
+            | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer => None,
+        }
+    }
 }
 
 impl FullStore {
@@ -742,9 +777,25 @@ impl FullBuilder {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_body_instruction", None, 0, instruction))?,
             function,
-            ty,
-            kind,
-            reserved: [0; 3],
+            value: match kind {
+                FullSchemeBodyFactKind::Expression => FullSchemeBodyFactValue::Expression(ty),
+                FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
+                FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
+                FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+            },
+        });
+        Ok(())
+    }
+
+    pub(super) fn record_scheme_constructor_fact(&mut self, function: IrFunctionId, instruction: usize, kind: crate::sema::schemes::NonmaterialConstructor) -> Result<(), IrBuildError> {
+        let value = match kind {
+            crate::sema::schemes::NonmaterialConstructor::EmptyList => FullSchemeBodyFactValue::EmptyList,
+            crate::sema::schemes::NonmaterialConstructor::EmptyMap => FullSchemeBodyFactValue::EmptyMap,
+            crate::sema::schemes::NonmaterialConstructor::Record => FullSchemeBodyFactValue::RecordProducer,
+        };
+        self.store.scheme_body_facts.push(FullSchemeBodyFact {
+            instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("constructor_fact_instruction", None, 0, instruction))?, function, value,
         });
         Ok(())
     }
@@ -759,7 +810,7 @@ impl FullBuilder {
             .scheme_body_facts
             .get_mut(facts_start..)
             .ok_or_else(|| IrBuildError::format("scheme_body_fact_range", None, 0, facts_start))?;
-        facts.sort_by_key(|fact| (fact.instruction, fact.kind as u8));
+        facts.sort_by_key(|fact| (fact.instruction, fact.kind() as u8));
         let range = super::table_range(facts_start, self.store.scheme_body_facts.len())?;
         let stored = self
             .store
@@ -1525,7 +1576,7 @@ mod tests {
             assert_eq!(builder.store.scheme_body_facts[facts.start].instruction, 17);
             assert_eq!(builder.store.scheme_body_facts[facts.start].function, function);
             assert_eq!(
-                builder.store.scheme_body_facts[facts.start].kind,
+                builder.store.scheme_body_facts[facts.start].kind(),
                 FullSchemeBodyFactKind::Tail
             );
             assert_eq!(builder.store.checked_expr_types[0].instruction, 21);

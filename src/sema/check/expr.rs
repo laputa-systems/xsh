@@ -668,7 +668,9 @@ impl Checker {
         let expectation = expectation.map(|expectation| {
             expectation.with_context(expected.expect("an expectation has a context type"))
         });
+        let owns_record_scope = self.begin_record_constructor_scope(arena, id);
         let actual = self.check_expr_arena_inner(arena, source, id, expectation);
+        if owns_record_scope { self.finish_record_constructor_scope(arena, id); }
         let actual = self.name_typed_callable(arena, id, actual, expected);
         self.boundary.in_control_position = outer_control;
         let actual = self.propagate_condition_arena(arena, id, control, actual);

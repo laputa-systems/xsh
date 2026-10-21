@@ -19989,6 +19989,9 @@ macro_rules! impl_build_id_codec {
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
+                let constructor = if $checked_expr_type {
+                    scratch.scheme_constructors.get(&self.index()).copied()
+                } else { None };
                 let application_return = if $resource_transfer {
                     scratch.scheme_application_returns.get(&self.index()).copied()
                 } else { None };
@@ -20035,6 +20038,7 @@ macro_rules! impl_build_id_codec {
                     || call_instantiation.is_some()
                     || checked_call_result.is_some()
                     || registered_call.is_some()
+                    || constructor.is_some()
                     || scheme_body_type.is_some()
                     || scheme_tail_type.is_some()
                     || scheme_local_declaration.is_some();
@@ -20183,6 +20187,12 @@ macro_rules! impl_build_id_codec {
                             builder.store.tags.len(),
                         ));
                     }
+                }
+                if let Some(kind) = constructor {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_constructor_instruction", None, 0, self.index()))?;
+                    if scheme_body_type.is_some() || builder.active_scheme.is_none() { return Err(IrBuildError::format("scheme_constructor_contract", None, 0, instruction)); }
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("scheme_constructor_owner", None, 0, instruction))?;
+                    builder.record_scheme_constructor_fact(function, instruction, kind)?;
                 }
                 if let Some(ty) = scheme_body_type {
                     let instruction = instruction.ok_or_else(|| {
@@ -23938,7 +23948,7 @@ assert apply(40) == 42
             let result_argument = types.clone().find(|index| program.store.call_type_arguments[*index].binder == result_binder).unwrap();
             let result_type = program.store.call_type_arguments[result_argument].ty;
             assert!(types.clone().all(|index| index == result_argument || program.store.call_type_arguments[index].ty != result_type));
-            assert!(program.store.scheme_body_facts.iter().all(|fact| fact.ty != result_type));
+            assert!(program.store.scheme_body_facts.iter().all(|fact| fact.ty().unwrap() != result_type));
             let mut wrong_result = program.clone();
             let mut semantic = SemanticPoolBuilder::default();
             let text = semantic.intern_type(&mut wrong_result.store.semantic, &Type::Str).unwrap();
@@ -24314,7 +24324,7 @@ assert apply(40) == 42
             let function = scheme_fixture_root_function(&forged, "box");
             let FullCallableContract::Scheme(scheme) = forged.store.functions[function].contract else { panic!("box scheme") };
             let facts = forged.store.schemes[scheme.index()].body_facts.bounds(forged.store.scheme_body_facts.len()).unwrap();
-            let list = forged.store.scheme_body_facts[facts].iter().map(|fact| fact.ty)
+            let list = forged.store.scheme_body_facts[facts].iter().map(|fact| fact.ty().unwrap())
                 .find(|ty| forged.store.scheme_types[ty.index()].tag == schema::FullSchemeTypeTag::List).unwrap();
             forged.store.scheme_types[list.index()].tag = schema::FullSchemeTypeTag::Set;
             let error = FullVerifier::verify(&forged).unwrap_err();
@@ -24351,7 +24361,7 @@ assert apply(40) == 42
             let parameter_range = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
             roots.extend(program.store.scheme_params[parameter_range].iter().map(|parameter| parameter.ty));
             let facts = scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
-            roots.extend(program.store.scheme_body_facts[facts].iter().map(|fact| fact.ty));
+            roots.extend(program.store.scheme_body_facts[facts].iter().map(|fact| fact.ty().unwrap()));
             let value_name = program.store.params[program.store.functions[identity].params.start as usize].name;
             for root in roots {
                 let parameter = program.store.scheme_types[root.index()];
@@ -24810,7 +24820,11 @@ assert apply(40) == 42
             shift_scheme_type_id(&mut field.ty, removed_index);
         }
         for fact in &mut program.store.scheme_body_facts {
-            shift_scheme_type_id(&mut fact.ty, removed_index);
+            match &mut fact.value {
+                schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
+                | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
+                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer => {},
+            }
         }
         for node in &mut program.store.scheme_types {
             match node.tag {
@@ -28778,12 +28792,12 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         let field_fact = (facts.start..facts.end)
             .find(|index| {
                 let fact = program.store.scheme_body_facts[*index];
-                fact.kind == schemes::FullSchemeBodyFactKind::Expression
+                fact.kind() == schemes::FullSchemeBodyFactKind::Expression
                     && program.store.tags[fact.instruction as usize] == FullTag::ExprField
             })
             .expect("name_of projection has an expression fact");
         let mut mismatched_body_fact = program.clone();
-        mismatched_body_fact.store.scheme_body_facts[field_fact].ty = record_type;
+        mismatched_body_fact.store.scheme_body_facts[field_fact].value = schemes::FullSchemeBodyFactValue::Expression(record_type);
         assert!(FullVerifier::verify(&mismatched_body_fact).is_err());
 
         let scheme_id = match program.store.functions[identity].contract {
@@ -28805,8 +28819,8 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         assert!(FullVerifier::verify(&cross_function_fact).is_err());
 
         let mut escaped_scheme_type = program.clone();
-        escaped_scheme_type.store.scheme_body_facts[fact_range.start].ty =
-            SchemeTypeId::from_raw(IR_NONE - 1).unwrap();
+        escaped_scheme_type.store.scheme_body_facts[fact_range.start].value =
+            schemes::FullSchemeBodyFactValue::Expression(SchemeTypeId::from_raw(IR_NONE - 1).unwrap());
         assert!(FullVerifier::verify(&escaped_scheme_type).is_err());
 
         let value_read = projection_range
@@ -28844,7 +28858,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         original_roots.extend(
             program.store.scheme_body_facts[fact_range.clone()]
                 .iter()
-                .map(|fact| fact.ty),
+                .filter_map(|fact| fact.ty()),
         );
         let append_map = |program: &mut FullProgram, first: SchemeTypeId, second: SchemeTypeId| {
             let id = SchemeTypeId::new(program.store.scheme_types.len()).unwrap();
@@ -28869,7 +28883,13 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         }
         program.store.schemes[scheme_id.index()].return_type = root;
         for fact in &mut program.store.scheme_body_facts[fact_range] {
-            fact.ty = root;
+            fact.value = match fact.value {
+                schemes::FullSchemeBodyFactValue::Expression(_) => schemes::FullSchemeBodyFactValue::Expression(root),
+                schemes::FullSchemeBodyFactValue::Tail(_) => schemes::FullSchemeBodyFactValue::Tail(root),
+                schemes::FullSchemeBodyFactValue::LocalImmutable(_) => schemes::FullSchemeBodyFactValue::LocalImmutable(root),
+                schemes::FullSchemeBodyFactValue::LocalMutable(_) => schemes::FullSchemeBodyFactValue::LocalMutable(root),
+                _ => panic!("this fixture has only typed body facts"),
+            };
         }
         let error = FullVerifier::verify(&program).unwrap_err();
         assert_eq!(
@@ -28899,7 +28919,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         let tail_fact = body_facts
             .find(|index| {
                 let fact = program.store.scheme_body_facts[*index];
-                fact.kind == schemes::FullSchemeBodyFactKind::Tail
+                fact.kind() == schemes::FullSchemeBodyFactKind::Tail
                     && fact.instruction as usize == return_instruction
             })
             .expect("identity return has its authenticated tail fact");
@@ -28911,7 +28931,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         let wrong_return_type = program.store.scheme_params[param_range.start + 1].ty;
         let wrong_return = program.store.scheme_types[wrong_return_type.index()];
         assert_eq!(wrong_return.tag, schema::FullSchemeTypeTag::Ground);
-        let tail_type = program.store.scheme_body_facts[tail_fact].ty;
+        let tail_type = program.store.scheme_body_facts[tail_fact].ty().unwrap();
         assert_ne!(tail_type, wrong_return_type);
         assert_eq!(
             program.store.scheme_types[tail_type.index()].tag,
@@ -32758,8 +32778,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             let mut forged_type = program.clone();
             let boolean = SemanticPoolBuilder::default().intern_type(&mut forged_type.store.semantic, &Type::Bool).unwrap();
             let fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == field).unwrap();
-            assert_eq!(program.store.scheme_types[fact.ty.index()].tag, schema::FullSchemeTypeTag::Ground);
-            forged_type.store.scheme_types[fact.ty.index()].first = boolean.raw();
+            assert_eq!(program.store.scheme_types[fact.ty().unwrap().index()].tag, schema::FullSchemeTypeTag::Ground);
+            forged_type.store.scheme_types[fact.ty().unwrap().index()].first = boolean.raw();
             assert!(FullVerifier::verify(&forged_type).is_err());
         });
     }
@@ -34619,8 +34639,8 @@ pure selected() -> Str {
             assert_eq!(error.message, "prepared producer value disagrees with its checked contract");
             let mut bad_type = program.clone();
             let ground = SemanticPoolBuilder::default().intern_type(&mut bad_type.store.semantic, &Type::Bool).unwrap();
-            let fact = bad_type.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction && fact.kind == schemes::FullSchemeBodyFactKind::Expression).unwrap();
-            let node = &mut bad_type.store.scheme_types[fact.ty.index()];
+            let fact = bad_type.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let node = &mut bad_type.store.scheme_types[fact.ty().unwrap().index()];
             assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
             node.first = ground.raw();
             let error = FullVerifier::verify(&bad_type).expect_err("generic prepared contracts must describe their actual values");

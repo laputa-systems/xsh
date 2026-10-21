@@ -179,7 +179,7 @@ mod tests {
             let accepts = |captures| super::super::scheme_body::supports_generalized_body(
                 program, &output.prepared_constants, &commands, body, bindings, &parameters, captures,
                 facts.tail_types(), &output.statement_positions, &calls, facts.registered_calls(), facts.expression_types(),
-                facts.empty_constructors(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
+                facts.constructor_producers(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
             );
             assert!(accepts(&captures));
             assert!(!accepts(&super::super::FxHashSet::default()));

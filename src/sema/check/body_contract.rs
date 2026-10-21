@@ -1219,6 +1219,27 @@ mod tests {
     }
 
     #[test]
+    fn checked_body_contract_preserves_nonmaterial_constructor_operations() {
+        let original = "pure keep(payload: Int) -> Int { let _ = {items: map.empty(), payload}; payload }\n";
+        let candidate = "pure keep(payload) { let _ = {items: map.empty(), payload}; payload }\n";
+        let (_, _, old_checked) = checked(original);
+        let old_interface = old_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+        let (program, sources, new_checked) = checked(candidate);
+        let new_declaration = new_checked.checked_declarations.functions.values().next().unwrap();
+        let facts = new_declaration.scheme_body_facts.as_ref().unwrap();
+        assert!(facts.constructor_producers().values().any(|kind| *kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap));
+        let instance = old_interface.instance_evidence(&new_declaration.callable_contract().unwrap()).unwrap().unwrap();
+        let candidate = PendingBodyContracts::capture(&new_checked, &program, &sources).unwrap().into_contracts().into_iter()
+            .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+        let original = declaration(original);
+        assert!(!original.operations.is_empty());
+        assert!(original.preserved_by_instance(&candidate, Some(&instance)));
+        let mut missing_operation = candidate;
+        assert!(missing_operation.operations.pop_first().is_some());
+        assert!(!original.preserved_by_instance(&missing_operation, Some(&instance)));
+    }
+
+    #[test]
     fn checked_body_contract_rejects_native_selection_and_argument_mutations() {
         let original = declaration("pure accepts(value: Str) -> Bool { value.starts_with(\"x\") }\n");
         let other = declaration("pure accepts(value: Str) -> Bool { value.ends_with(\"x\") }\n");

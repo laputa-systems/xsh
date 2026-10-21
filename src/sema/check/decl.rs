@@ -148,7 +148,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) callable: Arc<CallableScheme>,
     pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
-    empty_constructors: BTreeMap<ExprId, crate::sema::schemes::NonmaterialEmptyConstructor>,
+    constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
     pub(super) calls: BTreeMap<Span, crate::sema::schemes::CallInstantiation>,
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
@@ -242,22 +242,19 @@ impl Checker {
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
-        let mut empty_constructors = BTreeMap::new();
-        for (&expression, &kind) in self.nonmaterial_empty_constructors() {
+        let mut constructor_producers = BTreeMap::new();
+        for (&expression, &kind) in self.nonmaterial_constructor_producers() {
             if !expression_spans.contains(&program.arena.expr(expression).span) { continue; }
-            if !super::scheme_body::matches_empty_constructor(program, expression, kind) {
+            if !super::scheme_body::matches_constructor_producer(program, expression, kind) {
                 self.error(program.arena.expr(expression).span, "nonmaterial constructor evidence does not match its source expression", DiagnosticCode::CheckLocalInference);
                 return None;
             }
-            if kind == crate::sema::schemes::NonmaterialEmptyConstructor::Map {
-                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
-                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
-                let authenticated = !self.resolved_bindings.expressions.contains_key(&base)
-                    && self.api_calls.get(&program.arena.expr(expression).span).is_some_and(|call| {
-                        call.receiver.is_none() && call.params.is_empty() && call.argument_slots.is_empty()
-                            && call.sig.pure && call.sig.effects.is_empty()
-                            && api_spec().module_overloads("map", "empty").is_some_and(|signatures| signatures.iter().any(|signature| std::ptr::eq(signature, call.sig)))
-                    });
+            if kind == crate::sema::schemes::NonmaterialConstructor::Record && !matches!(body_types.get(&expression), Some(Type::Record(_))) {
+                self.error(program.arena.expr(expression).span, "nonmaterial record producer has no checked closed record shape", DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+            if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                let authenticated = self.is_checked_empty_map_constructor(program, expression);
                 if !authenticated {
                     self.error(program.arena.expr(expression).span, "nonmaterial map constructor has no checked empty operation", DiagnosticCode::CheckLocalInference);
                     return None;
@@ -265,8 +262,8 @@ impl Checker {
             }
             if body_types.get(&expression).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference()) {
                 body_types.remove(&expression);
-                empty_constructors.insert(expression, kind);
-                if kind == crate::sema::schemes::NonmaterialEmptyConstructor::Map {
+                constructor_producers.insert(expression, kind);
+                if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
                     let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
                     let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
                     body_types.remove(&callee);
@@ -396,13 +393,13 @@ impl Checker {
                 &checked_calls,
                 &registered_calls,
                 &generalized_body_types,
-                &empty_constructors,
+                &constructor_producers,
                 &self.result_constructors,
                 if pending.kind() == crate::sema::types::CallableKind::Stream { super::scheme_body::BodyCompletion::Producer } else { super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,
-                &generalized_body_types, &empty_constructors, &self.result_constructors, value,
+                &generalized_body_types, &constructor_producers, &self.result_constructors, value,
             )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
@@ -458,7 +455,7 @@ impl Checker {
             callable,
             scope: generalized.generalization_scope,
             body_types: generalized_body_types,
-            empty_constructors,
+            constructor_producers,
             tail_types: generalized_tail_types,
             calls: generalized_calls,
             registered_calls,
@@ -475,7 +472,7 @@ impl Checker {
     ) {
         let PreparedFunctionGeneralization {
             definition, callable, scope, body_types: generalized_body_types,
-            empty_constructors,
+            constructor_producers,
             tail_types: generalized_tail_types, calls: generalized_calls,
             registered_calls, read_bindings, local_statements, expression_spans: _,
         } = prepared;
@@ -522,10 +519,21 @@ impl Checker {
         self.local_inference.checked_bindings.retain(|span, _| !generalized_bindings.contains(span));
         self.annotation_facts.retain(|fact| !matches!(fact.kind, super::AnnotationFactKind::Binding { span, .. } if generalized_bindings.contains(&span)));
         for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
+        for (&expression, &kind) in &constructor_producers {
+            let span = program.arena.expr(expression).span;
+            self.expr_types.remove(&span);
+            self.projections.remove(&span);
+            if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
+                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                self.expr_types.remove(&program.arena.expr(callee).span);
+                self.expr_types.remove(&program.arena.expr(base).span);
+            }
+        }
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
-            .generalize(callable, scope, generalized_body_types, empty_constructors, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, scope, generalized_body_types, constructor_producers, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -720,7 +728,7 @@ impl Checker {
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
             ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)) {
-                Ok(facts) => Some(facts.with_empty_constructors(pending.generalized_empty_constructors()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
+                Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";
                     self.error(

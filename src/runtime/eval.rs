@@ -800,6 +800,7 @@ struct BuildScratch {
     call_instantiations: Vec<Option<CallInstantiation>>,
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
+    scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,

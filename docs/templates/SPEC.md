@@ -1359,9 +1359,9 @@ An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
 record or list initializer follow the same rule. Each surviving empty list has
-one element type across all writers. A discarded `map.empty()` or an empty
-list field replaced by a later record spread contributes no unresolved type. These
-expressions still evaluate in source order. Explicit `Any` domains and heterogeneous
+one element type across all writers. A discarded empty list or `map.empty()`,
+or such a field replaced by a later record spread, contributes no unresolved
+type. These expressions and their record wrappers still evaluate in source order. Explicit `Any` domains and heterogeneous
 list literals keep their declared or inferred domains. Parameter defaults and
 signal hook bodies use the same local inference rules. An unannotated mutable
 local initialized to `set.empty()` follows the same rule for its element type. Resolve these
