@@ -32830,25 +32830,35 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     #[test]
     fn generic_producer_binding_work_uses_ordered_declaration_queries() {
         run_with_large_stack(|| {
-            let mut counts = Vec::new();
-            for locals in [64, 128] {
-                let declarations = (0..locals).map(|index| format!("let local_{index} = {index}; ")).collect::<String>();
-                let source = format!("pure helper() -> Int {{ {declarations} local_{} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n", locals - 1);
-                let program = fixture("producer-binding-work.xsh", &source);
-                let decoder = return_analysis_decoder(&program, "helper");
-                let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
-                index.record(&decoder).unwrap();
-                let (visits, instructions) = index.census_instruction_work();
-                assert!(visits <= instructions * 3);
-                let work = index.binding_work();
-                assert!(work.0 >= locals);
-                assert!(work.1 <= work.0 * 4);
-                assert!(work.2 <= work.0 * 2);
-                counts.push((locals, work, index.temporary_payload_bytes()));
+            for replacements in [false, true] {
+                let mut counts = Vec::new();
+                for locals in [64, 128] {
+                    let declarations = (0..locals).map(|index| if replacements {
+                        format!("var local_{index} = {index}; local_{index} += 1; ")
+                    } else {
+                        format!("let local_{index} = {index}; ")
+                    }).collect::<String>();
+                    let source = format!("pure helper() -> Int {{ {declarations} local_{} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n", locals - 1);
+                    let program = fixture("producer-binding-work.xsh", &source);
+                    let decoder = return_analysis_decoder(&program, "helper");
+                    let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+                    index.record(&decoder).unwrap();
+                    let (visits, instructions) = index.census_instruction_work();
+                    assert!(visits <= instructions * 3);
+                    let work = index.binding_work();
+                    if replacements {
+                        assert!(work.0 >= locals, "{locals}: {work:?}");
+                        assert!(work.1 <= work.0 * 4, "{locals}: {work:?}");
+                        assert!(work.2 <= work.0 * 2, "{locals}: {work:?}");
+                    } else {
+                        assert_eq!(work, (0, 0, 0));
+                    }
+                    assert!(index.census_matches_depth_first(&decoder).unwrap());
+                    counts.push(index.temporary_payload_bytes());
+                }
+                assert!(counts[1] > counts[0]);
+                assert!(counts[1] < counts[0] * 3);
             }
-            assert!(counts[1].2 > counts[0].2);
-            assert!(counts[1].2 < counts[0].2 * 3);
-            eprintln!("producer lifetime work and payload bytes: {counts:?}");
         });
     }
 
