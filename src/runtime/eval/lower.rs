@@ -2951,6 +2951,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .map(|tail| self.program.arena.core_stmt_id(tail))
                 .is_some_and(|tail| match self.program.arena.stmt(tail).kind {
                     ArenaStmtKind::Expr(expression) => self.checked_expr_type(expression).is_some_and(|ty| ty.is_result_unit()),
+                    ArenaStmtKind::TailBareIdent(name) => self.bodies.resolved_bindings
+                        .at(self.program.arena.stmt(tail).span, name)
+                        .and_then(|binding| slots.binding_type(binding))
+                        .is_some_and(Type::is_result_unit),
                     _ => false,
                 });
         let forwards_result_unit = if result_unit_tail && let Some(&tail) = body.last() {
