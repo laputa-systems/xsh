@@ -855,8 +855,6 @@ impl SchemeBodyFacts {
         &self.empty_constructors
     }
 
-    pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
-
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
         self.registered_calls = calls;
         self
