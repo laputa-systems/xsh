@@ -49,6 +49,121 @@ fn without_effect(program: &FullProgram, owner: usize, effect: Effect) -> FullPr
 }
 
 #[test]
+fn checked_comprehensions_preserve_nonempty_mapping() {
+    let program = fixture(r#"
+pure copy_nonempty(items: NonEmpty[Int]) {
+    [item for item in items]
+}
+pure filter_nonempty(items: NonEmpty[Int]) {
+    [item for item in items if item > 0]
+}
+pure nested_nonempty(items: NonEmpty[Int]) {
+    [item for item in items for item in {if item > 0 {[item]} else {[]}}]
+}
+pure through_splice(items: NonEmpty[Int]) -> Int {
+    copy_nonempty([@items]).first()
+}
+let copied: NonEmpty[Int] = copy_nonempty([4, 5])
+let filtered: List[Int] = filter_nonempty([-1])
+let nested: List[Int] = nested_nonempty([-1])
+assert through_splice([6]) == 6
+assert copied.first() == 4
+assert copied.last() == 5
+assert filtered == []
+assert nested == []
+"#);
+    execute_both(&program);
+}
+
+#[test]
+fn checked_nonempty_literals_authenticate_members_and_cardinality() {
+    let program = fixture(r#"
+pure first(items: NonEmpty[Int]) -> Int { items.first() }
+pure boolean() -> Bool { true }
+pure concrete() -> Int {
+    let spare: List[Int] = []
+    first([7])
+}
+pure spliced(items: NonEmpty[Int], plain: List[Int]) -> Int {
+    let _ = plain
+    first([@items])
+}
+assert concrete() == 7
+assert spliced([8], []) == 8
+"#);
+    execute_both(&program);
+    let owner = function(&program, "concrete");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let mut empty = None;
+    let mut nonempty = None;
+    let mut member = None;
+    for instruction in range {
+        if let Ok(schema::ExprView::List(mut items)) = decoder.expression_view(instruction) {
+            if items.len() == 0 { empty = Some(instruction); }
+            else {
+                nonempty = Some(instruction);
+                member = Some(items.next().unwrap().unwrap().raw() as usize);
+            }
+        }
+    }
+    let (empty, nonempty, member) = (empty.unwrap(), nonempty.unwrap(), member.unwrap());
+    let mut malformed = program.clone();
+    malformed.store.data.swap(empty, nonempty);
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(nonempty).unwrap(), schema::ExprView::List(items) if items.len() == 0));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("ground list producer has no item contract"), "{error:?}");
+    let mut malformed = program.clone();
+    malformed.store.tags[member] = FullTag::ExprBool;
+    let boolean = program.store.function_instruction_range(function(&program, "boolean")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    malformed.store.data[member] = program.store.data[boolean];
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+    let owner = function(&program, "spliced");
+    let decoder = function_view_decoder(&program.store, owner);
+    let splice = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+        let Ok(schema::ExprView::ListBuild(mut entries)) = decoder.expression_view(instruction) else { return None };
+        let (true, value, _) = entries.next().unwrap().unwrap() else { panic!("splice") };
+        Some(value.raw() as usize)
+    }).unwrap();
+    assert!(matches!(decoder.expression_view(splice).unwrap(), schema::ExprView::Param(0)));
+    let mut malformed = program.clone();
+    let plain = program.store.function_instruction_range(owner).unwrap().find(|&instruction|
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+    malformed.store.data[splice] = program.store.data[plain];
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(splice).unwrap(), schema::ExprView::Param(1)));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("contract") || error.message.contains("non-empty producer"), "{error:?}");
+}
+
+#[test]
+fn checked_comprehensions_authenticate_nonempty_mapping_source() {
+    let program = fixture(r#"
+pure mapped(items: NonEmpty[Int], plain: List[Int]) -> NonEmpty[Int] {
+    let _ = plain
+    [item for item in items]
+}
+assert mapped([9], []).first() == 9
+"#);
+    execute_both(&program);
+    let owner = function(&program, "mapped");
+    let decoder = function_view_decoder(&program.store, owner);
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let comprehension = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListComp).unwrap();
+    let schema::ExprView::ListComp { mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+    let super::super::decode::CompQualifierView::For { iter, .. } = qualifiers.next().unwrap().unwrap() else { panic!("mapping source") };
+    let iter = iter.raw() as usize;
+    assert!(matches!(decoder.expression_view(iter).unwrap(), schema::ExprView::Param(0)));
+    let plain = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+    let mut malformed = program.clone();
+    malformed.store.data[iter] = program.store.data[plain];
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(iter).unwrap(), schema::ExprView::Param(1)));
+    let error = FullVerifier::verify(&malformed).expect_err("mapping a possibly empty source cannot retain NonEmpty");
+    assert!(error.message.contains("ground list comprehension does not preserve its validation"), "{error:?}");
+}
+
+#[test]
 fn physical_process_spawn_and_wait_contracts_preserve_results() {
     on_large_stack(|| {
         fixture(r#"

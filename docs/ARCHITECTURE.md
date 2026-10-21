@@ -281,6 +281,11 @@ bind no values. Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
 exact owner, source, pattern, and slot identities. Every proposing use must agree
 on one concrete source contract. Stored collection contracts remain invariant.
+Fresh `NonEmpty` list literals prove a written element or an independently proved
+`NonEmpty` splice. Every element and splice retains its item contract proof.
+A validated comprehension retains its source validation only through the canonical
+single-`for`, unfiltered mapping rule. The actual iterable, target, and body retain
+their producer proofs.
 Conditional producers derive their contract from independently typed completing
 arms, then prove every condition and arm under that contract.
 

@@ -3,7 +3,7 @@ use super::{
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
     checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
     decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
-    merge_list_item_types,
+    merge_list_item_types, expected_list_item,
 };
 use crate::sema::types::{ConditionRole, ModuleExportType, TypedCallable};
 use std::{cell::{OnceCell, RefCell}, rc::Rc, sync::Arc};
@@ -2452,7 +2452,7 @@ impl<'a> ProducerProof<'a> {
             let fits = if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
-                && matches!(container, Type::List(_));
+                && expected_list_item(container, true).is_some();
             let checked_comprehension = if matches!((self.store.tags[instruction], container),
                 (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
                 && let Some(parent) = decoder.instruction_parent_of(instruction)?
@@ -2705,10 +2705,14 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::ListPipeline { .. } => self.verify_pipeline_result(owner, instruction, expected),
             schema::ExprView::ListComp { value, mut qualifiers, .. } => {
                 let Type::List(item) = expected.unvalidated() else { return Err(IrVerifyError::new("ground list comprehension has no list contract")) };
+                let mut qualifier_count = 0;
+                let mut source_validation = None;
                 for qualifier in &mut qualifiers {
+                    qualifier_count += 1;
                     match qualifier? {
                         super::super::decode::CompQualifierView::For { target, iter, .. } => {
                             let source = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
+                            source_validation = source.validated().map(|validated| validated.validation());
                             self.budget.charge_clone(&source)?;
                             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
                             self.verify_comprehension_target(target, &item)?;
@@ -2716,6 +2720,12 @@ impl<'a> ProducerProof<'a> {
                         }
                         super::super::decode::CompQualifierView::If { condition, .. } => self.verify_condition(owner, condition.raw() as usize, ConditionRole::Control)?,
                     }
+                }
+                if let Some(validated) = expected.validated()
+                    && (qualifier_count != 1 || !validated.validation().survives_mapping()
+                        || source_validation != Some(validated.validation()))
+                {
+                    return Err(IrVerifyError::new("ground list comprehension does not preserve its validation"));
                 }
                 self.expression(owner, value.raw() as usize, Arc::new((**item).clone()), false);
                 Ok(())
@@ -2756,7 +2766,8 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::ListBuild(mut entries) => {
-                let Type::List(item) = expected.unvalidated() else { return Err(IrVerifyError::new("ground list build has no list contract")) };
+                let Some(item) = expected_list_item(&expected, true) else { return Err(IrVerifyError::new("ground list build has no list contract")) };
+                let mut nonempty = false;
                 for entry in &mut entries {
                     let (splice, value, _) = entry?;
                     let value = value.raw() as usize;
@@ -2766,8 +2777,12 @@ impl<'a> ProducerProof<'a> {
                             _ if self.contextual_list_argument(&decoder, value, &expected)? => Arc::clone(&expected),
                             _ => return Err(IrVerifyError::new("fresh list splice disagrees with its element contract")),
                         }
-                    } else { Arc::new((**item).clone()) };
+                    } else { Arc::new(item.clone()) };
+                    nonempty |= !splice || ty.validated().is_some_and(|validated| validated.validation().implies(crate::sema::validated::Validation::NonEmpty));
                     self.expression(owner, value, ty, false);
+                }
+                if expected_list_item(&expected, nonempty).is_none() {
+                    return Err(IrVerifyError::new("ground list build has no non-empty producer"));
                 }
                 Ok(())
             }
@@ -2792,8 +2807,8 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::List(mut values) => {
-                let Type::List(item) = expected.unvalidated() else { return Err(IrVerifyError::new("ground list producer has no item contract")) };
-                for value in &mut values { self.expression(owner, value?.raw() as usize, Arc::new((**item).clone()), false); }
+                let Some(item) = expected_list_item(&expected, values.len() > 0) else { return Err(IrVerifyError::new("ground list producer has no item contract")) };
+                for value in &mut values { self.expression(owner, value?.raw() as usize, Arc::new(item.clone()), false); }
                 Ok(())
             }
             schema::ExprView::RunCapture(run) => {
