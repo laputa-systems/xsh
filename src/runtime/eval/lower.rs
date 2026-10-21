@@ -48,7 +48,7 @@ use super::{
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
     bindings: FxHashMap<BindingId, usize>,
-    types: FxHashMap<BindingId, Type>,
+    types: FxHashMap<BindingId, SchemeType>,
     checked_slot_types: FxHashMap<usize, Type>,
     scheme_declarations: BTreeMap<BuildStmtId, super::SchemeLocalDeclaration>,
     indices: FxHashMap<Name, usize>,
@@ -325,9 +325,6 @@ impl SlotScope {
         }
     }
 
-    /// A use-site checker fact may differ from the binding's inferred source
-    /// type. Keep the source type in the slot; the verifier checks the exact
-    /// expression fact against it with the checker compatibility rule.
     pub(super) fn record_checked_binding_type(
         &mut self,
         binding: BindingId,
@@ -338,7 +335,8 @@ impl SlotScope {
             return false;
         }
 
-        let binding_type = self.types.get(&binding);
+        if self.types.get(&binding).is_some_and(|ty| !matches!(ty, SchemeType::Ground(_))) { return false; }
+        let binding_type = self.binding_type(binding);
         let slot_type = self.checked_slot_types.get(&slot);
         if binding_type.zip(slot_type).is_some_and(|(binding, slot)| binding != slot) {
             return false;
@@ -350,12 +348,19 @@ impl SlotScope {
         if !self.record_checked_slot_type(slot, source_type.clone()) {
             return false;
         }
-        self.types.entry(binding).or_insert(source_type);
+        self.types.entry(binding).or_insert(SchemeType::Ground(source_type));
         true
     }
 
     fn binding_type(&self, binding: BindingId) -> Option<&Type> {
-        self.types.get(&binding)
+        match self.types.get(&binding) { Some(SchemeType::Ground(ty)) => Some(ty), _ => None }
+    }
+
+    fn declare_scheme_source(&mut self, binding: BindingId, name: Name, ty: SchemeType) -> usize {
+        let ty = ty.closed_ground_type().map(SchemeType::Ground).unwrap_or(ty);
+        let slot = self.declare_source(binding, name, None);
+        self.types.insert(binding, ty);
+        slot
     }
 
     /// A physical declaration owns one slot, including the shared captures
@@ -363,7 +368,7 @@ impl SlotScope {
     pub(super) fn declare_source(&mut self, binding: BindingId, name: Name, ty: Option<Type>) -> usize {
         if let Some(slot) = self.resolve_binding(binding) {
             if let Some(ty) = ty {
-                self.types.insert(binding, ty);
+                self.types.insert(binding, SchemeType::Ground(ty));
             }
             return slot;
         }
@@ -372,7 +377,7 @@ impl SlotScope {
         self.declared.push((name, previous));
         self.bindings.insert(binding, slot);
         if let Some(ty) = ty {
-            self.types.insert(binding, ty);
+            self.types.insert(binding, SchemeType::Ground(ty));
         }
         slot
     }
@@ -382,7 +387,7 @@ impl SlotScope {
         self.bindings.insert(binding, slot);
         self.indices.insert(name, slot);
         if let Some(ty) = ty {
-            self.types.insert(binding, ty);
+            self.types.insert(binding, SchemeType::Ground(ty));
         }
         self.high_water = self.high_water.max(slot + 1);
     }
@@ -3244,15 +3249,44 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         if declaration.is_none() {
             let row = match node.kind {
-                ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(expression) } => {
-                    let ArenaAssignTargetKind::Name(name) = self.program.arena.assign_target(target).kind else { return None; };
+                ArenaStmtKind::Assign { target, op, value: ArenaExprOrRun::Expr(expression) } => {
+                    let name = self.assign_target_root_name(target)?;
                     let binding = self.bodies.resolved_bindings.value_sites.get(&(node.span, name))?;
                     let slot = slots.resolve_binding(*binding)?;
-                    let check = self.assign_target_checked_type(target, node.span, slots)
+                    let check = self.scheme_assignment_target_type(target, node.span, slots)?.closed_ground_type()
                         .filter(Type::has_unsigned_constraint)
                         .map(|ty| LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None });
-                    let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
-                    BuildStmtRow::Assign { slot, op: AssignOp::Set, value, check, span: node.span }
+                    let mut selected = target;
+                    let mut selectors = Vec::new();
+                    loop {
+                        match self.program.arena.assign_target(selected).kind {
+                            ArenaAssignTargetKind::Name(_) => break,
+                            ArenaAssignTargetKind::Field { base, .. } | ArenaAssignTargetKind::Index { base, .. } => { selectors.push(selected); selected = base; }
+                            ArenaAssignTargetKind::Env(_) => return None,
+                        }
+                    }
+                    let mut path = Vec::new();
+                    for selected in selectors.into_iter().rev() {
+                        path.push(match self.program.arena.assign_target(selected).kind {
+                            ArenaAssignTargetKind::Field { name, .. } => super::LoweredAssignStep::Field(name),
+                            ArenaAssignTargetKind::Index { base, index } => {
+                                let mut value = self.lower_scheme_lazy_expression(index, slots, current_function, facts, visited, lowered_types)?;
+                                if match self.scheme_assignment_target_type(base, node.span, slots)? {
+                                    SchemeType::Map(key, _) => key.closed_ground_type() == Some(Type::UInt),
+                                    SchemeType::Ground(ty) => matches!(ty.unvalidated(), Type::Map(key, _) if **key == Type::UInt),
+                                    _ => false,
+                                } {
+                                    value = self.require_uint_key(value, self.program.arena.expr(index).span);
+                                    self.record_scheme_storage_elaboration(value, &SchemeType::Ground(Type::UInt), lowered_types);
+                                }
+                                super::LoweredAssignStep::Index(value)
+                            }
+                            _ => return None,
+                        });
+                    }
+                    let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?;
+                    if path.is_empty() { BuildStmtRow::Assign { slot, op, value, check, span: node.span } }
+                    else { BuildStmtRow::AssignPath { slot, path: super::LoweredAssignPath(path), op, value, check, span: node.span } }
                 }
                 ArenaStmtKind::Expr(expression) => {
                     let value = if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expression).kind {
@@ -3344,7 +3378,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let checked = self.lower_binding_storage_value(annotation, stored_type.as_ref(), lowered_scheme_physical_type(&source_type), value, node.span)?;
             if checked != value { self.record_scheme_storage_elaboration(checked, &SchemeType::Ground(stored_type.clone()?), lowered_types); }
             let ty = lowered_types.get(&checked)?.clone();
-            let target = self.lower_comp_target_typed(target, slots, stored_type.as_ref())?;
+            let target = self.lower_scheme_binding_target(target, slots, &ty)?;
             let declaration = push_build_row!(self, stmt, BuildStmtRow::LetRecord { source: checked, target, span: node.span });
             slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty, mutability });
             body.push(declaration);
@@ -3368,11 +3402,56 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(ty) => SchemeType::Ground(ty.clone()),
             None => lowered_types.get(&checked)?.clone(),
         };
-        let slot = slots.declare_source(binding, name, ty.clone());
+        let slot = slots.declare_scheme_source(binding, name, stored_type.clone());
         let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: checked, annotation: ty });
         slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: stored_type, mutability });
         body.push(declaration);
         Some(())
+    }
+
+    fn lower_scheme_binding_target(
+        &self, target: crate::syntax::arena::BindingTargetId, slots: &mut SlotScope, ty: &SchemeType,
+    ) -> Option<super::LoweredCompTarget> {
+        if let SchemeType::Ground(ty) = ty { return self.lower_comp_target_typed(target, slots, Some(ty)); }
+        match self.program.arena.binding_target(target).kind {
+            ArenaBindingTargetKind::Name(name) if is_discard_name(name) => Some(super::LoweredCompTarget::Discard),
+            ArenaBindingTargetKind::Name(name) => Some(super::LoweredCompTarget::Slot(slots.declare_scheme_source(self.bodies.resolved_bindings.target(target)?, name, ty.clone()))),
+            ArenaBindingTargetKind::Record { fields, .. } => {
+                let SchemeType::Record { fields: types, .. } = ty else { return None };
+                let mut lowered = super::LoweredCompFields::new();
+                for field in self.program.arena.destructure_fields(fields) {
+                    let target = self.lower_scheme_binding_target(field.target, slots, types.get(&field.name)?)?;
+                    lowered.push((field.name, Box::new(target), self.program.arena.span(field.span)));
+                }
+                Some(super::LoweredCompTarget::Record { fields: lowered })
+            }
+        }
+    }
+
+    fn scheme_assignment_target_type(
+        &self, target: crate::syntax::arena::AssignTargetId, span: Span, slots: &SlotScope,
+    ) -> Option<SchemeType> {
+        match self.program.arena.assign_target(target).kind {
+            ArenaAssignTargetKind::Name(name) => slots.types.get(&self.bodies.resolved_bindings.at(span, name)?).cloned(),
+            ArenaAssignTargetKind::Env(_) => None,
+            ArenaAssignTargetKind::Field { base, name } => {
+                let ty = self.scheme_assignment_target_type(base, span, slots)?;
+                match ty {
+                    SchemeType::Record { fields, .. } => fields.get(&name).cloned(),
+                    SchemeType::Ground(Type::Record(fields)) => fields.get(&name).cloned().map(SchemeType::Ground),
+                    _ => None,
+                }
+            }
+            ArenaAssignTargetKind::Index { base, .. } => {
+                let mut ty = self.scheme_assignment_target_type(base, span, slots)?;
+                while let SchemeType::Validated(_, inner) = ty { ty = *inner; }
+                match ty {
+                    SchemeType::List(item) | SchemeType::Map(_, item) => Some(*item),
+                    SchemeType::Ground(ty) => match ty.into_unvalidated() { Type::List(item) | Type::Map(_, item) => Some(SchemeType::Ground(*item)), _ => None },
+                    _ => None,
+                }
+            }
+        }
     }
 
     fn lower_scheme_iterable_value(

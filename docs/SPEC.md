@@ -3810,12 +3810,18 @@ appear beside quantified parameters. A quantified proc requires a finite
 checked effect contract. Required parameters in `stream` declarations, callable types, and module contracts still need annotations.
 
 A checked quantified body can use lexical `let` and `var` bindings, including
-record destructuring, nested blocks, simple assignment, `if`, `match`, `for`,
+record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
 `while`, and `loop`, with `break`,
 `continue`, and explicit value returns. Each mutable local has one type within
 an activation: every assignment must fit the same type, even when different
-calls instantiate that type differently. A nested binding cannot escape its
-scope. Pattern bindings belong to their own match arm; guards retain the
+calls instantiate that type differently. Field, list-index, and map-key
+assignments retain the selected storage type, including a shared type parameter.
+Compound assignments use the ordinary operator domains and keep that storage
+type. Selectors evaluate once before the right side; a compound assignment reads
+the current target value after the right side. Ordinary unsigned checks remain
+active, including within records that also contain quantified fields. Earlier
+aliases keep their contents, and a failed update returns no partial value.
+A nested binding cannot escape its scope. Pattern bindings belong to their own match arm; guards retain the
 ordinary strict `Bool` contract. Value-loop results share constraints from
 reachable breaks belonging to that loop, including `Unit` for a bare break.
 Breaks in an inner loop do not determine an outer loop's result.

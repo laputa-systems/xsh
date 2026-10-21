@@ -77,6 +77,19 @@ binding visible, checks every assignment against that storage type, and
 requires explicit mutable permission. Header and pattern bindings are
 intrinsically immutable. Missing, duplicate, foreign, or escaped declaration
 evidence is rejected; multiple writers never grant mutation permission.
+The lowering slot scope stores one canonical `SchemeType` per resolved binding.
+Ordinary bindings use `Ground`; generalized locals retain their published
+storage relationship. A ground use-site fact cannot replace an open storage
+contract. Field and indexed assignment elaborate checks from that same contract,
+so a closed unsigned leaf remains checked inside an open record.
+
+Generic assignment uses the ordinary assignment-path rows. Each selector and
+the right side retain their elaboration inside separate lazy value blocks.
+Execution evaluates selectors before the right side and commits through the
+ordinary update mechanism. Cold verification starts from the actual mutable
+declaration, projects each field or collection domain, and proves every selector
+and replacement. Compound replacements preserve the storage domain; an unsigned
+check cannot substitute for proving the actual operand and target.
 
 Generic body verification uses an explicit obligation stack and an arena of
 lexical frames linked by parent indices. Child obligations finish before a

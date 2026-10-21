@@ -282,6 +282,41 @@ fn comprehension_scope(
     Ok((current, mapped_validation))
 }
 
+fn assignment_replacement(
+    actual: &SchemeType, expected: &SchemeType, op: crate::syntax::node::AssignOp,
+    check: Option<super::super::decode::TypeCheckView<'_>>, budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    use crate::syntax::node::{AssignOp, BinaryOp};
+    let result = if op == AssignOp::Set {
+        budget.charge_scheme_clone(actual)?;
+        actual.clone()
+    } else if op == AssignOp::Add && BodyTypeRef::Scheme(expected).list_item().is_some() {
+        let left = BodyTypeRef::Scheme(expected).unvalidated().materialize(budget)?;
+        let right = BodyTypeRef::Scheme(actual).unvalidated().materialize(budget)?;
+        if !body_types_equal(&left, &right)
+            || BodyTypeRef::Scheme(expected).validation().is_some_and(|validation| !validation.survives_concatenation())
+        { return Err(IrVerifyError::new("generic compound assignment changes its list domain")); }
+        budget.charge_scheme_clone(expected)?;
+        expected.clone()
+    } else {
+        budget.charge_scheme_clone(expected)?;
+        budget.charge_scheme_clone(actual)?;
+        let left = expected.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic compound assignment has no closed operator domain"))?;
+        let right = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic compound assignment has no closed operand domain"))?;
+        let binary = match op { AssignOp::Set => unreachable!(), AssignOp::Add => BinaryOp::Add, AssignOp::Sub => BinaryOp::Sub, AssignOp::Mul => BinaryOp::Mul, AssignOp::Div => BinaryOp::Div, AssignOp::Rem => BinaryOp::Rem };
+        SchemeType::Ground(FullDecoder::checked_binary_result_type(binary, left.unvalidated(), right.unvalidated()).ok_or_else(|| IrVerifyError::new("generic compound assignment has incompatible operands"))?)
+    };
+    if let Some(check) = check {
+        let checked = check.ty.materialize()?;
+        if check.schema.is_some() || expected.closed_ground_type().as_ref() != Some(&checked)
+            || !body_type_matches_ground(&result, &checked) || !checked.has_unsigned_constraint()
+        { return Err(IrVerifyError::new("generic assignment has an invalid storage check")); }
+    } else if !body_type_matches(&result, expected, budget)?
+        || expected.closed_ground_type().is_some_and(|expected| expected.has_unsigned_constraint() && result.closed_ground_type() != Some(expected))
+    { return Err(IrVerifyError::new("generic assignment disagrees with its invariant slot contract")); }
+    Ok(())
+}
+
 fn subject_after_pattern(decoder: &FullDecoder<'_>, pattern: u32, guarded: bool, subject: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
     budget.charge(1)?;
     if !decoder.pattern_excludes_null(pattern, guarded)? { return Ok(subject); }
@@ -445,15 +480,39 @@ pub(super) fn verify_body(
                         pending.push(Obligation::Expression(initializer, initializer_scope));
                         continue;
                     }
-                    schema::StmtView::Assign { slot, op, value, check, .. } => {
+                    view @ (schema::StmtView::Assign { .. } | schema::StmtView::AssignPath { .. }) => {
+                        let (slot, op, value, check, path) = match view {
+                            schema::StmtView::Assign { slot, op, value, check, .. } => (slot, op, value, check, None),
+                            schema::StmtView::AssignPath { slot, op, value, check, path, .. } => (slot, op, value, check, Some(path)),
+                            _ => unreachable!(),
+                        };
                         let binding = scope.binding(&scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic assignment does not target a mutable declaration"))?;
-                        if op != crate::syntax::node::AssignOp::Set || !binding.mutable { return Err(IrVerifyError::new("generic assignment does not target a mutable declaration")); }
-                        let expected = &binding.ty;
+                        if !binding.mutable { return Err(IrVerifyError::new("generic assignment does not target a mutable declaration")); }
+                        let mut expected = BodyTypeRef::Scheme(&binding.ty);
+                        if let Some(mut path) = path {
+                            if path.len() == 0 { return Err(IrVerifyError::new("generic assignment path is empty")); }
+                            while path.len() != 0 {
+                                budget.charge(1)?;
+                                expected = match path.next().ok_or_else(|| IrVerifyError::new("generic assignment selector is absent"))?? {
+                                    super::super::decode::AssignStepView::Field(name) => expected.field(name).ok_or_else(|| IrVerifyError::new("generic assignment field disagrees with its storage contract"))?,
+                                    super::super::decode::AssignStepView::Index(index) => {
+                                        let instruction = index.raw() as usize;
+                                        let actual = expression_type(types, instruction, budget)?;
+                                        let (key, item) = if let Some((key, item)) = expected.map_parts() {
+                                            (key.materialize(budget)?, item)
+                                        } else {
+                                            (SchemeType::Ground(Type::Int), expected.list_item().ok_or_else(|| IrVerifyError::new("generic assignment index has no list or map storage contract"))?)
+                                        };
+                                        if !body_type_matches(&actual, &key, budget)? { return Err(IrVerifyError::new("generic assignment selector disagrees with its key contract")); }
+                                        expressions.push(instruction);
+                                        item
+                                    }
+                                };
+                            }
+                        }
+                        let expected = expected.materialize(budget)?;
                         let actual = expression_type(types, value.raw() as usize, budget)?;
-                        if let Some(check) = check {
-                            let checked = check.ty.materialize()?;
-                            if check.schema.is_some() || !body_type_matches_ground(expected, &checked) || !body_type_matches_ground(&actual, &checked) || !checked.has_unsigned_constraint() { return Err(IrVerifyError::new("generic assignment has an invalid storage check")); }
-                        } else if !body_type_matches(&actual, expected, budget)? || expected.closed_ground_type().is_some_and(|expected| expected.has_unsigned_constraint() && actual.closed_ground_type() != Some(expected)) { return Err(IrVerifyError::new("generic assignment disagrees with its invariant slot contract")); }
+                        assignment_replacement(&actual, &expected, op, check, budget)?;
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::LetRecord { source, target, .. } => {
@@ -1690,6 +1749,135 @@ mod tests {
             assert_eq!(program.store.scheme_types[parameter.ty.index()], changed.store.scheme_types[parameter.ty.index()]);
         }
         changed
+    }
+
+    #[test]
+    fn generic_assignment_writers_require_mutable_lexical_owners() {
+        let program = prepare("pure keep(value) { var row = {item: value}; let frozen = row; row.item = value; row.item }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        let (assignment, root) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::AssignPath { slot, .. }) => Some((instruction, slot)), _ => None }).unwrap();
+        let frozen = range.find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(source)) if source == root) => Some(slot),
+            _ => None,
+        }).unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.data[assignment].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = frozen as u32;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment does not target a mutable declaration");
+        let program = prepare("pure keep(value) { {var inner = value; inner = value}; var outer = value; outer = value; outer }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let locals = program.store.scheme_body_facts[facts].iter().filter(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).map(|fact| match decoder.statement_view(fact.instruction as usize).unwrap() { schema::StmtView::Let { slot, .. } => slot, _ => panic!("the mutable locals have simple declarations") }).collect::<Vec<_>>();
+        assert_eq!(locals.len(), 2);
+        let assignment = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. }) if slot == locals[1])).unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.data[assignment].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = locals[0] as u32;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment does not target a mutable declaration");
+    }
+
+    #[test]
+    fn generic_assignment_selectors_authenticate_actual_key_domains() {
+        let program = prepare("pure keep(value, index: Int, wrong: Bool) { var items = [value]; items[index] = value; items }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let selector = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::AssignPath { mut path, .. }) => match path.next().unwrap().unwrap() { super::super::super::decode::AssignStepView::Index(index) => Some(index.raw() as usize), _ => None },
+            _ => None,
+        }).unwrap();
+        let changed = retarget_comprehension_operand(&program, owner, scheme, selector, 1, 2);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment selector disagrees with its key contract");
+    }
+
+    #[test]
+    fn generic_assignment_values_authenticate_the_actual_selected_payload() {
+        let program = prepare("pure replace(value, other, spare) { var items = [value]; items[0] = other; items }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::AssignPath { value, .. }) => Some(value.raw() as usize), _ => None }).unwrap();
+        let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 2);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+    }
+
+    #[test]
+    fn generic_assignment_unsigned_compounds_require_the_actual_check() {
+        let program = prepare("pure update(value, initial: UInt, signed: Int) { var row = {value, count: initial}; row.count += signed; row }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let assignment = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::AssignPath { check: Some(_), .. }))).unwrap();
+        let schema::StmtView::AssignPath { check: Some(check), .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+        assert_eq!(check.ty.materialize().unwrap(), Type::UInt);
+        assert!(check.schema.is_none());
+        let mut changed = program.clone();
+        let words = changed.store.data[assignment].range().bounds(changed.store.extra.len()).unwrap();
+        let mut payload = changed.store.extra[words].to_vec();
+        assert_eq!(payload.len(), 9);
+        assert_eq!((payload[4], payload[7]), (1, 0));
+        payload[4] = 0;
+        payload.drain(5..8);
+        let start = changed.store.extra.len() as u32;
+        changed.store.extra.extend_from_slice(&payload);
+        changed.store.data[assignment] = crate::runtime::eval::indexed::IrData::new(start, payload.len() as u32);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+    }
+
+    #[test]
+    fn generic_assignment_fields_authenticate_the_actual_storage_domain() {
+        let program = prepare("pure replace(value, other, spare) { var row = {item: value, wrong: spare}; row.item = other; let _ = row.wrong; row.item }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        let path = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::AssignPath { path, .. }) => Some(path.block_identity_for_test()), _ => None,
+        }).unwrap();
+        let wrong = range.find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Field { name: "wrong", .. }))).unwrap();
+        assert!(matches!(decoder.expression_view(wrong).unwrap(), schema::ExprView::Field { name: "wrong", .. }));
+        let wrong_name = program.symbol_owner().with_current(|| Name::intern("wrong").symbol().raw());
+        let mut changed = program.clone();
+        let words = changed.store.blocks[path.index()].instructions.bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.start..words.start + 2], &[1, 0]);
+        changed.store.extra[words.start + 2] = wrong_name;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+    }
+
+    #[test]
+    fn generic_assignment_unsigned_selectors_require_the_actual_converted_domain() {
+        let mut program = prepare("pure put(value, key: UInt, signed: Int) { var items = {[key]: value}; items[key] = value; items }");
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let selector = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::AssignPath { mut path, .. }) => match path.next().unwrap().unwrap() { super::super::super::decode::AssignStepView::Index(index) => Some(index.raw() as usize), _ => None },
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::Try { value, .. } = decoder.expression_view(selector).unwrap() else { panic!("unsigned keys retain their ordinary propagation") };
+        let requirement = value.raw() as usize;
+        let schema::ExprView::Require { value, check, .. } = decoder.expression_view(requirement).unwrap() else { panic!("unsigned keys retain their ordinary validation") };
+        assert_eq!(check.ty.materialize().unwrap(), Type::UInt);
+        let mut changed = retarget_comprehension_operand(&program, owner, scheme, value.raw() as usize, 1, 2);
+        let params = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let signed = program.store.scheme_types[program.store.scheme_params[params.start + 2].ty.index()];
+        assert_eq!(signed.tag, FullSchemeTypeTag::Ground);
+        let words = changed.store.data[requirement].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start + 1] = signed.first;
+        for fact in &changed.store.scheme_body_facts {
+            if fact.instruction as usize == selector {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+                node.first = signed.first;
+            } else if fact.instruction as usize == requirement {
+                let result = changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(result.tag, FullSchemeTypeTag::Result);
+                let node = &mut changed.store.scheme_types[result.first as usize];
+                assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+                node.first = signed.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment selector disagrees with its key contract");
     }
 
     #[test]

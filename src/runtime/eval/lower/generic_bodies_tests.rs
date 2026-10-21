@@ -1048,3 +1048,141 @@ fn generic_comprehension_unsigned_keys_keep_the_ordinary_checked_elaboration() {
         }
     }
 }
+
+#[test]
+fn generic_assignment_selected_paths_preserve_the_payload_relationships() {
+    for (definition, arguments, selection, replaced) in [
+        ("pure replace(value, other) { var items = [value]; items[0] = other; items[0] }", "", "", true),
+        ("pure replace(value, other) { var row = {nested: {item: value}, count: 1}; row.nested.item = other; row.nested.item }", "", "", true),
+        ("pure replace(value, other, key: Str) { var items = {[key]: value}; items[key] = other; items[key] }", ", \"key\"", "", true),
+        ("pure replace(value, other, index: Int) { var items = [{nested: [value]}]; items[index].nested[0] = other; items[index].nested[0] }", ", 0", "", true),
+        ("pure replace(value, other) { var items = [value]; items += [other]; items }", "", "[1]", true),
+        ("pure replace(value, other) { var items = [value]; let before = items; items[0] = other; {before, after: items} }", "", ".before[0]", false),
+        ("pure replace(value, other) { var items = [value]; let before = items; items[0] = other; {before, after: items} }", "", ".after[0]", true),
+    ] {
+        let source = format!("{definition}\npure number() -> Int {{ replace(7, 8{arguments}){selection} }}\npure text() -> Str {{ replace(\"value\", \"other\"{arguments}){selection} }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for (name, expected) in [("number", Value::Int(if replaced { 8 } else { 7 })), ("text", Value::Str(Arc::from(if replaced { "other" } else { "value" })))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, expected, "{definition} {name} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_assignment_selectors_precede_rhs_and_compounds_read_after_rhs() {
+    let source = "pure replace(value, other) { var trace = 0; var items = [[value]]; items[{trace = trace * 10 + 1; 0}][{trace = trace * 10 + 2; 0}] = {trace = trace * 10 + 3; other}; var count = 1; count += {count = 10; 2}; count -= 1; count *= 2; count /= 2; count %= 7; {value: items[0][0], trace, count} }\npure number() { replace(7, 8) }\npure text() { replace(\"value\", \"other\") }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(8)), ("text", Value::Str(Arc::from("other")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(actual) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the caller returns its checked observations") };
+            assert_eq!(actual.get("value"), Some(&expected), "{name} frames={force_frames}");
+            assert_eq!(actual.get("trace"), Some(&Value::Int(123)), "{name} frames={force_frames}");
+            assert_eq!(actual.get("count"), Some(&Value::Int(4)), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_assignment_mixed_record_unsigned_fields_keep_the_actual_boundary() {
+    for definition in [
+        "pure update(value, initial: UInt, delta: Int) { var row = {value, count: initial}; row.count += delta; row }",
+        "pure update(value, initial: UInt, delta: Int) { var {item: row} = {item: {value, count: initial}}; row.count += delta; row }",
+    ] {
+        let source = format!("{definition}\npure number(initial: UInt, delta: Int) -> UInt {{ update(7, initial, delta).count }}\npure text(initial: UInt, delta: Int) -> UInt {{ update(\"value\", initial, delta).count }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for name in ["number", "text"] {
+                for delta in [2, -2] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Int(1), Value::Int(delta)], Span::at(source_id, 0)).unwrap();
+                    if delta == 2 { assert_eq!(actual.unwrap(), Value::Int(3), "{name} frames={force_frames}"); }
+                    else { assert_eq!(actual.unwrap_err().kind, "type-error", "{name} frames={force_frames}"); }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_assignment_failures_return_no_partial_value_and_preserve_caller_aliases() {
+    for (operator, rhs, failure) in [("=", "other", "index-out-of-range"), ("/=", "0", "division-by-zero")] {
+        let source = format!("pure copy(marker, items: List[Int], index: Int, other: Int) {{ let _ = marker; var local = items; local[index] {operator} {rhs}; local }}\npure number(original: List[Int], index: Int) -> List[Int] {{ copy(7, original, index, 9) }}\npure text(original: List[Int], index: Int) -> List[Int] {{ copy(\"value\", original, index, 9) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for name in ["number", "text"] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let original = Value::List(vec![Value::Int(1), Value::Int(2)]);
+                let index = if operator == "=" { 9 } else { 0 };
+                let arguments = [original.clone(), Value::Int(index)];
+                let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap_err();
+                assert_eq!(error.kind, failure, "{operator} {name} frames={force_frames}");
+                assert_eq!(arguments[0], original, "{operator} {name} frames={force_frames}");
+                assert_eq!(original, Value::List(vec![Value::Int(1), Value::Int(2)]));
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_assignment_unsigned_map_selectors_keep_the_checked_key_domain() {
+    let source = "pure put(value, other, key: UInt, index: Int) { var items = {[key]: value}; items[index] = other; items[key] }\npure ordinary(key: UInt, index: Int) -> Int { var items = {[key]: 1}; items[index] = 2; items[key] }\npure number(key: UInt, index: Int) -> Int { put(7, 8, key, index) }\npure text(key: UInt, index: Int) -> Str { put(\"value\", \"other\", key, index) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for index in [0, -1] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let arguments = [Value::Int(0), Value::Int(index)];
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
+            let ordinary = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+            for (name, expected) in [("number", Value::Int(8)), ("text", Value::Str(Arc::from("other")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+                if index == 0 { assert_eq!(actual.unwrap(), expected, "{name} frames={force_frames}"); }
+                else {
+                    let error = actual.unwrap_err();
+                    let expected = ordinary.as_ref().unwrap_err();
+                    assert_eq!((&error.kind, &error.family, &error.message), (&expected.kind, &expected.family, &expected.message), "{name} frames={force_frames}");
+                    assert!(error.message.contains("UInt"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_assignment_validated_and_scalar_compounds_keep_their_domains() {
+    let source = "pure update(marker, items: NonEmpty[Int], text: Str, period: Duration, ratio: Float) { var names = items; names += [3]; var word = text; word += \"!\"; var elapsed = period; elapsed *= 2; elapsed /= 2; var rate = ratio; rate += 1.0; rate -= 1.0; rate *= 2.0; rate /= 2.0; {marker, names, word, elapsed, rate} }\npure number(items: NonEmpty[Int]) { update(7, items, \"value\", 1s, 2.0) }\npure text(items: NonEmpty[Int]) { update(\"value\", items, \"value\", 1s, 2.0) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, marker) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let Value::Record(actual) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::List(vec![Value::Int(1)])], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("compound updates retain their checked record") };
+            assert_eq!(actual.get("marker"), Some(&marker));
+            assert_eq!(actual.get("names"), Some(&Value::List(vec![Value::Int(1), Value::Int(3)])));
+            assert_eq!(actual.get("word"), Some(&Value::Str(Arc::from("value!"))));
+            assert_eq!(actual.get("rate"), Some(&Value::Float(crate::runtime::value::FloatValue::new(2.0))));
+            assert_eq!(actual.get("elapsed"), Some(&Value::Duration(crate::runtime::value::DurationValue { millis: 1_000 })));
+        }
+    }
+}

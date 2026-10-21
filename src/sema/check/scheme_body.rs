@@ -36,10 +36,22 @@ pub(super) fn supports_generalized_body(
                 { return false; }
             }
             ArenaStmtKind::Assign { target, value: ArenaExprOrRun::Expr(value), .. } => {
-                let crate::syntax::arena::ArenaAssignTargetKind::Name(name) = program.arena.assign_target(target).kind else { return false };
+                let Some(name) = super::assignment_target_root_name(program, target) else { return false };
                 if !bindings.value_sites.get(&(node.span, name)).is_some_and(|binding| available.contains(binding))
                     || !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value)
                 { return false; }
+                let mut selected = target;
+                loop {
+                    match program.arena.assign_target(selected).kind {
+                        crate::syntax::arena::ArenaAssignTargetKind::Name(_) => break,
+                        crate::syntax::arena::ArenaAssignTargetKind::Field { base, .. } => selected = base,
+                        crate::syntax::arena::ArenaAssignTargetKind::Index { base, index } => {
+                            if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, index) { return false; }
+                            selected = base;
+                        }
+                        crate::syntax::arena::ArenaAssignTargetKind::Env(_) => return false,
+                    }
+                }
             }
             ArenaStmtKind::Expr(expression) => {
                 let supported = if let ArenaExprKind::ValueBlock(block) = program.arena.expr(expression).kind {
@@ -627,6 +639,56 @@ mod ordinary_body_tests {
     #[test]
     fn generic_comprehension_filters_retain_the_ordinary_status_condition() {
         accepts("pure copy(value, selected: Status) { [item for item in [value] if selected] }", "pure number(selected: Status) -> List[Int] { copy(7, selected) }\npure text(selected: Status) -> List[Str] { copy(\"value\", selected) }");
+    }
+
+    #[test]
+    fn generic_assignment_list_entries_retain_the_payload_binder() {
+        accepts("pure replace(value, other) { var items = [value]; items[0] = other; items[0] }", "let number: Int = replace(7, 8)\nlet text: Str = replace(\"value\", \"other\")");
+    }
+
+    #[test]
+    fn generic_assignment_record_paths_retain_the_payload_binder() {
+        accepts("pure replace(value, other) { var row = {nested: {item: value}, count: 1}; row.nested.item = other; row.nested.item }", "let number: Int = replace(7, 8)\nlet text: Str = replace(\"value\", \"other\")");
+    }
+
+    #[test]
+    fn generic_assignment_map_entries_retain_the_payload_binder() {
+        accepts("pure replace(value, other, key: Str) { var items = {[key]: value}; items[key] = other; items[key] }", "let number: Int = replace(7, 8, \"key\")\nlet text: Str = replace(\"value\", \"other\", \"key\")");
+    }
+
+    #[test]
+    fn generic_assignment_mixed_selectors_retain_the_selected_payload() {
+        accepts("pure replace(value, other, index: Int) { var items = [{nested: [value]}]; items[index].nested[0] = other; items[index].nested[0] }", "let number: Int = replace(7, 8, 0)\nlet text: Str = replace(\"value\", \"other\", 0)");
+    }
+
+    #[test]
+    fn generic_assignment_compound_lists_keep_invariant_elements() {
+        accepts("pure append(value, other) { var items = [value]; items += [other]; items }", "let number: List[Int] = append(7, 8)\nlet text: List[Str] = append(\"value\", \"other\")");
+    }
+
+    #[test]
+    fn generic_assignment_scalar_compounds_keep_the_checked_operator_domains() {
+        accepts("pure update(value, delta: Int) { var count = 20; count += delta; count -= 1; count *= 2; count /= 2; count %= 7; {value, count} }", "let number: Int = update(7, 3).value\nlet text: Str = update(\"value\", 4).value");
+    }
+
+    #[test]
+    fn generic_assignment_unsigned_fields_keep_the_validation_boundary() {
+        for definition in [
+            "pure update(value, initial: UInt, delta: Int) { var row = {value, count: initial}; row.count += delta; row }",
+            "pure update(value, initial: UInt, delta: Int) { var {item: row} = {item: {value, count: initial}}; row.count += delta; row }",
+        ] {
+            accepts(definition, "let number: Int = update(7, 1, 2).value\nlet text: Str = update(\"value\", 3, 4).value");
+        }
+    }
+
+    #[test]
+    fn generic_assignment_unsigned_map_keys_preserve_the_payload_binder() {
+        accepts("pure put(value, other, key: UInt, index: Int) { var items = {[key]: value}; items[index] = other; items[key] }", "pure number(key: UInt, index: Int) -> Int { put(7, 8, key, index) }\npure text(key: UInt, index: Int) -> Str { put(\"value\", \"other\", key, index) }");
+    }
+
+    #[test]
+    fn generic_assignment_updates_preserve_earlier_alias_types() {
+        accepts("pure replace(value, other) { var items = [value]; let before = items; items[0] = other; {before, after: items} }", "let number: Int = replace(7, 8).before[0]\nlet text: Str = replace(\"value\", \"other\").after[0]");
     }
 
     #[test]
