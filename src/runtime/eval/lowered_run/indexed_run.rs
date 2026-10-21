@@ -373,6 +373,28 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
     )
 }
 
+pub(in crate::runtime::eval) enum IndexedFrameApplyChild {
+    Unsupported,
+    Complete,
+    Expression(u32),
+}
+
+pub(in crate::runtime::eval) fn indexed_frame_apply_child_id(
+    tag: FullTag,
+    view: &mut ExprView<'_>,
+    position: usize,
+    span: Span,
+) -> Result<IndexedFrameApplyChild, RuntimeError> {
+    if !indexed_frame_apply_tag(tag) {
+        return Ok(IndexedFrameApplyChild::Unsupported);
+    }
+    indexed_frame_apply_child(tag, view, position, None, None, span)
+        .map(|child| match child {
+            Some(child) => IndexedFrameApplyChild::Expression(child.id),
+            None => IndexedFrameApplyChild::Complete,
+        })
+}
+
 pub(super) fn indexed_type_check(
     check: crate::runtime::eval::indexed::full::decode::TypeCheckView<'_>,
     span: Span,

@@ -288,6 +288,22 @@ single-`for`, unfiltered mapping rule. The actual iterable, target, and body ret
 their producer proofs.
 Conditional producers derive their contract from independently typed completing
 arms, then prove every condition and arm under that contract.
+Actual null arms can lift an independently derived concrete arm to an optional
+contract. Actual record arms can share an erased record contract while retaining
+every field proof. Checked destinations cannot supply either contract.
+Initializer-anchored scalar and self-slice storage proves every replacement writer
+under the original initializer contract. A null initializer supplies no such anchor.
+Direct error propagation from a physical `Err` proves its error payload and cause
+without inventing a success contract. Every direct transfer has a mandatory
+producer proof, including transfers with no completing return. Uncaught transfers
+must fit the function's declared error boundary.
+
+Presence queries retain the exact binding and field path through ordered guards.
+They check later fallthrough conditions, completing branches, intervening writes,
+and earlier expression operands in execution order. Immutable snapshot aliases
+can name an actual null predicate without authorizing shared mutable roots.
+Completed positive predicates belong to one owner, block, guard branch, binding,
+path, and outcome. Reuse retains guard selection, source, writer, and payload proofs.
 
 Every physical record entry retains its producer proof, including overwritten
 fields and spreads. Checked storage proves the actual input through intermediate
@@ -310,7 +326,11 @@ gate, and the inner body's return and effect proofs remain mandatory.
 
 The producer census collects pattern and pipeline instructions during its
 mandatory instruction scan. Later scope registration visits those candidates
-under the same work bound. Writer census lookup reuses a completed inherited binding
+under the same work bound.
+Owners without callback or unreachable roots can collect writers and returns from
+the complete physical statement index. The index must match the independently
+counted statements, with finished ownership, valid ranges, and unique positions.
+Other owners retain the full flow traversal. Writer census lookup reuses a completed inherited binding
 for an owner-local block and slot only after checking region overrides and earlier
 local declarations at the actual writer. Read and presence queries retain their
 uncached lexical lookup. This evidence contains no type or
