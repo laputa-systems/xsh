@@ -91,6 +91,13 @@ own these classes. Initial qualifier-syntax and UInt assertion/display fixture
 errors were corrected before this count. No capability or corpus exclusion
 follows from these failures.
 
+The matching `520757c30` diagnostic corpus replay fails all eight ordinary
+checks: twenty missing checked-value producer contracts and two missing slice
+collection contracts. Original and diagnostic/reduced views fail identically;
+the frozen candidate is the 202-effect probe, not an accepted removal view.
+All source and product pins remain unchanged. The producer lane owns these
+failures. No interface, runtime-parity or annotation-removal credit follows.
+
 Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
 comprehensions. All 20 focused controls pass before integration. They cover
 sequential binding scope, actual producer domains, lazy qualifiers and
