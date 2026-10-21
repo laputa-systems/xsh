@@ -21,7 +21,17 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `8f80bc2f5` passes the combined targeted boundary: 473 passed, zero
+Source `054fc7a3a` passes the combined 489-test targeted boundary after local
+integration. Quantified bodies elaborate shorthand fields through resolved
+binding identities and static record updates through the existing checked
+paths. Both indexed routes preserve shadowing, immutable captures, base-before-
+replacement evaluation and failure order. Typed Set checks remain executable;
+truthful and coordinated wrong-domain producers are rejected. The 256- and
+512-field update controls stay within the existing work bound. Independent
+source review found no blocking issue. Matching products and corpus acceptance
+remain at the earlier source below; this tranche earns no removal credit.
+
+Source `8f80bc2f5` passes the earlier combined targeted boundary: 473 passed, zero
 failed and zero ignored. Optional aggregate producers prove every actual field
 and element. Immutable pattern reads retain narrowing under direct null guards
 in active if and while bodies, or after a matching branch that cannot complete.
