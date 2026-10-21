@@ -1,6 +1,10 @@
 use super::{BTreeMap, CheckBundleView, Effect, Name, Span};
 use crate::diagnostic::DiagnosticCode;
 use std::collections::BTreeSet;
+use crate::sema::effects::{CheckedEffectScope, CheckedEffects, EffectContract, EffectExpr, EffectSet};
+use crate::sema::schemes::{CallInstantiation, SchemeEffectParameterId};
+use crate::sema::constraints::{EffectVariableId, SchemeOperationError};
+use std::sync::Arc;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
 /// overlap. Bundled source spans remain usable as the tooling projection.
@@ -14,8 +18,9 @@ pub struct EffectDeclarationId {
 /// caller-visible upper bound even when its body needs fewer effects.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FunctionEffectFact {
-    pub effective: Option<Vec<Effect>>,
-    pub required: Option<Vec<Effect>>,
+    pub effective: CheckedEffects,
+    pub required: CheckedEffects,
+    pub scope: CheckedEffectScope,
     pub inferred: bool,
     pub inference_allowed: bool,
     /// The clause names exactly the set its declaration would infer without
@@ -24,37 +29,134 @@ pub struct FunctionEffectFact {
     pub unknown_chain: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct EffectSummary {
-    pub known: Vec<Effect>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct EffectSummary<V = SchemeEffectParameterId> {
+    pub known: EffectExpr<V>,
     pub unknown_chain: Vec<String>,
+    scope: CheckedEffectScope,
 }
 
-impl EffectSummary {
-    pub fn effects(&self) -> Option<Vec<Effect>> {
-        self.unknown_chain.is_empty().then(|| self.known.clone())
+impl<V: Ord> Default for EffectSummary<V> {
+    fn default() -> Self {
+        Self { known: EffectExpr::finite(EffectSet::default()), unknown_chain: Vec::new(), scope: CheckedEffectScope::default() }
+    }
+}
+
+impl<V: Clone + Ord> EffectSummary<V> {
+    fn add(&mut self, effect: Effect) -> bool {
+        self.join_expression(EffectExpr::finite(EffectSet::singleton(effect)))
     }
 
-    fn add(&mut self, effect: Effect) -> bool {
-        if self.known.contains(&effect) {
-            return false;
-        }
-        self.known.push(effect);
-        self.known.sort_by_key(Effect::as_str);
+    fn join_expression(&mut self, expression: EffectExpr<V>) -> bool {
+        let joined = self.known.clone().union(expression);
+        if self.known == joined { return false; }
+        self.known = joined;
         true
     }
 
-    fn unknown(&mut self, chain: Vec<String>) -> bool {
-        if chain.is_empty() {
-            return false;
+    fn specialize_contributions<W: Clone + Ord, E>(
+        &self,
+        scope: CheckedEffectScope,
+        unknown_name: &str,
+        mut map: impl FnMut(&V) -> Result<EffectContract<W>, E>,
+    ) -> Result<EffectSummary<W>, E> {
+        let mut summary = EffectSummary { known: EffectExpr::finite(self.known.direct()), unknown_chain: self.unknown_chain.clone(), scope };
+        for (id, mask) in self.known.variables() {
+            match map(id)?.masked(mask) {
+                EffectContract::Known(expression) => { summary.join_expression(expression); }
+                EffectContract::Unknown => { summary.unknown(vec![unknown_name.to_owned()]); }
+            }
         }
-        if self.unknown_chain.is_empty()
-            || (chain.len(), &chain) < (self.unknown_chain.len(), &self.unknown_chain)
-        {
+        Ok(summary)
+    }
+
+    fn unknown(&mut self, chain: Vec<String>) -> bool {
+        if chain.is_empty() { return false; }
+        if self.unknown_chain.is_empty() || (chain.len(), &chain) < (self.unknown_chain.len(), &self.unknown_chain) {
             self.unknown_chain = chain;
             return true;
         }
         false
+    }
+}
+
+impl EffectSummary {
+    fn validate_owner(&self, owner: EffectDeclarationId) -> Result<(), SchemeOperationError> {
+        if self.known.variables().next().is_some() && self.scope.owner() != Some(owner)
+            || !self.known.variables().all(|(id, _)| self.scope.parameters().contains(id))
+        {
+            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+        }
+        Ok(())
+    }
+
+    pub(super) fn from_effect_fact(owner: EffectDeclarationId, fact: &FunctionEffectFact) -> Result<Self, SchemeOperationError> {
+        let mut unknown_chain = fact.unknown_chain.clone();
+        let known = match fact.required.contract() {
+            EffectContract::Known(expression) => expression.clone(),
+            EffectContract::Unknown => {
+                if unknown_chain.is_empty() { unknown_chain.push("unknown effect contract".to_owned()); }
+                EffectExpr::finite(EffectSet::default())
+            }
+        };
+        if known.variables().next().is_some() && fact.scope.owner() != Some(owner) {
+            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+        }
+        if !known.variables().all(|(id, _)| fact.scope.parameters().contains(id)) {
+            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+        }
+        Ok(Self { known, unknown_chain, scope: fact.scope.clone() })
+    }
+
+    pub fn effects(&self) -> CheckedEffects {
+        CheckedEffects::from_contract(if self.unknown_chain.is_empty() {
+            EffectContract::Known(self.known.clone())
+        } else { EffectContract::Unknown })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct EffectScopeFailure {
+    pub(super) owner: EffectDeclarationId,
+    pub(super) cause: SchemeOperationError,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum EffectContributions {
+    Checking(EffectSummary<EffectVariableId>),
+    Checked(EffectSummary),
+}
+
+impl Default for EffectContributions {
+    fn default() -> Self { Self::Checked(EffectSummary::default()) }
+}
+
+impl EffectContributions {
+    fn checked(&self) -> Result<&EffectSummary, SchemeOperationError> {
+        match self {
+            Self::Checked(summary) => Ok(summary),
+            Self::Checking(_) => Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects)),
+        }
+    }
+
+    fn add(&mut self, effect: Effect) {
+        match self { Self::Checking(summary) => { summary.add(effect); } Self::Checked(summary) => { summary.add(effect); } }
+    }
+
+    fn unknown(&mut self, chain: Vec<String>) {
+        match self { Self::Checking(summary) => { summary.unknown(chain); } Self::Checked(summary) => { summary.unknown(chain); } }
+    }
+
+    fn require(&mut self, expression: &EffectExpr<EffectVariableId>) -> Result<(), SchemeOperationError> {
+        if matches!(self, Self::Checked(_)) {
+            let Self::Checked(summary) = self else { unreachable!() };
+            let known = summary.known.substitute(|_| Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter)))?;
+            let EffectContract::Known(known) = known else { unreachable!() };
+            *self = Self::Checking(EffectSummary { known, unknown_chain: summary.unknown_chain.clone(), scope: CheckedEffectScope::default() });
+        }
+        let Self::Checking(summary) = self else { unreachable!() };
+        summary.join_expression(expression.clone());
+        Ok(())
     }
 }
 
@@ -66,6 +168,8 @@ struct EffectEdge {
     target: EffectDeclarationId,
     captures_error: bool,
     contract: bool,
+    site: Option<Span>,
+    instantiation: Option<Arc<CallInstantiation>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,12 +178,11 @@ pub(super) struct EffectNode {
     pub inferred: bool,
     pub inference_allowed: bool,
     pub declared: Option<Vec<Effect>>,
-    direct: EffectSummary,
+    direct: EffectContributions,
+    defaults: Vec<Span>,
     edges: Vec<EffectEdge>,
 }
 
-/// Checked calls populate this graph once. The solver never interprets syntax
-/// or guesses which host operation a similarly named call might execute.
 #[derive(Clone, Debug, Default)]
 pub(super) struct EffectGraph {
     nodes: BTreeMap<EffectDeclarationId, EffectNode>,
@@ -148,6 +251,9 @@ impl EffectGraph {
                 .map(|namespace| format!("{namespace}.{}", def.name))
                 .unwrap_or_else(|| def.name.to_string());
             graph.declare(id, name, inference_allowed, declared);
+            graph.nodes.get_mut(&id).expect("declared effect owner").defaults = program.arena.params(def.params)
+                .iter().filter_map(|parameter| parameter.default)
+                .map(|expression| program.arena.expr(expression).span).collect();
         }
         graph
     }
@@ -164,7 +270,8 @@ impl EffectGraph {
             inferred: inference_allowed && declared.is_none(),
             inference_allowed,
             declared,
-            direct: EffectSummary::default(),
+            direct: EffectContributions::default(),
+            defaults: Vec::new(),
             edges: Vec::new(),
         });
     }
@@ -198,6 +305,7 @@ impl EffectGraph {
         owner: Option<EffectDeclarationId>,
         target: EffectDeclarationId,
         captures_error: bool,
+        site: Option<Span>,
     ) {
         let contract = self
             .nodes
@@ -208,45 +316,108 @@ impl EffectGraph {
                 edge.target == target
                     && edge.captures_error == captures_error
                     && edge.contract == contract
+                    && edge.site == site
             })
         {
             node.edges.push(EffectEdge {
                 target,
                 captures_error,
                 contract,
+                site,
+                instantiation: None,
             });
         }
+    }
+
+    fn require_contract(&mut self, owner: Option<EffectDeclarationId>, contract: &EffectContract<EffectVariableId>, captures_error: bool, name: &str) -> Result<(), SchemeOperationError> {
+        let contract = if captures_error { contract.clone().capture_error() } else { contract.clone() };
+        match contract {
+            EffectContract::Unknown => self.unknown(owner, name.to_owned()),
+            EffectContract::Known(expression) => {
+                if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner)) { node.direct.require(&expression)?; }
+            }
+        }
+        Ok(())
+    }
+
+    fn bind_scopes(
+        &mut self,
+        mut bind: impl FnMut(EffectDeclarationId, &EffectContract<EffectVariableId>) -> Result<EffectContract<SchemeEffectParameterId>, SchemeOperationError>,
+        mut parameters: impl FnMut(EffectDeclarationId) -> Arc<[SchemeEffectParameterId]>,
+        calls: &BTreeMap<Span, CallInstantiation>,
+    ) -> Result<(), EffectScopeFailure> {
+        let mut nodes = BTreeMap::new();
+        for (&owner, node) in &self.nodes {
+            let node = (|| -> Result<EffectNode, SchemeOperationError> {
+            let mut node = node.clone();
+            let summary = match &node.direct {
+                EffectContributions::Checking(source) => {
+                    source.specialize_contributions(CheckedEffectScope::new(owner, parameters(owner)), &node.name, |id| bind(owner, &EffectContract::variable(*id)))?
+                }
+                EffectContributions::Checked(summary) => {
+                    let mut summary = summary.clone();
+                    summary.scope = CheckedEffectScope::new(owner, parameters(owner));
+                    summary
+                }
+            };
+            let scope = summary.scope.parameters().iter().copied().collect::<BTreeSet<_>>();
+            if !summary.known.variables().all(|(id, _)| scope.contains(id)) {
+                return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+            }
+            for edge in &mut node.edges {
+                if let Some(site) = edge.site {
+                    if !std::iter::once(&owner.body).chain(&node.defaults).any(|region| {
+                        site.source_id == region.source_id && site.start() >= region.start() && site.end() <= region.end()
+                    }) {
+                        return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+                    }
+                    if let Some(instance) = calls.get(&site) { edge.instantiation = Some(Arc::new(instance.clone())); }
+                }
+            }
+            node.direct = EffectContributions::Checked(summary);
+            Ok(node)
+            })().map_err(|cause| EffectScopeFailure { owner, cause })?;
+            nodes.insert(owner, node);
+        }
+        self.nodes = nodes;
+        Ok(())
     }
 
     pub(super) fn solve_with_external(
         &self,
         external: &BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
-        self.solve_with(&BTreeSet::new(), external)
+    ) -> Result<BTreeMap<EffectDeclarationId, EffectSummary>, EffectScopeFailure> {
+        self.try_solve_with(&BTreeSet::new(), external)
     }
 
-    fn solve_with(
+    #[cfg(test)]
+    fn solve_with(&self, unclaused: &BTreeSet<EffectDeclarationId>, external: &BTreeMap<EffectDeclarationId, EffectSummary>) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+        self.try_solve_with(unclaused, external).expect("finite graph fixtures carry complete effect evidence")
+    }
+
+    fn try_solve_with(
         &self,
         unclaused: &BTreeSet<EffectDeclarationId>,
         external: &BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+    ) -> Result<BTreeMap<EffectDeclarationId, EffectSummary>, EffectScopeFailure> {
         assert!(unclaused.iter().all(|id| self.nodes.contains_key(id)), "unclaused declarations belong to the effect graph");
         let mut summaries = self
             .nodes
             .iter()
-            .map(|(&id, node)| (id, node.direct.clone()))
-            .collect::<BTreeMap<_, _>>();
+            .map(|(&id, node)| {
+                let summary = node.direct.checked().and_then(|summary| { summary.validate_owner(id)?; Ok((id, summary.clone())) });
+                summary.map_err(|cause| EffectScopeFailure { owner: id, cause })
+            })
+            .collect::<Result<BTreeMap<_, _>, EffectScopeFailure>>()?;
         loop {
             let mut changed = false;
             for (&id, node) in &self.nodes {
                 for edge in &node.edges {
                     let target = if edge.contract && !unclaused.contains(&edge.target) {
                         EffectSummary {
-                            known: self.nodes[&edge.target]
-                                .declared
-                                .clone()
-                                .unwrap_or_default(),
+                            known: EffectExpr::finite(EffectSet::new(self.nodes[&edge.target].declared.clone().unwrap_or_default())),
                             unknown_chain: Vec::new(),
+                            scope: CheckedEffectScope::default(),
                         }
                     } else {
                         let Some(target) = summaries
@@ -258,14 +429,24 @@ impl EffectGraph {
                         };
                         target
                     };
+                    target.validate_owner(edge.target).map_err(|cause| EffectScopeFailure { owner: id, cause })?;
                     let summary = summaries
                         .get_mut(&id)
                         .expect("every declaration has an initial summary");
-                    for effect in target.known {
-                        if !(edge.captures_error && effect == Effect::Error) {
-                            changed |= summary.add(effect);
-                        }
+                    let target = target.specialize_contributions(summary.scope.clone(), &node.name, |parameter| {
+                        if let Some(instance) = &edge.instantiation {
+                            instance.effect_arguments().get(parameter).cloned()
+                        } else if edge.target == id {
+                            Some(EffectContract::variable(*parameter))
+                        } else { None }.ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter))
+                    }).map_err(|cause| EffectScopeFailure { owner: id, cause })?;
+                    let target_known = if edge.captures_error {
+                        target.known.masked(EffectSet::all().without(EffectSet::singleton(Effect::Error)))
+                    } else { target.known };
+                    if !target_known.variables().all(|(id, _)| summary.scope.parameters().contains(id)) {
+                        return Err(EffectScopeFailure { owner: id, cause: SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter) });
                     }
+                    changed |= summary.join_expression(target_known);
                     if !target.unknown_chain.is_empty() {
                         let mut chain = target.unknown_chain;
                         if let Some(target) = self.nodes.get(&edge.target) {
@@ -276,7 +457,7 @@ impl EffectGraph {
                 }
             }
             if !changed {
-                return summaries;
+                return Ok(summaries);
             }
         }
     }
@@ -293,15 +474,15 @@ impl EffectGraph {
         let same = |known: &[Effect]| {
             known.len() == declared.len() && declared.iter().all(|effect| known.contains(effect))
         };
-        if !node.inference_allowed || summary.effects().is_none_or(|known| !same(&known)) {
+        if !node.inference_allowed || !summary.effects().concrete().is_ok_and(|known| known.is_some_and(|known| same(&known))) {
             return false;
         }
         if !self.reaches_own_contract(id) {
             return true;
         }
-        self.solve_with(&BTreeSet::from([id]), &BTreeMap::new())[&id]
-            .effects()
-            .is_some_and(|known| same(&known))
+        self.try_solve_with(&BTreeSet::from([id]), &BTreeMap::new()).is_ok_and(|summaries| {
+            summaries[&id].effects().concrete().is_ok_and(|known| known.is_some_and(|known| same(&known)))
+        })
     }
 
     fn reaches_own_contract(&self, id: EffectDeclarationId) -> bool {
@@ -337,9 +518,10 @@ impl EffectGraph {
                         effective: if node.inferred {
                             summary.effects()
                         } else {
-                            node.declared.clone()
+                            CheckedEffects::from_clause(node.declared.clone())
                         },
                         required: summary.effects(),
+                        scope: summary.scope.clone(),
                         inferred: node.inferred,
                         inference_allowed: node.inference_allowed,
                         redundant_clause: self.redundant_clause(*id, node, summary),
@@ -351,9 +533,30 @@ impl EffectGraph {
     }
 }
 
-use super::{Checker, FunctionSig};
+use super::Checker;
 use super::effect_bounds::ExcludedEffect;
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId};
+
+impl Checker {
+    pub(super) fn bind_effect_graph(&mut self) -> Result<(), EffectScopeFailure> {
+        let constraints = &self.type_constraints;
+        let declarations = &self.declaration_inference;
+        self.effect_graph.bind_scopes(
+            |owner, contract| {
+                let scope = declarations.pending(super::FunctionDeclarationId::new(owner)).and_then(|declaration| declaration.generalized_scope());
+                match scope {
+                    Some(scope) => constraints.resolve_generalized_effect(contract, scope),
+                    None => constraints.resolve_effect(contract)?.substitute(|_| Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))),
+                }
+            },
+            |owner| declarations.pending(super::FunctionDeclarationId::new(owner))
+                .and_then(|declaration| declaration.generalized())
+                .map_or_else(|| Arc::from([]), |callable| Arc::from(callable.requirements().effect_parameters.as_slice())),
+            &self.call_instantiations,
+        )
+    }
+}
+
 
 #[cfg(test)]
 mod joint_effect_tests {
@@ -370,25 +573,84 @@ mod joint_effect_tests {
         let mut graph = EffectGraph::default();
         graph.declare(first, "first".into(), true, declared.then(|| vec![Effect::Time]));
         graph.declare(second, "second".into(), true, declared.then(|| vec![Effect::Time]));
-        graph.call(Some(first), second, false);
-        graph.call(Some(second), first, false);
+        graph.call(Some(first), second, false, None);
+        graph.call(Some(second), first, false, None);
         (graph, first, second)
+    }
+
+    fn scoped_instantiation(parameter: SchemeEffectParameterId, argument: EffectContract<SchemeEffectParameterId>, caller: &[SchemeEffectParameterId]) -> CallInstantiation {
+        let callable = crate::sema::schemes::CallableScheme::new(
+            Vec::new(), Vec::new(), Vec::new(), crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Int), None, false,
+            crate::sema::schemes::CallableRequirements {
+                effect_parameters: vec![parameter],
+                effect_predicates: vec![crate::sema::effects::EffectPredicate::Equal(EffectContract::variable(parameter), EffectContract::variable(parameter))],
+                applications: Vec::new(),
+            },
+        ).unwrap();
+        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), &[], &[], caller, &[]).unwrap()
+    }
+
+    fn symbolic_owner(graph: &mut EffectGraph, owner: EffectDeclarationId, parameter: SchemeEffectParameterId) {
+        graph.declare(owner, "symbolic".to_owned(), true, None);
+        graph.nodes.get_mut(&owner).unwrap().direct = EffectContributions::Checked(EffectSummary {
+            known: EffectExpr::variable(parameter), unknown_chain: Vec::new(),
+            scope: CheckedEffectScope::new(owner, Arc::from([parameter])),
+        });
+    }
+
+    #[test]
+    fn symbolic_effect_graph_siblings_specialize_their_own_bound_ordinals() {
+        let parameter = SchemeEffectParameterId(0);
+        for reverse in [false, true] {
+            let (root, first, second) = (declaration(1), declaration(2), declaration(3));
+            let mut graph = EffectGraph::default();
+            graph.declare(root, "root".to_owned(), true, None);
+            symbolic_owner(&mut graph, first, parameter);
+            symbolic_owner(&mut graph, second, parameter);
+            let targets = if reverse { [(second, Effect::Time), (first, Effect::Fs)] } else { [(first, Effect::Fs), (second, Effect::Time)] };
+            for (target, effect) in targets {
+                graph.call(Some(root), target, false, None);
+                graph.nodes.get_mut(&root).unwrap().edges.last_mut().unwrap().instantiation = Some(Arc::new(scoped_instantiation(parameter, EffectContract::finite(EffectSet::singleton(effect)), &[])));
+            }
+            let summaries = graph.solve_with_external(&BTreeMap::new()).unwrap();
+            assert_eq!(summaries[&root].effects(), CheckedEffects::finite([Effect::Fs, Effect::Time]));
+            graph.nodes.get_mut(&root).unwrap().edges[0].instantiation = None;
+            assert!(matches!(graph.solve_with_external(&BTreeMap::new()), Err(EffectScopeFailure { owner, .. }) if owner == root));
+        }
+    }
+
+    #[test]
+    fn symbolic_effect_graph_mutual_edges_apply_actual_binder_renaming() {
+        let (first, second) = (declaration(1), declaration(2));
+        let (left, right) = (SchemeEffectParameterId(0), SchemeEffectParameterId(1));
+        let mut graph = EffectGraph::default();
+        symbolic_owner(&mut graph, first, left);
+        symbolic_owner(&mut graph, second, right);
+        for (owner, target, source, destination) in [(first, second, right, left), (second, first, left, right)] {
+            graph.call(Some(owner), target, false, None);
+            graph.nodes.get_mut(&owner).unwrap().edges[0].instantiation = Some(Arc::new(scoped_instantiation(source, EffectContract::variable(destination), &[destination])));
+        }
+        let summaries = graph.solve_with_external(&BTreeMap::new()).unwrap();
+        assert_eq!(summaries[&first].known, EffectExpr::variable(left));
+        assert_eq!(summaries[&second].known, EffectExpr::variable(right));
+        graph.nodes.get_mut(&first).unwrap().edges[0].instantiation = Some(Arc::new(scoped_instantiation(right, EffectContract::variable(right), &[right])));
+        assert!(matches!(graph.solve_with_external(&BTreeMap::new()), Err(EffectScopeFailure { owner, .. }) if owner == first));
     }
 
     #[test]
     fn joint_clause_counterfactual_drops_mutually_supported_effects() {
         let (graph, first, second) = recursive_pair(true);
-        let original = graph.solve_with_external(&BTreeMap::new());
+        let original = graph.solve_with_external(&BTreeMap::new()).unwrap();
         let facts = graph.facts(&original);
         assert!(facts[&first].redundant_clause);
         assert!(facts[&second].redundant_clause);
         let (inferred, _, _) = recursive_pair(false);
         let selected = BTreeSet::from([first, second]);
         let counterfactual = graph.solve_with(&selected, &BTreeMap::new());
-        assert_eq!(counterfactual, inferred.solve_with_external(&BTreeMap::new()));
-        assert!(selected.iter().all(|id| counterfactual[id].effects() == Some(Vec::new())));
+        assert_eq!(counterfactual, inferred.solve_with_external(&BTreeMap::new()).unwrap());
+        assert!(selected.iter().all(|id| counterfactual[id].effects().concrete().unwrap() == Some(Vec::new())));
         assert_eq!(graph.facts(&original), facts);
-        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new()).unwrap()), facts);
     }
 
     #[test]
@@ -396,27 +658,27 @@ mod joint_effect_tests {
         let (mut graph, first, second) = recursive_pair(true);
         let recursive = declaration(3);
         graph.declare(recursive, "recursive".into(), true, Some(vec![Effect::Time]));
-        graph.call(Some(recursive), recursive, false);
+        graph.call(Some(recursive), recursive, false, None);
         let ordinary = graph.solve_with(&BTreeSet::new(), &BTreeMap::new());
-        for id in [first, second, recursive] { assert_eq!(ordinary[&id].effects(), Some(vec![Effect::Time])); }
+        for id in [first, second, recursive] { assert_eq!(ordinary[&id].effects().concrete().unwrap(), Some(vec![Effect::Time])); }
         let singleton = graph.solve_with(&BTreeSet::from([first]), &BTreeMap::new());
-        assert_eq!(singleton[&first].effects(), Some(vec![Effect::Time]));
-        assert_eq!(singleton[&second].effects(), Some(vec![Effect::Time]));
+        assert_eq!(singleton[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
+        assert_eq!(singleton[&second].effects().concrete().unwrap(), Some(vec![Effect::Time]));
         assert!(!graph.facts(&ordinary)[&recursive].redundant_clause);
         let self_removed = graph.solve_with(&BTreeSet::from([recursive]), &BTreeMap::new());
-        assert_eq!(self_removed[&recursive].effects(), Some(Vec::new()));
-        assert_eq!(self_removed[&first].effects(), Some(vec![Effect::Time]));
+        assert_eq!(self_removed[&recursive].effects().concrete().unwrap(), Some(Vec::new()));
+        assert_eq!(self_removed[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
     }
 
     #[test]
     fn joint_clause_counterfactual_retains_recursive_clock_requirement() {
         let (mut graph, first, second) = recursive_pair(true);
         graph.require(Some(second), Effect::Time, false);
-        let original = graph.solve_with_external(&BTreeMap::new());
+        let original = graph.solve_with_external(&BTreeMap::new()).unwrap();
         let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
         assert_eq!(counterfactual, original);
-        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Time]));
-        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), Some(vec![Effect::Time]));
         assert!(graph.facts(&original).values().all(|fact| fact.redundant_clause));
     }
 
@@ -425,18 +687,18 @@ mod joint_effect_tests {
         let (mut graph, first, second) = recursive_pair(true);
         let boundary = declaration(3);
         graph.declare(boundary, "boundary".into(), true, Some(vec![Effect::Time]));
-        graph.call(Some(second), boundary, false);
-        let original = graph.solve_with_external(&BTreeMap::new());
+        graph.call(Some(second), boundary, false, None);
+        let original = graph.solve_with_external(&BTreeMap::new()).unwrap();
         let facts = graph.facts(&original);
         let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
-        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Time]));
-        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Time]));
-        assert_eq!(counterfactual[&boundary].effects(), Some(Vec::new()));
-        assert_eq!(facts[&boundary].effective, Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), Some(vec![Effect::Time]));
+        assert_eq!(counterfactual[&boundary].effects().concrete().unwrap(), Some(Vec::new()));
+        assert_eq!(facts[&boundary].effective.concrete().unwrap(), Some(vec![Effect::Time]));
         assert!(!facts[&boundary].redundant_clause);
-        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new()).unwrap()), facts);
         let all_removed = graph.solve_with(&BTreeSet::from([first, second, boundary]), &BTreeMap::new());
-        assert!(all_removed.values().all(|summary| summary.effects() == Some(Vec::new())));
+        assert!(all_removed.values().all(|summary| summary.effects().concrete().unwrap() == Some(Vec::new())));
     }
 
     #[test]
@@ -449,25 +711,25 @@ mod joint_effect_tests {
         graph.require(Some(second), Effect::Fs, false);
         graph.require(Some(second), Effect::Error, false);
         graph.require(Some(first), Effect::Error, true);
-        graph.call(Some(first), second, true);
-        graph.call(Some(second), first, false);
+        graph.call(Some(first), second, true, None);
+        graph.call(Some(second), first, false, None);
         let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
-        assert_eq!(counterfactual[&first].effects(), Some(vec![Effect::Fs]));
-        assert_eq!(counterfactual[&second].effects(), Some(vec![Effect::Error, Effect::Fs]));
+        assert_eq!(counterfactual[&first].effects().concrete().unwrap(), Some(vec![Effect::Fs]));
+        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), Some(vec![Effect::Error, Effect::Fs]));
     }
 
     #[test]
     fn joint_clause_counterfactual_refuses_finite_proof_for_unknown_dependency() {
         let (mut graph, first, second) = recursive_pair(true);
         graph.unknown(Some(second), "opaque".into());
-        let original = graph.solve_with_external(&BTreeMap::new());
+        let original = graph.solve_with_external(&BTreeMap::new()).unwrap();
         let facts = graph.facts(&original);
         let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
-        assert_eq!(counterfactual[&first].effects(), None);
-        assert_eq!(counterfactual[&second].effects(), None);
+        assert_eq!(counterfactual[&first].effects().concrete().unwrap(), None);
+        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), None);
         assert_eq!(counterfactual[&first].unknown_chain, ["second", "opaque"]);
         assert_eq!(counterfactual[&second].unknown_chain, ["opaque"]);
-        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new())), facts);
+        assert_eq!(graph.facts(&graph.solve_with_external(&BTreeMap::new()).unwrap()), facts);
     }
 
     #[test]
@@ -479,14 +741,14 @@ mod joint_effect_tests {
             let mut graph = EffectGraph::default();
             graph.declare(first, "first".into(), true, Some(vec![Effect::Time]));
             graph.declare(second, "second".into(), true, Some(vec![Effect::Time]));
-            graph.call(Some(first), second, false);
-            graph.call(Some(second), first, false);
+            graph.call(Some(first), second, false, None);
+            graph.call(Some(second), first, false, None);
             let singleton = graph.solve_with(&BTreeSet::from([first]), &BTreeMap::new());
-            assert_eq!(singleton[&first].effects(), Some(vec![Effect::Time]));
-            assert_eq!(singleton[&second].effects(), Some(vec![Effect::Time]));
+            assert_eq!(singleton[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
+            assert_eq!(singleton[&second].effects().concrete().unwrap(), Some(vec![Effect::Time]));
             let joint = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
-            assert_eq!(joint[&first].effects(), Some(Vec::new()));
-            assert_eq!(joint[&second].effects(), Some(Vec::new()));
+            assert_eq!(joint[&first].effects().concrete().unwrap(), Some(Vec::new()));
+            assert_eq!(joint[&second].effects().concrete().unwrap(), Some(Vec::new()));
         });
     }
 
@@ -495,10 +757,10 @@ mod joint_effect_tests {
     fn joint_clause_counterfactual_rejects_external_body_selection() {
         let (mut graph, first, _) = recursive_pair(true);
         let remote = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(1), 1, 1) };
-        graph.call(Some(first), remote, false);
-        let external = BTreeMap::from([(remote, EffectSummary { known: vec![Effect::Time], unknown_chain: Vec::new() })]);
+        graph.call(Some(first), remote, false, None);
+        let external = BTreeMap::from([(remote, EffectSummary { known: EffectExpr::finite(EffectSet::singleton(Effect::Time)), unknown_chain: Vec::new(), scope: CheckedEffectScope::default() })]);
         let local = graph.solve_with(&BTreeSet::from([first]), &external);
-        assert_eq!(local[&first].effects(), Some(vec![Effect::Time]));
+        assert_eq!(local[&first].effects().concrete().unwrap(), Some(vec![Effect::Time]));
         graph.solve_with(&BTreeSet::from([first, remote]), &external);
     }
 
@@ -508,11 +770,11 @@ mod joint_effect_tests {
         let remote = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(1), 1, 1) };
         let mut graph = EffectGraph::default();
         graph.declare(local, "local".into(), true, None);
-        graph.call(Some(local), remote, false);
-        let external = BTreeMap::from([(remote, EffectSummary { known: vec![Effect::Fs], unknown_chain: vec!["remote".into(), "opaque".into()] })]);
-        let summaries = graph.solve_with_external(&external);
-        assert_eq!(summaries[&local].effects(), None);
-        assert_eq!(summaries[&local].known, vec![Effect::Fs]);
+        graph.call(Some(local), remote, false, None);
+        let external = BTreeMap::from([(remote, EffectSummary { known: EffectExpr::finite(EffectSet::singleton(Effect::Fs)), unknown_chain: vec!["remote".into(), "opaque".into()], scope: CheckedEffectScope::default() })]);
+        let summaries = graph.solve_with_external(&external).unwrap();
+        assert_eq!(summaries[&local].effects().concrete().unwrap(), None);
+        assert_eq!(summaries[&local].known, EffectExpr::finite(EffectSet::singleton(Effect::Fs)));
         assert_eq!(summaries[&local].unknown_chain, external[&remote].unknown_chain);
     }
 }
@@ -524,10 +786,9 @@ pub(super) enum DeferredEffectKind {
         message: String,
         subject: String,
     },
-    Call {
-        target: Option<EffectDeclarationId>,
-        contract: Option<Vec<Effect>>,
-        inferred: bool,
+    Invocation {
+        effects: super::InvocationEffects,
+        instance: Option<super::PendingCallInstantiation>,
         unknown_chain: Vec<String>,
         name: String,
     },
@@ -605,28 +866,120 @@ impl Checker {
         });
     }
 
-    pub(super) fn defer_callable_effects(
-        &mut self,
-        target: Option<EffectDeclarationId>,
-        contract: Option<Vec<Effect>>,
-        inferred: bool,
-        unknown_chain: Vec<String>,
-        name: &str,
-        span: Span,
-    ) {
-        if !self.defer_effect_diagnostics {
-            return;
+    pub(super) fn defer_callable_effects(&mut self, contract: Option<Vec<Effect>>, unknown_chain: Vec<String>, name: &str, span: Span) {
+        if !self.defer_effect_diagnostics { return; }
+        self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
+            effects: super::InvocationEffects::Checked(crate::sema::types::CallableEffects::from_clause(contract)),
+            instance: None, unknown_chain, name: name.to_owned(),
+        });
+    }
+
+    fn constrain_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
+        let resolved = match self.type_constraints.resolve_effect(effects.contract()) {
+            Ok(contract) => contract,
+            Err(_) => {
+                self.error(span, "callable effects escaped their declaration inference scope", DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
+        if let Some(caller) = self.boundary.current_effects.clone() {
+            let outward = if self.boundary.retry_attempt_depth > 0 { resolved.clone().capture_error() } else { resolved.clone() };
+            if let Err(error) = self.type_constraints.constrain_effect(crate::sema::effects::EffectPredicate::Covered(outward, EffectContract::finite(EffectSet::new(caller.iter().cloned())))) {
+                match (error, resolved.concrete()) {
+                    (crate::sema::constraints::EffectConstraintError::Mismatch, Ok(effects)) => self.check_callee_effects(&caller, &effects, name, span),
+                    (crate::sema::constraints::EffectConstraintError::Mismatch, Err(_)) => self.error(span, &format!("effect relationship required by `{name}` is not in caller's declared effects"), DiagnosticCode::CheckEffectViolation),
+                    _ => self.error(span, "callable effect relationships cannot be resolved", DiagnosticCode::CheckLocalInference),
+                }
+            }
         }
-        self.push_deferred_effect_check(
-            span,
-            DeferredEffectKind::Call {
-                target,
-                contract,
-                inferred,
-                unknown_chain,
-                name: name.to_string(),
-            },
-        );
+        self.constrain_callable_effect_exclusions(&resolved, name, span);
+    }
+
+    pub(super) fn owns_effect_predicate(
+        &self,
+        contract: &EffectContract<EffectVariableId>,
+        predicate: impl FnOnce(EffectContract<SchemeEffectParameterId>) -> crate::sema::effects::EffectPredicate<SchemeEffectParameterId>,
+    ) -> bool {
+        let Some(owner) = self.boundary.effect_owner else { return false; };
+        let Some(declaration) = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)) else { return false; };
+        let (Some(scope), Some(callable)) = (declaration.generalized_scope(), declaration.generalized()) else { return false; };
+        self.type_constraints.resolve_generalized_effect(contract, scope).is_ok_and(|contract| callable.requirements().effect_predicates.contains(&predicate(contract)))
+    }
+
+    fn validate_callable_effects(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
+        let resolved = match self.type_constraints.resolve_effect(effects.contract()) {
+            Ok(contract) => contract,
+            Err(_) => {
+                self.error(span, "callable effects escaped their declaration inference scope", DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
+        match resolved.concrete() {
+            Ok(effects) => {
+                if let Some(caller) = self.boundary.current_effects.clone() { self.check_callee_effects(&caller, &effects, name, span); }
+                self.check_callee_not_excluded(&effects, &[], name, span);
+            }
+            Err(_) => {
+                if let Some(caller) = self.boundary.current_effects.clone() {
+                    let outward = if self.boundary.retry_attempt_depth > 0 { resolved.clone().capture_error() } else { resolved.clone() };
+                    if !self.owns_effect_predicate(&outward, |contract| crate::sema::effects::EffectPredicate::Covered(contract, EffectContract::finite(EffectSet::new(caller)))) {
+                        self.error(span, "callable effect permission is outside its checked scheme", DiagnosticCode::CheckLocalInference);
+                    }
+                }
+                self.validate_symbolic_callable_effect_exclusions(&resolved, span);
+            }
+        }
+    }
+
+    pub(super) fn check_callable_invocation_contract(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {
+        if self.record_effects || self.collecting_effects {
+            if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
+                self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+            }
+        }
+        let diagnostic_count = self.diagnostics.len();
+        self.constrain_callable_effects(effects, name, span);
+        if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
+            self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
+                effects: super::InvocationEffects::Checked(effects.clone()), instance: None,
+                unknown_chain: Vec::new(), name: name.to_owned(),
+            });
+        }
+    }
+
+    pub(super) fn check_function_invocation_effects(&mut self, contract: &super::FunctionCallContract, name: &str, span: Span) {
+        if self.record_effects || self.collecting_effects {
+            if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
+                self.effect_graph.call(self.boundary.effect_owner, target, self.boundary.retry_attempt_depth > 0, Some(span));
+            } else if let super::InvocationEffects::Checked(effects) = &contract.effects {
+                if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects.contract(), self.boundary.retry_attempt_depth > 0, name) {
+                    self.error(span, &format!("callable effect contract is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+                }
+            }
+        }
+        let diagnostic_count = self.diagnostics.len();
+        if let super::InvocationEffects::Checked(effects) = &contract.effects { self.constrain_callable_effects(effects, name, span); }
+        if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
+            self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
+                effects: contract.effects.clone(), instance: contract.instantiation.clone(),
+                unknown_chain: contract.effect_declaration.and_then(|owner| self.effect_summaries.get(&owner)).map_or_else(Vec::new, |summary| summary.unknown_chain.clone()),
+                name: name.to_owned(),
+            });
+        }
+    }
+
+    fn resolve_invocation_effects(&self, effects: super::InvocationEffects, instance: Option<&super::PendingCallInstantiation>) -> Result<crate::sema::types::CallableEffects, SchemeOperationError> {
+        let effects = match effects {
+            super::InvocationEffects::Checked(effects) => effects,
+            super::InvocationEffects::Pending(owner) => {
+                let summary = self.effect_summaries.get(&owner).ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))?;
+                if let Some((_, instance)) = instance { self.type_constraints.instantiate_effect_contract(&summary.effects(), instance)? }
+                else {
+                    crate::sema::types::CallableEffects::from_contract(summary.effects().contract().substitute(|_| Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter)))?)
+                }
+            }
+        };
+        Ok(crate::sema::types::CallableEffects::from_contract(self.type_constraints.resolve_effect(effects.contract())?))
     }
 
     pub(super) fn validate_deferred_effects(&mut self) {
@@ -634,7 +987,6 @@ impl Checker {
             return;
         }
         let checks = std::mem::take(&mut self.deferred_effect_checks);
-        let summaries = self.effect_summaries.clone();
         let mut inserted = 0;
         for check in checks {
             let start = self.diagnostics.len();
@@ -644,7 +996,7 @@ impl Checker {
             let saved_collecting = self.collecting_effects;
             let saved_recording = self.record_effects;
             let saved_deferred = self.defer_effect_diagnostics;
-            self.boundary.current_effects = self.caller_effect_contract(check.owner, &check.caller, &summaries);
+            self.boundary.current_effects = self.caller_effect_contract(check.owner, &check.caller);
             self.boundary.effect_owner = check.owner;
             self.boundary.excluded_effects = check.excluded;
             self.boundary.in_pure = check.in_pure;
@@ -666,35 +1018,16 @@ impl Checker {
                     );
                     self.check_effect_not_excluded(&effect, check.span, &subject);
                 }
-                DeferredEffectKind::Call {
-                    target,
-                    contract,
-                    inferred,
-                    mut unknown_chain,
-                    name,
-                } => {
-                    let (effects, target_unknown) = self.callee_effect_contract(
-                        target,
-                        contract,
-                        inferred,
-                        unknown_chain,
-                        &summaries,
-                    );
-                    unknown_chain = target_unknown;
-                    if let Some(caller) = self.boundary.current_effects.clone() {
-                        if effects.is_none() && inferred {
-                            let mut chain = vec![name.clone()];
-                            chain.extend(unknown_chain.clone());
-                            self.error(
-                                check.span,
-                                &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")),
-                                DiagnosticCode::CheckEffectViolation,
-                            );
-                        } else {
-                            self.check_callee_effects(&caller, &effects, &name, check.span);
+                DeferredEffectKind::Invocation { effects, instance, unknown_chain, name } => {
+                    match self.resolve_invocation_effects(effects, instance.as_ref()) {
+                        Ok(effects) => {
+                            self.validate_callable_effects(&effects, &name, check.span);
+                            if matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some() {
+                                self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}", unknown_chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
+                            }
                         }
+                        Err(_) => self.error(check.span, "callable invocation has no settled declaration effect contract", DiagnosticCode::CheckLocalInference),
                     }
-                    self.check_callee_not_excluded(&effects, &unknown_chain, &name, check.span);
                 }
             }
             self.boundary = saved_boundary;
@@ -750,46 +1083,8 @@ impl Checker {
         }
     }
 
-    fn caller_effect_contract(
-        &self,
-        owner: Option<EffectDeclarationId>,
-        fallback: &Option<Vec<Effect>>,
-        summaries: &BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) -> Option<Vec<Effect>> {
-        owner
-            .and_then(|owner| self.effect_graph.nodes.get(&owner).map(|node| (owner, node)))
-            .map_or_else(
-                || fallback.clone(),
-                |(owner, node)| {
-                    node.declared.clone().or_else(|| {
-                        node.inferred
-                            .then(|| summaries.get(&owner).and_then(EffectSummary::effects))
-                            .flatten()
-                    })
-                },
-            )
-    }
-
-    fn callee_effect_contract(
-        &self,
-        target: Option<EffectDeclarationId>,
-        contract: Option<Vec<Effect>>,
-        inferred: bool,
-        fallback_unknown_chain: Vec<String>,
-        summaries: &BTreeMap<EffectDeclarationId, EffectSummary>,
-    ) -> (Option<Vec<Effect>>, Vec<String>) {
-        let Some((id, node)) = target.and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node))) else {
-            return (contract, fallback_unknown_chain);
-        };
-        if let Some(declared) = &node.declared {
-            return (Some(declared.clone()), Vec::new());
-        }
-        if inferred && let Some(summary) = summaries.get(&id) {
-            let mut chain = vec![node.name.clone()];
-            chain.extend(summary.unknown_chain.clone());
-            return (summary.effects(), chain);
-        }
-        (contract, fallback_unknown_chain)
+    fn caller_effect_contract(&self, owner: Option<EffectDeclarationId>, fallback: &Option<Vec<Effect>>) -> Option<Vec<Effect>> {
+        owner.and_then(|owner| self.effect_graph.nodes.get(&owner)).and_then(|node| node.declared.clone()).or_else(|| fallback.clone())
     }
 
     pub(super) fn effect_declaration_id(
@@ -803,29 +1098,8 @@ impl Checker {
         }
     }
 
-    pub(super) fn effective_function_effects(
-        &self,
-        program: &ArenaProgram,
-        def: &ArenaFunctionDef,
-    ) -> Option<Vec<Effect>> {
-        if let Some(effects) = def.effects {
-            return Some(program.arena.effects(effects).collect());
-        }
-        let id = self.effect_declaration_id(program, def.body);
-        if !self.effect_graph.is_inferred(id) {
-            return None;
-        }
-        // A probe reads the previous probe's solution; the first probe starts
-        // from the empty set.
-        if self.collecting_effects {
-            return self
-                .effect_summaries
-                .get(&id)
-                .map_or_else(|| Some(Vec::new()), EffectSummary::effects);
-        }
-        self.effect_summaries
-            .get(&id)
-            .and_then(EffectSummary::effects)
+    pub(super) fn effective_function_effects(&self, program: &ArenaProgram, def: &ArenaFunctionDef) -> Option<Vec<Effect>> {
+        def.effects.map(|effects| program.arena.effects(effects).collect())
     }
 
     pub(super) fn record_required_effect(&mut self, effect: Effect) {
@@ -863,118 +1137,45 @@ impl Checker {
         self.check_effect_not_excluded(&effect, span, subject);
     }
 
-    pub(super) fn check_resolved_callable_effects(
-        &mut self,
-        sig: &FunctionSig,
-        name: &str,
-        span: Span,
-    ) {
-        let unknown_chain = sig
-            .effect_declaration
-            .and_then(|declaration| self.effect_summaries.get(&declaration))
-            .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
-        self.check_resolved_callable_effect_contract(
-            sig.effect_declaration,
-            sig.scheme.effects().map(<[_]>::to_vec),
-            sig.scheme.inferred_effects(),
-            unknown_chain,
-            name,
-            span,
-        );
-    }
-
-    pub(super) fn check_resolved_declaration_effects(
-        &mut self,
-        declaration: Option<EffectDeclarationId>,
-        name: &str,
-        span: Span,
-    ) {
-        let (effects, inferred) = declaration
-            .and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node)))
-            .map_or((None, false), |(id, node)| {
-                let effects = node.declared.clone().or_else(|| {
-                    node.inferred
-                        .then(|| self.effect_summaries.get(&id).and_then(EffectSummary::effects))
-                        .flatten()
-                });
-                (effects, node.inferred)
-            });
-        let unknown_chain = declaration
-            .and_then(|id| self.effect_summaries.get(&id))
-            .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
-        self.check_resolved_callable_effect_contract(
-            declaration,
-            effects,
-            inferred,
-            unknown_chain,
-            name,
-            span,
-        );
-    }
-
-    pub(super) fn declaration_effects(
-        &self,
-        declaration: Option<EffectDeclarationId>,
-    ) -> Option<Vec<Effect>> {
-        let (id, node) = declaration.and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node)))?;
-        node.declared.clone().or_else(|| {
-            node.inferred
-                .then(|| self.effect_summaries.get(&id).and_then(EffectSummary::effects))
-                .flatten()
-        })
-    }
-
-    fn check_resolved_callable_effect_contract(
-        &mut self,
-        declaration: Option<EffectDeclarationId>,
-        effects: Option<Vec<Effect>>,
-        inferred: bool,
-        unknown_chain: Vec<String>,
-        name: &str,
-        span: Span,
-    ) {
-        if self.record_effects || self.collecting_effects {
-            if let Some(declaration) = declaration
-                && (inferred || effects.is_some())
-                && self.effect_graph.contains(declaration)
-            {
-                self.effect_graph.call(
-                    self.boundary.effect_owner,
-                    declaration,
-                    self.boundary.retry_attempt_depth > 0,
-                );
-            } else {
-                self.record_effect_contract(&effects, name);
-            }
-        }
-        if self.defer_effect_diagnostics {
-            self.defer_callable_effects(
-                declaration,
-                effects.clone(),
-                inferred,
-                unknown_chain,
-                name,
-                span,
-            );
-            return;
-        }
-        if let Some(caller) = self.boundary.current_effects.clone() {
-            if effects.is_none() && inferred {
-                let mut chain = vec![name.to_string()];
-                chain.extend(unknown_chain.iter().cloned());
-                self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
-            } else {
-                self.check_callee_effects(&caller, &effects, name, span);
-            }
-        }
-        let unknown_chain = if effects.is_none() && inferred {
-            let mut chain = vec![name.to_string()];
-            chain.extend(unknown_chain.iter().cloned());
-            chain
-        } else {
-            Vec::new()
+    pub(super) fn declaration_effects(&self, declaration: Option<EffectDeclarationId>) -> super::DeclarationEffects {
+        let Some((id, node)) = declaration.and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node))) else {
+            return super::DeclarationEffects::Checked(CheckedEffects::unknown());
         };
-        self.check_callee_not_excluded(&effects, &unknown_chain, name, span);
+        if let Some(declared) = &node.declared {
+            return super::DeclarationEffects::Checked(CheckedEffects::finite(declared.iter().cloned()));
+        }
+        if !node.inferred { return super::DeclarationEffects::Checked(CheckedEffects::unknown()); }
+        if self.collecting_effects { self.provisional_effects_read.set(true); }
+        match self.effect_summaries.get(&id) {
+            Some(summary) => super::DeclarationEffects::Checked(summary.effects()),
+            None => super::DeclarationEffects::Pending(id),
+        }
+    }
+
+    pub(super) fn instantiate_invocation_effects(
+        &self,
+        kind: crate::sema::types::CallableKind,
+        declaration: Option<EffectDeclarationId>,
+        effects: super::DeclarationEffects,
+        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+    ) -> Result<super::InvocationEffects, SchemeOperationError> {
+        if kind == crate::sema::types::CallableKind::Pure {
+            return Ok(super::InvocationEffects::Checked(crate::sema::types::CallableEffects::finite([])));
+        }
+        let effects = match effects {
+            super::DeclarationEffects::Pending(owner) => return Ok(super::InvocationEffects::Pending(owner)),
+            super::DeclarationEffects::Checked(effects) => effects,
+        };
+        let effects = if let Some(instance) = instance {
+            self.type_constraints.instantiate_effect_contract(&effects, instance)?
+        } else if effects.is_symbolic() {
+            return declaration.map(super::InvocationEffects::Pending)
+                .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+        } else {
+            let contract = effects.contract().substitute(|_| Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter)))?;
+            crate::sema::types::CallableEffects::from_contract(contract)
+        };
+        Ok(super::InvocationEffects::Checked(effects))
     }
 
     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
@@ -1000,7 +1201,7 @@ impl Checker {
     pub(super) fn check_opaque_callable_effects(&mut self, name: &str, span: Span) {
         self.record_effect_contract(&None, name);
         if self.defer_effect_diagnostics {
-            self.defer_callable_effects(None, None, false, Vec::new(), name, span);
+            self.defer_callable_effects(None, Vec::new(), name, span);
             return;
         }
         if let Some(caller) = self.boundary.current_effects.clone() {

@@ -83,8 +83,6 @@ pub(super) enum TypeTag {
     // A closed union. `lhs` is the member count and `rhs` the offset of the
     // member type ids in `type_extra`, in the order the union lists them.
     Union,
-    // A callable with a checked signature. `lhs` is the signature id; the
-    // signature has no defaulted or rest parameter.
     TypedProc,
     TypedPure,
     // A base type narrowed by a validation. `lhs` is the base type id and
@@ -866,7 +864,7 @@ impl SemanticPools {
                     budget,
                 )?,
             ),
-            effects,
+            effects: crate::sema::types::CallableEffects::from_clause(effects),
         })
     }
 
@@ -1228,10 +1226,6 @@ impl SemanticPools {
                         }
                     }
                 }
-                // A call through a typed callable supplies exactly the
-                // parameters its signature lists, so a signature that would
-                // let one be omitted or collected was not produced by
-                // lowering.
                 TypeTag::TypedProc | TypeTag::TypedPure => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
@@ -1239,12 +1233,16 @@ impl SemanticPools {
                     if data.rhs != 0 {
                         return Err(IrVerifyError::new("typed callable type has invalid data"));
                     }
-                    for param in 0..self.signature_param_count(signature)? {
-                        if self.signature_param(signature, param)?.2 != 0 {
-                            return Err(IrVerifyError::new(
-                                "typed callable signature has a defaulted or rest parameter",
-                            ));
-                        }
+                    let count = self.signature_param_count(signature)?;
+                    let mut defaulted = false;
+                    for param in 0..count {
+                        let (_, ty, flags) = self.signature_param(signature, param)?;
+                        if flags & PARAM_REST != 0 {
+                            if param + 1 != count || flags & PARAM_DEFAULTED != 0 || self.list_item_type_id(ty)?.is_none() {
+                                return Err(IrVerifyError::new("typed callable rest parameter has an invalid layout"));
+                            }
+                        } else if flags & PARAM_DEFAULTED != 0 { defaulted = true; }
+                        else if defaulted { return Err(IrVerifyError::new("typed callable required parameter follows a default")); }
                     }
                 }
                 _ => return Err(IrVerifyError::new("type tag has no verification schema")),
@@ -1599,7 +1597,9 @@ impl SemanticPoolBuilder {
                 rest: param.rest,
             }));
         }
-        let effects = normalized_effects(signature.effects.as_deref());
+        let concrete_effects = signature.effects.concrete()
+            .map_err(|_| IrBuildError::format("unresolved_effects", None, 0, 0))?;
+        let effects = normalized_effects(concrete_effects.as_deref());
         self.intern_signature_key(
             pools,
             SignatureKey {
@@ -1998,7 +1998,7 @@ mod tests {
                 },
             ],
             return_ty: Box::new(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
-            effects: Some(vec![Effect::Fs, Effect::Error]),
+            effects: crate::sema::types::CallableEffects::finite([Effect::Fs, Effect::Error]),
         }
     }
 
@@ -2008,7 +2008,7 @@ mod tests {
             let callable = CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: Some(Vec::new()),
+                effects: crate::sema::types::CallableEffects::finite([]),
             };
             let typed = |pure| {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
@@ -2094,7 +2094,7 @@ mod tests {
         let second_signature = builder.intern_signature(&mut pools, &signature).unwrap();
         assert_eq!(first_signature, second_signature);
         let mut reordered_effects = signature.clone();
-        reordered_effects.effects = Some(vec![Effect::Error, Effect::Fs, Effect::Fs]);
+        reordered_effects.effects = crate::sema::types::CallableEffects::finite([Effect::Error, Effect::Fs, Effect::Fs]);
         assert_eq!(
             builder
                 .intern_signature(&mut pools, &reordered_effects)

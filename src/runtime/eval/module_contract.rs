@@ -127,7 +127,7 @@ fn export_mismatch(
             ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. },
             LoweredValue::Proc(function) | LoweredValue::Pure(function),
         ) => {
-            let captured = evaluator.lookup_module_export_signature(*function);
+            let captured = evaluator.lookup_module_export_signature(function.identity());
             // The captured declaration decides purity when there is one; the
             // value's own kind stands in for a callable without a capture.
             let found_pure = captured.map_or(matches!(value, LoweredValue::Pure(_)), |captured| {
@@ -209,7 +209,11 @@ fn parameter_count(count: usize) -> String {
 }
 
 fn render_effects(sig: &CallableType) -> Option<String> {
-    sig.effects.as_ref().map(|effects| {
+    let effects = match sig.effects.concrete() {
+        Ok(effects) => effects,
+        Err(_) => return Some("[<effects need inference>]".to_string()),
+    };
+    effects.as_ref().map(|effects| {
         format!(
             "[{}]",
             effects
@@ -261,7 +265,7 @@ fn render_found_export(evaluator: &Evaluator, name: Name, value: &LoweredValue) 
         LoweredValue::Pure(function) => ("pure", function),
         value => return format!("export let {name}: {}", value.type_name()),
     };
-    match evaluator.lookup_module_export_signature(*function) {
+    match evaluator.lookup_module_export_signature(function.identity()) {
         Some(ModuleExportSignature { pure, sig }) => {
             render_callable(if *pure { "pure" } else { "proc" }, name, sig)
         }

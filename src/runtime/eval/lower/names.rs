@@ -207,11 +207,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let binding = self.expression_binding(expression);
         if binding.is_some() {
-            return self.lower_named_binding(binding, name, slots);
+            let lowered = self.lower_named_binding(binding, name, slots)?;
+            if let Some(instantiation) = self.bodies.call_instantiations.get(&expression) {
+                let target = *self.bodies.selected_function_calls.get(&expression)?;
+                let key = self.function_index().checked_target_key(target)?;
+                return self.record_materialized_function_value(lowered, key, self.bodies.expr_types.get(&expression)?, instantiation);
+            }
+            return Some(lowered);
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
             let checked_type = self.bodies.expr_types.get(&expression)?;
-            return self.lower_selected_function_ref(target, name, checked_type);
+            return self.lower_selected_function_ref(target, name, checked_type, self.bodies.call_instantiations.get(&expression));
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);
@@ -232,7 +238,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some((target, checked_type)) =
             self.bodies.selected_function_references.get(&span).cloned()
         {
-            return self.lower_selected_function_ref(target, name, checked_type.as_ref()?);
+            return self.lower_selected_function_ref(target, name, checked_type.as_ref()?, None);
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);
@@ -245,6 +251,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         target: crate::sema::check::CheckedFunctionTarget,
         name: Name,
         checked_type: &Type,
+        instantiation: Option<&crate::sema::schemes::CallInstantiation>,
     ) -> Option<BuildExprId> {
         if target.name != name || target.namespace != self.current_namespace {
             return None;
@@ -255,12 +262,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let matches_checked_type = match checked_type {
             Type::Pure => definition.kind != CallableKind::Proc,
             Type::Proc => definition.kind == CallableKind::Proc,
+            Type::Callable(expected) if instantiation.is_some() => expected.pure == (definition.kind != CallableKind::Proc),
             Type::Callable(expected) => {
                 let signature = self.compact_function_sig_for_key(key)?;
                 let actual = crate::sema::types::CallableType {
                     params: signature.params.clone(),
                     return_ty: Box::new(signature.return_ty.clone()),
-                    effects: signature.effects.clone(),
+                    effects: crate::sema::types::CallableEffects::from_clause(signature.effects.clone()),
                 };
                 expected.mismatch(definition.kind != CallableKind::Proc, &actual, true).is_none()
             }
@@ -269,7 +277,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if !matches_checked_type {
             return None;
         }
-        self.lower_function_ref(key)
+        let lowered = self.lower_function_ref(key)?;
+        if let Some(instantiation) = instantiation {
+            return self.record_materialized_function_value(lowered, key, checked_type, instantiation);
+        }
+        Some(lowered)
+    }
+
+    fn record_materialized_function_value(&self, lowered: BuildExprId, key: LoweredFunctionKey, checked_type: &Type, instantiation: &crate::sema::schemes::CallInstantiation) -> Option<BuildExprId> {
+        let mut scratch = self.scratch.borrow_mut();
+        if !scratch.record_call_instantiation(lowered, instantiation.clone())
+            || !scratch.record_checked_call_target(lowered, key)
+            || !scratch.record_checked_expr_type(lowered, checked_type.clone(), false)
+        { return None; }
+        Some(lowered)
     }
 
     fn lower_function_ref(&self, key: LoweredFunctionKey) -> Option<BuildExprId> {

@@ -9,6 +9,7 @@ use xsh_registry::types::BuiltinTypeName;
 #[path = "types/resource.rs"]
 mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
+pub use super::effects::CallableEffects;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
@@ -152,10 +153,9 @@ pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<
     None
 }
 
-/// The contract of a typed callable. `sig.effects` is the upper bound a call
-/// charges to its caller; `None` is the unrestricted bound of a `proc(...)`
-/// type written without a clause. Parameters carry no defaults and no rest
-/// parameter, so a call supplies every argument.
+/// The contract of a callable value. `sig.effects` bounds invocation effects.
+/// Declaration-derived values retain parameter labels, defaults, and rest
+/// layout. Authored callable type expressions require every listed argument.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedCallable {
     pub pure: bool,
@@ -192,15 +192,7 @@ impl TypedCallable {
                     })
                     .collect::<Result<_, E>>()?,
                 return_ty: Box::new(resolve(callable.return_ty)?),
-                // A bound is a set: two clauses that list the same effects
-                // are the same type however they are written.
-                effects: callable.effects.map(|effects| {
-                    let written = arena.effects(effects).collect::<Vec<_>>();
-                    Effect::ALL
-                        .into_iter()
-                        .filter(|effect| written.contains(effect))
-                        .collect()
-                }),
+                effects: CallableEffects::from_clause(callable.effects.map(|effects| arena.effects(effects))),
             },
         })
     }
@@ -237,8 +229,9 @@ impl TypedCallable {
     /// Why a callable with signature `actual` (`actual_pure` for a pure
     /// function) cannot be used where `self` is expected, or `None` when it
     /// can. The rule is deliberately narrow: the same kind, the same
-    /// parameter labels and types in order, and the same return type. Only
-    /// effects vary: the callable may need fewer than the bound allows.
+    /// parameter labels and types in order, the same rest layout, and the
+    /// same return type. A required default must exist. The callable may need
+    /// fewer effects than the bound allows.
     /// `check_effects` is false while effect summaries are still being
     /// solved, when an inferred callable's effects and types may not be
     /// known yet. Otherwise a type the checker has not resolved does not fit:
@@ -267,11 +260,17 @@ impl TypedCallable {
         }
         for (index, (found, expected)) in actual.params.iter().zip(&self.sig.params).enumerate() {
             let position = index + 1;
-            if found.rest {
+            if found.rest && !expected.rest {
                 return Some(format!(
                     "parameter {position} `{}` is a rest parameter",
                     found.name
                 ));
+            }
+            if expected.rest && !found.rest {
+                return Some(format!("parameter {position} `{}` is not a rest parameter", found.name));
+            }
+            if expected.defaulted && !found.defaulted {
+                return Some(format!("parameter {position} `{}` has no default", found.name));
             }
             if found.name != expected.name {
                 return Some(format!(
@@ -312,23 +311,29 @@ impl TypedCallable {
         if !check_effects || self.pure {
             return None;
         }
-        let Some(bound) = &self.sig.effects else {
+        let Ok(bound) = self.sig.effects.concrete() else {
+            return Some("its required effect contract is unresolved".to_string());
+        };
+        let Some(bound) = bound else {
             return None;
         };
-        let Some(required) = &actual.effects else {
+        let Ok(required) = actual.effects.concrete() else {
+            return Some("its actual effect contract is unresolved".to_string());
+        };
+        let Some(required) = required else {
             return Some(format!(
                 "its effects are unknown or unrestricted, so it cannot be held to `[{}]`",
-                effect_list(bound)
+                effect_list(&bound)
             ));
         };
         required
             .iter()
-            .find(|effect| !crate::sema::check::Checker::effects_covers(bound, effect))
+            .find(|effect| !crate::sema::check::Checker::effects_covers(&bound, effect))
             .map(|effect| {
                 format!(
                     "it requires the `{}` effect, which `[{}]` does not allow",
                     effect.as_str(),
-                    effect_list(bound)
+                    effect_list(&bound)
                 )
             })
     }
@@ -574,7 +579,7 @@ impl ModuleExportType {
 pub struct CallableType {
     pub params: Vec<CallableParamType>,
     pub return_ty: Box<Type>,
-    pub effects: Option<Vec<Effect>>,
+    pub effects: CallableEffects,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -592,9 +597,7 @@ impl CallableType {
             + self.params.capacity() * size_of::<CallableParamType>()
             + size_of::<Type>()
             + self.return_ty.retained_bytes();
-        if let Some(effects) = &self.effects {
-            total = total.saturating_add(effects.capacity() * size_of::<Effect>());
-        }
+        total = total.saturating_add(self.effects.retained_bytes().saturating_sub(size_of::<CallableEffects>()));
         for param in &self.params {
             total = total.saturating_add(param.ty.retained_bytes());
         }
@@ -1130,6 +1133,7 @@ impl Type {
                 Self::Union(members) => pending.extend(members),
                 Self::Validated(validated) => pending.push(validated.base()),
                 Self::Callable(callable) => {
+                    if callable.sig.effects.has_inference() { return true; }
                     pending.push(&callable.sig.return_ty);
                     pending.extend(callable.sig.params.iter().map(|param| &param.ty));
                 }
@@ -1139,6 +1143,7 @@ impl Type {
                             ModuleExportType::Value { ty, .. } => pending.push(ty),
                             ModuleExportType::Proc { sig, .. }
                             | ModuleExportType::Pure { sig, .. } => {
+                                if sig.effects.has_inference() { return true; }
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|param| &param.ty));
                             }
@@ -1646,6 +1651,7 @@ impl Type {
                 let effects = callable
                     .sig
                     .effects
+                    .concrete().ok()?
                     .as_ref()
                     .map_or(String::new(), |effects| {
                         format!(" [{}]", effect_list(effects))
@@ -1739,8 +1745,10 @@ impl fmt::Display for Type {
                     write!(f, "{}: {}", param.name, param.ty)?;
                 }
                 write!(f, ")")?;
-                if let Some(effects) = &callable.sig.effects {
-                    write!(f, " [{}]", effect_list(effects))?;
+                match callable.sig.effects.concrete() {
+                    Ok(Some(effects)) => write!(f, " [{}]", effect_list(&effects))?,
+                    Ok(None) => {},
+                    Err(_) => write!(f, " [<effects need inference>]")?,
                 }
                 write!(f, " -> {}", callable.sig.return_ty)
             }
@@ -1813,15 +1821,13 @@ fn callable_matches_expected(actual: &CallableType, expected: &CallableType) -> 
         && callable_effects_match(&actual.effects, &expected.effects)
 }
 
-/// A contract entry without a clause is unrestricted, so its callers already
-/// assume any effect and it accepts every export. A clause names the exact set.
 pub(crate) fn callable_effects_match(
-    actual: &Option<Vec<Effect>>,
-    expected: &Option<Vec<Effect>>,
+    actual: &CallableEffects,
+    expected: &CallableEffects,
 ) -> bool {
-    match (actual, expected) {
-        (_, None) => true,
-        (Some(actual), Some(expected)) => {
+    match (actual.concrete(), expected.concrete()) {
+        (Ok(_), Ok(None)) => true,
+        (Ok(Some(actual)), Ok(Some(expected))) => {
             actual.iter().all(|effect| expected.contains(effect))
                 && expected.iter().all(|effect| actual.contains(effect))
         }
@@ -1831,7 +1837,7 @@ pub(crate) fn callable_effects_match(
 
 #[cfg(test)]
 mod tests {
-    use super::{CallableParamType, CallableType, ModuleExportType, Type};
+    use super::{CallableEffects, CallableParamType, CallableType, ModuleExportType, Type};
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
@@ -1878,7 +1884,7 @@ mod tests {
                             rest: false,
                         }],
                         return_ty: Box::new(Type::Int),
-                        effects: None,
+                        effects: CallableEffects::unknown(),
                     },
                     optional: false,
                 },
@@ -1889,7 +1895,7 @@ mod tests {
                     sig: CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Unknown),
-                        effects: Some(Vec::new()),
+                        effects: CallableEffects::finite([]),
                     },
                     optional: false,
                 },
@@ -2054,7 +2060,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects,
+                effects: CallableEffects::from_clause(effects),
             },
             optional: false,
         }
@@ -2070,7 +2076,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects: None,
+                effects: CallableEffects::unknown(),
             },
             optional: false,
         }
@@ -2087,6 +2093,30 @@ mod tests {
             proc(Some(vec![Effect::Error])),
         )])));
         assert!(!Type::Module(module_type(BTreeMap::new())).matches_expected(&expected));
+    }
+
+    #[test]
+    fn materialized_callable_layouts_preserve_default_and_rest_guarantees() {
+        SymbolOwner::new().with_current(|| {
+            let mut signature = CallableType {
+                params: vec![CallableParamType { name: Name::intern("items"), ty: Type::List(Box::new(Type::Int)), defaulted: false, rest: true }],
+                return_ty: Box::new(Type::Int), effects: super::CallableEffects::finite([]),
+            };
+            let expected = super::TypedCallable { pure: true, sig: signature.clone() };
+            assert!(expected.mismatch(true, &signature, true).is_none());
+            signature.params[0].rest = false;
+            assert!(expected.mismatch(true, &signature, true).unwrap().contains("not a rest parameter"));
+            assert!(expected.mismatch(false, &expected.sig, true).unwrap().contains("found a proc"));
+            signature.params[0].ty = Type::Int;
+            signature.params[0].defaulted = true;
+            let mut expected = super::TypedCallable { pure: true, sig: signature.clone() };
+            assert!(expected.mismatch(true, &signature, true).is_none());
+            signature.params[0].defaulted = false;
+            assert!(expected.mismatch(true, &signature, true).unwrap().contains("has no default"));
+            expected.sig.params[0].defaulted = false;
+            signature.params[0].defaulted = true;
+            assert!(expected.mismatch(true, &signature, true).is_none());
+        });
     }
 
     #[test]
@@ -2169,7 +2199,7 @@ mod tests {
             sig: CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };
@@ -2187,7 +2217,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Unit),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };
@@ -2205,7 +2235,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Str),
-                effects: Some(vec![Effect::Error]),
+                effects: CallableEffects::finite([Effect::Error]),
             },
             optional: false,
         };

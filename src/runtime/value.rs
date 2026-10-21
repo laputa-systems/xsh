@@ -885,6 +885,66 @@ fn qualified_function_names() -> &'static RwLock<QualifiedFunctionNames> {
     })
 }
 
+#[derive(Clone)]
+pub struct CallableValue {
+    representation: CallableRepresentation,
+}
+
+#[derive(Clone)]
+enum CallableRepresentation {
+    Named(FunctionName),
+    Prepared {
+        identity: FunctionName,
+        instance: Arc<crate::runtime::eval::PreparedCallable>,
+    },
+}
+
+impl CallableValue {
+    pub fn identity(&self) -> FunctionName {
+        match &self.representation {
+            CallableRepresentation::Named(identity)
+            | CallableRepresentation::Prepared { identity, .. } => *identity,
+        }
+    }
+
+    pub(in crate::runtime) fn prepared(identity: FunctionName, instance: Arc<crate::runtime::eval::PreparedCallable>) -> Self {
+        Self { representation: CallableRepresentation::Prepared { identity, instance } }
+    }
+
+    pub(in crate::runtime) fn instance(&self) -> Option<&Arc<crate::runtime::eval::PreparedCallable>> {
+        match &self.representation {
+            CallableRepresentation::Named(_) => None,
+            CallableRepresentation::Prepared { instance, .. } => Some(instance),
+        }
+    }
+}
+
+impl From<FunctionName> for CallableValue {
+    fn from(identity: FunctionName) -> Self {
+        Self { representation: CallableRepresentation::Named(identity) }
+    }
+}
+
+impl From<Name> for CallableValue {
+    fn from(identity: Name) -> Self { FunctionName::from(identity).into() }
+}
+
+impl From<QualifiedName> for CallableValue {
+    fn from(identity: QualifiedName) -> Self { FunctionName::from(identity).into() }
+}
+
+impl fmt::Debug for CallableValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("CallableValue").field(&self.identity()).finish()
+    }
+}
+
+impl PartialEq for CallableValue {
+    fn eq(&self, other: &Self) -> bool { self.identity() == other.identity() }
+}
+
+impl Eq for CallableValue {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Value {
     Null,
@@ -913,8 +973,8 @@ pub enum Value {
     // small (errors are the cold path).
     Error(Box<RuntimeError>),
     RunError(Box<RunError>),
-    Pure(FunctionName),
-    Proc(FunctionName),
+    Pure(CallableValue),
+    Proc(CallableValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),

@@ -4163,6 +4163,7 @@ impl Checker {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| arm.pattern)
             .collect::<Vec<_>>();
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
         if super::stmt::patterns_are_exhaustive_arena(
             arena,
             &value_ty,
@@ -4637,15 +4638,18 @@ impl Checker {
         let stream_owner = self.effect_declaration_id(arena, def.body);
         let enclosing_stream_owner = self.stream_origin_owner.replace(stream_owner);
         self.boundary.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
-        // A proc return probe infers only the top-level declaration it targets.
         let inferring = def.return_ty_defaulted
             && self.inferred_returns.is_some()
             && (pure || enclosing_boundary.current_return.is_none());
+        let checking_application_return = !pure && def.return_ty_defaulted && !inferring
+            && self.type_constraints.has_deferred_proc_returns(stream_owner);
         let outer_inference = if inferring {
             None
         } else {
             self.inferred_returns.take()
         };
+        let enclosing_propagations = checking_application_return.then(|| std::mem::take(&mut self.inferred_propagations));
+        if checking_application_return { self.inferred_returns = Some(Vec::new()); }
         let inferred_proc_return = (!pure && def.return_ty_defaulted && !inferring)
             .then(|| self.function_return_types.get(&body_span).cloned())
             .flatten();
@@ -4668,7 +4672,7 @@ impl Checker {
             })
             .flatten();
         self.boundary.expected_schema = self.boundary.return_schema.clone();
-        self.boundary.current_return = Some(super::ReturnContext::Function(return_ty.clone()));
+        self.boundary.current_return = Some(super::ReturnContext::Function(if checking_application_return { Type::Unknown } else { return_ty.clone() }));
         self.boundary.in_pure = pure;
         self.boundary.current_effects = if pure {
             None
@@ -4741,7 +4745,7 @@ impl Checker {
         for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
             let mut binding = Binding::new(ty, false);
             binding.stream_origins = super::stream_origins::StreamOrigins::formal(stream_owner, index);
-            binding.schema_expectation = schema;
+            binding.schemas = super::BindingSchemaFacts { expectation: schema.clone(), origin: schema };
             self.define(name, binding, span);
         }
         let body_tail = arena
@@ -4749,15 +4753,24 @@ impl Checker {
             .stmt_ids(arena.arena.block(def.body).statements)
             .last()
             .map(|tail| arena.arena.core_stmt_id(tail));
-        if inferring {
+        if inferring || checking_application_return {
             let enclosing_tail = std::mem::replace(&mut self.boundary.result_unit_function_tail, body_tail);
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
             self.boundary.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
+                let origin = self.stream_block_origin(arena, def.body);
+                let schema = self.checked_block_schema(arena, def.body);
                 self.inferred_returns
                     .as_mut()
                     .unwrap()
-                    .push((tail, body_span));
+                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin, schema });
+            }
+            if checking_application_return {
+                let candidates = self.inferred_returns.take().unwrap();
+                let propagations = std::mem::take(&mut self.inferred_propagations);
+                let actual = self.normalize_inferred_proc_returns(stream_owner, candidates, &propagations);
+                self.inferred_propagations = enclosing_propagations.unwrap();
+                self.expect_type(&return_ty, &actual, body_span);
             }
         } else {
             let enclosing_tail = std::mem::replace(
@@ -4893,7 +4906,7 @@ impl Checker {
         self.publish_parameter_types(arena, def);
         for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
             let mut binding = Binding::new(ty, false);
-            binding.schema_expectation = schema;
+            binding.schemas = super::BindingSchemaFacts { expectation: schema.clone(), origin: schema };
             binding.stream_origins = super::stream_origins::StreamOrigins::formal(stream_owner, index);
             self.define(name, binding, span);
         }
@@ -5140,6 +5153,10 @@ impl Checker {
         } else {
             None
         };
+        let origin = match initializer {
+            ArenaExprOrRun::Expr(expression) => self.checked_schema_for_expr(arena, expression),
+            ArenaExprOrRun::Run(_) => None,
+        };
         let schema = schema.or_else(|| match initializer {
             ArenaExprOrRun::Expr(expression) => self.schema_expectation_for_expr(arena, expression),
             ArenaExprOrRun::Run(_) => None,
@@ -5154,7 +5171,7 @@ impl Checker {
                     || !alias.signature.scheme().explicit_return()
                     || (!alias.pure
                         && (alias.signature.scheme().inferred_effects()
-                            || alias.signature.scheme().effects().is_none())))
+                            || !alias.signature.scheme().effects().is_known())))
             {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", DiagnosticCode::CheckCallableAliasExport);
             }
@@ -5168,7 +5185,7 @@ impl Checker {
             binding.latent_stream_error = latent_stream_error;
             binding.stream_origins = stream_origins;
         }
-        self.set_binding_schema_arena(arena, target, schema);
+        self.set_binding_schema_arena(arena, target, super::BindingSchemaFacts { expectation: schema, origin });
     }
 
     fn expression_may_have_latent_stream_error(
@@ -5301,25 +5318,22 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         target: BindingTargetId,
-        schema: Option<super::super::constants::SchemaExpectation>,
+        schemas: super::BindingSchemaFacts,
     ) {
         match &arena.arena.binding_target(target).kind {
             ArenaBindingTargetKind::Name(name) => {
                 if let Some(binding) = self.current_scope_mut().get_mut(name) {
-                    binding.schema_expectation = schema;
+                    binding.schemas = schemas;
                 }
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in arena.arena.destructure_fields(*fields) {
-                    let child = schema
-                        .as_ref()
-                        .and_then(|context| {
-                            context
-                                .value_context()
-                                .children
-                                .get(&super::super::constants::SchemaComponent::Field(field.name))
-                        })
-                        .cloned();
+                    let project = |schema: &Option<super::super::constants::SchemaExpectation>| schema
+                        .as_ref().and_then(|schema| schema.value_context().children
+                            .get(&super::super::constants::SchemaComponent::Field(field.name))).cloned();
+                    let child = super::BindingSchemaFacts {
+                        expectation: project(&schemas.expectation), origin: project(&schemas.origin),
+                    };
                     self.set_binding_schema_arena(arena, field.target, child);
                 }
             }
@@ -5714,10 +5728,16 @@ impl Checker {
                 DiagnosticCode::CheckContextScopeEscape,
             );
         }
-        if self.inference_reachable
-            && let Some(returns) = &mut self.inferred_returns
-        {
-            returns.push((actual.clone(), span));
+        if self.inference_reachable && self.inferred_returns.is_some() {
+            let origin = match value {
+                Some(ArenaExprOrRun::Expr(expression)) => self.stream_expr_origin(arena, expression),
+                _ => super::stream_origins::StreamOrigins::default(),
+            };
+            let schema = match value {
+                Some(ArenaExprOrRun::Expr(expression)) => self.checked_schema_for_expr(arena, expression),
+                _ => None,
+            };
+            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema });
         }
         if !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
@@ -6569,6 +6589,7 @@ impl Checker {
             self.expr_types.insert(arena.arena.stmt(id).span, actual.clone());
         }
         self.record_checked_stream_tail(arena, id, &actual);
+        self.record_checked_tail_schema(arena, id);
         self.advance_stream_flow(arena, id);
         actual
     }
@@ -7008,8 +7029,6 @@ impl Checker {
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
-        let match_is_exhaustive =
-            match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
         let mut inferred: Option<Type> = None;
         let initial_stream_state = self.stream_mutable_state();
@@ -7052,6 +7071,8 @@ impl Checker {
             if self.stream_block_may_complete(arena, arm.block) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();
         }
+        let value_ty = self.resolve_pattern_subject_type(&value_ty, arena.arena.expr(value).span);
+        let match_is_exhaustive = match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
         let all_arms_return = match_is_exhaustive
             && arm_list
                 .iter()
@@ -7815,7 +7836,7 @@ mod reader_binding_identity_tests {
                     sig: crate::sema::types::CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Int),
-                        effects: Some(Vec::new()),
+                        effects: crate::sema::types::CallableEffects::finite([]),
                     },
                 }),
             );
@@ -7933,7 +7954,7 @@ mod reader_binding_identity_tests {
                 sig: crate::sema::types::CallableType {
                     params: Vec::new(),
                     return_ty: Box::new(Type::Int),
-                    effects: Some(Vec::new()),
+                    effects: crate::sema::types::CallableEffects::finite([]),
                 },
             }));
             let ty = checker.check_tail_stmt_arena(program, source, tail, Some(&expected));

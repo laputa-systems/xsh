@@ -132,15 +132,13 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) 
             .map(|fact| fact.ty.retained_bytes())
             .sum::<usize>();
     let callable_bytes = checked.callable_effects.capacity()
-        * size_of::<(String, Option<Vec<crate::syntax::node::Effect>>)>()
+        * size_of::<(String, crate::sema::check::CheckedEffects)>()
         + checked
             .callable_effects
             .iter()
             .map(|(name, effects)| {
                 name.capacity()
-                    + effects.as_ref().map_or(0, |effects| {
-                        effects.capacity() * size_of::<crate::syntax::node::Effect>()
-                    })
+                    + effects.retained_bytes()
             })
             .sum::<usize>();
     let call_instantiation_bytes = checked.call_instantiations.len()
@@ -383,11 +381,10 @@ fn measure_effect_facts(
                 [&fact.effective, &fact.required]
                     .into_iter()
                     .map(|effects| {
-                        effects.as_ref().map_or(0, |effects| {
-                            effects.capacity() * size_of::<crate::syntax::node::Effect>()
-                        })
+                        effects.retained_bytes()
                     })
                     .sum::<usize>()
+                    + fact.scope.retained_bytes()
                     + fact.unknown_chain.capacity() * size_of::<String>()
                     + fact
                         .unknown_chain

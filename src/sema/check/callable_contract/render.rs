@@ -14,12 +14,16 @@ use std::fmt;
 #[derive(Default)]
 struct BinderNames {
     types: BTreeMap<SchemeTypeParameterId, usize>,
+    effects: BTreeMap<crate::sema::schemes::SchemeEffectParameterId, usize>,
     rows: BTreeMap<SchemeRowParameterId, usize>,
 }
 
 impl BinderNames {
     fn from_scheme(scheme: &TypeScheme) -> Self {
         let mut names = Self::default();
+        for (index, &id) in scheme.callable().requirements().effect_parameters.iter().enumerate() {
+            names.effects.insert(id, index);
+        }
         for parameter in scheme.params() {
             names.visit_scheme_type(&parameter.ty);
         }
@@ -111,6 +115,9 @@ impl BinderNames {
                 format!("{name}\\{{{}}}", lacks.join(", "))
             });
         }
+        let mut effects = self.effects.values().copied().collect::<Vec<_>>();
+        effects.sort_unstable();
+        binders.extend(effects.into_iter().map(|index| format!("E{index}")));
         binders
     }
 }
@@ -144,7 +151,7 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     if let Some(schema) = scheme.return_schema() {
         parts.push(format!("return-schema={}", render_schema(schema, identities)));
     }
-    parts.push(format!("effects={}", render_effects(scheme.effects())));
+    parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     parts.join(" ")
 }
 
@@ -191,7 +198,7 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
                 rendered.push_str(&render_schema(schema, identities));
             }
             rendered.push_str(" effects=");
-            rendered.push_str(&render_effects(effects.as_deref()));
+            rendered.push_str(&render_bound_effects(effects, names));
             rendered
         }
         SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities)),
@@ -256,7 +263,10 @@ fn render_callable_type(kind: &str, signature: &CallableType) -> String {
         render_type(&signature.return_ty)
     );
     rendered.push_str(" effects=");
-    rendered.push_str(&render_effects(signature.effects.as_deref()));
+    match signature.effects.concrete() {
+        Ok(effects) => rendered.push_str(&render_effects(effects.as_deref())),
+        Err(_) => rendered.push_str("<effects need inference>"),
+    }
     rendered
 }
 
@@ -379,6 +389,17 @@ fn render_schema_component(component: SchemaComponent) -> String {
         SchemaComponent::Optional => "optional".to_owned(),
         SchemaComponent::Success => "success".to_owned(),
         SchemaComponent::Error => "error".to_owned(),
+    }
+}
+
+fn render_bound_effects(effects: &crate::sema::effects::EffectContract<crate::sema::schemes::SchemeEffectParameterId>, names: &BinderNames) -> String {
+    match effects {
+        crate::sema::effects::EffectContract::Unknown => "unknown".to_owned(),
+        crate::sema::effects::EffectContract::Known(expression) => {
+            let mut terms = expression.direct().iter().map(|effect| effect.as_str().to_owned()).collect::<Vec<_>>();
+            terms.extend(expression.variables().map(|(id, mask)| format!("E{}&{}", names.effects[id], render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
+            format!("[{}]", terms.join(", "))
+        }
     }
 }
 

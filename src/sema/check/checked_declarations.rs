@@ -279,7 +279,7 @@ impl Checker {
                 defaulted: param.default.is_some(), rest: param.rest,
             })).collect::<Option<Vec<_>>>()?,
             return_ty: Box::new(self.resolved_type_expressions.annotations.get(&(self.current_namespace, return_ty))?.clone()),
-            effects: effects.map(|effects| program.arena.effects(effects).collect()),
+            effects: crate::sema::types::CallableEffects::from_clause(effects.map(|effects| program.arena.effects(effects))),
         })
     }
 
@@ -317,7 +317,7 @@ impl Checker {
                 return_ty: sig.scheme().return_type().closed_ground_type()?,
                 return_type_expr: def.return_ty,
                 inferred_effects: sig.scheme().inferred_effects(),
-                effects: sig.scheme().effects().map(<[_]>::to_vec),
+                effects: sig.scheme().effects().concrete().ok()?,
             })
         });
         self.checked_declarations.functions.insert(id, CheckedFunctionDeclaration {

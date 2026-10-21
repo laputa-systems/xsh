@@ -208,7 +208,7 @@ fn exit_status_is_int_and_exit_requires_process_effect() {
             &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default(),
         )
         .unwrap();
-    callable.effects = Some(Vec::new());
+    callable.effects = crate::sema::types::CallableEffects::finite([]);
     let mut semantic = SemanticPoolBuilder::default();
     missing_process.store.functions[owner].contract = FullCallableContract::Ground(
         semantic

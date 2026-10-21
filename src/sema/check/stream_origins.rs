@@ -40,6 +40,7 @@ enum StreamOrigin {
     Opaque,
     Pending(EffectDeclarationId),
     Callable(EffectDeclarationId),
+    Application { reference: crate::sema::constraints::CallableApplicationReference, projection: ProjectionPath },
     Formal { owner: EffectDeclarationId, parameter: usize, projection: ProjectionPath },
     OpaqueFormal { owner: EffectDeclarationId, parameter: usize, projection: ProjectionPath },
 }
@@ -152,6 +153,35 @@ impl StreamOrigins {
         Self([(ProjectionPath::default(), StreamOrigin::Formal { owner, parameter, projection: ProjectionPath::default() })].into_iter().collect())
     }
 
+    pub(super) fn application(reference: crate::sema::constraints::CallableApplicationReference) -> Self {
+        Self([(ProjectionPath::default(), StreamOrigin::Application { reference, projection: ProjectionPath::default() })].into_iter().collect())
+    }
+
+    pub(super) fn return_applications(&self) -> BTreeSet<Option<crate::sema::constraints::CallableApplicationReference>> {
+        let mut applications = self.0.iter().map(|(path, origin)| match origin {
+            StreamOrigin::Application { reference, projection } if path.0.is_empty() && projection.0.is_empty() => Some(*reference),
+            _ => None,
+        }).collect::<BTreeSet<_>>();
+        if applications.is_empty() { applications.insert(None); }
+        applications
+    }
+
+    fn specialize_applications(&self, source: EffectDeclarationId, instances: &[crate::sema::constraints::CallableApplicationId], constraints: &crate::sema::constraints::TypeConstraints) -> Result<Self, StreamOriginBoundaryError> {
+        let mut output = Self::default();
+        for (path, origin) in &self.0 {
+            let origin = match origin {
+                StreamOrigin::Application { reference, projection } => {
+                    if reference.scope != crate::sema::constraints::CallableApplicationScope::Declaration(source) { return Err(StreamOriginBoundaryError); }
+                    let id = *instances.get(reference.ordinal as usize).ok_or(StreamOriginBoundaryError)?;
+                    StreamOrigin::Application { reference: constraints.callable_application_reference(id).map_err(|_| StreamOriginBoundaryError)?, projection: projection.clone() }
+                }
+                origin => origin.clone(),
+            };
+            output.0.insert((path.clone(), origin));
+        }
+        Ok(output)
+    }
+
     pub(super) fn callable(target: EffectDeclarationId) -> Self {
         Self([(ProjectionPath::default(), StreamOrigin::Callable(target))].into_iter().collect())
     }
@@ -189,7 +219,7 @@ impl StreamOrigins {
     pub(super) fn targets(&self) -> impl Iterator<Item = EffectDeclarationId> + '_ {
         self.0.iter().filter_map(|(path, origin)| match origin {
             StreamOrigin::Callable(target) if path.0.is_empty() => Some(*target),
-            StreamOrigin::Callable(_) | StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Pending(_)
+            StreamOrigin::Callable(_) | StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Pending(_) | StreamOrigin::Application { .. }
                 | StreamOrigin::Formal { .. } | StreamOrigin::OpaqueFormal { .. } => None,
         })
     }
@@ -222,6 +252,7 @@ impl StreamOrigins {
                 let projected = match source {
                     StreamOrigin::Formal { owner, parameter, projection } => StreamOrigin::Formal { owner: *owner, parameter: *parameter, projection: projection.append(remaining)? },
                     StreamOrigin::OpaqueFormal { owner, parameter, projection } => StreamOrigin::OpaqueFormal { owner: *owner, parameter: *parameter, projection: projection.clone() },
+                    StreamOrigin::Application { reference, projection } => StreamOrigin::Application { reference: *reference, projection: projection.append(remaining)? },
                     StreamOrigin::Opaque => StreamOrigin::Opaque,
                     StreamOrigin::Pending(target) => StreamOrigin::Pending(*target),
                     StreamOrigin::Error | StreamOrigin::Callable(_) => continue,
@@ -236,7 +267,7 @@ impl StreamOrigins {
         let mut output = Self::default();
         for (path, source) in &self.0 {
             match source {
-                StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Callable(_) | StreamOrigin::Pending(_) => { output.0.insert((path.clone(), source.clone())); }
+                StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Callable(_) | StreamOrigin::Pending(_) | StreamOrigin::Application { .. } => { output.0.insert((path.clone(), source.clone())); }
                 StreamOrigin::Formal { parameter, projection, .. } | StreamOrigin::OpaqueFormal { parameter, projection, .. } => {
                     let argument = arguments.get(parameter).cloned().unwrap_or_else(Self::opaque);
                     let mut value = argument.project(&projection.0)?;
@@ -250,7 +281,7 @@ impl StreamOrigins {
     }
 
     pub(super) fn may_fail(&self) -> bool {
-        self.0.iter().any(|(path, source)| path.0.is_empty() && matches!(source, StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Formal { .. } | StreamOrigin::OpaqueFormal { .. }))
+        self.0.iter().any(|(path, source)| path.0.is_empty() && matches!(source, StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Formal { .. } | StreamOrigin::OpaqueFormal { .. } | StreamOrigin::Application { .. }))
     }
 
     fn has_pending(&self) -> bool {
@@ -280,6 +311,10 @@ impl StreamOrigins {
                 continue;
             }
             let source = match source {
+                StreamOrigin::Application { reference, .. } => {
+                    if reference.scope != crate::sema::constraints::CallableApplicationScope::Declaration(owner) { return Err(StreamOriginBoundaryError); }
+                    source.clone()
+                }
                 StreamOrigin::Formal { owner: source_owner, parameter, projection }
                 | StreamOrigin::OpaqueFormal { owner: source_owner, parameter, projection } => {
                     if *source_owner != owner { output.0.insert((path.clone(), StreamOrigin::Opaque)); continue; }
@@ -307,6 +342,29 @@ mod tests {
         let dependency = StreamOrigins::formal(super::EffectDeclarationId { namespace: None, body: crate::source::Span::new(crate::source::SourceId::new(0), 0, 0) }, 0).project(&[StreamProjection::Success]).unwrap();
         assert!(dependency.substitute(&BTreeMap::new()).unwrap().may_fail());
         assert!(StreamOrigins::opaque().project(&[StreamProjection::Success, StreamProjection::Element]).unwrap().may_fail());
+    }
+
+    #[test]
+    fn callable_requirement_return_origins_distinguish_whole_results_from_data() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+        let owner = super::EffectDeclarationId { namespace: None, body: crate::source::Span::new(crate::source::SourceId::new(0), 0, 1) };
+        let reference = crate::sema::constraints::CallableApplicationReference {
+            scope: crate::sema::constraints::CallableApplicationScope::Declaration(owner), ordinal: 0,
+        };
+        let application = StreamOrigins::application(reference);
+        assert_eq!(application.return_applications(), [Some(reference)].into_iter().collect());
+        let field = crate::symbol::Name::intern("item");
+        let wrapped = application.prefix(StreamProjection::Field(field)).unwrap();
+        assert_eq!(wrapped.return_applications(), [None].into_iter().collect());
+        assert_eq!(wrapped.project(&[StreamProjection::Field(field)]).unwrap(), application);
+        for projection in [StreamProjection::Success, StreamProjection::Element, StreamProjection::Field(field)] {
+            assert_eq!(application.project(&[projection]).unwrap().return_applications(), [None].into_iter().collect());
+        }
+        let mut mixed = application;
+        mixed.join(&StreamOrigins::formal(owner, 0));
+        assert_eq!(mixed.return_applications(), [None, Some(reference)].into_iter().collect());
+        assert!(mixed.may_fail());
+        });
     }
 
     #[test]
@@ -365,7 +423,7 @@ impl Checker {
         })
     }
 
-    fn stream_block_origin(&self, arena: &ArenaProgram, block: BlockId) -> StreamOrigins {
+    pub(super) fn stream_block_origin(&self, arena: &ArenaProgram, block: BlockId) -> StreamOrigins {
         let Some(statement) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else { return StreamOrigins::default() };
         let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
         self.stream_stmt_origins.get(&span).cloned().unwrap_or_else(|| StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown)))
@@ -452,6 +510,10 @@ impl Checker {
     fn derive_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
         let span = arena.arena.expr(expression).span;
         if !ty.may_hold_resource() || self.builtin_range_calls.contains(&span) { return Ok(StreamOrigins::default()); }
+        let application_scope = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        if let Some(reference) = self.type_constraints.source_callable_application_reference(application_scope, span).map_err(|_| StreamOriginBoundaryError)? {
+            return Ok(StreamOrigins::application(reference));
+        }
         if self.selected_function_value_references.contains(&span)
             && let Some(target) = self.selected_function_calls.get(&span).copied()
         {
@@ -535,7 +597,9 @@ impl Checker {
                             if target.namespace == self.current_namespace { self.provisional_stream_origins_read.set(true); }
                             if let Some(summary) = self.stream_origin_inputs.declarations.get(&target) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
-                                origin.join(&summary.returned.substitute(&arguments)?);
+                                let instances = self.pending_call_instantiations.get(&span).map(|(_, instance)| instance.applications.as_slice()).unwrap_or(&[]);
+                                let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints)?;
+                                origin.join(&returned.substitute(&arguments)?);
                             } else { origin.join(&StreamOrigins::pending(target)); }
                         }
                         Some(origin)
