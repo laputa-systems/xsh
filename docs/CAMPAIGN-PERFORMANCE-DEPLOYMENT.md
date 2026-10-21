@@ -912,6 +912,14 @@ requeues. These new counters are test-only; the older `worklist_wakeups` counter
 measures solver pair work. All remaining capability, joint corpus, performance,
 baseline, deployment and cleanup gates retain their requirements.
 
+Isolated test commit `3264d5f5f` adds the production symbolic-effect comparison.
+All three focused tests pass, and independent review finds no P1/P2 issue.
+The model compares every assignment for 64 bounded problems with two variables
+over four effects. Another 306 closed cases cover all seven effects and Unknown.
+Trial, panic and clone controls compare the resulting continuation relations.
+The commit depends on the unfinished compiler foundation at `ea24407c7`.
+Integration and replay against the qualified compiler remain pending.
+
 The first full-inference compiler slice, `dbfea6b51`, admits unannotated
 immutable aliases to known generic module exports. Each call keeps fresh type
 instantiation and the authenticated imported declaration. It preserves the
