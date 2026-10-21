@@ -53,8 +53,11 @@ Producer repair `4ce9e2c06` passes 45 focused controls before rebase and has
 independent approval. It authenticates guarded storage, captured setters,
 fresh checked producers and every comprehension target, including unused
 record targets. Existing work limits remain unchanged. The combined merged
-run is pending; no fresh products, native, corpus or baseline acceptance follows
-from the lane results.
+run on `4e0863e6c` selects 643 tests: 641 pass, two fail and none are ignored.
+All 24 failures from the earlier assignment run are resolved. Two optional
+typed-call producer controls now fail during preparation because the receiver
+lacks a non-null branch proof. That repair remains open. Matching products
+were not built; native, corpus and baseline acceptance remain pending.
 
 Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
 comprehensions. All 20 focused controls pass before integration. They cover
