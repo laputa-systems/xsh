@@ -1877,11 +1877,12 @@ impl FullProgram {
         let instruction_range = self.store.driver_instruction_range(step_index)?;
         let owner =
             driver_owner(step_index).map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
-        let decoder = FullDecoder {
+        let mut decoder = FullDecoder {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
             borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                 instruction_range.clone(),
             ))),
@@ -2060,12 +2061,12 @@ impl FullProgram {
         }
         decoder.finish_function()?;
         decoder.verify_driver_module_slots(registered_module_types)?;
+        producer_index.record(&decoder)?;
+        decoder.producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
         decoder.verify_checked_expression_facts()?;
-        // The temporary-slot proof reads which writers this pass proved.
         decoder.verify_callable_slot_initializers()?;
         decoder.verify_temporary_driver_slot_types()?;
         decoder.copy_in_place_marks_into(in_place_marks)?;
-        producer_index.record(&decoder)?;
         Ok(registered_import)
     }
 
@@ -5421,6 +5422,7 @@ impl<'p> FullExecution<'p> {
             instruction_range: self.instruction_range.clone(),
             instruction_states: None,
             borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: None,
             block_states: None,
             slot_count: self.slot_count,
@@ -5753,6 +5755,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     instruction_states: Option<RefCell<Vec<u8>>>,
     instruction_proof: Option<RefCell<in_place::InstructionProof>>,
     borrowed_instruction_parents: Option<InstructionParentContext<'a>>,
+    producer_prefix: Option<verify_schemes::ProducerPrefixContext<'a>>,
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
@@ -6691,6 +6694,7 @@ impl<'a> FullDecoder<'a> {
             instruction_range,
             instruction_states: None,
             borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: None,
             block_states: None,
             slot_count: step.slot_count,
@@ -7827,6 +7831,7 @@ impl<'a> FullDecoder<'a> {
                 .map_err(|_| IrVerifyError::new("module child owner is invalid"))?,
             instruction_states: None,
             borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: None,
             instruction_range,
             block_states: None,
@@ -9012,17 +9017,18 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::CheckedValue { value, check, .. } => {
-                if check.ty.materialize()? != *expected {
+                let checked = check.ty.materialize()?;
+                if checked != *expected {
                     return Err(IrVerifyError::new(
                         "checked value wrapper disagrees with its checked result type",
                     ));
                 }
                 if check.schema.is_none()
-                    && let Some(source) = self.checked_value_optional_source(instruction, value.raw() as usize, expected)?
+                    && let Some(source) = self.checked_value_optional_source(instruction, value.raw() as usize, check.ty.id, &checked)?
                 {
                     return self.checked_expression_matches_type(value.raw() as usize, &source);
                 }
-                self.checked_expression_matches_type(value.raw() as usize, expected)
+                self.checked_expression_matches_type(value.raw() as usize, &checked)
             }
             schema::ExprView::Try { value, .. } => {
                 let value = value.raw() as usize;
@@ -10648,11 +10654,12 @@ impl<'a> FullDecoder<'a> {
         };
         match view {
             schema::ExprView::CheckedValue { value, check, .. } => {
+                let checked = check.ty.materialize()?;
                 if fact.function_ref().is_some() || fact.with_error_source()
-                    || check.schema.is_some() || check.ty.materialize()? != ty
+                    || check.schema.is_some() || checked != ty
                 { return Err(IrVerifyError::new("checked optional payload carries unrelated contract evidence")); }
-                let source = self.checked_value_optional_source(instruction, value.raw() as usize, &ty)?;
-                require_child(value.raw() as usize, source.as_ref().unwrap_or(&ty))?;
+                let source = self.checked_value_optional_source(instruction, value.raw() as usize, check.ty.id, &checked)?;
+                require_child(value.raw() as usize, source.as_ref().unwrap_or(&checked))?;
             }
 
             schema::ExprView::PreparedConstant(value) => {
@@ -12182,7 +12189,8 @@ impl<'a> FullDecoder<'a> {
             return Ok(true);
         }
         let shared_mutable = self.checked_slot_is_shared_mutable(target.0, charge)?;
-        if let Some(context) = &self.borrowed_instruction_parents {
+        let prefix_forest = self.producer_prefix.as_ref().map(|prefix| prefix.instruction_forest());
+        if let Some(context) = self.borrowed_instruction_parents.as_ref().or(prefix_forest.as_ref()) {
             context.parent_of(self.owner, &self.instruction_range, roots[0])?;
             charge(roots.len())?;
             let mut pending = roots.to_vec();
@@ -12696,19 +12704,24 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn checked_value_optional_source(&self, instruction: usize, source: usize, checked: &Type) -> Result<Option<Type>, IrVerifyError> {
+    fn checked_value_optional_source(&self, instruction: usize, source: usize, checked_id: TypeId, checked: &Type) -> Result<Option<Type>, IrVerifyError> {
         let binding = self.checked_binding_path(source, &mut |_| Ok(()))?;
         let actual = match self.derive_checked_expression_type(source)? {
             Some(actual) => Some(actual),
             None => match &binding { Some(binding) => self.checked_binding_path_type(instruction, binding, &mut |_| Ok(()))?, None => None },
         };
-        let Some(Type::Optional(payload)) = actual else { return Ok(None) };
+        let Some(actual) = actual else { return Ok(None) };
+        let Type::Optional(payload) = &actual else { return Ok(None) };
         if payload.as_ref() != checked { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
         let Some(binding) = binding else { return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof")) };
-        if !self.checked_binding_path_is_narrowed(instruction, &binding, &payload, &mut |_| Ok(()))? {
+        let narrowed = match &self.producer_prefix {
+            Some(prefix) => prefix.optional_source_is_narrowed(self, instruction, source, checked_id, checked)?,
+            None => self.checked_binding_path_is_narrowed(instruction, &binding, payload, &mut |_| Ok(()))?,
+        };
+        if !narrowed {
             return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof"));
         }
-        Ok(Some(Type::Optional(payload)))
+        Ok(Some(actual))
     }
 
     fn checked_optional_receiver_is_narrowed(
@@ -17170,12 +17183,13 @@ impl FullVerifier {
             let owner = IrFunctionId::new(index)
                 .map_err(|_| IrVerifyError::new("function id is invalid"))?
                 .raw();
-            let decoder = FullDecoder {
+            let mut decoder = FullDecoder {
                 store,
                 owner,
                 instruction_range: instructions.clone(),
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
                 borrowed_instruction_parents: None,
+            producer_prefix: None,
                 instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                     instructions.clone(),
                 ))),
@@ -17223,13 +17237,12 @@ impl FullVerifier {
             }
             decoder.finish_function()?;
             verify_effects::verify_owner(&decoder, index)?;
-            // Reject malformed transfers even when no loop-return query in
-            // this function happens to request the cached analysis.
             drop(decoder.return_analysis()?);
+            producer_index.record(&decoder)?;
+            decoder.producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
             decoder.verify_checked_expression_facts()?;
             decoder.verify_callable_slot_initializers()?;
             decoder.copy_in_place_marks_into(&mut in_place_marks)?;
-            producer_index.record(&decoder)?;
             let body_payload = store.payload(body_block.instructions)?;
             let mut default_slots = BTreeSet::new();
             let mut entry_open = true;
@@ -19630,6 +19643,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         instruction_range: 0..store.tags.len(),
         instruction_states: None,
         borrowed_instruction_parents: None,
+            producer_prefix: None,
         instruction_proof: None,
         block_states: None,
         slot_count: 1,
@@ -28570,6 +28584,13 @@ assert apply(null, other) == 0
         let other = program.store.function_instruction_range(apply).unwrap().find(|&instruction| matches!(apply_decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
         stripped.store.checked_expr_types.retain(|fact| fact.instruction as usize != source && fact.is_contract());
         FullVerifier::verify(&stripped).unwrap();
+        let condition = function_instruction_indices(&program, "apply", FullTag::BoolLiteralCompareSlot).into_iter().next().unwrap();
+        let op = program.store.extra[program.store.data[condition].range().start as usize] as usize;
+        assert_eq!(program.store.binary_ops[op], BinaryOp::Eq);
+        let mut wrong_guard = stripped.clone();
+        wrong_guard.store.binary_ops[op] = BinaryOp::Ne;
+        let error = FullVerifier::verify(&wrong_guard).expect_err("preceding return must exclude null on the surviving path");
+        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
         let mut wrong_source = stripped.clone();
         wrong_source.store.data[source] = program.store.data[other];
         FullVerifier::verify(&wrong_source).expect_err("physical typed calls authenticate their actual optional formal source");
@@ -30012,6 +30033,7 @@ assert results == [4]
             instruction_range: instruction_range.clone(),
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
             borrowed_instruction_parents: None,
+            producer_prefix: None,
             instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                 instruction_range,
             ))),
@@ -33527,6 +33549,7 @@ pure selected() -> Str {
                 instruction_range: 0..0,
                 instruction_states: None,
                 borrowed_instruction_parents: None,
+            producer_prefix: None,
                 instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
@@ -33592,6 +33615,7 @@ pure selected() -> Str {
                 instruction_range: 0..0,
                 instruction_states: None,
                 borrowed_instruction_parents: None,
+            producer_prefix: None,
                 instruction_proof: None,
                 block_states: None,
                 slot_count: 0,

@@ -245,7 +245,14 @@ only when the exact regional binding has no writers. Null exclusion preserves
 the payload's unsigned and validated domains. Typed optional carriers use the
 exact read site's active branch, short-circuit prefix, and preceding terminating
 branch while retaining the original broad storage contract and every writer
-proof. Prefix checks include nested condition writes and calls that can mutate
+proof. Completed structural ownership and return analysis populate the owner census
+before callable fact validation. Both that validation and the producer proof borrow
+its same charged ordered-prefix query. Physical optional carriers require the
+presence proof even when their checked-expression facts are absent. Completed
+presence evidence belongs to one physical gate in that owner. Reuse rechecks the
+schema, source child, type identity, and exact optional payload; failed queries
+never supply evidence. Source, storage, and callee proofs remain independent.
+Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the
 binding's canonical defining driver payload.

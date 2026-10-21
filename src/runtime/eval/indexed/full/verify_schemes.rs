@@ -1,7 +1,7 @@
 mod producers;
 mod body;
 pub(super) use producers::ProducerContexts;
-pub(super) use producers::GroundProducerIndex;
+pub(super) use producers::{GroundProducerIndex, ProducerPrefixContext};
 
 use super::schema::{self, FullSchemeTypeTag, FullSchemeValidationTag};
 use super::schemes::{
@@ -3978,6 +3978,7 @@ pub(super) fn decoder_for_driver_step(
         instruction_range: store.driver_instruction_range(index)?,
         instruction_states: None,
         borrowed_instruction_parents: None,
+            producer_prefix: None,
         instruction_proof: None,
         block_states: None,
         slot_count: step.slot_count,
@@ -4006,6 +4007,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
         instruction_range: store.function_instruction_range(function_index)?,
         instruction_states: None,
         borrowed_instruction_parents: None,
+            producer_prefix: None,
         instruction_proof: None,
         block_states: None,
         slot_count: function.slot_count,

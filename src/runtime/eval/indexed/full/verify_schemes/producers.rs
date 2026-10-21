@@ -60,6 +60,7 @@ struct ProducerOwner {
     census_instruction_visits: usize,
     block_statements: BTreeMap<usize, Vec<usize>>,
     block_can_complete: BTreeMap<usize, bool>,
+    completed_optional_presence: RefCell<BTreeSet<usize>>,
     declarations: BTreeMap<usize, Vec<usize>>,
     following_declarations: BTreeMap<usize, Vec<usize>>,
     region_bindings: BTreeMap<(usize, usize), ProducerBinding>,
@@ -73,6 +74,52 @@ struct ProducerOwner {
     unreachable_roots: BTreeSet<usize>,
     returns: Vec<usize>,
     return_analysis: Rc<super::super::IndexedReturnAnalysis>,
+}
+
+pub(in crate::runtime::eval::indexed::full) struct ProducerPrefixContext<'a> {
+    owner: u32,
+    evidence: &'a ProducerOwner,
+}
+
+impl ProducerPrefixContext<'_> {
+    pub(in crate::runtime::eval::indexed::full) fn instruction_forest(&self) -> super::super::InstructionParentContext<'_> {
+        super::super::InstructionParentContext { owner: self.owner, range: self.evidence.range.clone(),
+            parents: &self.evidence.parents, children: &self.evidence.children, siblings: &self.evidence.siblings }
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn optional_source_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        checked_id: TypeId, checked: &Type) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
+            || !self.evidence.range.contains(&instruction) || !self.evidence.range.contains(&source)
+        {
+            return Err(IrVerifyError::new("producer prefix context disagrees with its owner range"));
+        }
+        self.evidence.work.borrow_mut().charge(1)?;
+        let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(instruction)? else {
+            return Err(IrVerifyError::new("optional presence evidence requires a physical checked value"));
+        };
+        if check.schema.is_some() || check.ty.id != checked_id || value.raw() as usize != source {
+            return Err(IrVerifyError::new("optional presence evidence disagrees with its physical source contract"));
+        }
+        self.evidence.work.borrow_mut().charge(1)?;
+        if self.evidence.completed_optional_presence.borrow().contains(&instruction) { return Ok(true); }
+        let narrowed = (|| -> Result<bool, IrVerifyError> {
+            if let schema::ExprView::Param(slot) = decoder.expression_view(source)? {
+                let binding = self.evidence.binding(decoder.store, decoder.owner, source, slot)?;
+                if self.evidence.optional_binding_read_is_narrowed(decoder, source, slot, binding,
+                    &mut |amount| self.evidence.work.borrow_mut().charge(amount))?
+                { return Ok(true); }
+            }
+            let Some(binding) = decoder.checked_binding_path(source, &mut |amount| self.evidence.work.borrow_mut().charge(amount))? else { return Ok(false) };
+            decoder.checked_binding_path_is_narrowed(instruction, &binding, checked,
+                &mut |amount| self.evidence.work.borrow_mut().charge(amount))
+        })()?;
+        if narrowed {
+            self.evidence.work.borrow_mut().charge(1)?;
+            self.evidence.completed_optional_presence.borrow_mut().insert(instruction);
+        }
+        Ok(narrowed)
+    }
 }
 
 struct PatternProducer {
@@ -151,6 +198,81 @@ enum ProducerBinding {
 }
 
 impl ProducerOwner {
+    fn optional_binding_read_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, slot: usize, binding: ProducerBinding,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError> {
+        let local_declaration = if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
+            charge(1)?;
+            super::super::driver_owner_index(decoder.owner).is_none()
+                && declared_slot == slot
+                && self.writers.get(&binding).is_some_and(|writers| writers.as_slice() == [declaration])
+                && matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { slot: written, .. } if written == slot)
+                && !decoder.is_parameter_or_capture_slot(slot, &mut |amount| charge(amount))?
+        } else { false };
+        if !local_declaration && ((!self.pattern_sources.contains_key(&binding) && !matches!(binding, ProducerBinding::HeaderParameter(_)))
+            || self.writers.get(&binding).is_some_and(|writers| !writers.is_empty())) {
+            return Ok(false);
+        }
+        let mut at = instruction;
+        loop {
+            charge(1)?;
+            if let Some(&(block, position)) = self.statement_positions.get(&at) {
+                for &preceding in self.block_statements[&block][..position].iter().rev() {
+                    charge(1)?;
+                    let mut conditions = Vec::new();
+                    match decoder.statement_view(preceding)? {
+                        schema::StmtView::If { mut branches, else_body } => {
+                            let single = branches.len() == 1;
+                            for branch in &mut branches {
+                                charge(1)?;
+                                let (condition, body) = branch?;
+                                if self.block_can_complete[&body.block_identity().index()] {
+                                    if single && else_body.as_ref().is_some_and(|body| !self.block_can_complete[&body.block_identity().index()]) {
+                                        conditions.push((condition.raw() as usize, true, false));
+                                    }
+                                    break;
+                                }
+                                conditions.push((condition.raw() as usize, false, false));
+                            }
+                        }
+                        schema::StmtView::IfBool { mut branches, else_body } => {
+                            let single = branches.len() == 1;
+                            for branch in &mut branches {
+                                charge(1)?;
+                                let (condition, body) = branch?;
+                                if self.block_can_complete[&body.block_identity().index()] {
+                                    if single && else_body.as_ref().is_some_and(|body| !self.block_can_complete[&body.block_identity().index()]) {
+                                        conditions.push((condition.raw() as usize, true, true));
+                                    }
+                                    break;
+                                }
+                                conditions.push((condition.raw() as usize, false, true));
+                            }
+                        }
+                        _ => {}
+                    }
+                    for (condition, when_true, is_boolean) in conditions {
+                        charge(1)?;
+                        if self.visible_binding(decoder.store, decoder.owner, condition, slot)? != Some(binding) { continue; }
+                        if decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| charge(amount))?
+                        { return Ok(true); }
+                    }
+                }
+            }
+            let Some(parent) = self.parents[at - self.range.start] else { return Ok(false) };
+            if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, at,
+                |child, roots| Ok(roots.contains(&child)), |amount| charge(amount))?
+            {
+                for (condition, when_true, is_boolean) in conditions {
+                    charge(1)?;
+                    if self.visible_binding(decoder.store, decoder.owner, condition, slot)? == Some(binding)
+                        && decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| charge(amount))?
+                    { return Ok(true); }
+                }
+            }
+            at = parent;
+        }
+    }
+
     fn header_returns(&self) -> impl Iterator<Item = &usize> {
         self.returns.iter().chain(self.callback_returns.values().flatten())
     }
@@ -291,6 +413,13 @@ impl GroundProducerIndex {
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn prefix_context(&self, owner: u32, range: &std::ops::Range<usize>) -> Result<Option<ProducerPrefixContext<'_>>, IrVerifyError> {
+        if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(None); }
+        let evidence = self.owners.get(&owner).ok_or_else(|| IrVerifyError::new("producer prefix owner was not structurally verified"))?;
+        if evidence.range != *range { return Err(IrVerifyError::new("producer prefix owner range differs from its structural proof")); }
+        Ok(Some(ProducerPrefixContext { owner, evidence }))
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn demand(&self) -> crate::runtime::eval::ProducerDemand {
         self.demand
     }
@@ -319,7 +448,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -686,6 +815,7 @@ impl GroundProducerIndex {
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.block_can_complete.len() * size_of::<(usize, bool)>()
+                    + owner.completed_optional_presence.borrow().len() * size_of::<usize>()
                     + owner.block_statements.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.block_declarations.len() * size_of::<((usize, usize), Vec<(usize, ProducerBinding)>)>()
                     + owner.block_declarations.values().map(|values| values.capacity() * size_of::<(usize, ProducerBinding)>()).sum::<usize>()
@@ -1023,6 +1153,7 @@ impl<'a> ProducerProof<'a> {
             return Err(IrVerifyError::new("producer parent context disagrees with its owner census"));
         }
         decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: parent_owner.range.clone(), parents: &parent_owner.parents, children: &parent_owner.children, siblings: &parent_owner.siblings });
+        decoder.producer_prefix = self.index.prefix_context(owner, &decoder.instruction_range)?;
         decoder.producer_demand = self.index.demand;
         decoder.function_signature_index.clone_from(&self.index.function_signatures);
         *decoder.return_analysis.borrow_mut() = Some(super::super::ReturnAnalysisSource::Shared(Rc::clone(&self.index.owners[&owner].return_analysis)));
@@ -2268,78 +2399,7 @@ impl<'a> ProducerProof<'a> {
         if !matches!(actual.unvalidated(), Type::Optional(_)) { return Ok(false); }
         let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { return Ok(false) };
         let binding = self.binding(decoder.owner, instruction, slot)?;
-        let owner = &self.index.owners[&decoder.owner];
-        let local_declaration = if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
-            self.budget.charge(1)?;
-            super::super::driver_owner_index(decoder.owner).is_none()
-                && declared_slot == slot
-                && owner.writers.get(&binding).is_some_and(|writers| writers.as_slice() == [declaration])
-                && matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { slot: written, .. } if written == slot)
-                && !decoder.is_parameter_or_capture_slot(slot, &mut |amount| self.budget.charge(amount))?
-        } else { false };
-        if !local_declaration && ((!owner.pattern_sources.contains_key(&binding) && !matches!(binding, ProducerBinding::HeaderParameter(_)))
-            || owner.writers.get(&binding).is_some_and(|writers| !writers.is_empty())) {
-            return Ok(false);
-        }
-        let mut at = instruction;
-        loop {
-            self.budget.charge(1)?;
-            if let Some(&(block, position)) = owner.statement_positions.get(&at) {
-                for &preceding in owner.block_statements[&block][..position].iter().rev() {
-                    self.budget.charge(1)?;
-                    let mut conditions = Vec::new();
-                    match decoder.statement_view(preceding)? {
-                        schema::StmtView::If { mut branches, else_body } => {
-                            let single = branches.len() == 1;
-                            for branch in &mut branches {
-                                self.budget.charge(1)?;
-                                let (condition, body) = branch?;
-                                if owner.block_can_complete[&body.block_identity().index()] {
-                                    if single && else_body.as_ref().is_some_and(|body| !owner.block_can_complete[&body.block_identity().index()]) {
-                                        conditions.push((condition.raw() as usize, true, false));
-                                    }
-                                    break;
-                                }
-                                conditions.push((condition.raw() as usize, false, false));
-                            }
-                        }
-                        schema::StmtView::IfBool { mut branches, else_body } => {
-                            let single = branches.len() == 1;
-                            for branch in &mut branches {
-                                self.budget.charge(1)?;
-                                let (condition, body) = branch?;
-                                if owner.block_can_complete[&body.block_identity().index()] {
-                                    if single && else_body.as_ref().is_some_and(|body| !owner.block_can_complete[&body.block_identity().index()]) {
-                                        conditions.push((condition.raw() as usize, true, true));
-                                    }
-                                    break;
-                                }
-                                conditions.push((condition.raw() as usize, false, true));
-                            }
-                        }
-                        _ => {}
-                    }
-                    for (condition, when_true, is_boolean) in conditions {
-                        self.budget.charge(1)?;
-                        if owner.visible_binding(self.store, decoder.owner, condition, slot)? != Some(binding) { continue; }
-                        if decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| self.budget.charge(amount))?
-                        { return Ok(true); }
-                    }
-                }
-            }
-            let Some(parent) = owner.parents[at - owner.range.start] else { return Ok(false) };
-            if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, at,
-                |child, roots| Ok(roots.contains(&child)), |amount| self.budget.charge(amount))?
-            {
-                for (condition, when_true, is_boolean) in conditions {
-                    self.budget.charge(1)?;
-                    if owner.visible_binding(self.store, decoder.owner, condition, slot)? == Some(binding)
-                        && decoder.checked_slot_null_condition_proves_nonnull_with(condition, when_true, is_boolean, slot, |amount| self.budget.charge(amount))?
-                    { return Ok(true); }
-                }
-            }
-            at = parent;
-        }
+        self.index.owners[&decoder.owner].optional_binding_read_is_narrowed(decoder, instruction, slot, binding, &mut |amount| self.budget.charge(amount))
     }
 
     fn verify_expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool, fact: Option<DeclaredProducerFact>) -> Result<(), IrVerifyError> {
@@ -2917,7 +2977,12 @@ impl<'a> ProducerProof<'a> {
                             self.expression(owner, input, Arc::clone(&checked), false);
                         } else {
                         let actual = self.need_context(&decoder, input)?.ok_or_else(|| IrVerifyError::new("checked value input has no producer contract"))?;
-                        if !(!runtime_complete && Self::checked_optional_payload_source(&actual, &checked)) && !self.checked_record_field_fits(&decoder, input, &actual, &checked)? {
+                        let optional_payload = !runtime_complete && Self::checked_optional_payload_source(&actual, &checked);
+                        if optional_payload && !decoder.producer_prefix.as_ref()
+                            .ok_or_else(|| IrVerifyError::new("checked optional payload has no verified owner prefix"))?
+                            .optional_source_is_narrowed(&decoder, instruction, input, check.ty.id, &checked)?
+                        { return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof")); }
+                        if !optional_payload && !self.checked_record_field_fits(&decoder, input, &actual, &checked)? {
                             return Err(IrVerifyError::new("checked value input disagrees with its contract"));
                         }
                         self.expression(owner, input, actual, false);
