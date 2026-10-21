@@ -1094,9 +1094,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Stream),
                 ident(),
-                signature(),
+                seq([t(T::LParen), r("inferred_parameters"), t(T::RParen)]),
                 opt(r("effects")),
-                returns(),
+                opt(returns()),
                 block(),
             ]),
         ),

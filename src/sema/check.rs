@@ -9,7 +9,7 @@ pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExpor
 pub(crate) use crate::source::Span;
 use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, BlockId, ExprId, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, ExprId, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -251,29 +251,6 @@ impl<'a> CheckBundleView<'a> {
         })
     }
 
-    /// The blocks whose span lies in a source of this view, in table order.
-    pub(super) fn block_ids(&self) -> Vec<BlockId> {
-        self.view_ids(self.program.arena.blocks.len(), BlockId::from_index, |rows, source| {
-            rows.block_ids(source).collect()
-        })
-    }
-
-    /// Indices into the record field table of the fields that carry a span
-    /// in a source of this view.
-    pub(super) fn record_field_indices(&self) -> Vec<usize> {
-        if self.all_sources {
-            return (0..self.program.arena.record_fields.len()).collect();
-        }
-        let rows = self.program.arena.source_rows();
-        let mut indices = self
-            .source_ids
-            .iter()
-            .flat_map(|&source| rows.record_field_indices(source))
-            .collect::<Vec<_>>();
-        indices.sort_unstable();
-        indices
-    }
-
     fn view_ids<I: Ord>(
         &self,
         table_len: usize,
@@ -372,6 +349,7 @@ mod compact;
 mod decl;
 #[path = "check/scheme_body.rs"]
 mod scheme_body;
+mod recursive_components;
 #[path = "check/expected.rs"]
 mod expected;
 #[path = "check/expr.rs"]
@@ -1077,7 +1055,6 @@ pub(super) struct PendingFunctionSig {
     solver_level: u32,
     return_authority: TypeAuthority,
     body_checked: bool,
-    generalizable: bool,
     callable: PendingCallable,
 }
 
@@ -1110,38 +1087,34 @@ impl PendingFunctionSig {
         self.body_checked = true;
     }
 
-    pub(super) fn generalizable(&self) -> bool {
-        self.generalizable
-    }
-
-    pub(super) fn make_monomorphic(&mut self) {
-        self.generalizable = false;
+    pub(super) fn reject_generalization(&mut self) {
+        self.callable = PendingCallable::Rejected;
     }
 
     pub(super) fn provisional(&self) -> Option<&PendingCallableShape> {
         match &self.callable {
             PendingCallable::Provisional(shape) => Some(shape),
-            PendingCallable::Generalized(_) => None,
+            PendingCallable::Generalized(_) | PendingCallable::Rejected => None,
         }
     }
 
     pub(super) fn provisional_mut(&mut self) -> Option<&mut PendingCallableShape> {
         match &mut self.callable {
             PendingCallable::Provisional(shape) => Some(shape),
-            PendingCallable::Generalized(_) => None,
+            PendingCallable::Generalized(_) | PendingCallable::Rejected => None,
         }
     }
 
     pub(super) fn generalized(&self) -> Option<&Arc<super::schemes::CallableScheme>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.callable),
         }
     }
 
     pub(super) fn generalized_scope(&self) -> Option<&super::constraints::CallableGeneralizationScope> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.generalization_scope),
         }
     }
@@ -1150,8 +1123,15 @@ impl PendingFunctionSig {
         &self,
     ) -> Option<&BTreeMap<ExprId, super::schemes::SchemeType>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.body_types),
+        }
+    }
+
+    pub(super) fn generalized_empty_constructors(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+            PendingCallable::Generalized(callable) => Some(&callable.empty_constructors),
         }
     }
 
@@ -1159,21 +1139,21 @@ impl PendingFunctionSig {
         &self,
     ) -> Option<&BTreeMap<StmtId, super::schemes::SchemeType>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.tail_types),
         }
     }
 
     pub(super) fn generalized_registered_calls(&self) -> Option<&BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.registered_calls),
         }
     }
 
     pub(super) fn generalized_read_bindings(&self) -> Option<&std::collections::BTreeSet<BindingId>> {
         match &self.callable {
-            PendingCallable::Provisional(_) => None,
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
             PendingCallable::Generalized(callable) => Some(&callable.read_bindings),
         }
     }
@@ -1183,6 +1163,7 @@ impl PendingFunctionSig {
         callable: Arc<super::schemes::CallableScheme>,
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+        empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1195,6 +1176,7 @@ impl PendingFunctionSig {
             callable,
             generalization_scope,
             body_types,
+            empty_constructors,
             tail_types,
             registered_calls,
             read_bindings,
@@ -1207,6 +1189,7 @@ struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+    empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1216,6 +1199,7 @@ struct GeneralizedCallable {
 enum PendingCallable {
     Provisional(PendingCallableShape),
     Generalized(GeneralizedCallable),
+    Rejected,
 }
 
 #[derive(Clone, Debug)]
@@ -1760,7 +1744,7 @@ pub struct Checker {
     resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
     assignment_facts: assignment_facts::AssignmentFacts,
-    resolved_command_sites: FxHashMap<(Span, Name), BindingId>,
+    resolved_command_sites: BTreeMap<(Span, Name), BindingId>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
@@ -1769,6 +1753,7 @@ pub struct Checker {
     selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
     selected_function_value_references: BTreeSet<Span>,
     pending_call_instantiations: BTreeMap<Span, PendingCallInstantiation>,
+    provisional_function_calls: BTreeMap<Span, (EffectDeclarationId, FunctionDeclarationId)>,
     call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
     prepared_function_call_contracts: BTreeMap<Span, FunctionCallContract>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
@@ -1796,6 +1781,7 @@ pub struct Checker {
     bundle_module_keys: Option<Arc<[String]>>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     declaration_inference: DeclarationInference,
+    recursive_function_components: Vec<Vec<crate::syntax::arena::FunctionDefId>>,
     procs: FxHashMap<Name, FunctionDeclarationId>,
     byte_script_arguments: bool,
     pures: FxHashMap<Name, FunctionDeclarationId>,
@@ -2077,6 +2063,10 @@ impl Checker {
     }
 
     fn into_output(mut self) -> CheckOutput {
+        if let Err((owner, _)) = self.validate_published_stream_origins() {
+            self.report_stream_origin_boundary(owner.body);
+            self.stream_origin_outputs = stream_origins::StreamOriginSummaries::new();
+        }
         assert!(self.pending_call_instantiations.is_empty());
         assert!(self.prepared_function_call_contracts.is_empty());
         let callable_effects = self.callable_effects();
@@ -2186,10 +2176,12 @@ impl Checker {
             selected_function_calls: BTreeMap::new(),
             selected_function_value_references: BTreeSet::new(),
             pending_call_instantiations: BTreeMap::new(),
+            provisional_function_calls: BTreeMap::new(),
             call_instantiations: BTreeMap::new(),
             prepared_function_call_contracts: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             declaration_inference: DeclarationInference::default(),
+            recursive_function_components: Vec::new(),
             procs: FxHashMap::default(),
             byte_script_arguments: false,
             pures: FxHashMap::default(),
@@ -2212,7 +2204,7 @@ impl Checker {
             pending_record_constructors: Vec::new(),
             resolved_bindings: Arc::default(),
             assignment_facts: assignment_facts::AssignmentFacts::default(),
-            resolved_command_sites: FxHashMap::default(),
+            resolved_command_sites: BTreeMap::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             condition_proofs: FxHashMap::default(),

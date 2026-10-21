@@ -1784,8 +1784,14 @@ never changes the declaration or another call's instance.
 
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
-including writes in branches and loops. An unannotated mutable local initialized
-to `set.empty()` follows the same rule for its element type. Resolve these
+including writes in branches and loops. Fresh empty lists nested in a local
+record or list initializer follow the same rule. Each surviving empty list has
+one element type across all writers. A discarded `map.empty()` or an empty
+list field replaced by a later record spread contributes no unresolved type. These
+expressions still evaluate in source order. Explicit `Any` domains and heterogeneous
+list literals keep their declared or inferred domains. Parameter defaults and
+signal hook bodies use the same local inference rules. An unannotated mutable
+local initialized to `set.empty()` follows the same rule for its element type. Resolve these
 types before a concrete operation uses them; otherwise add an annotation. A
 `var` initialized to `null` becomes `T?` once a non-null assignment determines
 `T`; `let x = null` stays `Null`. If all non-null contributions to that `var`
@@ -3803,11 +3809,12 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure` or `proc` declaration may omit its type
+A required parameter in a `pure`, `proc`, or `stream` declaration may omit its type
 annotation. The checker infers that type from the declaration body. An explicit
 `Any` remains a dynamic type and is never treated as a type variable; it may
 appear beside quantified parameters. A quantified proc requires a finite
-checked effect contract. Required parameters in `stream` declarations, callable types, and module contracts still need annotations.
+checked effect contract. Required parameters in callable types and module
+contracts still need annotations.
 
 A checked quantified body can use lexical `let` and `var` bindings, including
 record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
@@ -3972,7 +3979,10 @@ command statement's value. A final `Result[Unit]` call in a `Unit` or
 Pure functions can omit their return annotation when the checker infers one
 closed type or rank-1 scheme from explicit returns and reachable tails. This
 rule also allows exported pure functions to omit return annotations. Recursive
-pure functions still need an explicit return annotation.
+pure declarations share provisional parameter and return types within their
+component. The checker solves every member before generalizing the component;
+recursive calls use those shared monotypes, and independent outside calls
+instantiate the published schemes freshly.
 Checked tooling contracts retain quantified parameter relationships and open
 record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
@@ -3984,9 +3994,11 @@ early returns. A proc's inferred success envelope retains the same identity.
 A structurally equal raw record or a different constructor does not establish
 that schema identity.
 
-The checker infers mutually recursive pure parameters together before checking
-callers. Those parameters remain monomorphic. A parameter that the recursive
-bodies leave undetermined needs an annotation.
+The checker infers mutually recursive parameters and returns before checking
+callers. Variables that are independent of the captured environment can become
+rank-1 scheme parameters after the component is solved. Infinite types and
+recursive calls that require a fresh polymorphic instance are rejected. A failed
+component publishes no member scheme.
 
 - A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is
@@ -4194,6 +4206,12 @@ proc select(dynamic: Proc, raw: Any, roots: List[Path]) [fs, error] -> Result[Un
 ### 9.5 Stream producers
 
 Calling a `stream` producer returns a `Stream[T]` without running its body.
+Parameter and return annotations may be omitted when the producer's defaults,
+yields, delegation, and parameter relationships determine them. Recursive
+producers share one monomorphic constraint component while their bodies are
+checked; their declaration schemes are generalized together afterward. Each
+independent call can choose a different item type, while aliases of one created
+producer retain that producer's item type.
 The body runs as the stream is consumed by a `for` loop, a pipeline, or
 `.collect()`. Each `yield value` emits one item, and `yield @source` emits every
 item of a `List[T]` or `Stream[T]`, pulling a delegated stream on demand. The
@@ -4337,6 +4355,10 @@ parameter may be passed as a flag, mapping kebab case to snake case
 (`--pretty` means `pretty: true`). Everything else uses expression
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
+
+Generic procs and stream producers retain the selected command operation,
+argument conversions, and effects. Their command arguments execute in the same
+positions and scopes as in annotated bodies.
 
 A statement that begins with an identifier or `.name` chain followed by `|>`
 or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an

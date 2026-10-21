@@ -3,7 +3,6 @@
 use super::{
     AssignOp, BlockParam, Diagnostic, DurationLiteral, Effect, FixHint, IntLiteral, Keyword, Label,
     Name, Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr,
-    unknown_type_expr,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
@@ -1331,18 +1330,14 @@ impl<'a> Parser<'a> {
         }
         let params = self.parse_params_arena_only(
             arena,
-            ParameterAnnotationContext::Required,
+            ParameterAnnotationContext::CallableDeclaration,
         );
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let effects = self.parse_effect_list();
-        let return_ty = if self.consume(TokenKindMatch::Arrow).is_some() {
-            self.parse_type_expr(arena)?
+        let (return_ty, return_ty_defaulted) = if self.consume(TokenKindMatch::Arrow).is_some() {
+            (self.parse_type_expr(arena)?, false)
         } else {
-            self.diagnostic_here(
-                "stream producer return annotations are required",
-                DiagnosticCode::ParseRequiredReturn,
-            );
-            unknown_type_expr(arena, self.current_span())
+            (arena.push_named_type_expr(Name::intern("Unit"), self.current_span()), true)
         };
         let body_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
@@ -1355,7 +1350,7 @@ impl<'a> Parser<'a> {
             params_range,
             effects_range,
             return_ty,
-            false,
+            return_ty_defaulted,
             body_id,
             span,
         );

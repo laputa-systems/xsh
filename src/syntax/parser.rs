@@ -29,7 +29,7 @@ pub(in crate::syntax::parser) use self::literals::{
     decode_bytes_literal_for, decode_interpolation_text_for,
     parse_interpolation_expr_arena_only_for,
 };
-pub(in crate::syntax::parser) use self::types::{result_unit_type_expr, unknown_type_expr};
+pub(in crate::syntax::parser) use self::types::result_unit_type_expr;
 
 #[derive(Clone, Debug, Default)]
 pub struct ArenaParseOutput {

@@ -3284,6 +3284,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         if declaration.is_none() {
             let row = match node.kind {
+                ArenaStmtKind::Command(command) => {
+                    let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                    body.push(self.lower_generalized_command(command, slots, current_function, &mut domain)?);
+                    return Some(());
+                }
                 ArenaStmtKind::Assign { target, op, value: ArenaExprOrRun::Expr(expression) } => {
                     let name = self.assign_target_root_name(target)?;
                     let binding = self.bodies.resolved_bindings.value_sites.get(&(node.span, name))?;

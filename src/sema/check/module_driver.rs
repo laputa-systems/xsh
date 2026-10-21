@@ -11,6 +11,15 @@ use super::module_record::{
 };
 use super::infer_effects::{EffectDeclarationId, EffectGraph, EffectScopeFailure};
 
+enum FileInferenceFailure {
+    Effects(EffectScopeFailure),
+    StreamOrigin(EffectDeclarationId),
+}
+
+impl From<EffectScopeFailure> for FileInferenceFailure {
+    fn from(failure: EffectScopeFailure) -> Self { Self::Effects(failure) }
+}
+
 #[cfg(test)]
 thread_local! {
     static ENTRY_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -191,7 +200,7 @@ impl Checker {
                 );
                 let (effect_graph, root_summaries, root_origins) = match effect_probe {
                     Ok(effects) => effects,
-                    Err(failure) => return Self::rejected_effect_scope(failure),
+                    Err(failure) => return Self::rejected_file_inference(failure),
                 };
                 let mut checker = Self::session_effect_checker(
                     record_options,
@@ -431,7 +440,7 @@ impl Checker {
         );
         let (effect_graph, local_summaries, local_origins) = match effect_probe {
             Ok(effects) => effects,
-            Err(failure) => return Self::rejected_effect_scope(failure),
+            Err(failure) => return Self::rejected_file_inference(failure),
         };
 
         let mut checker = Self::session_effect_checker(
@@ -489,7 +498,21 @@ impl Checker {
         }
     }
 
-    fn rejected_effect_scope(failure: EffectScopeFailure) -> CheckedModuleFacts {
+    fn rejected_file_inference(failure: FileInferenceFailure) -> CheckedModuleFacts {
+        let failure = match failure {
+            FileInferenceFailure::Effects(failure) => failure,
+            FileInferenceFailure::StreamOrigin(owner) => {
+                let diagnostic = crate::diagnostic::Diagnostic::error("stream return provenance exceeds its checked projection boundary")
+                    .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+                    .with_label(crate::diagnostic::Label::primary(owner.body, "stream origin application is not publishable"));
+                return CheckedModuleFacts {
+                    signature: None,
+                    output: CheckOutput { diagnostics: vec![diagnostic], ..CheckOutput::default() },
+                    module_diagnostic_position: 0,
+                    suppressed_body_transfers: ResourceTransferFacts::default(),
+                };
+            }
+        };
         let note = match failure.cause {
             crate::sema::constraints::SchemeOperationError::Resolution(_) => "an effect relationship escaped its bounded checking problem",
             crate::sema::constraints::SchemeOperationError::Build(_) => "an effect parameter or call substitution is outside its declaration scope",
@@ -543,13 +566,17 @@ impl Checker {
         EffectGraph,
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         super::stream_origins::StreamOriginSummaries,
-    ), EffectScopeFailure> {
+    ), FileInferenceFailure> {
         let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
             let mut checker = probe(provisional.clone(), provisional_origins.clone());
             checker.bind_effect_graph()?;
             let solved = checker.effect_graph.solve_with_external(external)?;
+            checker.normalize_stream_origin_applications()
+                .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
+            checker.validate_published_stream_origins()
+                .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
             checker.settle_stream_origin_dependencies(external_origins);
             if (!checker.provisional_effects_read.get() || solved == provisional)
                 && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
@@ -1790,9 +1817,14 @@ mod tests {
                     &source,
                     CheckOptions::default(),
                 );
-                assert!(checked.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
-                }), "reverse {reverse}, caller_first {caller_first}: {:?}", checked.diagnostics);
+                assert!(checked.diagnostics.is_empty(), "reverse {reverse}, caller_first {caller_first}: {:?}", checked.diagnostics);
+                assert_eq!(checked.checked_declarations.functions.len(), 2);
+                for declaration in checked.checked_declarations.functions.values() {
+                    let scheme = declaration.scheme.as_ref().expect("a recursive declaration has a checked scheme");
+                    assert_eq!(scheme.type_parameters().len(), 1);
+                    assert!(matches!(scheme.params()[0].ty, SchemeType::Parameter(_)));
+                    assert_eq!(scheme.return_type(), &SchemeType::Ground(Type::Int));
+                }
             }
         }
     }

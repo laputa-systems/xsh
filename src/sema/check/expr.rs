@@ -1674,6 +1674,7 @@ impl Checker {
         expected: Option<&Type>,
         literal_span: Span,
     ) -> Type {
+        self.record_local_aggregate_list(literal_span, range);
         if range.is_empty() && matches!(expected, Some(Type::Any)) {
             return Type::List(Box::new(Type::Any));
         }
@@ -2105,6 +2106,7 @@ impl Checker {
         }
 
         let mut record = BTreeMap::new();
+        let mut origins = self.local_aggregate_record_fields(span);
         let expected_fields = match expected {
             Some(Type::Record(fields)) if !fields.is_empty() => Some(fields),
             _ => None,
@@ -2124,8 +2126,12 @@ impl Checker {
                         .into_unvalidated();
                     match ty {
                         Type::Record(spread_fields) => {
+                            let spread_origins = self.local_aggregate_spread_fields(arena.arena.expr(*expr).span);
                             for (k, v) in spread_fields.iter() {
                                 record.insert(*k, v.clone());
+                                if let Some(origins) = &mut origins {
+                                    origins.insert(*k, spread_origins.as_ref().and_then(|fields| fields.get(k)).copied().flatten());
+                                }
                             }
                         }
                         Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
@@ -2184,6 +2190,7 @@ impl Checker {
                         self.expect_type(field_expected, &ty, value_span);
                     }
                     record.insert(*name, ty);
+                    if let Some(origins) = &mut origins { origins.insert(*name, Some(*value)); }
                 }
                 ArenaRecordFieldKind::Shorthand { name, span } => {
                     let field_span = arena.arena.span(*span);
@@ -2211,6 +2218,7 @@ impl Checker {
                         self.expect_type(field_expected, &ty, field_span);
                     }
                     record.insert(*name, ty);
+                    if let Some(origins) = &mut origins { origins.insert(*name, None); }
                 }
             }
         }
@@ -2227,6 +2235,7 @@ impl Checker {
                 }
             }
         }
+        if let Some(origins) = origins { self.record_local_aggregate_fields(span, origins); }
         Type::Record(record.into())
     }
 

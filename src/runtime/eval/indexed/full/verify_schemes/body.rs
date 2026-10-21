@@ -714,6 +714,44 @@ pub(super) fn verify_body(
                         } else if !body_type_matches(&actual, &SchemeType::Ground(expected), budget)? { return Err(IrVerifyError::new("generic default value disagrees with its parameter")); }
                         nested.push(Obligation::Expression(value.raw() as usize, default_scope));
                     }
+                    schema::StmtView::Print { args, .. } => {
+                        for argument in args {
+                            budget.charge(1)?;
+                            let argument = argument?;
+                            let actual = expression_type(types, argument.raw() as usize, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic print argument has no checked display contract"))?;
+                            if !actual.can_display() { return Err(IrVerifyError::new("generic print argument cannot be displayed")); }
+                            expressions.push(argument.raw() as usize);
+                        }
+                    }
+                    schema::StmtView::Cd { target, body, .. } => {
+                        let actual = expression_type(types, target.raw() as usize, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic cd target has no checked path contract"))?;
+                        if !matches!(actual.unvalidated(), Type::Path | Type::Str) { return Err(IrVerifyError::new("generic cd target is not a path")); }
+                        expressions.push(target.raw() as usize);
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
+                    }
+                    schema::StmtView::Env { env, body } => {
+                        for assignment in env {
+                            budget.charge(1)?;
+                            let assignment = assignment?;
+                            super::commands::word(assignment.value, super::producers::ProcessWordRole::Environment, &mut |value, budget| {
+                                expressions.push(value.raw() as usize);
+                                expression_type(types, value.raw() as usize, budget)
+                            }, budget)?;
+                        }
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
+                    }
+                    schema::StmtView::Run { value, .. } => {
+                        let process = match decoder.expression_view(value.raw() as usize)? {
+                            schema::ExprView::Try { value, .. } => decoder.expression_view(value.raw() as usize)?,
+                            process => process,
+                        };
+                        if !matches!(process, schema::ExprView::RunCapture(_) | schema::ExprView::RunPipeline { .. }) { return Err(IrVerifyError::new("generic run statement has no process producer")); }
+                        expressions.push(value.raw() as usize);
+                    }
                     schema::StmtView::Expr { value, .. } => expressions.push(value.raw() as usize),
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;

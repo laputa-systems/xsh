@@ -2968,3 +2968,47 @@ assert result[{last}] == 7.0
         execute_both(&program);
     }
 }
+
+#[test]
+fn mutable_record_spreads_preserve_initial_contextual_fields() {
+    let program = fixture(r#"
+type State = {at: Int, items: List[Int]}
+pure updated(source: State) -> State {
+    var current = {...source, items: []}
+    current = {...current, at: current.at + 1}
+    current
+}
+let result = updated(State(0, [7]))
+assert result.at == 1
+assert result.items.len() == 0
+"#);
+    execute_both(&program);
+}
+
+#[test]
+fn generic_proc_commands_retain_checked_operations_and_payloads() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+proc sample(payload) {
+    print "checked"
+    eprint "checked"
+    env XSH_GENERIC_COMMAND=inside { print "scoped" }
+    cd p"." { print "directory" }
+    time.sleep 0ms ?
+    run true
+    return payload
+}
+assert sample(7)? == 7
+assert sample("word")? == "word"
+"#);
+        let owner = function(&program, "sample");
+        assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let mut forged = program.clone();
+        let plan = forged.store.prepared_module_call_plans.iter_mut().find(|plan| matches!(plan.as_ref(), crate::runtime::eval::ModuleCallPlan::CommandArguments(_))).unwrap();
+        let crate::runtime::eval::ModuleCallPlan::CommandArguments(plan) = Arc::make_mut(plan) else { unreachable!() };
+        plan.supplied_slots[0] = !plan.supplied_slots[0];
+        assert!(FullVerifier::verify(&forged).is_err());
+    });
+}

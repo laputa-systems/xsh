@@ -4830,6 +4830,9 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
+        let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(arena, def.body));
+        if self.declaration_inference.pending(declaration).is_some_and(super::PendingFunctionSig::body_checked) { return; }
         self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
         self.collect_stream_local_constraints(arena, source, def);
@@ -4837,7 +4840,9 @@ impl Checker {
         let stream_owner = self.effect_declaration_id(arena, def.body);
         let enclosing_stream_owner = self.stream_origin_owner.replace(stream_owner);
         self.boundary.effect_owner = Some(stream_owner);
-        let return_ty = self.type_from_arena(arena, def.return_ty);
+        let return_ty = if def.return_ty_defaulted {
+            self.function_return_types[&body_span].clone()
+        } else { self.type_from_arena(arena, def.return_ty) };
         let item_ty = match return_ty.clone() {
             Type::Stream(item) => *item,
             Type::Unknown | Type::Invalid => Type::Unknown,
@@ -4921,6 +4926,7 @@ impl Checker {
             self.record_stream_producer_error(stream_owner);
         }
         self.finish_stream_producer_summary(arena, def, &return_ty);
+        if let Some(signature) = self.declaration_inference.pending_mut(declaration) { signature.mark_body_checked(); }
         self.stream_origin_owner = enclosing_stream_owner;
         self.pop_scope();
         self.scopes = saved_capture_scopes;
@@ -4934,6 +4940,7 @@ impl Checker {
         hook: &ArenaSignalHook,
         span: Span,
     ) {
+        self.collect_signal_hook_local_constraints(arena, source, hook, span);
         if self.options.interactive_commands.is_some() {
             self.error(
                 span,

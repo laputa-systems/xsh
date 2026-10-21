@@ -198,3 +198,50 @@ print "waited"
   assert output.success, output.stderr
   assert output.stdout == "waited\n", output.stdout
 }
+
+test test_generic_proc_target_conversion_stops_before_later_arguments { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark() [io] -> Str {
+  print "later-argument"
+  return "argument"
+}
+proc empty_target() [io] -> List[Str] {
+  print "target"
+  return []
+}
+proc invoke(payload) {
+  run.capture --text @(empty_target()) ${mark()}
+  return payload
+}
+let integer: Int = invoke(7)?
+let text: Str = invoke("unreached")?
+""")?
+  assert !output.success, output.stderr
+  assert "empty-command" in output.stderr, output.stderr
+  assert output.stdout == "target\n", output.stdout
+}
+
+test test_generic_proc_command_words_keep_prefix_and_redirection_order { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc invoke(payload) {
+  run.capture --text XSH_GENERIC_ORDER=${mark("env", "ready")} ${mark("target", "sh")} -c "printf ignored" "quoted-${mark("quoted", "word")}" > ${mark("redirect", "/dev/null")} ${mark("tail", "after")}
+  return payload
+}
+assert invoke(7)? == 7
+assert invoke("word")? == "word"
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == """env
+target
+quoted
+redirect
+tail
+env
+target
+quoted
+redirect
+tail
+""", output.stdout
+}
