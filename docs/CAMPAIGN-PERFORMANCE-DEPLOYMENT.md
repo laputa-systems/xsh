@@ -177,10 +177,16 @@ controls reject forged targets, layouts, kinds and nested effects. Independent
 review approves that bounded prefix. The warning-denied non-test check still
 needs the canonical reuse API's SCC production consumer. Host `.call` and
 `utils.cache` adapters, SelfCall completion, recursion and Stream remain open.
-This checkpoint is not integrated or qualified for master.
-Isolated assembly `0c75290cf` merges that checkpoint with the campaign source.
+This checkpoint is not qualified for master.
+Assembly `0c75290cf` merges that checkpoint with the campaign source.
 The reviewed resolution preserves the registry's declaration-effect ceiling
-and the scoped per-call effect proof. No combined build or test credit follows.
+and the scoped per-call effect proof. All seven carrier/forgery controls and
+all 66 verifier-effect controls pass on that assembly, with no failures or
+ignores. The slice is integrated into the campaign branch; master is unchanged.
+These targeted passes do not qualify the combined regression boundary.
+The four host-adapter controls have two passes and two failures: dispatch
+across programs and open-declaration rejection pass, but specialized-input
+validation and cache separation across programs remain broken.
 
 The recursive-component prototype passes its staged publication and mutation
 controls, including the reproduced late-effect failure. Its matching products
