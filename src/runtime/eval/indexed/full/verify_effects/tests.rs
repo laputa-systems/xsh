@@ -746,50 +746,53 @@ assert match transfer(First.Failed(message: "first"), Other.Failed(message: "oth
 
 #[test]
 fn checked_named_error_transfers_preserve_binding_sources_and_causes() {
-    let mut program = fixture(r#"
+    let source = r#"
 error Stopped = Failed(message: Str)
 pure capture(value: Stopped, cause: Error, spare: Bool) -> Result[Unit, Stopped] {
     let result: Result[Unit, Stopped] = try { Err(value, cause: cause)? }
     return result
 }
 assert match capture(Stopped.Failed(message: "stopped"), Stopped.Failed(message: "cause"), true) { Err(_) => true; Ok(_) => false }
-"#);
-    program.store.checked_expr_types.retain(|fact| fact.is_contract());
-    let owner = function(&program, "capture");
-    let (transfer, first, second) = {
+"#;
+    for tail in ["return result", "result"] {
+        let mut program = fixture(&source.replace("return result", tail));
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        let owner = function(&program, "capture");
+        let (transfer, first, second) = {
+            let decoder = function_view_decoder(&program.store, owner);
+            let transfer = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprTry).unwrap();
+            assert!(decoder.direct_error_transfer(transfer).unwrap().is_none());
+            let schema::ExprView::Try { value, .. } = decoder.expression_view(transfer).unwrap() else { unreachable!() };
+            let first = decoder.argument_binding_match(value.raw() as usize).unwrap().unwrap();
+            let second = decoder.argument_binding_match(first.result).unwrap().unwrap();
+            (transfer, first, second)
+        };
+        let facts = program.store.functions[owner].slot_type_facts;
+        for slot in [first.slot, second.slot] {
+            if slot < facts.len as usize { program.store.slot_type_facts[facts.start as usize + slot] = IR_NONE; }
+        }
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
         let decoder = function_view_decoder(&program.store, owner);
-        let transfer = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprTry).unwrap();
-        assert!(decoder.direct_error_transfer(transfer).unwrap().is_none());
-        let schema::ExprView::Try { value, .. } = decoder.expression_view(transfer).unwrap() else { unreachable!() };
-        let first = decoder.argument_binding_match(value.raw() as usize).unwrap().unwrap();
-        let second = decoder.argument_binding_match(first.result).unwrap().unwrap();
-        (transfer, first, second)
-    };
-    let facts = program.store.functions[owner].slot_type_facts;
-    for slot in [first.slot, second.slot] {
-        if slot < facts.len as usize { program.store.slot_type_facts[facts.start as usize + slot] = IR_NONE; }
-    }
-    FullVerifier::verify(&program).unwrap();
-    execute_both(&program);
-    let decoder = function_view_decoder(&program.store, owner);
-    assert!(matches!(decoder.expression_view(first.source).unwrap(), schema::ExprView::Param(0)));
-    assert!(matches!(decoder.expression_view(second.source).unwrap(), schema::ExprView::Param(1)));
-    let schema::ExprView::Err { value, cause: Some(cause) } = decoder.expression_view(second.result).unwrap() else { panic!("terminal error") };
-    assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot == first.slot));
-    assert!(matches!(decoder.expression_view(cause.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot == second.slot));
-    assert!(!indexed_expr_can_complete(&decoder, transfer, 0).unwrap());
-    for (source, replacement) in [
-        (first.source, 2),
-        (second.source, 2),
-        (value.raw() as usize, 2),
-        (cause.raw() as usize, 2),
-        (value.raw() as usize, second.slot),
-    ] {
-        let mut malformed = program.clone();
-        malformed.store.extra[program.store.data[source].range().start as usize] = replacement as u32;
-        assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(source).unwrap(), schema::ExprView::Param(slot) if slot == replacement));
-        let error = FullVerifier::verify(&malformed).err().unwrap_or_else(|| panic!("accepted error binding retarget source={source}, replacement={replacement}, wrapper_sources=({}, {}), leaves=({}, {})", first.source, second.source, value.raw(), cause.raw()));
-        assert!(error.message.contains("error") || error.message.contains("Error") || error.message.contains("contract"), "{error:?}");
+        assert!(matches!(decoder.expression_view(first.source).unwrap(), schema::ExprView::Param(0)));
+        assert!(matches!(decoder.expression_view(second.source).unwrap(), schema::ExprView::Param(1)));
+        let schema::ExprView::Err { value, cause: Some(cause) } = decoder.expression_view(second.result).unwrap() else { panic!("terminal error") };
+        assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot == first.slot));
+        assert!(matches!(decoder.expression_view(cause.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot == second.slot));
+        assert!(!indexed_expr_can_complete(&decoder, transfer, 0).unwrap());
+        for (source, replacement) in [
+            (first.source, 2),
+            (second.source, 2),
+            (value.raw() as usize, 2),
+            (cause.raw() as usize, 2),
+            (value.raw() as usize, second.slot),
+        ] {
+            let mut malformed = program.clone();
+            malformed.store.extra[program.store.data[source].range().start as usize] = replacement as u32;
+            assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(source).unwrap(), schema::ExprView::Param(slot) if slot == replacement));
+            let error = FullVerifier::verify(&malformed).err().unwrap_or_else(|| panic!("accepted {tail} error binding retarget source={source}, replacement={replacement}, wrapper_sources=({}, {}), leaves=({}, {})", first.source, second.source, value.raw(), cause.raw()));
+            assert!(error.message.contains("error") || error.message.contains("Error") || error.message.contains("contract"), "{error:?}");
+        }
     }
     let ordered = fixture(r#"
 error Stopped = Failed(message: Str)
