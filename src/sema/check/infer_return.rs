@@ -131,17 +131,7 @@ impl Checker {
                 _ => {}
             }
         }
-        if !declarations.iter().any(|decl| {
-            decl.function.is_some_and(|id| {
-                let def = program.arena.function_def(id);
-                let has_inferred_parameter = program.arena.params(def.params).iter().any(|parameter| {
-                    parameter.annotation.is_none() && parameter.default.is_none()
-                });
-                def.return_ty_defaulted
-                    && (!decl.proc_def || proc_may_return_value(program, def))
-                    || has_inferred_parameter
-            })
-        }) {
+        if !declarations.iter().any(|declaration| declaration.function.is_some()) {
             return;
         }
         let function_indices = declarations.iter().enumerate().filter_map(|(index, declaration)| {
@@ -297,7 +287,6 @@ impl Checker {
                     parameter.annotation.is_none() && parameter.default.is_none()
                 });
                 if !def.return_ty_defaulted {
-                    if decl.proc_def && !infers_parameters { continue; }
                     self.check_body_before_callers(program, source, decl, &declarations, def);
                     self.generalize_pending_function(program, id);
                     continue;

@@ -1207,6 +1207,60 @@ mod tests {
     }
 
     #[test]
+    fn authored_callable_nonmaterial_constructors_prepare_before_raw_resolution() {
+        for header in ["pure keep(payload: Int) -> Int", "proc keep(payload: Int) [] -> Int"] {
+            let source = format!("{header} {{ let _ = {{items: map.empty(), payload}}; payload }}\n");
+            with_checked_local_source(&source, |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "keep").unwrap();
+                let scheme = declaration.scheme.as_ref().unwrap();
+                assert_eq!(scheme.params()[0].ty, crate::sema::schemes::SchemeType::Ground(Type::Int));
+                assert_eq!(scheme.return_type(), &crate::sema::schemes::SchemeType::Ground(Type::Int));
+                assert!(output.expr_types.values().all(|ty| !ty.contains_inference() && !ty.contains_recovery()));
+            });
+        }
+    }
+
+    #[test]
+    fn authored_callable_captures_keep_the_source_order_boundary() {
+        for header in ["pure keep() -> Int", "proc keep() [] -> Int"] {
+            for early in [true, false] {
+                let result = if header.starts_with("proc") { "return result" } else { "result" };
+                let function = format!("{header} {{ let _ = {{items: map.empty()}}; let result: Int = prefix; {result} }}\n");
+                let source = if early { format!("let prefix = 7\n{function}") } else { format!("{function}let prefix = 7\n") };
+                with_checked_local_source(&source, |output| {
+                    if early {
+                        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                        assert!(output.checked_declarations.functions.values().find(|declaration| declaration.name == "keep").unwrap().scheme.is_some());
+                    } else {
+                        assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)), "{:?}", output.diagnostics);
+                    }
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn authored_callable_recursive_effect_failure_keeps_publication_atomic() {
+        for forbidden in [false, true] {
+            let bound = if forbidden { "[]" } else { "[env]" };
+            let source = format!("proc left(count: Int) {bound} -> Int {{ let _ = {{items: map.empty()}}; if count == 0 {{ 0 }} else {{ right(count - 1) }} }}\nproc right(count: Int) [env] -> Int {{ let _ = env.get(\"XSH_AUTHORED_COMPONENT\"); if count == 0 {{ 0 }} else {{ left(count - 1) }} }}\n");
+            with_checked_local_source(&source, |output| {
+                let peers = output.checked_declarations.functions.values().filter(|declaration| declaration.name == "left" || declaration.name == "right").collect::<Vec<_>>();
+                assert_eq!(peers.len(), 2);
+                if forbidden {
+                    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", output.diagnostics);
+                    assert!(peers.iter().all(|declaration| declaration.scheme.is_none() && declaration.scheme_body_facts.is_none()));
+                    assert!(output.call_instantiations.is_empty());
+                } else {
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    assert!(peers.iter().all(|declaration| declaration.scheme.is_some()));
+                }
+            });
+        }
+    }
+
+    #[test]
     fn nested_aggregate_heterogeneous_literals_preserve_dynamic_item_domain() {
         with_checked_local_source(
             "pure sample() -> Int { var state = {items: [\"first\", /first]}; state = {items: [/second, \"second\"]}; 7 }",
