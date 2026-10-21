@@ -184,9 +184,11 @@ and the scoped per-call effect proof. All seven carrier/forgery controls and
 all 66 verifier-effect controls pass on that assembly, with no failures or
 ignores. The slice is integrated into the campaign branch; master is unchanged.
 These targeted passes do not qualify the combined regression boundary.
-The four host-adapter controls have two passes and two failures: dispatch
-across programs and open-declaration rejection pass, but specialized-input
-validation and cache separation across programs remain broken.
+A later isolated host candidate passes all nine focused controls, including
+specialized inputs and cache separation. Further discriminators reproduce
+acceptance of a wrong Module export signature and a wrong Stream item type.
+The Module repair passes its exact control. Stream validation remains open;
+its proof must preserve lazy pull and cleanup timing.
 
 The recursive-component prototype passes its staged publication and mutation
 controls, including the reproduced late-effect failure. Its matching products
@@ -208,11 +210,23 @@ The four generic-payload discriminators have one pass and three failures.
 The repair must validate the actual fresh holes without demanding that an
 unrelated generic field become ground, while rejecting unconstrained holes.
 Explicit `List[Any]` and genuinely heterogeneous literals remain dynamic.
-Two missing native witnesses are integrated at `6397a90cf`, covering compatible
-mutable-callable reassignment and a named constant inside a generic body.
-Both remain unrun. Four reproduced core-compatibility causes have focused
-passes. The remaining `expr`, `btop` and prepared-record boundaries still need
-combined behavior qualification. No verifier work bound is raised.
+The native witnesses integrated at `6397a90cf` both reproduce real failures.
+Prepared-constant repair `85d6f607a` is now integrated through `6fd59da4b`.
+Its 89-test checker/runtime group and four imported-read/nominal controls pass.
+The final payload and type forgery control passes, and matching verification
+products pass the unchanged native constant witness. Prepared expressions keep
+their ordinary leaf semantics and a separate authenticated data-work budget.
+The ordinary generic proof bound is unchanged. Mutable-callable reassignment
+still fails unresolved-call checking and has its own implementation lane.
+
+The reviewed producer repair passes all 74 verifier-effect controls, including
+both original 128-use bounds, without exclusions or raised limits.
+It obtains statement ancestry during the existing ownership walk and retains
+the original resolver for owners with expression-region bindings.
+Matching products are building; the original 27 native failures remain pending.
+Stream checkpoint `49ec18214` passes ten of eleven focused controls, including
+staged callback effects and rollback. Checked command-body proof remains red.
+These isolated results do not qualify the combined regression boundary.
 Work-counter repair `ab26826b9` passes nine focused controls and a non-test
 check. It counts discarded diagnostics and nested retained type nodes.
 Independent review finds no blocker in that checkpoint. Merged adaptation must
