@@ -40,6 +40,15 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Current focused source `9f66593f3` passes 676 merged controls, with zero failures
+or ignores. Its NonEmpty repair has eleven focused passes and independent
+approval. Fresh literals require actual members; splices require independent
+NonEmpty evidence. Comprehensions retain that validation only from their
+actual source through the canonical single, unfiltered mapping rule. Empty,
+wrong-member and ordinary-list source mutations are rejected. Matching
+verification products are building for a fresh corpus replay; no full baseline
+or corpus acceptance follows yet.
+
 Source `4e0863e6c` combines the reviewed assignment and producer repairs for
 fresh merged qualification. Assignment source `6591e9ab7` passes 21 focused
 controls before integration. Its merged boundary has 609 passes and 24 failures:
