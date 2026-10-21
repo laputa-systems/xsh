@@ -538,6 +538,44 @@ mod tests {
     }
 
     #[test]
+    fn authored_plain_returns_do_not_gain_unchecked_failure_permission() {
+        for header in ["pure answer() -> Int", "proc answer() [] -> Int", "proc answer() [fs] -> Int"] {
+            let source = format!("pure helper() -> Result[Int] {{ Ok(7) }}\n{header} {{ helper()? }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{header}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTryContext)), "{header}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn authored_proc_plain_payload_keeps_inferred_failure_flow() {
+        for effects in ["[error]", ""] {
+            let source = format!("pure helper() -> Result[Int] {{ Ok(7) }}\nproc answer() {effects} -> Int {{ helper()? }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{effects}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{effects}: {:?}", checked.diagnostics);
+            let answer = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "answer").unwrap();
+            assert_eq!(answer.scheme.as_ref().unwrap().return_type().closed_ground_type(), Some(Type::Int));
+        }
+    }
+
+    #[test]
+    fn authored_proc_filesystem_payloads_keep_inferred_failure_flow() {
+        for effects in ["[fs, error]", ""] {
+            let source = format!(
+                "proc backup_path(target: Path) {effects} -> Path {{ for entry in fs.children(target.parent())? {{ let _ = entry.path }}; target }}\nproc inside(source: Path, target: Path) {effects} -> Bool {{ let info = fs.stat(source, follow_symlinks: true)?; let absolute = target.resolve()?; let _ = info; absolute == source }}\n"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{effects}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{effects}: {:?}", checked.diagnostics);
+            assert!(checked.checked_declarations.functions.values().all(|declaration| declaration.scheme.is_some()));
+        }
+    }
+
+    #[test]
     fn omitted_proc_return_with_authored_parameters_prepares_unit_constructor_roles() {
         let source = concat!(
             "proc discard(payload: Int) [] { let _ = {items: map.empty(), payload} }\n",
