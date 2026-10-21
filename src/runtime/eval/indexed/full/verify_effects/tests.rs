@@ -48,6 +48,242 @@ fn without_effect(program: &FullProgram, owner: usize, effect: Effect) -> FullPr
     forged
 }
 
+
+
+#[test]
+fn checked_collectors_prove_record_writers() {
+    let program = fixture(r#"
+type Row = {value: Int}
+pure gather(items: List[Int]) -> List[Row] {
+    let result: List[Row] = collect {
+        for item in items { yield {value: item} }
+    }
+    result
+}
+pure gather_or_stop(items: List[Int]) -> Result[List[Row], Str] {
+    let result: List[Row] = collect {
+        for item in items {
+            if item < 0 { return Err("stop") }
+            yield {value: item}
+        }
+    }
+    Ok(result)
+}
+assert gather([1, 2]) == [{value: 1}, {value: 2}]
+assert gather([]) == []
+assert gather_or_stop([1, 2])? == [{value: 1}, {value: 2}]
+assert gather_or_stop([1, -1, 2]) == Err("stop")
+"#);
+    execute_both(&program);
+    let owner = function(&program, "gather_or_stop");
+    let payload = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+    let integer = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+    let mut malformed = program.clone();
+    malformed.store.tags[payload] = FullTag::ExprInt;
+    malformed.store.data[payload] = program.store.data[integer];
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+}
+
+
+#[test]
+fn checked_collectors_preserve_empty_outputs() {
+    let program = fixture(r#"
+type Row = {value: Int}
+pure empty() -> List[Row] {
+    let result: List[Row] = collect {}
+    result
+}
+assert empty() == []
+"#);
+    execute_both(&program);
+    let owner = function(&program, "empty");
+    let decoder = function_view_decoder(&program.store, owner);
+    let (gate, checked) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+        Ok(schema::ExprView::CheckedValue { check, value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprValueBlock => Some((instruction, check.ty.id)),
+        _ => None,
+    }).unwrap();
+    let Type::List(item) = program.store.semantic.to_type(checked).unwrap() else { panic!("list gate") };
+    let mut malformed = program.clone();
+    malformed.store.checked_expr_types.retain(|fact| fact.is_contract());
+    let nonempty = SemanticPoolBuilder::default().intern_type(&mut malformed.store.semantic, &Type::non_empty(*item)).unwrap();
+    let word = program.store.data[gate].range().start as usize + 1;
+    assert_eq!(program.store.extra[word], checked.raw());
+    malformed.store.extra[word] = nonempty.raw();
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check, .. } if check.ty.id == nonempty));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("checked value input has no producer contract"), "{error:?}");
+}
+
+#[test]
+fn checked_collectors_preserve_heterogeneous_record_shapes() {
+    let program = fixture(r#"
+pure varied() -> List[Record] {
+    let result: List[Record] = collect {
+        yield {number: 1}
+        yield {text: "two"}
+    }
+    result
+}
+assert varied().len() == 2
+"#);
+    execute_both(&program);
+}
+
+#[test]
+fn checked_collectors_preserve_unsigned_runtime_boundary() {
+    let source = r#"
+pure unsigned(value: Int) -> List[UInt] {
+    let result: List[UInt] = collect { yield value }
+    result
+}
+"#;
+    execute_both(&fixture(&format!("{source}\nassert unsigned(7)[0] == 7\n")));
+    let failed = Arc::new(fixture(&format!("{source}\nlet failed = unsigned(-1)\n")));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*failed.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&failed));
+        evaluator.force_frames = force_frames;
+        let error = (0..failed.driver_step_count().unwrap()).find_map(|step| evaluator.eval_indexed_driver_step(step, Span::new(failed.store.source_id, 0, 0)).unwrap().err()).unwrap();
+        assert_eq!(error.kind, "type-error");
+        assert!(error.message.contains("UInt constraint"), "{error:?}");
+    }
+}
+
+#[test]
+fn checked_collectors_authenticate_writes_and_capture_roots() {
+    let program = fixture(r#"
+type Row = {value: Int, flag: Bool}
+var shared: List[Bool] = [false]
+pure gather(items: List[Int], flag: Bool) -> List[Row] {
+    if shared.len() != 1 { return [] }
+    let result: List[Row] = collect {
+        for item in items { yield {value: item, flag: flag} }
+    }
+    result
+}
+assert gather([7], true)[0].value == 7
+"#);
+    execute_both(&program);
+    let owner = function(&program, "gather");
+    let decoder = function_view_decoder(&program.store, owner);
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let input = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+        Ok(schema::ExprView::CheckedValue { value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprValueBlock => Some(value.raw() as usize),
+        _ => None,
+    }).unwrap();
+    let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(input).unwrap() else { unreachable!() };
+    assert_eq!(body.len(), 3);
+    let declaration = body.next().unwrap().unwrap().raw() as usize;
+    let schema::StmtView::Let { slot: accumulator, .. } = decoder.statement_view(declaration).unwrap() else { panic!("fresh accumulator") };
+    body.next().unwrap().unwrap();
+    let schema::StmtView::Value { value: result } = decoder.statement_view(body.next().unwrap().unwrap().raw() as usize).unwrap() else { panic!("accumulator result") };
+    let result = result.raw() as usize;
+    assert!(matches!(decoder.expression_view(result).unwrap(), schema::ExprView::Param(slot) if slot == accumulator));
+    let capture = program.store.captures[program.store.functions[owner].captures.bounds(program.store.captures.len()).unwrap()].iter()
+        .find(|capture| program.store.string(capture.name).unwrap() == "shared").unwrap();
+    assert_ne!(capture.slot_and_flags & (1 << 31), 0);
+    let capture_slot = (capture.slot_and_flags & !(1 << 31)) as usize;
+    assert_ne!(capture_slot, accumulator);
+    assert_ne!(capture.binding_identity, IR_NONE);
+    let mut malformed = program.clone();
+    malformed.store.extra[program.store.data[result].range().start as usize] = capture_slot as u32;
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(result).unwrap(), schema::ExprView::Param(slot) if slot == capture_slot));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("checked value input disagrees with its contract"), "{error:?}");
+    let writer = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Assign { slot, op: AssignOp::Add, .. }) if slot == accumulator)).unwrap();
+    let mut malformed = program.clone();
+    let set = malformed.store.assign_ops.len() as u32;
+    malformed.store.assign_ops.push(AssignOp::Set);
+    malformed.store.extra[program.store.data[writer].range().start as usize + 1] = set;
+    assert!(matches!(function_view_decoder(&malformed.store, owner).statement_view(writer).unwrap(), schema::StmtView::Assign { op: AssignOp::Set, .. }));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("checked value input has no producer contract"), "{error:?}");
+    let flag = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+    let yielded = range.clone().find_map(|instruction| {
+        let Ok(schema::ExprView::Record(mut fields)) = decoder.expression_view(instruction) else { return None };
+        let super::super::decode::RecordEntryView::Field(_, value) = fields.next()?.ok()? else { return None };
+        Some(value.raw() as usize)
+    }).unwrap();
+    let mut malformed = program.clone();
+    malformed.store.data[yielded] = program.store.data[flag];
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(yielded).unwrap(), schema::ExprView::Param(1)));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("contract"), "{error:?}");
+}
+
+
+#[test]
+fn checked_collectors_keep_nested_writer_proofs_bounded() {
+    for (writers, depth) in [(16, 4), (32, 8), (64, 16), (128, 32)] {
+        let mut body = "if flag {\n".repeat(depth);
+        for value in 0..writers { body.push_str(&format!("yield {{value: {value}}}\n")); }
+        body.push_str(&"}\n".repeat(depth));
+        let source = format!("type Row = {{value: Int}}\npure alternate() -> Bool {{ false }}\npure gather(flag: Bool) -> List[Row] {{ let result: List[Row] = collect {{\n{body}}}\nresult\n}}\nassert gather(true).len() == {writers}\nassert gather(false) == []\n");
+        let program = fixture(&source);
+        execute_both(&program);
+        let owner = function(&program, "gather");
+        let range = program.store.function_instruction_range(owner).unwrap();
+        assert!(range.clone().filter(|&instruction| matches!(program.store.tags[instruction], FullTag::StmtIf | FullTag::StmtIfBool)).count() >= depth);
+        let scalar = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let boolean = program.store.function_instruction_range(function(&program, "alternate")).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        let mut malformed = program.clone();
+        malformed.store.tags[scalar] = FullTag::ExprBool;
+        malformed.store.data[scalar] = program.store.data[boolean];
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("contract"), "{error:?}");
+    }
+}
+
+#[test]
+fn checked_collectors_preserve_lexical_shadow_boundaries() {
+    let program = fixture(r#"
+type Row = {value: Int}
+pure gather(value: Int) -> List[Row] {
+    let result: List[Row] = collect {
+        yield {value: value}
+        if value > 0 {
+            let value = value + 1
+            yield {value: value}
+        }
+        for value in [value] { yield {value: value} }
+        yield {value: value}
+    }
+    result
+}
+assert gather(3) == [{value: 3}, {value: 4}, {value: 3}, {value: 3}]
+"#);
+    execute_both(&program);
+    let owner = function(&program, "gather");
+    let decoder = function_view_decoder(&program.store, owner);
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let local = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+        Ok(schema::StmtView::LetInt { slot, .. }) => Some(slot),
+        _ => None,
+    }).unwrap();
+    let before = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+    let mut malformed = program.clone();
+    malformed.store.extra[program.store.data[before].range().start as usize] = local as u32;
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(before).unwrap(), schema::ExprView::Param(slot) if slot == local));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("visible lexical declaration"), "{error:?}");
+    let (loop_slot, iter) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+        Ok(schema::StmtView::For { slot, iter, .. }) => Some((slot, iter.raw() as usize)),
+        _ => None,
+    }).unwrap();
+    let schema::ExprView::List(mut items) = decoder.expression_view(iter).unwrap() else { panic!("literal loop input") };
+    assert_eq!(items.len(), 1);
+    let before_loop = items.next().unwrap().unwrap().raw() as usize;
+    assert!(matches!(decoder.expression_view(before_loop).unwrap(), schema::ExprView::Param(0)));
+    let mut malformed = program.clone();
+    malformed.store.extra[program.store.data[before_loop].range().start as usize] = loop_slot as u32;
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(before_loop).unwrap(), schema::ExprView::Param(slot) if slot == loop_slot));
+    let error = FullVerifier::verify(&malformed).unwrap_err();
+    assert!(error.message.contains("visible lexical declaration") || error.message.contains("active lexical slot"), "{error:?}");
+}
+
 #[test]
 fn checked_comprehensions_preserve_nonempty_mapping() {
     let program = fixture(r#"

@@ -40351,6 +40351,22 @@ test test_scoped_callable_alias {
                 program.store.string(function.name).unwrap() == "test_scoped_callable_alias"
             })
             .expect("scoped test function exists");
+        let decoder = function_view_decoder(&program.store, scoped_test);
+        let scope_input = program.store.function_instruction_range(scoped_test).unwrap().find_map(|instruction| {
+            match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::ContextScope { input, .. }) => Some(input.raw() as usize),
+                _ => None,
+            }
+        }).unwrap();
+        assert_eq!(program.store.tags[scope_input], FullTag::ExprDuration);
+        let integer = program.store.function_instruction_range(scoped_test).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let mut wrong_scope_input = program.clone();
+        wrong_scope_input.store.checked_expr_types.retain(|fact| fact.is_contract());
+        wrong_scope_input.store.tags[scope_input] = FullTag::ExprInt;
+        wrong_scope_input.store.data[scope_input] = program.store.data[integer];
+        let error = FullVerifier::verify(&wrong_scope_input).unwrap_err();
+        assert!(error.message.contains("scope") || error.message.contains("Duration"), "{error:?}");
         let alias_initializer = program
             .store
             .function_instruction_range(scoped_test)

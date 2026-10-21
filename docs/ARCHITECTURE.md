@@ -302,10 +302,19 @@ selected fields from the actual iterable item, including empty and unused target
 when the selected registered method returns exactly the gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.
+Checked storage authenticates a generated collect accumulator through its fresh
+scoped empty-list initializer, inner value block, and matching final slot read.
+Every writer must append an independently proved list inside that block; empty
+outputs use the vacuous empty-list rule. Runtime predicates remain at the checked
+gate, and the inner body's return and effect proofs remain mandatory.
 
 The producer census collects pattern and pipeline instructions during its
 mandatory instruction scan. Later scope registration visits those candidates
-under the same work bound. Guard queries borrow the exact owner census and visit
+under the same work bound. Writer census lookup reuses a completed inherited binding
+for an owner-local block and slot only after checking region overrides and earlier
+local declarations at the actual writer. Read and presence queries retain their
+uncached lexical lookup. This evidence contains no type or
+refinement. Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation
 and stopping once an overlapping writer is established. Selected native arguments,

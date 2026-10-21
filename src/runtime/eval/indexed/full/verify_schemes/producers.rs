@@ -54,6 +54,7 @@ struct ProducerOwner {
     statement_positions: BTreeMap<usize, (usize, usize)>,
     block_declarations: BTreeMap<(usize, usize), Vec<(usize, ProducerBinding)>>,
     lexical_slots: BTreeSet<usize>,
+    inherited_bindings: RefCell<BTreeMap<(usize, usize), Option<ProducerBinding>>>,
     #[cfg(test)]
     binding_work: Cell<(usize, usize, usize)>,
     #[cfg(test)]
@@ -281,16 +282,28 @@ impl ProducerOwner {
         self.visible_binding(store, owner, at, slot)?.ok_or_else(|| IrVerifyError::new("ground producer use has no visible lexical declaration"))
     }
 
-    fn visible_binding(&self, store: &FullStore, owner: u32, mut at: usize, slot: usize) -> Result<Option<ProducerBinding>, IrVerifyError> {
+    fn writer_binding(&self, store: &FullStore, owner: u32, at: usize, slot: usize) -> Result<ProducerBinding, IrVerifyError> {
+        self.resolve_binding(store, owner, at, slot, Some(&self.inherited_bindings))?
+            .ok_or_else(|| IrVerifyError::new("ground producer use has no visible lexical declaration"))
+    }
+
+    fn visible_binding(&self, store: &FullStore, owner: u32, at: usize, slot: usize) -> Result<Option<ProducerBinding>, IrVerifyError> {
+        self.resolve_binding(store, owner, at, slot, None)
+    }
+
+    fn resolve_binding(&self, store: &FullStore, owner: u32, mut at: usize, slot: usize,
+        inherited_bindings: Option<&RefCell<BTreeMap<(usize, usize), Option<ProducerBinding>>>>,
+    ) -> Result<Option<ProducerBinding>, IrVerifyError> {
         self.work.borrow_mut().charge(1)?;
         #[cfg(test)] { let (queries, parents, comparisons) = self.binding_work.get(); self.binding_work.set((queries + 1, parents, comparisons)); }
         if !self.lexical_slots.contains(&slot) { return self.header_binding(store, owner, slot); }
-        loop {
+        let mut inherited = Vec::new();
+        let binding = 'resolve: loop {
             let mut root = at;
             loop {
                 self.work.borrow_mut().charge(1)?;
                 #[cfg(test)] { let (queries, parents, comparisons) = self.binding_work.get(); self.binding_work.set((queries, parents + 1, comparisons)); }
-                if let Some(binding) = self.region_bindings.get(&(root, slot)) { return Ok(Some(*binding)); }
+                if let Some(binding) = self.region_bindings.get(&(root, slot)) { break 'resolve Some(*binding); }
                 if let Some((block, position)) = self.statement_positions.get(&root) {
                     if let Some(declarations) = self.block_declarations.get(&(*block, slot)) {
                         let (mut end, mut upper) = (0, declarations.len());
@@ -300,7 +313,19 @@ impl ProducerOwner {
                             let middle = end + (upper - end) / 2;
                             if declarations[middle].0 < *position { end = middle + 1; } else { upper = middle; }
                         }
-                        if let Some(previous) = end.checked_sub(1) { return Ok(Some(declarations[previous].1)); }
+                        if let Some(previous) = end.checked_sub(1) { break 'resolve Some(declarations[previous].1); }
+                    }
+                    let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
+                    if self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot)) {
+                        break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
+                    }
+                    if let Some(inherited_bindings) = inherited_bindings {
+                        self.work.borrow_mut().charge(1)?;
+                        if let Some(binding) = inherited_bindings.borrow().get(&(*block, slot)) {
+                            break 'resolve *binding;
+                        }
+                        self.work.borrow_mut().charge(1)?;
+                        inherited.push(*block);
                     }
                     break;
                 }
@@ -309,15 +334,19 @@ impl ProducerOwner {
                     None => break,
                 }
             }
-            let Some(parent) = self.parents[root - self.range.start] else { break };
+            let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
             if self.statement_positions.contains_key(&root)
                 && self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot))
             {
-                return Ok(Some(ProducerBinding::ScopedDeclaration(parent, slot)));
+                break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
             }
             at = parent;
+        };
+        for block in inherited {
+            self.work.borrow_mut().charge(1)?;
+            inherited_bindings.unwrap().borrow_mut().insert((block, slot), binding);
         }
-        self.header_binding(store, owner, slot)
+        Ok(binding)
     }
 
     fn header_binding(&self, store: &FullStore, owner: u32, slot: usize) -> Result<Option<ProducerBinding>, IrVerifyError> {
@@ -448,7 +477,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -689,7 +718,7 @@ impl GroundProducerIndex {
                     let binding = if owner.declarations.get(&instruction).is_some_and(|slots| slots.contains(&slot)) {
                         ProducerBinding::ScopedDeclaration(instruction, slot)
                     } else {
-                        owner.binding(decoder.store, decoder.owner, instruction, slot)?
+                        owner.writer_binding(decoder.store, decoder.owner, instruction, slot)?
                     };
                     owner.writers.entry(binding).or_default().push(instruction);
                 }
@@ -827,6 +856,7 @@ impl GroundProducerIndex {
                     + owner.following_declarations.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.region_bindings.len() * size_of::<((usize, usize), ProducerBinding)>()
                     + owner.lexical_slots.len() * size_of::<usize>()
+                    + owner.inherited_bindings.borrow().len() * size_of::<((usize, usize), Option<ProducerBinding>)>()
                     + owner.pattern_sources.len() * size_of::<(ProducerBinding, PatternProducer)>()
                     + owner.pattern_sources.values().map(|source| source.preceding.capacity() * size_of::<(u32, bool)>()).sum::<usize>()
                     + owner.comprehension_sources.len() * size_of::<(ProducerBinding, (usize, usize))>()
@@ -1448,6 +1478,98 @@ impl<'a> ProducerProof<'a> {
             self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
         }
         Ok(Some(candidate))
+    }
+
+    fn checked_list_accumulator(&mut self, decoder: &FullDecoder<'a>, instruction: usize, checked: &Arc<Type>, runtime_complete: bool) -> Result<bool, IrVerifyError> {
+        let Type::List(expected_item) = checked.as_ref() else { return Ok(false) };
+        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        if body.len() != 3 { return Ok(false); }
+        self.budget.charge(3)?;
+        let declaration = body.next().unwrap()?.raw() as usize;
+        let run = body.next().unwrap()?.raw() as usize;
+        let tail = body.next().unwrap()?.raw() as usize;
+        let schema::StmtView::Let { slot, value: empty, annotation: None, .. } = decoder.statement_view(declaration)? else { return Ok(false) };
+        if !decoder.is_empty_list_literal_expression(empty.raw() as usize)? { return Ok(false); }
+        let schema::StmtView::Expr { value: inner, .. } = decoder.statement_view(run)? else { return Ok(false) };
+        if self.store.tags[inner.raw() as usize] != FullTag::ExprValueBlock { return Ok(false); }
+        let schema::StmtView::Value { value: result } = decoder.statement_view(tail)? else { return Ok(false) };
+        if !matches!(decoder.expression_view(result.raw() as usize)?, schema::ExprView::Param(actual) if actual == slot) { return Ok(false); }
+        let binding = self.binding(decoder.owner, result.raw() as usize, slot)?;
+        if binding != ProducerBinding::ScopedDeclaration(declaration, slot) { return Ok(false); }
+        let Some(writers) = self.index.owners[&decoder.owner].writers.get(&binding) else { return Ok(false) };
+        if self.index.owners[&decoder.owner].storage_bindings.contains_key(&binding) { return Ok(false); }
+        let mut initialized = false;
+        let mut remaining_writers = BTreeSet::new();
+        for &writer in writers {
+            if writer != declaration {
+                self.budget.charge(1)?;
+                if !remaining_writers.insert(writer) { return Err(IrVerifyError::new("list accumulator has duplicate writers")); }
+            }
+        }
+        let owner = &self.index.owners[&decoder.owner];
+        let mut pending = Vec::new();
+        if !remaining_writers.is_empty() {
+            self.budget.charge(1)?;
+            pending.push(inner.raw() as usize);
+        }
+        while let Some(instruction) = pending.pop() {
+            self.budget.charge(1)?;
+            if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt {
+                self.budget.charge(1)?;
+                remaining_writers.remove(&instruction);
+            }
+            if remaining_writers.is_empty() { break; }
+            let mut child = owner.children[instruction - owner.range.start];
+            while child != IR_NONE {
+                self.budget.charge(1)?;
+                if self.store.tags[child as usize].kind() == schema::InstructionKind::Stmt
+                    || owner.children[child as usize - owner.range.start] != IR_NONE
+                {
+                    pending.push(child as usize);
+                }
+                child = owner.siblings[child as usize - owner.range.start];
+            }
+        }
+        if !remaining_writers.is_empty() { return Ok(false); }
+        for &writer in writers {
+            self.budget.charge(1)?;
+            if writer == declaration {
+                if initialized { return Err(IrVerifyError::new("list accumulator has duplicate initialization")); }
+                initialized = true;
+                continue;
+            }
+            let schema::StmtView::Assign { slot: written, op: super::super::AssignOp::Add, value, check: None, .. } = decoder.statement_view(writer)? else { return Ok(false) };
+            if written != slot { return Ok(false); }
+            let value = value.raw() as usize;
+            if decoder.is_empty_list_literal_expression(value)? {
+                self.expression(decoder.owner, value, Arc::clone(checked), false);
+                continue;
+            }
+            let Some(actual) = self.declared_type(decoder, value)? else { return Ok(false) };
+            let Type::List(item) = actual.unvalidated() else { return Ok(false) };
+            let fits = if runtime_complete {
+                self.checked_record_field_fits(decoder, value, item, expected_item)?
+            } else {
+                decoder.checked_type_fits(item, expected_item)
+                    && super::initializer_type_matches_annotation(item, expected_item, &mut self.budget, 0)?
+            };
+            if !fits { return Err(IrVerifyError::new("list accumulator append disagrees with its checked item contract")); }
+            self.expression(decoder.owner, value, actual, false);
+        }
+        if !initialized { return Ok(false); }
+        self.expression(decoder.owner, empty.raw() as usize, Arc::clone(checked), false);
+        let inner_type = match self.declared_type(decoder, inner.raw() as usize)? {
+            Some(actual) => actual,
+            None => {
+                let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(inner.raw() as usize)? else { unreachable!() };
+                match decoder.checked_value_block_result(&mut body)? {
+                    super::super::CheckedValueBlockResult::Unit | super::super::CheckedValueBlockResult::DoesNotComplete => Arc::new(Type::Unit),
+                    super::super::CheckedValueBlockResult::Tail(_) => return Ok(false),
+                }
+            }
+        };
+        self.expression(decoder.owner, inner.raw() as usize, inner_type, false);
+        Ok(true)
     }
 
     fn derive_unannotated_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
@@ -2287,6 +2409,13 @@ impl<'a> ProducerProof<'a> {
                         None => return Err(IrVerifyError::new("context Stream producer completes without a value tail")),
                     }
                 }
+                schema::ExprView::ContextScope { mut body, .. } => {
+                    if path.last() == Some(&FunctionProjection::ResultPayload(false)) { continue; }
+                    if path.last() == Some(&FunctionProjection::ResultPayload(true)) { path.pop(); }
+                    let actual = self.need_context(&decoder, instruction)?.ok_or_else(|| IrVerifyError::new("callable context scope has no producer contract"))?;
+                    self.expression(owner, instruction, actual, false);
+                    pending.push((owner, CallableProducer::Expression(decoder.checked_block_tail_expression(&mut body)?), path));
+                }
                 schema::ExprView::ValueBlock { mut body, .. } => pending.push((owner, CallableProducer::Expression(decoder.checked_block_tail_expression(&mut body)?), path)),
                 schema::ExprView::IfExpr { mut branches, else_value, .. } => {
                     for branch in &mut branches { pending.push((owner, CallableProducer::Expression(branch?.1.raw() as usize), path.clone())); }
@@ -2867,15 +2996,7 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge_clone(payload)?;
                 self.verify_block_value(&decoder, body, Arc::new((**payload).clone()), false)
             }
-            schema::ExprView::ValueBlock { mut body, .. } => {
-                if decoder.checked_branch_value_instruction(instruction)?.is_none() {
-                    self.function(function_index(owner)?);
-                    return Ok(());
-                }
-                let value = decoder.checked_block_tail_expression(&mut body)?;
-                self.expression(owner, value, expected, returned);
-                Ok(())
-            }
+            schema::ExprView::ValueBlock { body, .. } => self.verify_block_value(&decoder, body, expected, returned),
             schema::ExprView::IfExpr { mut branches, else_value, .. } => {
                 for branch in &mut branches {
                     let (condition, value) = branch?;
@@ -2981,7 +3102,9 @@ impl<'a> ProducerProof<'a> {
                 let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
                 if check.schema.is_none() {
                     let input = value.raw() as usize;
-                    if !self.checked_record_arguments(&decoder, input, &checked)? {
+                    if !self.checked_record_arguments(&decoder, input, &checked)?
+                        && !self.checked_list_accumulator(&decoder, input, &checked, runtime_complete)?
+                    {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
                             && self.checked_fresh_list_method_receiver(&decoder, input, &checked)?.is_some();
                         if fresh_set || matches!((self.store.tags[input], checked.as_ref()),
