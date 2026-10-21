@@ -3291,6 +3291,59 @@ assert descend(stored_error, 2) == Ok(stored_error)
 }
 
 
+fn assert_recursive_proc_return_expression_runtime(completion: &'static str, formal_completion: &'static str) {
+    on_large_stack(move || {
+        let source = format!(r#"
+pure scalar(value: Int) -> Int {{ value }}
+pure text(value: Str) -> Str {{ value }}
+pure outcome(value: Int) -> Result[Int] {{ Ok(value) }}
+proc contextual(flag: Bool) [] -> Result[List[Int]] {{ return if flag {{ [] }} else {{ [7] }} }}
+let empty: List[Int] = []
+assert contextual(true) == Ok(empty)
+assert contextual(false) == Ok([7])
+proc left(action, value, count: Int) {{ return {completion} }}
+proc right(action, value, count: Int) {{ left(action, value, count) }}
+assert left(scalar, 7, 0) == Ok(7)
+assert left(scalar, 7, 2) == Ok(7)
+assert right(text, "kept", 0) == Ok("kept")
+assert right(text, "kept", 2) == Ok("kept")
+assert left(outcome, 8, 0) == Ok(8)
+assert left(outcome, 8, 2) == Ok(8)
+proc descend(value, count: Int) {{ return {formal_completion} }}
+let stored_ok: Result[Int, Str] = Ok(9)
+let stored_error: Result[Int, Str] = Err("stored")
+assert descend(stored_ok, 0) == Ok(stored_ok)
+assert descend(stored_ok, 2) == Ok(stored_ok)
+assert descend(stored_error, 0) == Ok(stored_error)
+assert descend(stored_error, 2) == Ok(stored_error)
+"#);
+        let program = fixture(&source);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let mut missing = program.clone();
+        assert!(!missing.store.scheme_application_returns.is_empty());
+        missing.store.scheme_application_returns.clear();
+        assert!(FullVerifier::verify(&missing).is_err());
+    });
+}
+
+#[test]
+fn recursive_proc_return_if_keeps_callback_envelopes_at_runtime() {
+    assert_recursive_proc_return_expression_runtime(
+        "if count == 0 { action(value) } else { right(action, value, count - 1) }",
+        "if count == 0 { value } else { descend(value, count - 1) }",
+    );
+}
+
+#[test]
+fn recursive_proc_return_match_keeps_callback_envelopes_at_runtime() {
+    assert_recursive_proc_return_expression_runtime(
+        "match count { 0 => action(value); _ => right(action, value, count - 1) }",
+        "match count { 0 => value; _ => descend(value, count - 1) }",
+    );
+}
+
+
 #[test]
 fn recursive_proc_completion_keeps_discarded_constructor_roles() {
     on_large_stack(|| {

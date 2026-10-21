@@ -454,10 +454,15 @@ contract and its actual target writers.
 Proc application returns retain their actual owner, return instruction,
 application ordinal, and return-envelope ordinal. The body verifier traces the
 actual immutable producers and all completing branch values before accepting
-that descriptor. Terminal Proc statement `if` and `match` arms retain separate
-raw completions. The checker normalizes those completions after collecting the
-body's propagated errors. Lowering emits one return per arm with its authenticated
-envelope. Branches used as values keep their raw type join. A shared descriptor must
+that descriptor. During Proc return inference, terminal statement `if` and `match`
+arms and structured `return if` and `return match` arms retain separate raw
+completions. Their control nodes have no material type; conditions, guards, and
+value leaves retain their checked facts. The checker normalizes those completions
+after collecting the body's propagated errors. Lowering emits one return per arm
+with its authenticated envelope. When a structured return has no material control
+fact, resource transfer requires the checked facts of every completing value leaf.
+Missing leaf evidence blocks publication. Values checked against settled return types retain their contextual
+facts, schemas, and ordinary joins. Branches used as values keep their raw type join. A shared descriptor must
 prove the same raw result and normalized return contract across those branches;
 its representative is the minimum actual application ordinal.
 Invocation bindings project the result's outer constructor from the same checked
