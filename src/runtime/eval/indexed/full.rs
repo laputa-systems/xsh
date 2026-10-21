@@ -23819,6 +23819,59 @@ assert apply(40) == 42
     }
 
     #[test]
+    fn mutable_generic_callable_writers_keep_their_actual_instances() {
+        run_with_large_stack(|| {
+            let program = fixture(
+                "mutable-generic-callable-reference.xsh",
+                "pure identity(value) { value }\npure exercise() -> Int { var operation = identity; let first: Int = operation(41); operation = identity; first + operation(42) }\n",
+            );
+            FullVerifier::verify(&program).unwrap();
+            let exercise = scheme_fixture_root_function(&program, "exercise");
+            let identity = scheme_fixture_root_function(&program, "identity");
+            let range = program.store.function_instruction_range(exercise).unwrap();
+            let references = program
+                .store
+                .checked_call_targets
+                .iter()
+                .enumerate()
+                .filter(|(_, target)| {
+                    target.function.index() == identity
+                        && range.contains(&(target.instruction as usize))
+                        && program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef
+                })
+                .map(|(_, target)| *target)
+                .collect::<Vec<_>>();
+            assert_eq!(references.len(), 2);
+            for target in references {
+                let instantiation = program
+                    .store
+                    .call_instantiations
+                    .binary_search_by_key(&target.instruction, |instance| instance.instruction)
+                    .unwrap();
+                let type_arguments = program.store.call_instantiations[instantiation]
+                    .type_arguments
+                    .bounds(program.store.call_type_arguments.len())
+                    .unwrap();
+                assert_eq!(type_arguments.len(), 1);
+                let scheme_type = program.store.call_type_arguments[type_arguments.start].ty;
+                let node = program.store.scheme_types[scheme_type.index()];
+                assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+                let mut wrong_instance = program.clone();
+                let string_type = SemanticPoolBuilder::default()
+                    .intern_type(&mut wrong_instance.store.semantic, &Type::Str)
+                    .unwrap();
+                wrong_instance.store.scheme_types[scheme_type.index()].first = string_type.raw();
+                let error = FullVerifier::verify(&wrong_instance).unwrap_err();
+                assert!(
+                    error.message.contains("callable reference disagrees with its actual scheme instance"),
+                    "{}",
+                    error.message
+                );
+            }
+        });
+    }
+
+    #[test]
     fn prepared_callable_references_preserve_kind_and_nested_effects() {
         run_with_large_stack(|| {
             let program = fixture("prepared-callable-nested-effects.xsh", concat!(
@@ -33795,6 +33848,39 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 }
             }
         });
+    }
+
+    #[test]
+    fn mutable_callable_reassignment_executes_after_frontend_drop_on_both_routes() {
+        for (path, source, expected) in [
+            (
+                "mutable-callable-reassignment.xsh",
+                "pure increment(value: Int) -> Int { value + 1 }\npure decrement(value: Int) -> Int { value - 1 }\npure exercise() -> Int { var operation = increment; let first = operation(41); operation = decrement; let second = operation(43); first + second }\n",
+                Value::Int(84),
+            ),
+            (
+                "mutable-generic-callable-reassignment.xsh",
+                "pure identity(value) { value }\npure exercise() -> Int { var operation = identity; let first: Int = operation(41); operation = identity; first + operation(42) }\n",
+                Value::Int(83),
+            ),
+        ] {
+            let program = Arc::new(fixture(path, source));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "exercise")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("exercise is present in the indexed program");
+                assert_eq!(result.unwrap(), expected);
+            }
+        }
     }
 
     #[test]

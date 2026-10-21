@@ -168,9 +168,9 @@ test test_full_inference_mutable_callable_binding_keeps_one_instance { |ctx|
     ctx,
     r"""pure identity(value) { value }
 var current = identity
-let integer = current(42)
+let integer: Int = current(42)
 current = identity
-let text = current("demo")
+let text: Str = current("demo")
 """,
     status: 2,
     stderr: ["[check.type-mismatch]"],
@@ -186,8 +186,25 @@ var operation = increment
 let incremented = operation(41)
 operation = decrement
 let decremented = operation(43)
+proc read_environment(value: Int) [env] -> Int {
+  let _ = env.get("XSH_MUTABLE_CALLABLE")
+  value
+}
+proc read_environment_again(value: Int) [env] -> Int {
+  let _ = env.get("XSH_MUTABLE_CALLABLE")
+  value
+}
+proc exercise_environment(value: Int) [env, error] -> Int {
+  var operation = read_environment
+  let first = operation(value)?
+  operation = read_environment_again
+  let second = operation(value)?
+  first + second
+}
+let proc_total = exercise_environment(21)?
 assert incremented == 42
 assert decremented == 42
+assert proc_total == 42
 print $incremented
 print $decremented
 """,

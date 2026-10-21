@@ -1775,9 +1775,12 @@ print $absolute $escaping $text $glued $above $plain $widened
 ### 5.1 Inference and annotations
 
 Inference is local and predictable. A `let` or `var` without an annotation
-takes its initializer's type. An annotation supplies the expected type, and the
-initializer must fit it. Annotations never convert or validate data: they only
-state what the checker must prove. A pure function may infer required parameter
+takes its initializer's type. An unannotated `var` initialized from a
+statically resolved pure or proc function, local or exported, keeps one
+inferred callable instance, which later assignments must fit. An annotation supplies
+the expected type, and the initializer must fit it. Annotations never convert
+or validate data: they only state what the checker must prove. A pure function
+may infer required parameter
 types from its own body. The checker fixes its signature at the declaration;
 each direct call instantiates a quantified signature independently. One call
 never changes the declaration or another call's instance.
@@ -4089,12 +4092,26 @@ assert text == "demo"
 An alias to a quantified pure function can be a direct call target. This includes
 an unannotated immutable alias to a known module export, such as
 `let identity = utilities.identity`. Each call instantiates the function's
-scheme independently. It cannot be stored where a
-first-class callable type is required (`check.callable-mismatch`).
+scheme independently. The immutable alias remains quantified and cannot itself
+be stored as a polymorphic first-class callable value. When a function or
+immutable alias is assigned to a concrete callable type, the checker selects
+one instance that fits the target. For example, two targets can select
+independent instances of `identity`:
 
-A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
-a dynamic callable instead. An exported alias must still state its own return
-and effect contract.
+```xsh
+let integer_identity: pure(value: Int) -> Int = identity
+let text_identity: pure(value: Str) -> Str = identity
+```
+
+An unannotated mutable binding selects one pure or proc instance as described
+below.
+
+An unannotated `var` initialized from a statically resolved pure or proc
+function, local or exported, keeps one inferred callable instance, and later
+assignments must fit its signature. A conditional selection or an explicit
+`Pure`/`Proc` annotation gives a dynamic callable instead. Stream producers
+retain their separate lazy alias behavior (9.5). An exported alias must still
+state its own return and effect contract.
 
 A callable type gives a value that is chosen at run time the same checked
 call. `proc(PARAMS) [EFFECTS] -> T` and `pure(PARAMS) -> T` are type
