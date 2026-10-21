@@ -13,7 +13,7 @@ pub(super) type MatchExprPosition =
     ListPosition<(BuildPatternId, Option<BuildExprId>, BuildExprId)>;
 pub(super) type RecordUpdatePosition = ListPosition<(Vec<Name>, BuildExprId, Span)>;
 
-pub(super) fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
+pub(in crate::runtime::eval) fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
     RuntimeError::new(
         "indexed-ir",
         format!("indexed IR verification failed: {}", error.message),

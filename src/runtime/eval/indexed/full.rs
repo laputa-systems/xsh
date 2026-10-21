@@ -1220,14 +1220,14 @@ enum PreparedTypeConstructor { Result, Other }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::runtime::eval) struct PreparedInvocationBindings {
-    types: Arc<[PreparedTypeConstructor]>,
+    substitution: Arc<verify_schemes::CallSubstitution>,
     layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
 }
 
 impl PreparedInvocationBindings {
-    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() && self.types.is_empty() }
+    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() && self.substitution.types.is_empty() && self.substitution.rows.is_empty() && self.substitution.effects.is_empty() }
 }
 
 #[derive(Clone, Copy)]
@@ -1262,18 +1262,13 @@ impl FullProgram {
         let FullCallableContract::Scheme(id) = self.store.functions.get(target)
             .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
-        let parameters = self.store.scheme(id)?.type_parameters.bounds(self.store.scheme_type_parameters.len())
-            .ok_or_else(|| IrVerifyError::new("invocation type parameter range is invalid"))?;
-        let arguments = instance.type_arguments.bounds(self.store.call_type_arguments.len())
-            .ok_or_else(|| IrVerifyError::new("invocation type argument range is invalid"))?;
-        let arguments = self.store.call_type_arguments[arguments].iter().map(|argument| (argument.binder, argument.ty)).collect::<BTreeMap<_, _>>();
-        let mut types = Vec::with_capacity(parameters.len());
-        for parameter in &self.store.scheme_type_parameters[parameters] {
-            let ty = *arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
-            types.push(self.invocation_type_constructor(ty, caller)?);
-        }
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+        let substitution = verify_schemes::instantiate_invocation(
+            &self.store, self.store.scheme(id)?, &instance, &caller.substitution, &mut budget,
+        )?;
         let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
+        budget.charge(range.len())?;
         let mut layouts = Vec::with_capacity(range.len());
         for binding in &self.store.call_application_bindings[range] {
             let layout = match binding {
@@ -1282,6 +1277,7 @@ impl FullProgram {
                         .ok_or_else(|| IrVerifyError::new("invocation argument layout range is invalid"))?;
                     let omitted = omitted_slots.bounds(self.store.call_application_slots.len())
                         .ok_or_else(|| IrVerifyError::new("invocation omitted layout range is invalid"))?;
+                    budget.charge(arguments.len().saturating_add(omitted.len()))?;
                     Arc::new(crate::sema::arguments::StaticArgumentBinding {
                         argument_slots: self.store.call_application_slots[arguments].iter().map(|slot| *slot as usize).collect(),
                         omitted_slots: self.store.call_application_slots[omitted].iter().map(|slot| *slot as usize).collect(),
@@ -1292,7 +1288,87 @@ impl FullProgram {
             };
             layouts.push(layout);
         }
-        Ok(PreparedInvocationBindings { types: types.into(), layouts: layouts.into() })
+        Ok(PreparedInvocationBindings { substitution: Arc::new(substitution), layouts: layouts.into() })
+    }
+
+    fn invocation_return_type(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<Type, IrVerifyError> {
+        let function = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("stream return owner is out of bounds"))?;
+        match function.contract {
+            FullCallableContract::Ground(signature) => self.store.semantic.to_type(self.store.semantic.signature_return_type(signature)?),
+            FullCallableContract::Scheme(id) => {
+                let scheme = self.store.scheme(id)?;
+                let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+                verify_schemes::instantiate_bound_type(&self.store, scheme.return_type, &invocation.substitution, &mut budget, 0)
+            }
+        }
+    }
+
+    fn expression_return_type(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<Type>, IrVerifyError> {
+        let owner = ExecutableOwner::from_raw(owner)?;
+        let range = match owner {
+            ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
+            ExecutableOwner::Driver(driver) => self.store.driver_instruction_range(driver)?,
+        };
+        if !range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("stream factory instruction belongs to another owner")); }
+        if let ExecutableOwner::Function(function) = owner
+            && let FullCallableContract::Scheme(id) = self.store.functions[function.index()].contract
+        {
+            let scheme = self.store.scheme(id)?;
+            let range = scheme.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("stream factory fact range is invalid"))?;
+            let facts = &self.store.scheme_body_facts[range];
+            let key = (instruction, schemes::FullSchemeBodyFactKind::Expression as u8);
+            let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind as u8)) else { return Ok(None); };
+            if facts[index].function != function { return Err(IrVerifyError::new("stream factory fact belongs to another function")); }
+            let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+            return verify_schemes::instantiate_bound_type(&self.store, facts[index].ty, &invocation.substitution, &mut budget, 0).map(Some);
+        }
+        let Ok(index) = self.store.checked_expr_types.binary_search_by_key(&instruction, |fact| fact.instruction) else { return Ok(None); };
+        let fact = self.store.checked_expr_types[index];
+        if !fact.is_contract() { return Ok(None); }
+        self.store.semantic.to_type(fact.type_id).map(Some)
+    }
+
+    pub(in crate::runtime::eval) fn stream_origin_item_type(
+        &self, origin: crate::runtime::eval::PreparedStreamOrigin, invocation: &PreparedInvocationBindings,
+    ) -> Result<Type, IrVerifyError> {
+        let _symbols = self.symbol_owner().enter();
+        let mut ty = match origin {
+            crate::runtime::eval::PreparedStreamOrigin::Function(function) => self.invocation_return_type(function, invocation)?,
+            crate::runtime::eval::PreparedStreamOrigin::Expression { owner, instruction } => {
+                if !stream_factory_tag(self.store.tags.get(instruction as usize).copied()) { return Err(IrVerifyError::new("stream contract does not name an actual factory")); }
+                self.expression_return_type(owner, instruction, invocation)?.ok_or_else(|| IrVerifyError::new("stream factory has no actual return contract"))?
+            }
+        };
+        loop {
+            ty = match ty {
+                Type::Stream(item) => return Ok(*item),
+                Type::Result(ok, _) | Type::Optional(ok) => *ok,
+                _ => return Err(IrVerifyError::new("actual producer return is not a stream")),
+            };
+        }
+    }
+
+    pub(in crate::runtime::eval) fn stream_function_contract(
+        self: &Arc<Self>, function: usize, invocation: &PreparedInvocationBindings,
+    ) -> Result<Arc<crate::runtime::eval::PreparedStreamContract>, IrVerifyError> {
+        if self.store.function_metadata.get(function).is_none_or(|metadata| metadata.callable_kind != crate::sema::types::CallableKind::Stream) {
+            return Err(IrVerifyError::new("stream producer contract names a non-stream declaration"));
+        }
+        let origin = crate::runtime::eval::PreparedStreamOrigin::Function(function);
+        self.stream_origin_item_type(origin, invocation)?;
+        Ok(Arc::new(crate::runtime::eval::PreparedStreamContract { program: Arc::clone(self), origin, invocation: invocation.clone() }))
+    }
+
+    pub(in crate::runtime::eval) fn invocation_callable_type(
+        &self, target: usize, invocation: &PreparedInvocationBindings,
+    ) -> Result<crate::sema::types::TypedCallable, IrVerifyError> {
+        verify_schemes::invocation_callable_type(&self.store, target, &invocation.substitution)
+    }
+
+    pub(in crate::runtime::eval) fn invocation_parameter_types(
+        &self, function: usize, invocation: &PreparedInvocationBindings,
+    ) -> Result<Option<Vec<Type>>, IrVerifyError> {
+        verify_schemes::invocation_parameter_types(&self.store, function, &invocation.substitution).map(Some)
     }
 
     fn invocation_type_constructor(&self, ty: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedTypeConstructor, IrVerifyError> {
@@ -1302,7 +1378,8 @@ impl FullProgram {
                 let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation ground type is invalid"))?;
                 Ok(if self.store.semantic.type_tag(id)? == super::semantic::TypeTag::Result { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
             }
-            schema::FullSchemeTypeTag::Parameter => invocation.types.get(node.first as usize).copied()
+            schema::FullSchemeTypeTag::Parameter => invocation.substitution.types.get(node.first as usize)
+                .map(|ty| if matches!(ty, Type::Result(..)) { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
                 .ok_or_else(|| IrVerifyError::new("invocation type parameter has no actual binding")),
             schema::FullSchemeTypeTag::Result => Ok(PreparedTypeConstructor::Result),
             _ => Ok(PreparedTypeConstructor::Other),
@@ -5533,6 +5610,10 @@ impl ProgramOwner<'_> {
 
 /// A frame keeps executable ownership and the verified range it may read.
 /// Decoders borrow the owner only while a payload or view is being read.
+fn stream_factory_tag(tag: Option<FullTag>) -> bool {
+    matches!(tag, Some(FullTag::ExprModuleCall | FullTag::ExprMethod | FullTag::ExprPipeline | FullTag::ExprFsWalk | FullTag::ExprRunPipeline | FullTag::ExprRange))
+}
+
 #[derive(Clone)]
 pub(in crate::runtime::eval) struct FullExecution<'p> {
     program: ProgramOwner<'p>,
@@ -5543,6 +5624,24 @@ pub(in crate::runtime::eval) struct FullExecution<'p> {
 }
 
 impl<'p> FullExecution<'p> {
+    pub(in crate::runtime::eval) fn stream_factory_contract(
+        &self, instruction: u32, invocation: &PreparedInvocationBindings, root: Option<&Arc<FullProgram>>,
+    ) -> Result<Option<Arc<crate::runtime::eval::PreparedStreamContract>>, IrVerifyError> {
+        if !stream_factory_tag(self.store().tags.get(instruction as usize).copied()) { return Ok(None); }
+        let Some(mut ty) = self.program().expression_return_type(self.owner, instruction, invocation)? else { return Ok(None); };
+        loop {
+            ty = match ty {
+                Type::Stream(_) => break,
+                Type::Result(ok, _) | Type::Optional(ok) => *ok,
+                _ => return Ok(None),
+            };
+        }
+        let program = self.program.dispatch_arc(root).ok_or_else(|| IrVerifyError::new("stream factory cannot retain its actual program"))?;
+        Ok(Some(Arc::new(crate::runtime::eval::PreparedStreamContract {
+            program, origin: crate::runtime::eval::PreparedStreamOrigin::Expression { owner: self.owner, instruction }, invocation: invocation.clone(),
+        })))
+    }
+
     pub(in crate::runtime::eval) fn registered_call_plan(&self, instruction: u32) -> Option<Arc<crate::sema::schemes::RegisteredCallPlan>> {
         self.store().registered_calls.get(&instruction).cloned()
     }
@@ -10843,6 +10942,7 @@ impl<'a> FullDecoder<'a> {
             matches!(&view, schema::ExprView::UInt(_)) && ty == Type::UInt;
         let checked_result_constructor = fact.authenticates_result_constructor(self.store.tags[instruction], &ty)?;
         if !ty.contains_typed_callable()
+            && crate::runtime::eval::stream_return_item(&ty).is_none()
             && !fact.with_error_source()
             && !matches!(ty, Type::ErrorVariant { .. })
             && !generic_call_result
@@ -17165,6 +17265,7 @@ impl FullVerifier {
                 ));
             }
             if !ty.contains_typed_callable()
+                && crate::runtime::eval::stream_return_item(&ty).is_none()
                 && !fact.with_error_source()
                 && !structured_error
                 && !generic_call_result
@@ -17822,7 +17923,7 @@ impl FullVerifier {
                 "full IR contains instructions outside executable owner ranges",
             ));
         }
-        let used_contexts = verify_schemes::verify(store, &producer_index, contexts)?;
+        let used_contexts = verify_schemes::verify(store, &producer_index, contexts, &function_signature_index)?;
         let marks = store.in_place.get_or_init(|| in_place_marks.clone());
         if marks != &in_place_marks {
             return Err(IrVerifyError::new(
@@ -23367,6 +23468,55 @@ assert apply(40) == 42
             let mut wrong_effect = program.clone();
             wrong_effect.store.scheme_effects[direct.start] = Effect::Time;
             assert_eq!(FullVerifier::verify(&wrong_effect).unwrap_err().message, "selected application disagrees with its callable contract");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_actual_yielded_items() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-stream-actual-items.xsh", "stream numbers() [] -> Stream[Int] { yield 7 }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "numbers");
+            assert_eq!(program.store.function_metadata[owner].callable_kind, crate::sema::types::CallableKind::Stream);
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ordinary producer has a ground contract") };
+            assert_eq!(program.store.semantic.to_type(program.store.semantic.signature_return_type(signature).unwrap()).unwrap(), Type::Stream(Box::new(Type::Int)));
+            let range = program.store.function_instruction_range(owner).unwrap();
+            assert!(range.clone().any(|instruction| program.store.tags[instruction] == FullTag::StmtYield));
+            assert!(range.clone().any(|instruction| matches!(function_view_decoder(&program.store, owner).expression_view(instruction), Ok(schema::ExprView::Int(7)))));
+            let mut forged = program.clone();
+            let callable = crate::sema::types::CallableType {
+                params: Vec::new(), return_ty: Box::new(Type::Stream(Box::new(Type::Str))),
+                effects: crate::sema::types::CallableEffects::finite([]),
+            };
+            let mut semantic = SemanticPoolBuilder::default();
+            let signature = semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(signature);
+            forged.store.functions[owner].checked_return_type = forged.store.semantic.signature_return_type(signature).unwrap().raw();
+            assert_eq!(forged.store.semantic.to_type(TypeId::from_raw(forged.store.functions[owner].checked_return_type).unwrap()).unwrap(), Type::Stream(Box::new(Type::Str)));
+            assert_eq!(forged.store.function_metadata[owner].callable_kind, program.store.function_metadata[owner].callable_kind);
+            assert_eq!(&forged.store.tags[range.clone()], &program.store.tags[range.clone()]);
+            assert_eq!(&forged.store.data[range.clone()], &program.store.data[range]);
+            let error = FullVerifier::verify(&forged).expect_err("an actual Int yield cannot authenticate a Str stream contract");
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_actual_native_factory_result() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-stream-actual-factory.xsh", "proc lines(file: Path) [fs, error] -> Result[Stream[Str]] { file.lines() }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "lines");
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let fact = program.store.checked_expr_types.iter().position(|fact| range.contains(&(fact.instruction as usize)) && program.store.tags[fact.instruction as usize] == FullTag::ExprMethod).expect("actual native factory retains a checked result");
+            let original = program.store.checked_expr_types[fact];
+            assert_eq!(program.store.semantic.to_type(original.type_id).unwrap(), Type::Result(Box::new(Type::Stream(Box::new(Type::Str))), Box::new(Type::Error)));
+            let mut forged = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.checked_expr_types[fact].type_id = semantic.intern_type(&mut forged.store.semantic, &Type::Result(Box::new(Type::Stream(Box::new(Type::Int))), Box::new(Type::Error))).unwrap();
+            assert_eq!(forged.store.checked_expr_types[fact].instruction, original.instruction);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(error.message, "checked method result disagrees with its receiver's registry signature");
         });
     }
 

@@ -1995,6 +1995,11 @@ fn process_command_builder_entry<'e>(
 }
 
 enum FrameContinuation {
+    StreamContract {
+        contract: Arc<crate::runtime::eval::PreparedStreamContract>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     WithBinding {
         instruction: u32,
         position: StatementWithBindingPosition,
@@ -2094,7 +2099,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     UtilsCacheResult {
-        key: String,
+        key: super::super::module_utils::UtilsCacheKey,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -2517,6 +2522,7 @@ impl FrameContinuation {
             | C::WrapErr { next, .. }
             | C::Try { next, .. }
             | C::CheckedValue { next, .. }
+            | C::StreamContract { next, .. }
             | C::Require { next, .. }
             | C::MethodReceiver { next, .. }
             | C::FmtValue { next, .. }
@@ -2646,6 +2652,7 @@ fn with_initializer_handler(
             | FrameContinuation::Try { next, .. }
             | FrameContinuation::Require { next, .. }
             | FrameContinuation::CheckedValue { next, .. }
+            | FrameContinuation::StreamContract { next, .. }
             | FrameContinuation::MethodReceiver { next, .. }
             | FrameContinuation::MethodArg { next, .. }
             | FrameContinuation::FmtValue { next, .. }
@@ -3114,6 +3121,18 @@ impl Evaluator {
         let _machine = self.enter_frame_machine(call_span)?;
         let mut frames = ExplicitFrames::new(self, program);
         frames.push_call(function, kind, values.to_vec(), call_span, None)?;
+        frames.run()
+    }
+
+    pub(in crate::runtime::eval) fn eval_indexed_with_invocation(
+        &mut self, program: &FullProgram, function: LoweredFunctionKey, kind: LoweredFunctionKind,
+        values: Vec<LoweredValue>, invocation: PreparedInvocationBindings, call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let _machine = self.enter_frame_machine(call_span)?;
+        let _symbols = program.symbol_owner().enter();
+        let mut frames = ExplicitFrames::new(self, program);
+        frames.push_call(function, kind, values, call_span, None)?;
+        frames.calls.last_mut().expect("a prepared call creates its frame").applications = invocation;
         frames.run()
     }
 
@@ -4967,6 +4986,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let values = if let Some(layout) = layout {
             self.arrange_application_arguments(&resolved, values, group_ends, &layout, span)?
         } else { values };
+        self.evaluator.validate_prepared_arguments(resolved.program.program(), resolved.index, &resolved.applications, &values, span)?;
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
@@ -6500,6 +6520,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        let next = match self.calls[index].execution.stream_factory_contract(
+            instruction, &self.calls[index].applications, self.evaluator.indexed_program.as_ref(),
+        ).map_err(|error| indexed_error(error, span))? {
+            Some(contract) => FrameContinuation::StreamContract { contract, span, next: Box::new(next) },
+            None => next,
+        };
         let execution = self.calls[index].execution.thread_local();
         let in_place = !self.evaluator.force_frames
             && execution.is_in_place(instruction);
@@ -9610,6 +9636,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::StreamContract { contract, span, next } => match value {
+                FrameValue::Value(mut value) => {
+                    contract.attach(&mut value, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
             FrameContinuation::CheckedValue { check, span, next } => match value {
                 FrameValue::Value(value) => {
                     super::super::checked_storage_value(self.evaluator, &value, &check, span)?;
@@ -10729,37 +10762,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<Option<(LoweredValue, FrameContinuation)>, RuntimeError> {
-        use super::super::module_utils::LoweredUtilsCacheLookup;
-
-        let lookup = self
-            .evaluator
-            .prepare_lowered_utils_cache_values(values, span)?;
-        let miss = match lookup {
-            LoweredUtilsCacheLookup::Hit(value) => return Ok(Some((value, next))),
-            LoweredUtilsCacheLookup::Miss(miss) => miss,
-        };
-        let resolved = self.resolve_active_call(index, miss.function, miss.kind, true, span)?;
-        let display_name = miss.function.display_name();
-        let call_values = miss
-            .args
-            .iter()
-            .map(|value| {
-                lowered_value_from_runtime_any(value).ok_or_else(|| {
-                    RuntimeError::new(
-                        "unresolved-call",
-                        format!("utils.cache target {display_name} could not be lowered"),
-                    )
-                    .with_span(span)
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let (callee, call_values, encoded) = super::super::module_utils::utils_cache_arguments(values, span)?;
+        let resolved = self.resolve_callable_value(index, &callee, span)?;
+        if matches!(&callee, LoweredValue::Pure(callable) | LoweredValue::Proc(callable) if callable.instance().is_none())
+            && resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
+        { return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span)); }
+        self.evaluator.validate_prepared_arguments(resolved.program.program(), resolved.index, &resolved.applications, &call_values, span)?;
+        let program = resolved.program.dispatch_arc(self.evaluator.indexed_program.as_ref())
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "cache target lost its executable program owner").with_span(span))?;
+        let key = super::super::module_utils::UtilsCacheKey::new(program, resolved.index, resolved.applications.clone(), encoded);
+        if let Some(value) = self.evaluator.utils_cache.get(&key) {
+            return Evaluator::lowered_utils_cache_value(value, span).map(|value| Some((value, next)));
+        }
         self.push_resolved_target(
             index,
             resolved,
             call_values,
             span,
             FrameContinuation::UtilsCacheResult {
-                key: miss.key,
+                key,
                 span,
                 next: Box::new(next),
             },

@@ -1415,7 +1415,7 @@ impl Type {
     /// its base, so no element needs converting, and a structure is a value,
     /// so nothing written through the wider view can reach a holder of the
     /// narrower one. It never runs the other way.
-    pub(super) fn matches_stored(&self, expected: &Type) -> bool {
+    pub(crate) fn matches_stored(&self, expected: &Type) -> bool {
         match (self, expected) {
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected))

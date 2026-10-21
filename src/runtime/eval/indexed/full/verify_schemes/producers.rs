@@ -5,7 +5,7 @@ use super::{
     decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
     merge_list_item_types,
 };
-use crate::sema::types::{ConditionRole, ModuleExportType, TypedCallable};
+use crate::sema::types::{CallableKind, ConditionRole, ModuleExportType, TypedCallable};
 use std::{cell::{OnceCell, RefCell}, rc::Rc, sync::Arc};
 #[cfg(test)]
 use std::cell::Cell;
@@ -74,6 +74,7 @@ struct ProducerOwner {
     pipeline_stages: BTreeMap<usize, Vec<u32>>,
     unreachable_roots: BTreeSet<usize>,
     returns: Vec<usize>,
+    yield_sites: Vec<usize>,
     return_analysis: Rc<super::super::IndexedReturnAnalysis>,
 }
 
@@ -416,7 +417,12 @@ impl GroundProducerIndex {
         }
         let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
             || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
-        let mut selected_demand = storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        let stream_demand = store.functions.iter().enumerate().any(|(index, function)| {
+            effect_demand_work += 1;
+            matches!(function.contract, FullCallableContract::Ground(_))
+                && store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
+        });
+        let mut selected_demand = stream_demand || storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
         if !selected_demand {
             for (index, function) in store.functions.iter().enumerate() {
                 effect_demand_work += 1;
@@ -482,7 +488,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -728,6 +734,10 @@ impl GroundProducerIndex {
                     owner.writers.entry(binding).or_default().push(instruction);
                 }
             }
+            if matches!(decoder.store.tags[instruction], FullTag::StmtYield | FullTag::StmtYieldDelegate) {
+                work.borrow_mut().charge(1)?;
+                owner.yield_sites.push(instruction);
+            }
             let reachable = reachable && !owner.unreachable_roots.contains(&instruction);
             let callback = callback_anchors.get(&instruction).copied().or(callback);
             if reachable && decoder.store.tags[instruction] == FullTag::StmtReturn {
@@ -868,6 +878,7 @@ impl GroundProducerIndex {
                     + owner.with_errors.len() * size_of::<(usize, Type)>()
                     + owner.with_errors.values().map(Type::retained_bytes).sum::<usize>()
                     + owner.pipeline_sources.len() * size_of::<(ProducerBinding, PipelineProducer)>()
+                    + owner.yield_sites.capacity() * size_of::<usize>()
                     + owner.callback_returns.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.callback_returns.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.pipeline_groups.len() * size_of::<((usize, usize, bool), usize)>()
@@ -1005,6 +1016,15 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     for request in &requests.captures {
         if !proof.scheme_captures.insert((request.owner, request.instruction)) {
             return Err(IrVerifyError::new("generic captured-error request is duplicated"));
+        }
+    }
+    for (index, function) in store.functions.iter().enumerate() {
+        proof.budget.charge(1)?;
+        if matches!(function.contract, FullCallableContract::Ground(_))
+            && store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
+        {
+            proof.budget.charge(2)?;
+            proof.function(index);
         }
     }
     for call in &store.checked_call_targets {
@@ -2431,6 +2451,60 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
+    fn verify_stream_yields(&mut self, function: usize, decoder: &FullDecoder<'a>, result: Arc<Type>) -> Result<(), IrVerifyError> {
+        let Type::Stream(item) = result.as_ref() else { return Err(IrVerifyError::new("stream producer header has no item contract")); };
+        self.budget.charge_clone(item)?;
+        let item = Arc::new((**item).clone());
+        let guarded = item.has_unsigned_constraint() && super::runtime_complete_value_check_type(&item, &mut self.budget, 0)?;
+        let owner = function_owner(function)?;
+        self.budget.charge(self.index.owners[&owner].yield_sites.len())?;
+        let sites = self.index.owners[&owner].yield_sites.clone();
+        for instruction in sites {
+            self.budget.charge(1)?;
+            match decoder.statement_view(instruction)? {
+                schema::StmtView::Yield { value } => {
+                    let value = value.raw() as usize;
+                    if guarded && let Some(actual) = self.declared_type(decoder, value)? {
+                        if !actual.matches_expected(&item) { return Err(IrVerifyError::new("stream yield item disagrees with its checked UInt boundary")); }
+                        self.expression(owner, value, actual, false);
+                    } else { self.expression(owner, value, Arc::clone(&item), false); }
+                }
+                schema::StmtView::YieldDelegate { value, .. } => {
+                    let value = value.raw() as usize;
+                    let actual = self.declared_type(decoder, value)?;
+                    let stream = match actual.as_deref().map(Type::unvalidated) {
+                        Some(Type::List(_)) => false,
+                        Some(Type::Stream(_)) => true,
+                        None if matches!(decoder.expression_view(value)?, schema::ExprView::List(ref values) if values.len() == 0) => false,
+                        _ => return Err(IrVerifyError::new("stream delegation has no actual List or Stream contract")),
+                    };
+                    if stream && self.stream_may_propagate_error(decoder, StreamProducer::Value(value))? {
+                        self.require_callable_effects(decoder, instruction, Some(&[crate::syntax::node::Effect::Error]), false)?;
+                    }
+                    if guarded && let Some(actual) = actual {
+                        let actual_item = match actual.unvalidated() { Type::List(item) | Type::Stream(item) => item, _ => unreachable!() };
+                        if !actual_item.matches_expected(&item) { return Err(IrVerifyError::new("stream delegated item disagrees with its checked UInt boundary")); }
+                        self.expression(owner, value, actual, false);
+                    } else {
+                        self.budget.charge_clone(&item)?;
+                        self.budget.charge(1)?;
+                        let expected = if stream { Type::Stream(Box::new((*item).clone())) } else { Type::List(Box::new((*item).clone())) };
+                        self.expression(owner, value, Arc::new(expected), false);
+                    }
+                }
+                _ => return Err(IrVerifyError::new("stream yield census names another statement")),
+            }
+        }
+        self.budget.charge(self.index.owners[&owner].returns.len())?;
+        let returns = self.index.owners[&owner].returns.clone();
+        for returned in returns {
+            self.budget.charge(1)?;
+            let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { return Err(IrVerifyError::new("stream completion census names another statement")); };
+            self.expression(owner, value.raw() as usize, Arc::new(Type::Unit), false);
+        }
+        Ok(())
+    }
+
     fn finish(&mut self) -> Result<(), IrVerifyError> {
         loop {
             while let Some(obligation) = self.pending.pop() {
@@ -2440,6 +2514,10 @@ impl<'a> ProducerProof<'a> {
                         let owner = function_owner(index)?;
                         let decoder = self.owner(owner)?;
                         let expected = self.contract_type(decoder.function_return_type(index)?)?;
+                        if self.store.function_metadata[index].callable_kind == CallableKind::Stream {
+                            self.verify_stream_yields(index, &decoder, expected)?;
+                            continue;
+                        }
                         for returned in self.index.owners[&owner].header_returns().copied().collect::<Vec<_>>() {
                             let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { unreachable!("ground producer return index contains a non-return") };
                             self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);

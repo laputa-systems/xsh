@@ -1,6 +1,7 @@
 use crate::runtime::eval::{Evaluator, FullBuilder, LoweredFunctionKey, LoweredFunctionKind};
 use crate::runtime::value::{ResultValue, Value};
 use crate::sema::check::Checker;
+use crate::sema::types::Type;
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::Name;
 use crate::syntax::parser::Parser;
@@ -1595,6 +1596,479 @@ fn inferred_application_runtime_polymorphic_aliases_keep_each_call_substitution(
                 (crate::runtime::value::MapKey::Str(Arc::from("text")), Value::Str(Arc::from("word"))),
             ].into_iter().collect()));
         }
+    }
+}
+
+fn prepared_host_callable_program(answer: i64) -> (Arc<crate::runtime::eval::FullProgram>, SourceMap, SourceId) {
+    record_form_program(&format!(
+        "pure identity(payload) {{ let _ = payload; {answer} }}\npure keep(action, value) {{ let _ = action(value); action }}\npure make() {{ keep(identity, 7) }}\npure direct(handle: Pure) -> Any {{ handle.call(7) }}\npure direct_value(handle: Pure, value: Any) -> Any {{ handle.call(value) }}\nproc cached(handle: Pure) -> Any {{ utils.cache(handle, [7]) }}\nproc cached_value(handle: Pure, value: Any) -> Any {{ utils.cache(handle, [value]) }}\n"
+    ))
+}
+
+#[test]
+fn prepared_callable_host_call_retains_its_program() {
+    let (first, sources, source_id) = prepared_host_callable_program(8);
+    let (second, _, _) = prepared_host_callable_program(9);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&first));
+        let key = first.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
+        let prepared = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert!(matches!(&prepared, Value::Pure(callable) if callable.instance().is_some()));
+        for program in [&first, &second] {
+            evaluator.indexed_program = Some(Arc::clone(program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("direct")));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[prepared.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Int(8), "frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn prepared_callable_cache_separates_programs_and_preserves_clones() {
+    let (first, sources, source_id) = prepared_host_callable_program(8);
+    let (second, _, _) = prepared_host_callable_program(9);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        let mut handles = Vec::new();
+        for program in [&first, &second] {
+            evaluator.indexed_program = Some(Arc::clone(program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
+            let value = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert!(matches!(&value, Value::Pure(callable) if callable.instance().is_some()));
+            handles.push(value);
+        }
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        for (program, handle, answer) in [(&first, &handles[0], 8), (&first, &handles[0], 8), (&second, &handles[1], 9), (&second, &handles[1], 9)] {
+            evaluator.indexed_program = Some(Arc::clone(program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached")));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[handle.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Int(answer), "frames={force_frames}");
+        }
+        assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")).count(), 2);
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_rejects_an_open_named_declaration() {
+    let (program, sources, source_id) = prepared_host_callable_program(8);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.trace_enabled = true;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (key, open) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("direct")),
+            Value::Pure(Name::intern("identity").into()),
+        ));
+        let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[open], Span::at(source_id, 0)).unwrap()
+            .expect_err("a declaration name supplies no checked generic invocation");
+        assert!(error.message.contains("checked invocation instance"), "{error:?}");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_its_specialized_input() {
+    let (program, sources, source_id) = prepared_host_callable_program(8);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let make = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
+        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert!(matches!(&prepared, Value::Pure(callable) if callable.instance().is_some()));
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("direct_value")));
+        let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[prepared.clone(), Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
+            .expect_err("the retained Int invocation does not admit a Str argument");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+        let cached = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached_value")));
+        for _ in 0..2 {
+            let value = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[prepared.clone(), Value::Int(7)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(value, Value::Int(8));
+        }
+        evaluator.trace_events.clear();
+        let error = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[prepared, Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
+            .expect_err("a primed cache retains its actual input contract");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_nested_callable_contracts() {
+    let (program, sources, source_id) = record_form_program(
+        "type Callback = pure(payload: Int) -> Int
+         pure identity(payload) { let _ = payload; 8 }
+         pure keep(action, value) { let _ = action(value); action }
+         pure number(payload: Int) -> Int { payload + 1 }
+         pure text(payload: Str) -> Str { payload }
+         proc timed(payload: Int) [time] -> Int { let _ = time.now(); payload }
+         proc quiet(payload: Int) [] -> Int { payload }
+         proc filesystem(payload: Int) [fs] -> Int { payload }
+         pure make() { keep(identity, number) }
+         pure make_record() { let callback: Callback = number; keep(identity, {callback}) }
+         pure make_broad_record() { keep(identity, {callback: number}) }
+         pure make_effect() { keep(identity, timed) }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (direct, number, text, timed, quiet, filesystem) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("direct")),
+            Value::Pure(Name::intern("number").into()), Value::Pure(Name::intern("text").into()),
+            Value::Proc(Name::intern("timed").into()), Value::Proc(Name::intern("quiet").into()),
+            Value::Proc(Name::intern("filesystem").into()),
+        ));
+        let record = |callback| program.symbol_owner().with_current(|| Value::Record([(Arc::from("callback"), callback)].into_iter().collect()));
+        let broad = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make_broad_record")));
+        let prepared = evaluator.call_indexed_direct(broad, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Pure(callable) = &prepared else { panic!("the broad record retains its actual handle") };
+        let instance = callable.instance().unwrap();
+        let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
+        program.symbol_owner().with_current(|| {
+            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            assert!(matches!(&parameters[0], Type::Record(fields) if fields.len() == 1 && fields.values().all(|ty| ty == &Type::Pure)));
+        });
+        for callback in [number.clone(), text.clone()] {
+            let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), record(callback)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Int(8), "an actual opaque Pure field admits either Pure signature");
+        }
+        for (factory, valid, invalid, smaller) in [
+            ("make", number.clone(), text.clone(), None),
+            ("make_record", record(number), record(text), None),
+            ("make_effect", timed, filesystem, Some(quiet)),
+        ] {
+            let make = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(factory)));
+            let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Pure(callable) = &prepared else { panic!("{factory} must return the actual retained handle") };
+            let instance = callable.instance().expect("a prepared invocation retains its closed argument contract");
+            let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
+            program.symbol_owner().with_current(|| {
+                let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+                assert!(parameters[0].contains_typed_callable(), "{factory} must retain the actual nested signature: {parameters:?}");
+            });
+            let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), valid], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Int(8), "{factory}, frames={force_frames}");
+            if let Some(smaller) = smaller {
+                let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), smaller], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, Value::Int(8), "a smaller Proc effect contract remains permitted");
+            }
+            evaluator.trace_enabled = true;
+            evaluator.trace_events.clear();
+            let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, invalid], Span::at(source_id, 0)).unwrap()
+                .expect_err(&format!("{factory}: the actual nested signature and effects must satisfy the retained contract"));
+            assert_eq!(error.kind, "type-error", "{factory}, frames={force_frames}");
+            assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+        }
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_module_export_signatures() {
+    let (program, sources, source_id) = record_form_program(
+        "type Service = module { export pure item(payload: Int) -> Int }
+         pure identity(payload) { let _ = payload; 8 }
+         pure keep(action, value) { let _ = action(value); action }
+         pure number(payload: Int) -> Int { payload + 1 }
+         pure text(payload: Str) -> Str { payload }
+         pure make(service: Service) { keep(identity, service) }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (make, direct, number, text) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
+            Value::Pure(Name::intern("number").into()), Value::Pure(Name::intern("text").into()),
+        ));
+        program.symbol_owner().with_current(|| {
+            for (name, expected) in [("number", Type::Int), ("text", Type::Str)] {
+                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap().index();
+                let actual = program.invocation_callable_type(target, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default()).unwrap();
+                assert_eq!(actual.sig.params[0].ty, expected);
+                assert_eq!(*actual.sig.return_ty, expected);
+            }
+        });
+        let module = |callable| program.symbol_owner().with_current(|| Value::Module([(Arc::from("item"), callable)].into_iter().collect()));
+        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[module(number.clone())], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Pure(callable) = &prepared else { panic!("the module argument retains its actual invocation") };
+        let instance = callable.instance().unwrap();
+        program.symbol_owner().with_current(|| {
+            let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
+            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            let Type::Module(exports) = &parameters[0] else { panic!("the actual retained input is a typed module") };
+            let Some(crate::sema::types::ModuleExportType::Pure { sig, .. }) = exports.get(&Name::intern("item")) else { panic!("the module retains the actual Pure export contract") };
+            assert_eq!(sig.params[0].ty, Type::Int);
+            assert_eq!(*sig.return_ty, Type::Int);
+        });
+        let value = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), module(number)], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(value, Value::Int(8));
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, module(text)], Span::at(source_id, 0)).unwrap()
+            .expect_err("the actual exported signature must satisfy the retained module contract");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_module_export_parameter_labels() {
+    let (program, sources, source_id) = record_form_program(
+        "type Service = module { export pure item(left: Int, right: Int) -> Int }
+         pure identity(payload) { let _ = payload; 8 }
+         pure keep(action, value) { let _ = action(value); action }
+         pure ordered(left: Int, right: Int) -> Int { left * 10 + right }
+         pure swapped(right: Int, left: Int) -> Int { right * 10 + left }
+         pure make(service: Service) { keep(identity, service) }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (make, direct, ordered, swapped) = program.symbol_owner().with_current(|| {
+            for (name, labels) in [("ordered", ["left", "right"]), ("swapped", ["right", "left"])] {
+                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap().index();
+                let actual = program.invocation_callable_type(target, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default()).unwrap();
+                assert!(actual.pure);
+                assert_eq!(actual.sig.params.len(), 2);
+                for (parameter, label) in actual.sig.params.iter().zip(labels) {
+                    assert_eq!(parameter.name, Name::intern(label));
+                    assert_eq!(parameter.ty, Type::Int);
+                }
+                assert_eq!(*actual.sig.return_ty, Type::Int);
+            }
+            (LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
+                Value::Pure(Name::intern("ordered").into()), Value::Pure(Name::intern("swapped").into()))
+        });
+        let module = |callable| program.symbol_owner().with_current(|| Value::Module([(Arc::from("item"), callable)].into_iter().collect()));
+        let span = Span::at(source_id, 0);
+        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[module(ordered.clone())], span).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), module(ordered)], span).unwrap().unwrap(), Value::Int(8));
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, module(swapped)], span).unwrap().expect_err("the actual export's swapped parameter labels cannot satisfy the retained named argument layout");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_stream_items_without_pulling() {
+    let (program, sources, source_id) = record_form_program(
+        "var pulls = 0
+         var closed = 0
+         proc close() [] { closed = closed + 1 }
+         stream numbers() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 7 }
+         stream texts() [error] -> Stream[Str] { defer close(); pulls = pulls + 1; yield \"wrong\" }
+         stream unsigned() [] -> Stream[UInt] { yield 7 }
+         pure identity(payload) { let _ = payload; 8 }
+         pure keep(action, value) { let _ = action(value); action }
+         pure make(items: Stream[Int]) { keep(identity, items) }
+         pure make_unsigned(items: Stream[UInt]) { keep(identity, items) }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+         proc observations() [] { {pulls, closed} }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let (numbers, texts, unsigned, make, make_unsigned, direct, observations) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("numbers")), LoweredFunctionKey::Name(Name::intern("texts")),
+            LoweredFunctionKey::Name(Name::intern("unsigned")), LoweredFunctionKey::Name(Name::intern("make")),
+            LoweredFunctionKey::Name(Name::intern("make_unsigned")), LoweredFunctionKey::Name(Name::intern("direct")),
+            LoweredFunctionKey::Name(Name::intern("observations")),
+        ));
+        let numbers = evaluator.call_indexed_direct(numbers, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let texts = evaluator.call_indexed_direct(texts, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let unsigned = evaluator.call_indexed_direct(unsigned, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        for source in [&numbers, &texts, &unsigned] {
+            assert!(matches!(source, Value::Stream(stream) if stream.script.is_some() && stream.source.is_none() && stream.items.is_empty()));
+        }
+        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Pure(callable) = &prepared else { panic!("the stream argument retains its actual invocation") };
+        let instance = callable.instance().unwrap();
+        program.symbol_owner().with_current(|| {
+            let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
+            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            assert_eq!(parameters[0], Type::Stream(Box::new(Type::Int)));
+        });
+        let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(actual, Value::Int(8));
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, texts], Span::at(source_id, 0)).unwrap();
+        let observed = evaluator.call_indexed_direct(observations, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Result(ResultValue::Ok(observed)) = observed else { panic!("observations retain their ordinary result envelope") };
+        let Value::Record(fields) = *observed else { panic!("observations retain their record") };
+        assert_eq!(fields.get("pulls"), Some(&Value::Int(0)), "validation must not pull either producer");
+        assert_eq!(fields.get("closed"), Some(&Value::Int(0)), "an unstarted producer has registered no deferred cleanup");
+        let error = actual.expect_err("the actual Str producer cannot satisfy the retained Stream[Int] input");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+        let prepared_unsigned = evaluator.call_indexed_direct(make_unsigned, LoweredFunctionKind::Pure, &[unsigned.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared_unsigned.clone(), unsigned], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+        evaluator.trace_events.clear();
+        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared_unsigned, numbers], Span::at(source_id, 0)).unwrap().expect_err("a signed item contract cannot promise UInt even when its unpulled literal happens to be positive");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
+    }
+}
+
+#[test]
+fn prepared_stream_contracts_preserve_lazy_uint_and_delegation_checks() {
+    let (program, sources, source_id) = record_form_program(
+        "stream checked(value: Int) [] -> Stream[UInt] { yield value }
+         stream listed() [] -> Stream[Int] { yield @[1, 2] }
+         stream delegated() [] -> Stream[Int] { yield @listed() }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (checked, delegated) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("checked")), LoweredFunctionKey::Name(Name::intern("delegated")),
+        ));
+        let span = Span::at(source_id, 0);
+        for input in [7, -1] {
+            let value = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(input)], span).unwrap().unwrap();
+            let Value::Stream(mut stream) = value else { panic!("creation retains an unpulled script producer") };
+            assert!(stream.contract.is_some());
+            assert!(stream.items.is_empty());
+            let pulled = evaluator.stream_next(&mut stream, span);
+            if input >= 0 { assert_eq!(pulled.unwrap(), Some(Value::Int(input))); }
+            else { assert_eq!(pulled.unwrap_err().kind, "type-error"); }
+        }
+        let value = evaluator.call_indexed_direct(delegated, LoweredFunctionKind::Pure, &[], span).unwrap().unwrap();
+        let Value::Stream(mut stream) = value else { panic!("delegation retains an unpulled script producer") };
+        assert!(stream.contract.is_some());
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(1)));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(2)));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_checks_ground_stream_parameters() {
+    let (program, sources, source_id) = record_form_program(
+        "stream numbers() [] -> Stream[Int] { yield 7 }
+         stream texts() [] -> Stream[Str] { yield \"wrong\" }
+         pure accept(items: Stream[Int]) -> Int { let _ = items; 8 }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+"
+    );
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let (numbers, texts, direct, accept) = program.symbol_owner().with_current(|| (
+            LoweredFunctionKey::Name(Name::intern("numbers")), LoweredFunctionKey::Name(Name::intern("texts")),
+            LoweredFunctionKey::Name(Name::intern("direct")), Value::Pure(Name::intern("accept").into()),
+        ));
+        let numbers = evaluator.call_indexed_direct(numbers, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let texts = evaluator.call_indexed_direct(texts, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[accept.clone(), numbers], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[accept, texts], Span::at(source_id, 0)).unwrap().expect_err("an opaque ground call must validate its actual Stream[Int] parameter before entering the body");
+        assert_eq!(error.kind, "type-error");
+        assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("accept")));
+    }
+}
+
+#[test]
+fn prepared_callable_host_call_retains_native_stream_factory_contracts() {
+    let directory = tempfile::Builder::new().prefix("host-stream-").tempdir_in(".work/tmp").unwrap();
+    let path = directory.path().join("lines");
+    std::fs::write(&path, b"first\nsecond\n").unwrap();
+    let (program, sources, source_id) = record_form_program(
+        "type Lines = {data: Stream[Str]}
+         proc factory(file: Path) [fs, error] -> Result[Stream[Str]] { file.lines() }
+         proc boxed(file: Path) [fs, error] -> Result[Lines] { Ok({data: file.lines()?}) }
+         stream wrong() [] -> Stream[Int] { yield 7 }
+         pure identity(payload) { let _ = payload; 8 }
+         pure keep(action, value) { let _ = action(value); action }
+         pure make(items: Stream[Str]) { keep(identity, items) }
+         pure direct(handle: Pure, value: Any) -> Any { handle.call(value) }
+"
+    );
+    for force_frames in [false, true] {
+        for boxed in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let (factory, make, direct, wrong) = program.symbol_owner().with_current(|| (
+                LoweredFunctionKey::Name(Name::intern(if boxed { "boxed" } else { "factory" })),
+                LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
+                LoweredFunctionKey::Name(Name::intern("wrong")),
+            ));
+            let path = Value::Path(crate::runtime::value::PathValue::from_text(path.to_str().unwrap()).unwrap());
+            let output = evaluator.call_indexed_direct(factory, LoweredFunctionKind::Proc, &[path], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(output)) = output else { panic!("native factory keeps its Result envelope") };
+            let actual = if boxed {
+                let Value::Record(fields) = *output else { panic!("native stream keeps its aggregate") };
+                fields.get("data").unwrap().clone()
+            } else { *output };
+            let Value::Stream(stream) = &actual else { panic!("native factory returns a stream") };
+            assert!(stream.source.is_some() && stream.script.is_none() && stream.items.is_empty());
+            assert!(stream.contract.is_some(), "ordinary unchecked native factory output must retain its solved contract before aggregate escape");
+            let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[actual.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), actual.clone()], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+            assert_eq!(stream.next_live(Span::at(source_id, 0)).unwrap(), Some(Value::Str(Arc::from("first"))), "contract validation must leave the first native item untouched");
+            let wrong = evaluator.call_indexed_direct(wrong, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, wrong], Span::at(source_id, 0)).unwrap().expect_err("actual Int producer cannot satisfy retained native Str item contract");
+            assert_eq!(error.kind, "type-error");
+        }
+    }
+}
+
+#[test]
+fn prepared_callable_cache_separates_specializations_with_identical_arguments() {
+    let (program, sources, source_id) = record_form_program(concat!(
+        "pure identity(payload) { let _ = payload; 8 }\n",
+        "pure keep(action, value) { let _ = action(value); action }\n",
+        "pure make_number() { let values: List[Int] = [1]; keep(identity, values) }\n",
+        "pure make_text() { let values: List[Str] = [\"x\"]; keep(identity, values) }\n",
+        "pure make_number_again() { let values: List[Int] = [2]; keep(identity, values) }\n",
+        "proc cached(handle: Pure, value: Any) -> Any { utils.cache(handle, [value]) }\n",
+    ));
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let mut handles = Vec::new();
+        for name in ["make_number", "make_text", "make_number_again"] {
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let value = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert!(matches!(&value, Value::Pure(callable) if callable.instance().is_some()));
+            handles.push(value);
+        }
+        assert_eq!(handles[0], handles[1], "source equality remains declaration identity");
+        evaluator.trace_enabled = true;
+        evaluator.trace_events.clear();
+        let cached = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached")));
+        for handle in [&handles[0], &handles[0], &handles[2], &handles[1], &handles[1]] {
+            let actual = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[handle.clone(), Value::List(Vec::new())], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Int(8));
+        }
+        assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")).count(), 2, "distinct List[Int]/List[Str] instances miss independently; clones hit");
     }
 }
 

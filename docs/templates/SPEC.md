@@ -3257,6 +3257,14 @@ places them in formal slots; omitted defaults execute in the selected declaratio
 scope, and list splices contribute to its rest parameter. Aliases and returned
 callable values retain the same signature.
 
+Calls through an opaque callable handle validate its retained argument contract
+before executing the target. This includes nested callable signatures and their
+effect bounds, typed module exports, and stream item contracts. Checking a lazy
+stream uses its retained producer contract without pulling an item. `utils.cache` keeps distinct executable targets and distinct
+checked specializations separate, even when their argument values are equal;
+clones and equivalent specializations share an entry. Callable value equality
+continues to compare declaration identity.
+
 A call through the type is written `value(args)`, `record.field(args)` for a
 record field of a callable type, which takes precedence over a record method
 of the same name, or `module.name(args)` for a module's exported value of

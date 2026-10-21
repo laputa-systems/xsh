@@ -84,9 +84,11 @@ use assignments::{
     apply_indexed_assignment, checked_indexed_assignment, indexed_assignment_operand,
     resolve_assign_index, apply_indexed_path_assignment,
 };
-use calls::{append_call_argument, indexed_callable_identity, indexed_typed_callee_kind};
+pub(super) use calls::indexed_callable_identity;
+use calls::{append_call_argument, indexed_typed_callee_kind};
+pub(in crate::runtime::eval) use operands::indexed_error;
 use operands::{
-    indexed_error, indexed_value, decode_record_updates, decode_comparison_chain,
+    indexed_value, decode_record_updates, decode_comparison_chain,
     comparison_pair_at, decode_match_expr, match_expr_arm_at,
     record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_fmt,
