@@ -25,6 +25,9 @@ use std::sync::Arc;
 
 pub(super) use super::proof::{ConditionNarrowings, Narrowing};
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TailCheckingPurpose { Value, ProcCompletion }
+
 pub(super) fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     matches!(
         ty,
@@ -4760,7 +4763,11 @@ impl Checker {
             .map(|tail| arena.arena.core_stmt_id(tail));
         if inferring || checking_application_return {
             let enclosing_tail = std::mem::replace(&mut self.boundary.result_unit_function_tail, body_tail);
-            let tail = self.check_tail_block_arena(arena, source, def.body, None);
+            let tail = if pure {
+                self.check_tail_block_arena(arena, source, def.body, None)
+            } else {
+                self.check_tail_block_for_purpose_arena(arena, source, def.body, None, TailCheckingPurpose::ProcCompletion)
+            };
             self.boundary.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
                 let origin = self.stream_block_origin(arena, def.body);
@@ -6243,6 +6250,17 @@ impl Checker {
         block_id: BlockId,
         expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
+        self.check_tail_block_for_purpose_arena(arena, source, block_id, expectation, TailCheckingPurpose::Value)
+    }
+
+    fn check_tail_block_for_purpose_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
+    ) -> Type {
         let block = arena.arena.block(block_id);
         if let Some(param) = arena.arena.block_params(block.params).first() {
             let param_span = arena.arena.span(param.span);
@@ -6252,7 +6270,7 @@ impl Checker {
                 DiagnosticCode::CheckBlockParams,
             );
         }
-        self.check_tail_block_contents_with_expectation_arena(arena, source, block_id, expectation)
+        self.check_tail_block_contents_with_expectation_arena(arena, source, block_id, expectation, purpose)
     }
 
     pub(super) fn check_tail_block_contents_arena(
@@ -6267,6 +6285,7 @@ impl Checker {
             source,
             block_id,
             expected.map(super::types::TypeExpectation::Required),
+            TailCheckingPurpose::Value,
         )
     }
 
@@ -6276,9 +6295,10 @@ impl Checker {
         source: &str,
         block_id: BlockId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
         let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
-        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expectation);
+        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expectation, purpose);
         self.leave_block_effect_bound(enclosing_bound);
         ty
     }
@@ -6289,9 +6309,10 @@ impl Checker {
         source: &str,
         block_id: BlockId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
         let enclosing_flow = self.boundary.stream_flow;
-        let actual = self.check_tail_block_statements_arena_inner(arena, source, block_id, expectation);
+        let actual = self.check_tail_block_statements_arena_inner(arena, source, block_id, expectation, purpose);
         self.boundary.stream_flow = enclosing_flow;
         actual
     }
@@ -6302,6 +6323,7 @@ impl Checker {
         source: &str,
         block_id: BlockId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
         let expected = expectation.map(super::types::TypeExpectation::context);
         let block = arena.arena.block(block_id);
@@ -6345,6 +6367,7 @@ impl Checker {
                     source,
                     tail,
                     expectation,
+                    purpose,
                 );
                 let candidate_accepts = self.diagnostics.len() == diagnostics_before
                     && expectation
@@ -6380,6 +6403,13 @@ impl Checker {
             self.block_never_falls_through_checked_arena(arena, block_id)
         };
         if !reachable || always_returns {
+            Type::Unknown
+        } else if purpose == TailCheckingPurpose::ProcCompletion && result != Type::Unknown {
+            let span = arena.arena.span(block.span);
+            let origin = self.stream_block_origin(arena, block_id);
+            let schema = self.checked_block_schema(arena, block_id);
+            self.inferred_returns.as_mut().expect("Proc completion inference owns its candidates")
+                .push(super::infer_return::InferredReturn { ty: result, span, origin, schema });
             Type::Unknown
         } else {
             result
@@ -6598,6 +6628,7 @@ impl Checker {
             source,
             id,
             expected.map(super::types::TypeExpectation::Required),
+            TailCheckingPurpose::Value,
         )
     }
 
@@ -6607,10 +6638,14 @@ impl Checker {
         source: &str,
         id: StmtId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
-        let actual = self.check_tail_stmt_with_expectation_arena_inner(arena, source, id, expectation);
+        let actual = self.check_tail_stmt_with_expectation_arena_inner(arena, source, id, expectation, purpose);
         if matches!(arena.arena.stmt(id).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. }) {
-            self.expr_types.insert(arena.arena.stmt(id).span, actual.clone());
+            if purpose == TailCheckingPurpose::ProcCompletion {
+                self.expr_types.remove(&arena.arena.stmt(id).span);
+                self.statement_positions.insert(arena.arena.stmt(id).span, super::StatementPosition::Statement);
+            } else { self.expr_types.insert(arena.arena.stmt(id).span, actual.clone()); }
         }
         self.record_checked_stream_tail(arena, id, &actual);
         self.record_checked_tail_schema(arena, id);
@@ -6624,6 +6659,7 @@ impl Checker {
         source: &str,
         id: StmtId,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
         let expected = expectation.map(super::types::TypeExpectation::context);
         let id = arena.arena.core_stmt_id(id);
@@ -6889,11 +6925,12 @@ impl Checker {
                         super::types::next_branch_expectation(expectation, inferred.as_ref())
                     };
                     let diagnostics_before = self.diagnostics.len();
-                    let actual = self.check_tail_block_with_expectation_arena(
+                    let actual = self.check_tail_block_for_purpose_arena(
                         arena,
                         source,
                         branch.block,
                         branch_expectation,
+                        purpose,
                     );
                     self.pop_scope();
                     if !infer_branches {
@@ -6942,11 +6979,12 @@ impl Checker {
                         super::types::next_branch_expectation(expectation, inferred.as_ref())
                     };
                     let diagnostics_before = self.diagnostics.len();
-                    let actual = self.check_tail_block_with_expectation_arena(
+                    let actual = self.check_tail_block_for_purpose_arena(
                         arena,
                         source,
                         block,
                         else_expectation,
+                        purpose,
                     );
                     self.check_required_block_exit(arena, block);
                     self.pop_scope();
@@ -6994,7 +7032,7 @@ impl Checker {
                 inferred.unwrap_or(Type::Unknown)
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.check_tail_match_arena(arena, source, value, arms, expectation)
+                self.check_tail_match_arena(arena, source, value, arms, expectation, purpose)
             }
             ArenaStmtKind::Return(_)
             | ArenaStmtKind::Break { .. }
@@ -7050,6 +7088,7 @@ impl Checker {
         value: ExprId,
         arms: ArenaRange,
         expectation: Option<super::types::TypeExpectation<'_>>,
+        purpose: TailCheckingPurpose,
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
@@ -7080,7 +7119,7 @@ impl Checker {
             }
             let arm_expectation = if infer_branches { None } else { super::types::next_branch_expectation(expectation, inferred.as_ref()) };
             let diagnostics_before = self.diagnostics.len();
-            let arm_ty = self.check_tail_block_with_expectation_arena(arena, source, arm.block, arm_expectation);
+            let arm_ty = self.check_tail_block_for_purpose_arena(arena, source, arm.block, arm_expectation, purpose);
             if !infer_branches {
                 self.check_unit_branch_completion(arena, arm.block, arm_expectation.map(super::types::TypeExpectation::context).cloned(), &arm_ty);
             }

@@ -3107,6 +3107,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if !block_data.params.is_empty() { return self.block_scheme_lowering(block); }
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
         let (&tail, prefix) = statements.split_last()?;
+        if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
+            && matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
+        {
+            let mut tail_types = BTreeMap::new();
+            let body = self.lower_scheme_completion_block(block, slots, current_function, facts, &mut visited, &mut lowered_types, &mut tail_types)?;
+            if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() { return self.block_scheme_lowering(block); }
+            return Some((body, lowered_types, tail_types));
+        }
         let mut body = Vec::new();
         for &statement in prefix {
             self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
@@ -3132,6 +3140,73 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some(ty) = tail_type { tail_types.insert(returned, ty); }
         body.push(returned);
         Some((body, lowered_types, tail_types))
+    }
+
+    fn lower_scheme_completion_block(
+        &mut self, block: crate::syntax::arena::BlockId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, tail_types: &mut BTreeMap<BuildStmtId, SchemeType>,
+    ) -> Option<Vec<BuildStmtId>> {
+        let block_data = self.program.arena.block(block);
+        if !block_data.params.is_empty() { return None; }
+        let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
+        let (&tail, prefix) = statements.split_last()?;
+        let mut body = Vec::new();
+        for &statement in prefix {
+            self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, &mut body)?;
+        }
+        let completion = match self.program.arena.stmt(tail).kind {
+            ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
+                let mut lowered = Vec::new();
+                for branch in self.program.arena.if_branches(branches).to_vec() {
+                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                    let saved = slots.enter();
+                    let branch_body = self.lower_scheme_completion_block(branch.block, slots, current_function, facts, visited, lowered_types, tail_types)?;
+                    slots.exit(saved);
+                    lowered.push((condition, branch_body));
+                }
+                let saved = slots.enter();
+                let else_body = self.lower_scheme_completion_block(else_block, slots, current_function, facts, visited, lowered_types, tail_types)?;
+                slots.exit(saved);
+                push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body: Some(else_body) })
+            }
+            ArenaStmtKind::Match { value, arms } => {
+                let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, &mut body)?;
+                let mut lowered = Vec::new();
+                for arm in self.program.arena.match_arms(arms).to_vec() {
+                    self.consume_scheme_pattern(arm.pattern, facts, visited)?;
+                    let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots, None, None)?;
+                    let guard = match arm.guard {
+                        Some(guard) => Some(self.lower_scheme_lazy_expression(guard, slots, current_function, facts, visited, lowered_types)?),
+                        None => None,
+                    };
+                    let saved = slots.enter();
+                    let arm_body = self.lower_scheme_completion_block(arm.block, slots, current_function, facts, visited, lowered_types, tail_types)?;
+                    slots.exit(saved);
+                    cleanup_lowered_pattern_slots(slots, cleanup);
+                    lowered.push((pattern, guard, arm_body));
+                }
+                push_build_row!(self, stmt, BuildStmtRow::Match { value: subject, arms: lowered, span: self.program.arena.stmt(tail).span })
+            }
+            _ => {
+                let mut value = self.lower_scheme_tail_value(tail, slots, current_function, facts, visited, lowered_types, &mut body)?;
+                let span = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Return(_)) {
+                    self.program.arena.stmt(tail).span
+                } else { self.program.arena.span(block_data.span) };
+                let site = facts.proc_return_site(span);
+                if site.is_none() { value = self.lift_scheme_return_value(value, facts, lowered_types)?; }
+                if site.is_none() && !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type())) { return None; }
+                let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value });
+                if let Some(site) = site { self.scratch.borrow_mut().scheme_application_returns.insert(returned.index(), site); }
+                if self.bodies.resource_transfer(ResourceTransferSite::BlockValue(block))? { self.scratch.borrow_mut().mark_resource_transfer(returned); }
+                if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::TailBareIdent(_)) {
+                    tail_types.insert(returned, lowered_types.get(&value)?.clone());
+                }
+                returned
+            }
+        };
+        body.push(completion);
+        Some(body)
     }
 
     fn lift_scheme_return_value(

@@ -454,8 +454,12 @@ contract and its actual target writers.
 Proc application returns retain their actual owner, return instruction,
 application ordinal, and return-envelope ordinal. The body verifier traces the
 actual immutable producers and all completing branch values before accepting
-that descriptor. Shared branches must prove the same raw result and normalized
-return contract; their representative is the minimum actual application ordinal.
+that descriptor. Terminal Proc statement `if` and `match` arms retain separate
+raw completions. The checker normalizes those completions after collecting the
+body's propagated errors. Lowering emits one return per arm with its authenticated
+envelope. Branches used as values keep their raw type join. A shared descriptor must
+prove the same raw result and normalized return contract across those branches;
+its representative is the minimum actual application ordinal.
 Invocation bindings project the result's outer constructor from the same checked
 type substitution to select wrapping or preservation. The executor does not
 inspect the returned payload to select an envelope, and formal values keep their
