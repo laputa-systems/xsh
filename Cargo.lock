@@ -1851,6 +1851,7 @@ dependencies = [
  "directories",
  "flate2",
  "futures-rustls",
+ "graviola",
  "http",
  "ignore",
  "laputa-h2-futures-lite",

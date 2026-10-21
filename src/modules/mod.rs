@@ -3,6 +3,7 @@ pub(crate) mod bytes;
 pub(crate) mod cli;
 pub(crate) mod compression;
 pub(crate) mod cpu;
+pub(crate) mod crypto;
 pub(crate) mod diff;
 pub(crate) mod dns;
 pub(crate) mod elf;

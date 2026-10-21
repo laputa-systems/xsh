@@ -109,6 +109,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "Descriptors define the stable script-facing command-line contract.",
         ),
         "compression" => ("Bounded compression of files or standard streams.", "Null paths select standard input and output; named destinations are created exclusively unless overwrite is true."),
+        "crypto" => (
+            "Ed25519 signature verification.",
+            "Verification accepts raw message bytes and detached RFC 8032 Ed25519 signatures.",
+        ),
         "locale" => ("Locale numeric and month metadata.", "Reads an explicit locale without changing process or thread locale. Bytes retain their encoding. musl uses a committed GNU libc metadata projection with exact supported names and aliases; other targets query installed native locales. Unavailable names return errors. This does not provide collation or character classes."),
         "numeric" => ("Native C long double text conversion.", "Uses an isolated C locale and the target C long double precision and range; values never pass through XSH Float."),
         "cpu" => ("CPU capability queries.", ""),
@@ -404,6 +408,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Calculates a digest from bytes or a file path.",
             "Hash bytes at the content boundary; format the digest only for storage, display, or comparison.",
             &["hash", "digest", "bytes"],
+        )),
+        ("crypto", "ed25519_verify") => Some((
+            "Verifies a detached RFC 8032 Ed25519 signature.",
+            "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. The operation has no host effects.",
+            &["crypto", "ed25519", "verification", "signature"],
         )),
         ("net", "request") => Some((
             "Performs one structured HTTP request.",

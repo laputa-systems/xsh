@@ -28,6 +28,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.bare-blocks" => include_str!("../../../docs/snippets/api/bare-blocks.xsh"),
         "language.core.bindings" => include_str!("../../../docs/snippets/api/record-bindings.xsh"),
         "module.bytes" => include_str!("../../../docs/snippets/api/bytes-base64.xsh"),
+        "module.crypto.ed25519_verify" => {
+            include_str!("../../../docs/snippets/api/crypto-ed25519-verify.xsh")
+        },
         "module.fs" | "method.Path.read_text" => {
             include_str!("../../../docs/snippets/api/fs-read-text.xsh")
         }
