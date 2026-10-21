@@ -99,12 +99,14 @@ Fresh merged qualification and matching-product replay produce the results
 above. The remaining XSH failures stay owned by the producer lane; this is
 not a qualified full compiler baseline.
 
-Isolated compiler checkpoint `ea24407c7` passes 26 of 30 focused controls.
-The 21 foundation controls and five Pure source cases pass, including immutable
-aliases, returned callback identity and one requirement per source application.
-Four Proc and recursive-return cases still fail. Bound effect publication,
-application-result origins and cold execution remain unfinished. This checkpoint
-stays outside the integration branch and earns no F2 acceptance.
+Isolated compiler checkpoint `4d67a68a5` passes 29 of 35 focused controls.
+All 23 foundation controls pass. The source controls preserve immutable aliases,
+returned callback identity and one requirement per source application.
+Application-result origins retain their constraint owner and normalize through
+the owning scheme's application evidence. Six Proc and recursive-return cases
+still fail. Outer bound effect publication, latent application causality and
+symbolic cold execution remain unfinished. This checkpoint stays outside the
+integration branch and earns no F2 acceptance.
 
 Three smaller producer regressions reproduce the remaining corpus classes:
 guarded optional fields, guarded mutable optional records, and mutable Bytes
