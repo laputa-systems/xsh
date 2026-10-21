@@ -75,7 +75,13 @@ impl Checker {
             return Type::Unknown;
         };
         self.propagating_error_spans.insert(span);
-        let allowed = self
+        let deferred_proc_failure = self.defer_effect_diagnostics
+            && !self.boundary.in_pure
+            && self.boundary.current_effects.is_none()
+            && self.boundary.effect_owner.and_then(|owner| {
+                self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))
+            }).is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc);
+        let allowed = deferred_proc_failure || self
             .boundary.current_effects
             .as_ref()
             .is_some_and(|effects| effects.contains(&Effect::Error))
