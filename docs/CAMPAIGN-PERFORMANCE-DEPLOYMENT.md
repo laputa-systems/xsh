@@ -200,7 +200,13 @@ The later constructor-phase repair clears two original Proc callback failures.
 Checkpoint `c6565bad5`, integrated through `bdf3f43f0`, also prepares omitted-return
 Procs with authored parameters through the existing authoritative body path.
 Its seven-control replay passes six, including the real-program counter fixture
-and both original cold application checks. Mutual Proc completion remains open.
+and both original cold application checks. Completion checkpoint `d16610e26`
+then passes all twelve focused controls. Each terminal branch retains its actual
+application and Proc envelope through the existing completion operation.
+Formal Result values remain nested data. Integration `7137953cb` passes 202 of
+203 combined controls with no ignores. The sole failure is the retained
+Stream-function alias positive. Mutual Proc completion, the real-program counter,
+both mutable runtime routes and the original cold application checks all pass.
 The inherited collecting probe also remains separate work from the authoritative
 body check. Stream aliases, terminal commands and native-order checks remain open.
 
@@ -213,7 +219,7 @@ and producer proofs. Explicit `List[Any]` and heterogeneous literals stay dynami
 The subsequent combined group passes 192 of 197 controls with no ignores.
 Three failures expose the ordinary Proc preparation gap repaired by `c6565bad5`.
 Mutual Proc completion and the retained Stream-alias positive also fail.
-The combined group has not been replayed after the Proc repair.
+The later 203-control replay above clears those Proc failures.
 The native witnesses integrated at `6397a90cf` both reproduce real failures.
 Prepared-constant repair `85d6f607a` is now integrated through `6fd59da4b`.
 Its 89-test checker/runtime group and four imported-read/nominal controls pass.
