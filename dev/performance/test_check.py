@@ -245,17 +245,237 @@ class PolicyTests(unittest.TestCase):
     def test_optional_measurement_paths_are_explicit_and_do_not_change_old_configs(self):
         value = self.config()
         self.assertIsNone(check.parse_config(value).measurement)
+        self.assertIsNone(check.parse_config(value).inference_performance)
         value['measurement'] = {'fixtures': '/frozen/fixtures', 'output': '/frozen/output.json'}
         self.assertEqual(check.parse_config(value).measurement['fixtures'], Path('/frozen/fixtures'))
         for changed in ({'fixtures': 'relative', 'output': '/frozen/output.json'}, {'fixtures': '/frozen/fixtures'}, {'fixtures': '/frozen/fixtures', 'output': '/frozen/output.json', 'accepted': True}):
             with self.subTest(changed=changed), self.assertRaises(check.CheckError):
                 check.parse_config(value | {'measurement': changed})
 
+    def test_inference_performance_output_is_explicit_and_confined_to_adapter_scratch(self):
+        value = self.config()
+        reference = {'source_root': '/frozen/reference', 'commit': 'c' * 40,
+                     'tree': 'd' * 40, 'profile_receipt': '/frozen/reference-profile.json'}
+        value['inference_performance'] = {'output': str(Path(value['scratch']) / 'inference-performance.json'),
+                                          'reference': reference}
+        parsed = check.parse_config(value).inference_performance
+        self.assertEqual(parsed['output'], Path(value['scratch']) / 'inference-performance.json')
+        self.assertEqual(parsed['reference']['source_root'], Path('/frozen/reference'))
+        for changed in (
+            {'output': '/tmp/inference.json', 'reference': reference},
+            {'output': str(Path(value['scratch']) / 'inference.json'), 'reference': {}},
+            {'output': str(Path(value['scratch']) / 'inference.json'), 'reference': reference, 'pairs': 2},
+        ):
+            with self.subTest(changed=changed), self.assertRaises(check.CheckError):
+                check.parse_config(value | {'inference_performance': changed})
+
+    def test_reference_uses_the_shared_release_profile_qualification(self):
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as temporary:
+            root = Path(temporary)
+            binaries = {}
+            for name in ('xsh', 'xsht'):
+                path = root / name
+                path.write_text(name)
+                path.chmod(0o755)
+                binaries[name] = {'path': str(path), 'sha256': check.owned_digest(path)}
+            receipt_path = root / 'profile.json'
+            receipt_path.write_text(json.dumps({
+                'target': 'x86_64-unknown-linux-musl',
+                'native_image': {'image_id': 'pinned-image'},
+            }))
+            config = SimpleNamespace(
+                source_root=root / 'candidate', commit='a' * 40, tree='b' * 40,
+                inference_performance={'reference': {
+                    'source_root': root / 'reference', 'commit': 'c' * 40, 'tree': 'd' * 40,
+                    'profile_receipt': receipt_path,
+                }},
+            )
+            selected = {
+                'source': {'commit': 'c' * 40, 'git_tree': 'd' * 40, 'status': 'clean'},
+                'source_root': str(root / 'reference'),
+                'profile_receipt': {'path': str(receipt_path), 'sha256': check.owned_digest(receipt_path)},
+                'profile': {'opt_level': 3}, 'build_policy': {'image_id': 'pinned-image'},
+                'binaries': binaries,
+                'binary_sizes': {name: Path(record['path']).stat().st_size for name, record in binaries.items()},
+            }
+            with patch.object(check, 'qualify_inference_profile', return_value=selected) as qualify:
+                selected = check.qualify_inference_reference(config, SimpleNamespace(IMAGE='pinned-image'))
+            qualify.assert_called_once_with(config, root / 'reference', 'c' * 40, 'd' * 40,
+                                            receipt_path, 'pinned-image', 'inference_reference')
+            self.assertEqual(selected['binaries'], binaries)
+            self.assertEqual(selected['profile_receipt']['sha256'], check.owned_digest(receipt_path))
+
+    def test_inference_release_profile_requires_exact_pinned_build_command(self):
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as temporary:
+            root = Path(temporary)
+            source = root / 'source'
+            source.mkdir()
+            for filename in ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml'):
+                (source / filename).write_text(filename)
+            target = root / 'opt3' / 'target'
+            profile_directory = target / 'x86_64-unknown-linux-musl' / 'release'
+            profile_directory.mkdir(parents=True)
+            binaries = {}
+            for name in ('xsh', 'xsht', 'xsh-test-helper'):
+                path = profile_directory / name
+                path.write_text(name)
+                path.chmod(0o755)
+                binaries[name] = {'path': str(path), 'sha256': check.owned_digest(path)}
+            repository_tmp = root / 'profile-temp'
+            repository_tmp.mkdir()
+            base_command = ['docker', 'run', '-v', f'{repository_tmp}:/t:rw', 'pinned',
+                            'cargo', 'build', '--release', '--locked']
+            receipt_path = root / 'profile.json'
+            receipt = {
+                'target': 'x86_64-unknown-linux-musl',
+                'native_image': {'image_id': 'pinned-image'},
+                'profile': {'name': 'release', 'lto': 'thin', 'codegen_units': 16,
+                            'opt_levels': [3]},
+                'resources': {'cpuset_cpus': '0-11'},
+                'run_id': 'profile-run',
+                'cargo_lock_sha256': check.owned_digest(source / 'Cargo.lock'),
+                'cargo_toml_sha256': check.owned_digest(source / 'Cargo.toml'),
+                'rust_toolchain_sha256': check.owned_digest(source / 'rust-toolchain.toml'),
+                'results': [{
+                    'name': 'release-opt3', 'profile': 'release', 'opt_level': 3,
+                    'lto': 'thin', 'codegen_units': 16,
+                    'build_command': base_command + ['owned'],
+                    'build': {'status': 0, 'container_cleanup': {'resolved': True},
+                              'command': base_command + ['owned']},
+                    'binaries': binaries,
+                }],
+            }
+            receipt_path.write_text(json.dumps(receipt))
+            calls = []
+            observer = SimpleNamespace(
+                TARGET='x86_64-unknown-linux-musl',
+                load_profile_binaries=lambda *args, **kwargs: calls.append((args, kwargs)) or {
+                    'profile': {'name': 'release-opt3', 'profile': 'release', 'opt_level': 3,
+                                'lto': 'thin'},
+                    'directory': str(profile_directory), 'binaries': binaries,
+                },
+            )
+
+            def profile_build(*args, **kwargs):
+                return base_command
+
+            producer = SimpleNamespace(NATIVE_IMAGE_ID='pinned-image', profile_build=profile_build)
+            config = SimpleNamespace(laputa_root=root / 'laputa')
+            def owner(_config, _relative, name):
+                return observer if name == 'profile_test' else producer
+
+            with patch.object(check, 'baseline_owner', side_effect=owner), \
+                    patch.object(check, 'source_identity_at', return_value={
+                        'commit': 'a' * 40, 'git_tree': 'b' * 40, 'status': 'clean'}), \
+                    patch.object(check, 'read_json', return_value=receipt), \
+                    patch.object(check.owned, 'owned_docker_command',
+                                 side_effect=lambda command, **_kwargs: command + ['owned']):
+                selected = check.qualify_inference_profile(
+                    config, source, 'a' * 40, 'b' * 40, receipt_path, 'pinned-image', 'profile_test')
+                self.assertEqual(selected['build_policy']['build_command'], base_command + ['owned'])
+                self.assertEqual(calls[0][0], (receipt_path, source, 'a' * 40, 3))
+                receipt['results'][0]['build_command'] = base_command + ['mutated']
+                with self.assertRaisesRegex(check.CheckError, 'command or feature policy'):
+                    check.qualify_inference_profile(
+                        config, source, 'a' * 40, 'b' * 40, receipt_path, 'pinned-image', 'profile_test')
+
+    def test_inference_input_snapshot_detects_product_mutation_during_qualification(self):
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as temporary:
+            root = Path(temporary)
+            products = {}
+            reference_products = {}
+            for owner, destination in (('candidate', products), ('reference', reference_products)):
+                for name in ('xsh', 'xsht'):
+                    path = root / owner / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(f'{owner}-{name}')
+                    path.chmod(0o755)
+                    destination[name] = {'path': str(path)}
+            candidate_receipt = root / 'candidate-profile.json'
+            candidate_receipt.write_text('{}')
+            reference_receipt = root / 'reference-profile.json'
+            reference_receipt.write_text(json.dumps({'results': [{'binaries': reference_products}]}))
+            scratch = root / 'scratch'
+            scratch.mkdir()
+            config = SimpleNamespace(
+                source_root=root / 'candidate-source', commit='a' * 40, tree='b' * 40,
+                laputa_root=root / 'laputa', product_receipt=candidate_receipt,
+                xsh=Path(products['xsh']['path']), xsht=Path(products['xsht']['path']),
+                scratch=scratch, functional=None, baseline=None, measurement=None,
+                inference_performance={'output': scratch / 'report.json', 'reference': {
+                    'source_root': root / 'reference-source', 'commit': 'c' * 40,
+                    'tree': 'd' * 40, 'profile_receipt': reference_receipt,
+                }},
+            )
+            reference = {'binaries': reference_products}
+            with patch.object(check, 'source_identity', return_value={'commit': 'a' * 40}), \
+                    patch.object(check, 'source_identity_at', return_value={'commit': 'c' * 40}):
+                initial = check.inference_input_snapshot(config)
+                candidate = {name: {'path': str(path)} for name, path in
+                             (('xsh', config.xsh), ('xsht', config.xsht))}
+                Path(products['xsh']['path']).write_text('candidate-xsh-mutated')
+                qualified = check.inference_product_snapshot(config, candidate, reference)
+            self.assertNotEqual(initial, qualified)
+            self.assertNotEqual(initial['candidate_products']['xsh']['sha256'],
+                                qualified['candidate_products']['xsh']['sha256'])
+
+    def test_inference_holds_existing_exclusive_performance_locks_in_owner_order(self):
+        events = []
+
+        class Lease:
+            def __init__(self, name):
+                self.name = name
+
+            def close(self):
+                events.append(('release', self.name))
+
+        def acquire(path, **kwargs):
+            name = str(path)
+            events.append(('acquire', name, kwargs))
+            return Lease(name)
+
+        owner = SimpleNamespace(
+            OWNERSHIP_LOCK=Path('/locks/owner'), INFRA=Path('/locks'), PARITY_LOCK=Path('/locks/parity'),
+            acquire_lock=acquire, no_native_containers=lambda image: events.append(('containers', image)),
+        )
+        with check.inference_performance_locks(owner, 'pinned-image'):
+            events.append(('measure', None))
+        self.assertEqual([event[:2] for event in events], [
+            ('acquire', '/locks/owner'), ('acquire', '/locks/native-suite.lock'),
+            ('acquire', '/locks/cargo.lock'), ('acquire', '/locks/parity'),
+            ('containers', 'pinned-image'), ('measure', None),
+            ('release', '/locks/parity'), ('release', '/locks/cargo.lock'),
+            ('release', '/locks/native-suite.lock'), ('release', '/locks/owner'),
+        ])
+        self.assertEqual(events[0][2], {'reject_unresolved': True})
+
     def test_measure_without_live_close_report_fails_before_effects(self):
         config = check.parse_config(self.config())
         with patch.object(check, 'qualify_products', side_effect=AssertionError('unexpected qualification')), patch.object(check, 'checked_docker', side_effect=AssertionError('unexpected Docker')):
             with self.assertRaisesRegex(check.CheckError, 'live.*CloseReport'):
                 check.measure(config)
+
+    def test_inference_performance_without_explicit_output_fails_before_product_or_docker_work(self):
+        config = check.parse_config(self.config())
+        with patch.object(check, 'qualify_products', side_effect=AssertionError('unexpected qualification')), patch.object(check, 'checked_docker', side_effect=AssertionError('unexpected Docker')):
+            with self.assertRaisesRegex(check.CheckError, 'output is not configured'):
+                check.inference_performance(config)
+
+    def test_public_inference_gate_stays_closed_until_full_acceptance_evidence(self):
+        config = PolicyTests().config()
+        config['inference_performance'] = {
+            'output': str(Path(config['scratch']) / 'inference-performance.json'),
+            'reference': {'source_root': '/reference', 'commit': 'c' * 40,
+                          'tree': 'd' * 40, 'profile_receipt': '/reference/profile.json'},
+        }
+        error = StringIO()
+        with patch.object(sys, 'argv', ['check.py', '--config', '/explicit/config.json', 'inference', '--check']), \
+                patch.object(check, 'read_json', return_value=config), \
+                patch.object(check, 'qualify_products', side_effect=AssertionError('unexpected qualification')), \
+                patch.object(check, 'checked_docker', side_effect=AssertionError('unexpected Docker')), \
+                redirect_stderr(error):
+            self.assertEqual(check.main(), 1)
+        self.assertIn('full capability, joint corpus, and classification evidence', error.getvalue())
 
     def product(self):
         source = {'commit': 'a' * 40, 'git_tree': 'b' * 40, 'status': 'clean'}

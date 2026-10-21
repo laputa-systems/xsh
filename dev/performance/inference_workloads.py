@@ -146,18 +146,25 @@ def _deep_record(size):
     def source(annotated):
         lines = ['type Deep_0 = {leaf: Int}']
         lines.extend(f'type Deep_{index} = {{next: Deep_{index - 1}}}' for index in range(1, size + 1))
-        projection = 'value' + '.next' * size + '.leaf'
+        lines.extend(('', 'pure make_0(value: Int) -> Deep_0 { {leaf: value} }' if annotated
+                      else 'pure make_0(value) { {leaf: value} }'))
+        for index in range(1, size + 1):
+            if annotated:
+                lines.append(f'pure make_{index}(value: Int) -> Deep_{index} {{ {{next: make_{index - 1}(value)}} }}')
+            else:
+                lines.append(f'pure make_{index}(value) {{ {{next: make_{index - 1}(value)}} }}')
+        lines.extend(('', 'pure project_0(value: Deep_0) -> Int { value.leaf }' if annotated
+                      else 'pure project_0(value) { value.leaf }'))
+        for index in range(1, size + 1):
+            if annotated:
+                lines.append(f'pure project_{index}(value: Deep_{index}) -> Int {{ project_{index - 1}(value.next) }}')
+            else:
+                lines.append(f'pure project_{index}(value) {{ project_{index - 1}(value.next) }}')
         if annotated:
-            lines.extend(('', f'pure leaf(value: Deep_{size}) -> Int {{ {projection} }}'))
-            result_annotation = f': Deep_{size}'
             answer_annotation = ': Int'
         else:
-            lines.extend(('', f'pure leaf(value) {{ {projection} }}'))
-            result_annotation = ''
             answer_annotation = ''
-        literal = '{next: ' * size + '{leaf: 7}' + '}' * size
-        lines.extend(('', f'let record{result_annotation} = {literal}',
-                      f'let answer{answer_annotation} = leaf(record)', 'print $answer', ''))
+        lines.extend(('', f'let answer{answer_annotation} = project_{size}(make_{size}(7))', 'print $answer', ''))
         return {'main.xsh': '\n'.join(lines)}
 
     expectation = 'expected-type-depth-rejection' if size > RECORD_DEPTH_LIMIT else 'boundary-pending'
