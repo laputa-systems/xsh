@@ -67,8 +67,29 @@ carrier requires that presence proof even when wrapper facts are absent.
 A valid-first mutation that reverses the preceding guard is rejected. Prefix
 scans borrow the existing child forest, and completed positive presence proofs
 are reused only for their exact physical gate within that owner. Work limits
-remain unchanged. Matching verification products are building; native,
-documentation, corpus and full baseline acceptance remain pending.
+remain unchanged. Matching verification products build: `xsh` is 36,240,248
+bytes and `xsht` is 44,245,808 bytes. All six runner/resource controls and the
+qualified-alias generic-constructor selector pass with zero skips; source and
+products remain unchanged. Documentation, corpus and full baseline acceptance
+remain pending.
+
+Argument source `2b37fee8c` passes the fresh merged boundary: 673 passed,
+zero failed and zero ignored. Its 29 focused controls and independent review
+cover canonical named spreads, final rest/splice layout, omitted interior
+defaults in declaration scope, selected registered conversions, and actual
+default/argument/effect/substitution proofs after frontend disposal. The same
+expansion and argument-order policy serves concrete types and published
+schemes. Standalone Result propagation uses the existing indexed Try operation.
+These source-acceptance changes have matching SPEC and Architecture updates;
+verification products still describe `520757c30`.
+
+Eleven new native fixture probes against the `520757c30` pair have eight passes
+and three compiler failures, with no skips. NonEmpty preservation fails first
+on its fresh list input; generic mutable-row refinement after a disjoint write
+and a generic deferred body also fail. The producer and core-inference lanes
+own these classes. Initial qualifier-syntax and UInt assertion/display fixture
+errors were corrected before this count. No capability or corpus exclusion
+follows from these failures.
 
 Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
 comprehensions. All 20 focused controls pass before integration. They cover
