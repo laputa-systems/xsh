@@ -135,9 +135,13 @@ parsing declarations. The adapter rejects a nonzero command status, an error
 diagnostic, and missing, duplicate, malformed, or zero-count summaries. After
 either comparison succeeds or fails, the exit guard rechecks the source
 revisions, product hashes, and both complete accepted view trees. It preserves
-the comparison's status if a guard also fails. The comparison covers callable
-and CLI parsing interfaces. Separate checks cover help text, body behavior,
-operation and effect parity, and runtime witnesses.
+the comparison's status if a guard also fails. Besides callable and CLI parsing
+interfaces, the comparison checks captured registered-operation selections,
+published elaborations and concrete per-declaration effect summaries. The
+stdout counts describe interfaces only. Built-in operator selections and
+symbolic callback-effect relations are not yet captured. Paired runtime
+selectors separately check their asserted behavior; help-text checks retain
+their own scope.
 
 Run the controlled frozen-adapter tests with
 `XSH_LAPUTA_CORPUS="$LAPUTA_ROOT" python3 dev/performance/corpus/test_check_views.py`.
