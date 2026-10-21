@@ -52,6 +52,10 @@ pub(super) enum EffectChange {
 }
 
 impl EffectConstraints {
+    pub(super) fn variable_level(&self, id: EffectVariableId) -> Result<u32, ConstraintResolutionError> {
+        self.variables.get(&id).map(|variable| variable.level).ok_or(ConstraintResolutionError::ForeignVariable)
+    }
+
     pub(super) fn rollback(&mut self, change: EffectChange) {
         match change {
             EffectChange::FreshVariable(id) => { self.variables.remove(&id); }
@@ -243,6 +247,52 @@ impl EffectConstraints {
 }
 
 impl TypeConstraints {
+    pub(super) fn generalize_effect_contract(
+        &self,
+        contract: &EffectContract<EffectVariableId>,
+        environment_level: u32,
+        generalization: &mut super::Generalization,
+    ) -> Result<EffectContract<crate::sema::schemes::SchemeEffectParameterId>, super::SchemeOperationError> {
+        self.resolve_effect(contract)?.substitute(|id| {
+            if self.effects.variable_level(*id)? <= environment_level {
+                return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
+            }
+            let parameter = if let Some(parameter) = generalization.effect_ids.get(id) {
+                *parameter
+            } else {
+                let parameter = crate::sema::schemes::SchemeEffectParameterId(generalization.effect_parameters.len() as u32);
+                generalization.effect_ids.insert(*id, parameter);
+                generalization.effect_parameters.push(parameter);
+                parameter
+            };
+            Ok(EffectContract::variable(parameter))
+        })
+    }
+
+    pub(super) fn generalize_effect_predicates(
+        &self,
+        environment_level: u32,
+        generalization: &mut super::Generalization,
+    ) -> Result<Vec<crate::sema::effects::EffectPredicate<crate::sema::schemes::SchemeEffectParameterId>>, super::SchemeOperationError> {
+        let mut pending = generalization.effect_ids.keys().copied().collect::<Vec<_>>();
+        let mut visited_variables = BTreeSet::new();
+        let mut visited_predicates = BTreeSet::new();
+        let mut predicates = Vec::new();
+        while let Some(variable) = pending.pop() {
+            if !visited_variables.insert(variable) { continue; }
+            for &index in self.effects.watchers.get(&variable).into_iter().flatten() {
+                if !visited_predicates.insert(index) { continue; }
+                let predicate = self.effects.predicates[index].try_map_contracts(|contract| {
+                    self.generalize_effect_contract(contract, environment_level, generalization)
+                })?;
+                predicates.push(predicate);
+                pending.extend(generalization.effect_ids.keys().filter(|id| !visited_variables.contains(id)).copied());
+            }
+        }
+        Ok(predicates)
+    }
+
+
     pub(crate) fn fresh_effect_at_level(&mut self, origin: Span, level: u32) -> EffectVariableId {
         let id = EffectVariableId(NEXT_EFFECT_VARIABLE.fetch_add(1, Ordering::Relaxed));
         assert!(self.effects.variables.insert(id, EffectVariable { origin, level, binding: None }).is_none());

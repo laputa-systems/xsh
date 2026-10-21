@@ -63,6 +63,18 @@ pub(crate) enum EffectPredicate<V> {
 }
 
 impl<V> EffectPredicate<V> {
+    pub(crate) fn try_map_contracts<W, E>(
+        &self,
+        mut map: impl FnMut(&EffectContract<V>) -> Result<EffectContract<W>, E>,
+    ) -> Result<EffectPredicate<W>, E> {
+        Ok(match self {
+            Self::Equal(left, right) => EffectPredicate::Equal(map(left)?, map(right)?),
+            Self::Included(left, right) => EffectPredicate::Included(map(left)?, map(right)?),
+            Self::Covered(left, right) => EffectPredicate::Covered(map(left)?, map(right)?),
+            Self::Excluded(contract, excluded) => EffectPredicate::Excluded(map(contract)?, *excluded),
+        })
+    }
+
     pub(crate) fn contracts(&self) -> impl Iterator<Item = &EffectContract<V>> {
         match self {
             Self::Equal(left, right) | Self::Included(left, right) | Self::Covered(left, right) => [Some(left), Some(right)],
@@ -202,6 +214,13 @@ pub(crate) enum EffectContract<V> {
 }
 
 impl<V: Ord> EffectContract<V> {
+    pub(crate) fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + match self {
+            Self::Unknown => 0,
+            Self::Known(expression) => expression.variables.len() * std::mem::size_of::<(V, EffectSet)>(),
+        }
+    }
+
     pub(crate) fn finite(effects: EffectSet) -> Self {
         Self::Known(EffectExpr::finite(effects))
     }

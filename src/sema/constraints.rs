@@ -1,7 +1,7 @@
 use super::types::{CallableType, ModuleExportType, Type};
 use super::schemes::{
     CallInstantiation, CallableMonotype, CallableScheme, RowEvidence, SchemeBuildError, SchemeParameter, SchemeRowParameter,
-    SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId,
+    SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId, CallableRequirements, SchemeEffectParameterId,
 };
 #[cfg(test)]
 use super::schemes::TypeScheme;
@@ -17,7 +17,7 @@ mod effect_constraints;
 pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId};
 #[path = "constraints/applications.rs"]
 mod application_constraints;
-pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId};
+pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope};
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
@@ -260,6 +260,7 @@ pub(crate) struct GeneralizedTypes {
     pub(crate) types: Vec<SchemeType>,
     pub(crate) type_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) row_parameters: Vec<SchemeRowParameter>,
+    pub(crate) requirements: CallableRequirements,
 }
 
 #[derive(Clone, Debug)]
@@ -268,6 +269,8 @@ pub(crate) struct InstantiatedScheme {
     pub(crate) return_type: Type,
     pub(crate) type_arguments: BTreeMap<SchemeTypeParameterId, Type>,
     pub(crate) row_arguments: BTreeMap<SchemeRowParameterId, RowVariableId>,
+    pub(crate) effect_arguments: BTreeMap<SchemeEffectParameterId, EffectVariableId>,
+    pub(crate) applications: Vec<CallableApplicationId>,
 }
 
 #[derive(Clone, Debug)]
@@ -275,6 +278,8 @@ pub(crate) enum SchemeOperationError {
     Resolution(ConstraintResolutionError),
     Build(SchemeBuildError),
     Constraint(ConstraintConflict),
+    Application(CallableApplicationError),
+    Effects(EffectConstraintError),
 }
 
 impl From<ConstraintResolutionError> for SchemeOperationError {
@@ -289,6 +294,8 @@ struct Generalization {
     row_ids: BTreeMap<RowVariableId, SchemeRowParameterId>,
     type_parameters: Vec<SchemeTypeParameterId>,
     row_parameters: Vec<SchemeRowParameter>,
+    effect_ids: BTreeMap<EffectVariableId, SchemeEffectParameterId>,
+    effect_parameters: Vec<SchemeEffectParameterId>,
 }
 
 #[derive(Debug)]
@@ -392,6 +399,31 @@ impl TypeConstraints {
     fn retain_trial_changes(&mut self, changes: Vec<ConstraintChange>) {
         if let Some(journal) = &mut self.trial_changes {
             journal.extend(changes);
+        }
+    }
+
+    fn commit_constraint_transaction<T, E>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let owns_journal = self.trial_changes.is_none();
+        let checkpoint = self.trial_changes.get_or_insert_with(Vec::new).len();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(self))) {
+            Ok(Ok(value)) => {
+                if owns_journal { self.trial_changes.take(); }
+                Ok(value)
+            }
+            result => {
+                let changes = self.trial_changes.as_mut().expect("transaction owns its journal").split_off(checkpoint);
+                if owns_journal { self.trial_changes.take(); }
+                self.rollback(changes);
+                self.counters.rollbacks.fetch_add(1, Ordering::Relaxed);
+                match result {
+                    Ok(Err(error)) => Err(error),
+                    Err(payload) => std::panic::resume_unwind(payload),
+                    Ok(Ok(_)) => unreachable!(),
+                }
+            }
         }
     }
 
@@ -563,6 +595,7 @@ impl TypeConstraints {
             types,
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
+            requirements: CallableRequirements::default(),
         })
     }
 
@@ -573,6 +606,7 @@ impl TypeConstraints {
         tail_types: &BTreeMap<StmtId, Type>,
         calls: &BTreeMap<Span, (Arc<CallableScheme>, InstantiatedScheme)>,
         environment_level: u32,
+        owner: crate::sema::check::EffectDeclarationId,
     ) -> Result<(
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
@@ -584,8 +618,10 @@ impl TypeConstraints {
             .iter()
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
+        let requirements = self.generalize_callable_requirements(owner, environment_level, &mut generalization)?;
         let type_parameter_count = generalization.type_parameters.len();
         let row_parameter_count = generalization.row_parameters.len();
+        let effect_parameter_count = generalization.effect_parameters.len();
         let quantified = type_parameter_count != 0 || row_parameter_count != 0;
         let body_types = body_types
             .iter()
@@ -609,6 +645,7 @@ impl TypeConstraints {
             .collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         if generalization.type_parameters.len() != type_parameter_count
             || generalization.row_parameters.len() != row_parameter_count
+            || generalization.effect_parameters.len() != effect_parameter_count
         {
             return Err(SchemeOperationError::Build(
                 SchemeBuildError::BodyTypeNotBound,
@@ -616,6 +653,7 @@ impl TypeConstraints {
         }
         let call_type_parameter_count = generalization.type_parameters.len();
         let call_row_parameter_count = generalization.row_parameters.len();
+        let call_effect_parameter_count = generalization.effect_parameters.len();
         let ground_caller = call_type_parameter_count == 0 && call_row_parameter_count == 0;
         let mut call_instantiations = BTreeMap::new();
         for (&span, (callable, instantiated)) in calls {
@@ -630,6 +668,7 @@ impl TypeConstraints {
         }
         if generalization.type_parameters.len() != call_type_parameter_count
             || generalization.row_parameters.len() != call_row_parameter_count
+            || generalization.effect_parameters.len() != call_effect_parameter_count
         {
             return Err(SchemeOperationError::Build(
                 SchemeBuildError::BodyTypeNotBound,
@@ -640,6 +679,7 @@ impl TypeConstraints {
                 types,
                 type_parameters: generalization.type_parameters,
                 row_parameters: generalization.row_parameters,
+                requirements,
             },
             body_types,
             tail_types,
@@ -710,12 +750,13 @@ impl TypeConstraints {
                 RowEvidence::new(fields, tail).map_err(SchemeOperationError::Build)?,
             );
         }
+        let effect_arguments = instantiated.effect_arguments.iter().map(|(&id, &variable)| {
+            Ok((id, self.generalize_effect_contract(&super::effects::EffectContract::variable(variable), environment_level, generalization)?))
+        }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
+        let bindings = self.callable_application_bindings(instantiated)?;
         CallInstantiation::new(
-            callable,
-            type_arguments,
-            row_arguments,
-            &generalization.type_parameters,
-            &generalization.row_parameters,
+            callable, type_arguments, row_arguments, effect_arguments, bindings,
+            &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
         )
         .map_err(SchemeOperationError::Build)
     }
@@ -727,7 +768,7 @@ impl TypeConstraints {
         level: u32,
         origin: Span,
     ) -> Result<InstantiatedScheme, SchemeOperationError> {
-        self.instantiate_callable(scheme.callable(), level, origin)
+        self.instantiate_callable(scheme.callable(), level, origin, crate::sema::constraints::CallableApplicationScope::Invocation)
     }
 
     pub(crate) fn instantiate_callable(
@@ -735,6 +776,17 @@ impl TypeConstraints {
         callable: &CallableScheme,
         level: u32,
         origin: Span,
+        scope: CallableApplicationScope,
+    ) -> Result<InstantiatedScheme, SchemeOperationError> {
+        self.commit_constraint_transaction(|this| this.instantiate_callable_inner(callable, level, origin, scope))
+    }
+
+    fn instantiate_callable_inner(
+        &mut self,
+        callable: &CallableScheme,
+        level: u32,
+        origin: Span,
+        scope: CallableApplicationScope,
     ) -> Result<InstantiatedScheme, SchemeOperationError> {
         self.note_scheme_instantiation();
         let mut type_arguments = BTreeMap::new();
@@ -748,6 +800,9 @@ impl TypeConstraints {
                 self.fresh_row_at_level(origin, level, parameter.lacks.iter().copied()),
             );
         }
+        let effect_arguments = callable.requirements().effect_parameters.iter().map(|&id| {
+            (id, self.fresh_effect_at_level(origin, level))
+        }).collect::<BTreeMap<_, _>>();
         let params = callable
             .params()
             .iter()
@@ -770,11 +825,28 @@ impl TypeConstraints {
             origin,
             0,
         )?;
+        let mut applications = Vec::new();
+        for application in &callable.requirements().applications {
+            let callee = self.instantiate_scheme_type(&application.callee, &type_arguments, &row_arguments, level, origin, 0)?;
+            let arguments = application.arguments.iter().map(|argument| Ok(super::callable_application::CallableApplicationArgument {
+                kind: argument.kind,
+                ty: self.instantiate_scheme_type(&argument.ty, &type_arguments, &row_arguments, level, origin, 0)?,
+                span: argument.span,
+            })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
+            let result = self.instantiate_scheme_type(&application.result, &type_arguments, &row_arguments, level, origin, 0)?;
+            let effects = application.effects.substitute(|id| effect_arguments.get(id).copied()
+                .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter)))?;
+            applications.push(self.register_callable_application(scope, super::callable_application::CallableApplication {
+                callee, arguments: arguments.into(), result, effects, kind: application.kind, span: application.span,
+            }).map_err(SchemeOperationError::Application)?);
+        }
+        for predicate in &callable.requirements().effect_predicates {
+            let predicate = predicate.try_map_contracts(|contract| contract.substitute(|id| effect_arguments.get(id).copied()
+                .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            self.constrain_effect(predicate).map_err(SchemeOperationError::Effects)?;
+        }
         Ok(InstantiatedScheme {
-            params,
-            return_type,
-            type_arguments,
-            row_arguments,
+            params, return_type, type_arguments, row_arguments, effect_arguments, applications,
         })
     }
 
@@ -825,7 +897,13 @@ impl TypeConstraints {
                     .map_err(SchemeOperationError::Build)?,
             );
         }
-        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, &[], &[])
+        let effect_arguments = instantiated.effect_arguments.iter().map(|(&id, &variable)| {
+            let contract = self.resolve_effect(&super::effects::EffectContract::variable(variable))?;
+            let contract = contract.substitute(|_| Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects)))?;
+            Ok((id, contract))
+        }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
+        let bindings = self.callable_application_bindings(instantiated)?;
+        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[])
             .map_err(SchemeOperationError::Build)?;
         if !callable.type_parameters().is_empty() || !callable.row_parameters().is_empty() {
             self.counters
@@ -3956,11 +4034,12 @@ mod tests {
                 generalized.types[1].clone(),
                 None,
                 false,
+                CallableRequirements::default(),
             ).unwrap();
-            let instance = constraints.instantiate_callable(&scheme, 1, span(2)).unwrap();
+            let instance = constraints.instantiate_callable(&scheme, 1, span(2), crate::sema::constraints::CallableApplicationScope::Invocation).unwrap();
             constraints.constrain(&instance.return_type, &Type::Int, span(3)).unwrap();
             assert_eq!(constraints.resolve(&instance.params[0]), Ok(nested_callable(Type::Int, Type::Int)));
-            let second = constraints.instantiate_callable(&scheme, 1, span(4)).unwrap();
+            let second = constraints.instantiate_callable(&scheme, 1, span(4), crate::sema::constraints::CallableApplicationScope::Invocation).unwrap();
             constraints.constrain(&second.return_type, &Type::Str, span(5)).unwrap();
             assert_eq!(constraints.resolve(&second.params[0]), Ok(nested_callable(Type::Str, Type::Str)));
         });
@@ -4304,6 +4383,7 @@ mod tests {
                 SchemeType::Parameter(parameter),
                 None,
                 false,
+                CallableRequirements::default(),
             )
             .unwrap();
             let monomorphic = CallableScheme::new(
@@ -4313,15 +4393,16 @@ mod tests {
                 SchemeType::Ground(Type::Int),
                 None,
                 false,
+                CallableRequirements::default(),
             )
             .unwrap();
             let mut constraints = TypeConstraints::default();
 
             let integer = constraints
-                .instantiate_callable(&callable, 1, span(1))
+                .instantiate_callable(&callable, 1, span(1), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             let text = constraints
-                .instantiate_callable(&callable, 1, span(2))
+                .instantiate_callable(&callable, 1, span(2), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             assert_ne!(integer.params[0], text.params[0]);
             constraints
@@ -4346,7 +4427,7 @@ mod tests {
             );
 
             let instantiated = constraints
-                .instantiate_callable(&monomorphic, 1, span(3))
+                .instantiate_callable(&monomorphic, 1, span(3), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             constraints
                 .resolve_call_instantiation(&monomorphic, &instantiated)
@@ -4373,6 +4454,7 @@ mod tests {
                 &BTreeMap::new(),
                 &BTreeMap::new(),
                 0,
+                crate::sema::check::EffectDeclarationId { namespace: None, body: span(0) },
             )
             .unwrap();
         assert!(callable.type_parameters.is_empty());
@@ -4400,11 +4482,12 @@ mod tests {
                 SchemeType::Parameter(parameter),
                 None,
                 false,
+                CallableRequirements::default(),
             )
             .unwrap();
             let mut constraints = TypeConstraints::default();
             let instantiated = constraints
-                .instantiate_callable(&generic, 1, span(30))
+                .instantiate_callable(&generic, 1, span(30), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             let calls = BTreeMap::from([(
                 span(31),
@@ -4417,7 +4500,8 @@ mod tests {
                     &BTreeMap::new(),
                     &calls,
                     0,
-                )
+                    crate::sema::check::EffectDeclarationId { namespace: None, body: span(0) },
+            )
                 .unwrap_err();
             assert!(matches!(
                 error,
@@ -4448,10 +4532,11 @@ mod tests {
                 SchemeType::Ground(Type::Int),
                 None,
                 false,
+                CallableRequirements::default(),
             )
             .unwrap();
             let instantiated = constraints
-                .instantiate_callable(&row_callable, 1, span(32))
+                .instantiate_callable(&row_callable, 1, span(32), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             let calls = BTreeMap::from([(
                 span(33),
@@ -4464,7 +4549,8 @@ mod tests {
                     &BTreeMap::new(),
                     &calls,
                     0,
-                )
+                    crate::sema::check::EffectDeclarationId { namespace: None, body: span(0) },
+            )
                 .unwrap_err();
             assert!(matches!(
                 error,
@@ -5886,7 +5972,7 @@ mod tests {
             )
             .unwrap();
             let integer = constraints
-                .instantiate_callable(scheme.callable(), 2, span(2))
+                .instantiate_callable(scheme.callable(), 2, span(2), crate::sema::constraints::CallableApplicationScope::Invocation)
                 .unwrap();
             let text = constraints
                 .instantiate_scheme(&scheme, 2, span(3))

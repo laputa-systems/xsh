@@ -25,6 +25,8 @@ fn call_instantiation_error_message(
     use crate::sema::schemes::SchemeBuildError;
 
     match error {
+        SchemeOperationError::Application(error) => format!("callable application requirement failed: {error:?}"),
+        SchemeOperationError::Effects(error) => format!("callable effect requirement failed: {error:?}"),
         SchemeOperationError::Resolution(error) => {
             format!("generic call inference resolution failed: {error:?}")
         }
@@ -38,12 +40,16 @@ fn call_instantiation_error_message(
                 SchemeBuildError::InvalidValidatedBase => "validated argument has an invalid base",
                 SchemeBuildError::UnboundTypeParameter => "type parameter is unbound",
                 SchemeBuildError::UnboundRowParameter => "row parameter is unbound",
+                SchemeBuildError::UnboundEffectParameter => "effect parameter is unbound",
+                SchemeBuildError::UnusedEffectParameter => "effect parameter is unused",
+                SchemeBuildError::DuplicateEffectParameter => "effect parameter is duplicated",
                 SchemeBuildError::UnusedTypeParameter => "type parameter is unused",
                 SchemeBuildError::UnusedRowParameter => "row parameter is unused",
                 SchemeBuildError::DuplicateTypeParameter => "type parameter is duplicated",
                 SchemeBuildError::DuplicateRowParameter => "row parameter is duplicated",
                 SchemeBuildError::RowLacksMismatch => "row evidence violates its lacks set",
                 SchemeBuildError::UnresolvedEffects => "generic target requires a finite checked effect contract",
+                SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::UnsupportedCallableKind => "target contains an unsupported callable kind",
@@ -1456,7 +1462,7 @@ impl Checker {
             let callable = signature.generalized()?;
             let instantiated = self
                 .type_constraints
-                .instantiate_callable(callable, signature.solver_level(), span)
+                .instantiate_callable(callable, signature.solver_level(), span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
                 .expect("a checked pending callable scheme instantiates");
             let instantiation = (!callable.type_parameters().is_empty()
                 || !callable.row_parameters().is_empty())
@@ -1501,7 +1507,7 @@ impl Checker {
         let callable = Arc::clone(scheme.callable());
         let instantiated = self
             .type_constraints
-            .instantiate_callable(&callable, 1, span)
+            .instantiate_callable(&callable, 1, span, self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration))
             .expect("a checked function scheme instantiates");
         let call_instantiation = (!callable.type_parameters().is_empty()
             || !callable.row_parameters().is_empty())

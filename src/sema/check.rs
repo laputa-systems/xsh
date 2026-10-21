@@ -1283,6 +1283,7 @@ impl FunctionSig {
             super::schemes::SchemeType::Ground(return_ty),
             return_schema,
             explicit_return,
+            super::schemes::CallableRequirements::default(),
         )
         .ok()?;
         let scheme = super::schemes::TypeScheme::with_callable(

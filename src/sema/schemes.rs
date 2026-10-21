@@ -1,5 +1,7 @@
 use super::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
 use super::types::{ModuleExportType, Type};
+use super::callable_application::CallableApplication;
+use super::effects::{EffectContract, EffectPredicate};
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use crate::sema::validated::Validation;
@@ -12,6 +14,16 @@ pub(crate) struct SchemeTypeParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SchemeRowParameterId(pub(crate) u32);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct CallableRequirements {
+    pub(crate) effect_parameters: Vec<SchemeEffectParameterId>,
+    pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
+    pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SchemeType {
@@ -63,6 +75,7 @@ pub(crate) struct CallableScheme {
     row_parameters: Arc<[SchemeRowParameter]>,
     monotype: CallableMonotype,
     explicit_return: bool,
+    requirements: CallableRequirements,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -84,6 +97,8 @@ pub(crate) struct TypeScheme {
 pub(crate) struct CallInstantiation {
     type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
     row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
+    effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
+    application_bindings: Vec<super::arguments::StaticArgumentBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -150,12 +165,16 @@ pub(crate) enum SchemeBuildError {
     InvalidValidatedBase,
     UnboundTypeParameter,
     UnboundRowParameter,
+    UnboundEffectParameter,
+    UnusedEffectParameter,
+    DuplicateEffectParameter,
     UnusedTypeParameter,
     UnusedRowParameter,
     DuplicateTypeParameter,
     DuplicateRowParameter,
     RowLacksMismatch,
     UnresolvedEffects,
+    UnresolvedCallableApplication,
     UnsupportedCallableKind,
     UnresolvedSchema,
     DynamicType,
@@ -182,6 +201,7 @@ impl TypeScheme {
             return_type,
             return_schema,
             explicit_return,
+            CallableRequirements::default(),
         )?);
         Self::with_callable(kind, callable, effects, inferred_effects)
     }
@@ -276,7 +296,13 @@ impl CallableScheme {
         return_type: SchemeType,
         return_schema: Option<SchemaExpectation>,
         explicit_return: bool,
+        requirements: CallableRequirements,
     ) -> Result<Self, SchemeBuildError> {
+        let effect_ids = requirements.effect_parameters.iter().copied().collect::<BTreeSet<_>>();
+        if effect_ids.len() != requirements.effect_parameters.len() {
+            return Err(SchemeBuildError::DuplicateEffectParameter);
+        }
+        let mut used_effects = BTreeSet::new();
         let type_ids = type_parameters.iter().copied().collect::<BTreeSet<_>>();
         if type_ids.len() != type_parameters.len() {
             return Err(SchemeBuildError::DuplicateTypeParameter);
@@ -309,11 +335,28 @@ impl CallableScheme {
             &mut row_requirements,
         )?;
         if let Some(schema) = &return_schema { validate_schema_ground_types(schema)?; }
+        for application in &requirements.applications {
+            for ty in std::iter::once(&application.callee)
+                .chain(application.arguments.iter().map(|argument| &argument.ty))
+                .chain(std::iter::once(&application.result))
+            {
+                ty.validate(&type_ids, &row_ids, &mut used_types, &mut used_rows, &mut row_requirements)?;
+            }
+            validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
+        }
+        for predicate in &requirements.effect_predicates {
+            for contract in predicate.contracts() {
+                validate_effect_contract(contract, &effect_ids, &mut used_effects)?;
+            }
+        }
         if used_types != type_ids {
             return Err(SchemeBuildError::UnusedTypeParameter);
         }
         if used_rows != row_ids {
             return Err(SchemeBuildError::UnusedRowParameter);
+        }
+        if used_effects != effect_ids {
+            return Err(SchemeBuildError::UnusedEffectParameter);
         }
         if row_parameters.iter().any(|parameter| {
             !row_requirements
@@ -327,7 +370,12 @@ impl CallableScheme {
             row_parameters: row_parameters.into(),
             monotype: CallableMonotype::new(params, return_type, return_schema),
             explicit_return,
+            requirements,
         })
+    }
+
+    pub(crate) fn requirements(&self) -> &CallableRequirements {
+        &self.requirements
     }
 
     pub(crate) fn type_parameters(&self) -> &[SchemeTypeParameterId] {
@@ -360,6 +408,7 @@ impl CallableScheme {
         bytes = bytes.saturating_add(self.type_parameters.len() * size_of::<SchemeTypeParameterId>());
         bytes = bytes.saturating_add(self.row_parameters.len() * size_of::<SchemeRowParameter>());
         bytes = bytes.saturating_add(self.monotype.retained_bytes().saturating_sub(size_of::<CallableMonotype>()));
+        bytes = bytes.saturating_add(self.requirements.retained_bytes().saturating_sub(size_of::<CallableRequirements>()));
         bytes = bytes.saturating_add(
             self.row_parameters
                 .iter()
@@ -382,7 +431,62 @@ impl CallableScheme {
             row_parameters: self.row_parameters.clone(),
             monotype: self.monotype.map_ground_types(map),
             explicit_return: self.explicit_return,
+            requirements: self.requirements.map_ground_types(map),
         }
+    }
+}
+
+fn validate_effect_contract(
+    contract: &EffectContract<SchemeEffectParameterId>,
+    effect_ids: &BTreeSet<SchemeEffectParameterId>,
+    used_effects: &mut BTreeSet<SchemeEffectParameterId>,
+) -> Result<(), SchemeBuildError> {
+    if let EffectContract::Known(expression) = contract {
+        for (id, _) in expression.variables() {
+            if !effect_ids.contains(id) {
+                return Err(SchemeBuildError::UnboundEffectParameter);
+            }
+            used_effects.insert(*id);
+        }
+    }
+    Ok(())
+}
+
+impl CallableRequirements {
+    fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let mut bytes = size_of::<Self>()
+            .saturating_add(self.effect_parameters.capacity() * size_of::<SchemeEffectParameterId>())
+            .saturating_add(self.effect_predicates.capacity() * size_of::<EffectPredicate<SchemeEffectParameterId>>())
+            .saturating_add(self.applications.capacity() * size_of::<CallableApplication<SchemeType, SchemeEffectParameterId>>());
+        for predicate in &self.effect_predicates {
+            for contract in predicate.contracts() {
+                bytes = bytes.saturating_add(contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
+            }
+        }
+        for application in &self.applications {
+            bytes = bytes.saturating_add(application.effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
+            bytes = bytes.saturating_add(std::mem::size_of_val(application.arguments.as_ref()));
+            for ty in std::iter::once(&application.callee)
+                .chain(application.arguments.iter().map(|argument| &argument.ty))
+                .chain(std::iter::once(&application.result))
+            {
+                bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>()));
+            }
+        }
+        bytes
+    }
+
+    fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
+        let mut mapped = self.clone();
+        for application in &mut mapped.applications {
+            application.callee.map_ground_types(map);
+            application.result.map_ground_types(map);
+            for argument in Arc::make_mut(&mut application.arguments) {
+                argument.ty.map_ground_types(map);
+            }
+        }
+        mapped
     }
 }
 
@@ -463,8 +567,11 @@ impl CallInstantiation {
         callable: &CallableScheme,
         type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
         row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
+        effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
+        application_bindings: Vec<super::arguments::StaticArgumentBinding>,
         caller_types: &[SchemeTypeParameterId],
         caller_rows: &[SchemeRowParameter],
+        caller_effects: &[SchemeEffectParameterId],
     ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable.type_parameters.iter().copied().collect()
@@ -479,6 +586,19 @@ impl CallInstantiation {
                 .collect()
         {
             return Err(SchemeBuildError::UnboundRowParameter);
+        }
+        if effect_arguments.keys().copied().collect::<BTreeSet<_>>()
+            != callable.requirements.effect_parameters.iter().copied().collect()
+        {
+            return Err(SchemeBuildError::UnboundEffectParameter);
+        }
+        if application_bindings.len() != callable.requirements.applications.len() {
+            return Err(SchemeBuildError::UnresolvedCallableApplication);
+        }
+        let caller_effect_ids = caller_effects.iter().copied().collect::<BTreeSet<_>>();
+        let mut used_effects = BTreeSet::new();
+        for contract in effect_arguments.values() {
+            validate_effect_contract(contract, &caller_effect_ids, &mut used_effects)?;
         }
         let caller_type_ids = caller_types.iter().copied().collect::<BTreeSet<_>>();
         let caller_row_parameters = caller_rows
@@ -544,9 +664,16 @@ impl CallInstantiation {
             return Err(SchemeBuildError::RowLacksMismatch);
         }
         Ok(Self {
-            type_arguments,
-            row_arguments,
+            type_arguments, row_arguments, effect_arguments, application_bindings,
         })
+    }
+
+    pub(crate) fn effect_arguments(&self) -> &BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>> {
+        &self.effect_arguments
+    }
+
+    pub(crate) fn application_bindings(&self) -> &[super::arguments::StaticArgumentBinding] {
+        &self.application_bindings
     }
 
     pub(crate) fn type_arguments(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeType> {
@@ -560,6 +687,12 @@ impl CallInstantiation {
     pub(crate) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
+            .saturating_add(self.effect_arguments.len() * size_of::<SchemeEffectParameterId>())
+            .saturating_add(self.effect_arguments.values().map(EffectContract::retained_bytes).sum::<usize>())
+            .saturating_add(self.application_bindings.capacity() * size_of::<super::arguments::StaticArgumentBinding>())
+            .saturating_add(self.application_bindings.iter().map(|binding| {
+                (binding.argument_slots.capacity() + binding.omitted_slots.capacity()) * size_of::<usize>()
+            }).sum::<usize>())
             .saturating_add(
                 self.type_arguments.len() * size_of::<SchemeTypeParameterId>(),
             )
@@ -1107,6 +1240,83 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
+
+    #[test]
+    fn callable_requirement_scope_keeps_discarded_application_results_bound() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            use super::{CallableRequirements, SchemeEffectParameterId, SchemeTypeParameterId};
+            use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument, CallableKindRequirement};
+            use crate::sema::arguments::StaticArgumentKind;
+            use crate::sema::effects::{EffectContract, EffectPredicate, EffectSet};
+            let f = SchemeTypeParameterId(0);
+            let value = SchemeTypeParameterId(1);
+            let discarded = SchemeTypeParameterId(2);
+            let effect = SchemeEffectParameterId(0);
+            let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
+            let requirements = CallableRequirements {
+                effect_parameters: vec![effect],
+                effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
+                applications: vec![CallableApplication {
+                    callee: SchemeType::Parameter(f),
+                    arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: SchemeType::Parameter(value), span }].into(),
+                    result: SchemeType::Parameter(discarded), effects: EffectContract::variable(effect),
+                    kind: CallableKindRequirement::Immediate, span,
+                }],
+            };
+            let make = |requirements| CallableScheme::new(vec![f, value, discarded], Vec::new(),
+                vec![SchemeParameter { name: Name::intern("action"), ty: SchemeType::Parameter(f), schema_expectation: None, defaulted: false, rest: false },
+                    SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(value), schema_expectation: None, defaulted: false, rest: false }],
+                SchemeType::Parameter(f), None, false, requirements);
+            let callable = make(requirements.clone()).unwrap();
+            assert_eq!(callable.requirements(), &requirements);
+            assert_eq!(callable.params()[0].ty, *callable.return_type());
+            let mut missing = requirements.clone();
+            missing.applications.clear();
+            assert_eq!(make(missing), Err(SchemeBuildError::UnusedTypeParameter));
+            let mut foreign = requirements.clone();
+            foreign.applications[0].result = SchemeType::Parameter(SchemeTypeParameterId(9));
+            assert_eq!(make(foreign), Err(SchemeBuildError::UnboundTypeParameter));
+            let mut foreign = requirements.clone();
+            foreign.applications[0].effects = EffectContract::variable(SchemeEffectParameterId(9));
+            assert_eq!(make(foreign), Err(SchemeBuildError::UnboundEffectParameter));
+            let mut duplicate = requirements.clone();
+            duplicate.effect_parameters.push(effect);
+            assert_eq!(make(duplicate), Err(SchemeBuildError::DuplicateEffectParameter));
+            let mut unused = requirements;
+            unused.effect_parameters.push(SchemeEffectParameterId(1));
+            assert_eq!(make(unused), Err(SchemeBuildError::UnusedEffectParameter));
+        });
+    }
+
+    #[test]
+    fn callable_requirement_scope_validates_rows_in_application_arguments() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            use super::{CallableRequirements, SchemeTypeParameterId};
+            use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument, CallableKindRequirement};
+            use crate::sema::arguments::StaticArgumentKind;
+            use crate::sema::effects::{EffectContract, EffectSet};
+            let f = SchemeTypeParameterId(0);
+            let row = SchemeRowParameterId(0);
+            let field = Name::intern("value");
+            let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
+            let requirements = CallableRequirements {
+                applications: vec![CallableApplication {
+                    callee: SchemeType::Parameter(f),
+                    arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("payload")),
+                        ty: SchemeType::Record { fields: BTreeMap::from([(field, SchemeType::Ground(Type::Int))]), tail: SchemeRowTail::Parameter(row) }, span }].into(),
+                    result: SchemeType::Ground(Type::Unit), effects: EffectContract::finite(EffectSet::default()), kind: CallableKindRequirement::Pure, span,
+                }],
+                ..CallableRequirements::default()
+            };
+            let make = |lacks| CallableScheme::new(vec![f], vec![SchemeRowParameter { id: row, lacks }],
+                vec![SchemeParameter { name: Name::intern("action"), ty: SchemeType::Parameter(f), schema_expectation: None, defaulted: false, rest: false }],
+                SchemeType::Parameter(f), None, false, requirements.clone());
+            assert_eq!(make(BTreeSet::new()), Err(SchemeBuildError::RowLacksMismatch));
+            let callable = make(BTreeSet::from([field])).unwrap();
+            assert!(callable.retained_bytes() > std::mem::size_of_val(&callable));
+            assert_eq!(callable.requirements().applications[0].arguments[0].kind, StaticArgumentKind::Named(Name::intern("payload")));
+        });
+    }
     #[test]
     fn scheme_resource_potential_preserves_hidden_record_payloads() {
         let record = SchemeType::Record { fields: BTreeMap::new(), tail: SchemeRowTail::Closed };
@@ -1123,7 +1333,7 @@ mod tests {
                 vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(binder),
                     schema_expectation: None, defaulted: false, rest: false }],
                 SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Ground(Type::Error))),
-                None, false).unwrap());
+                None, false, crate::sema::schemes::CallableRequirements::default()).unwrap());
             assert_eq!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, Arc::clone(&callable), None, true), Err(SchemeBuildError::UnresolvedEffects));
             assert!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, callable, Some(Vec::new()), true).is_ok());
         });
@@ -1360,6 +1570,7 @@ mod tests {
                 SchemeType::Ground(Type::Int),
                 None,
                 false,
+                super::CallableRequirements::default(),
             )
             .unwrap(),
         );
@@ -1441,6 +1652,7 @@ mod tests {
                 SchemeType::Ground(Type::Int),
                 None,
                 false,
+                super::CallableRequirements::default(),
             )
             .unwrap();
             let evidence = RowEvidence::new(
@@ -1451,7 +1663,8 @@ mod tests {
             assert!(CallInstantiation::new(
                 &callable,
                 BTreeMap::new(),
-                BTreeMap::from([(row_id, evidence)]),
+                BTreeMap::from([(row_id, evidence)]), BTreeMap::new(), Vec::new(),
+                &[],
                 &[],
                 &[],
             )
@@ -1490,6 +1703,7 @@ mod tests {
                 SchemeType::Parameter(type_id),
                 None,
                 false,
+                super::CallableRequirements::default(),
             )
             .unwrap();
             let type_argument = SchemeType::Record {
@@ -1501,13 +1715,14 @@ mod tests {
                 CallInstantiation::new(
                     &callable,
                     BTreeMap::from([(type_id, type_argument)]),
-                    BTreeMap::new(),
+                    BTreeMap::new(), BTreeMap::new(), Vec::new(),
                     &[],
                     &[SchemeRowParameter {
                         id: row_id,
                         lacks: BTreeSet::new(),
                     }],
-                ),
+                    &[],
+            ),
                 Err(SchemeBuildError::RowLacksMismatch),
             );
         });
@@ -1604,6 +1819,7 @@ mod tests {
                 SchemeType::Parameter(type_id),
                 None,
                 false,
+                super::CallableRequirements::default(),
             )
             .unwrap();
             let type_argument = Type::List(Box::new(Type::Str));
@@ -1615,7 +1831,8 @@ mod tests {
             let instantiation = CallInstantiation::new(
                 &callable,
                 BTreeMap::from([(type_id, SchemeType::Ground(type_argument.clone()))]),
-                BTreeMap::from([(row_id, row_evidence)]),
+                BTreeMap::from([(row_id, row_evidence)]), BTreeMap::new(), Vec::new(),
+                &[],
                 &[],
                 &[],
             )

@@ -1115,7 +1115,8 @@ mod tests {
             let instantiation = CallInstantiation::new(
                 scheme.callable(),
                 BTreeMap::from([(type_parameter, SchemeType::Ground(Type::Bool))]),
-                BTreeMap::from([(row_parameter, evidence)]),
+                BTreeMap::from([(row_parameter, evidence)]), BTreeMap::new(), Vec::new(),
+                &[],
                 &[],
                 &[],
             )

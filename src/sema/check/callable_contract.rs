@@ -164,7 +164,7 @@ impl CheckedCallableContract {
             .ok_or(ContractComparisonError::UnsupportedContract)?;
         let mut constraints = TypeConstraints::default();
         let origin = Span::at(SourceId::new(0), 0);
-        let instance = constraints.instantiate_callable(generalized.scheme.callable(), 1, origin)
+        let instance = constraints.instantiate_callable(generalized.scheme.callable(), 1, origin, crate::sema::constraints::CallableApplicationScope::Invocation)
             .map_err(|_| ContractComparisonError::UnsupportedContract)?;
         let instantiated = instance.params.iter().chain(std::iter::once(&instance.return_type));
         for (expected, actual) in instantiated.clone().zip(&ground) {

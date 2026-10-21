@@ -330,6 +330,12 @@ watchers, and queue changes use the same rollback journal as type and row cells.
 Application requirements refer to the actual callable type variable and use
 the canonical argument binder, preserving authored labels, defaults, and rest
 layout through aliases and returned values.
+`CallableScheme` owns the bound effect scope and application requirements.
+Generalization includes obligation-only result binders before freezing the body
+scope. Instantiation allocates one type, row, and effect substitution and retains
+the selected argument layouts. Declaration-owned requirements remain distinct
+from nongeneralizing invocations. Nested committed transactions and speculative
+trials share the same journal, including fresh scope ownership and panic rollback.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.

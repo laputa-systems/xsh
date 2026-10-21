@@ -183,6 +183,7 @@ impl Checker {
                 &tail_types,
                 &calls,
                 0,
+                declaration.effect_declaration(),
             )
         {
             Ok(generalized) => generalized,
@@ -335,6 +336,7 @@ impl Checker {
                 return_type,
                 shape.return_schema.clone(),
                 shape.explicit_return,
+                generalized.requirements,
             )
             .ok()?,
         );
