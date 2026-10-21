@@ -322,7 +322,11 @@ pub(super) fn is_body_expression(
                         crate::syntax::arena::ArenaRecordFieldKind::Computed { key, value, .. } => { pending.push(key); pending.push(value); }
                         crate::syntax::arena::ArenaRecordFieldKind::Path { value, .. } => pending.push(value),
                         crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } => {
-                            let Some(binding) = bindings.value_sites.get(&(program.arena.span(span), name)) else { return false };
+                            let span = program.arena.span(span);
+                            let Some(binding) = bindings.value_sites.get(&(span, name)) else {
+                                if checked_calls.contains(&span) { continue; }
+                                return false;
+                            };
                             if !available.contains(binding) && !captures.contains(binding) { return false; }
                         }
                     }

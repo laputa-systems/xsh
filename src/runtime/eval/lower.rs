@@ -3864,14 +3864,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ArenaRecordFieldKind::Named { name, value, .. } => LoweredRecordEntry::Field(name, self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?),
                             ArenaRecordFieldKind::Shorthand { name, span } => {
                                 let span = self.program.arena.span(span);
-                                let binding = self.bodies.resolved_bindings.at(span, name)?;
-                                let ty = slots.types.get(&binding).cloned().or_else(|| {
-                                    facts.scheme().params().get(slots.resolve_binding(binding)?).map(|parameter| parameter.ty.clone())
-                                }).or_else(|| {
-                                    let prepared = &self.declarations.prepared_constants;
-                                    let initializer = prepared.binding_values.get(&binding)?;
-                                    prepared.types.get(initializer).cloned().map(SchemeType::Ground)
-                                })?;
+                                let ty = if let Some(binding) = self.bodies.resolved_bindings.at(span, name) {
+                                    slots.types.get(&binding).cloned().or_else(|| {
+                                        facts.scheme().params().get(slots.resolve_binding(binding)?).map(|parameter| parameter.ty.clone())
+                                    }).or_else(|| {
+                                        let prepared = &self.declarations.prepared_constants;
+                                        let initializer = prepared.binding_values.get(&binding)?;
+                                        prepared.types.get(initializer).cloned().map(SchemeType::Ground)
+                                    })?
+                                } else {
+                                    let (target, ty) = self.bodies.selected_function_references.get(&span)?;
+                                    let definition = self.program.arena.function_def(target.definition);
+                                    let body_span = self.program.arena.span(self.program.arena.block(definition.body).span);
+                                    if self.declarations.scheme_bodies.get(&body_span).is_some_and(|facts| facts.scheme().callable().is_quantified()) { return None; }
+                                    SchemeType::Ground(ty.as_ref()?.clone())
+                                };
                                 LoweredRecordEntry::Field(name, self.lower_scheme_shorthand(span, name, ty, slots, lowered_types, body)?)
                             }
                             ArenaRecordFieldKind::Spread { expr, .. } => LoweredRecordEntry::Spread(self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?),

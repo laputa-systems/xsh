@@ -1300,6 +1300,15 @@ fn verify_body_expression(
         schema::ExprView::Bytes(_) => SchemeType::Ground(Type::Bytes),
         schema::ExprView::Duration(_) => SchemeType::Ground(Type::Duration),
         schema::ExprView::PreparedRegex(_) => SchemeType::Ground(Type::Regex),
+        schema::ExprView::FunctionRef { function, pure } => {
+            let (target, _, target_pure) = decoder.function_reference_target(function)?;
+            let kind = store.function_metadata[target.index()].callable_kind;
+            match (ty, pure, target_pure, kind) {
+                (SchemeType::Ground(Type::Pure), true, true, crate::sema::types::CallableKind::Pure)
+                | (SchemeType::Ground(Type::Proc), false, false, crate::sema::types::CallableKind::Proc) => ty.clone(),
+                _ => return Err(IrVerifyError::new("generic function value disagrees with its ground executable target")),
+            }
+        }
         schema::ExprView::PreparedConstant(value) => {
             budget.charge_scheme_clone(ty)?;
             let expected = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic prepared constant has no closed contract"))?;

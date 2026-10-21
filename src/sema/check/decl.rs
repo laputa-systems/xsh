@@ -373,6 +373,19 @@ impl Checker {
                     }
                 }));
             }
+            let reference_start = Span::at(body_span.source_id, body_span.start());
+            let reference_end = Span::at(body_span.source_id, body_span.end());
+            checked_calls.extend(self.selected_function_calls.range(reference_start..reference_end).filter_map(|(&span, target)| {
+                if span.source_id != body_span.source_id || span.start() < body_span.start() || span.end() > body_span.end()
+                    || !matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc))
+                { return None; }
+                let definition = program.arena.function_def(target.definition);
+                let owner = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace,
+                    body: program.arena.span(program.arena.block(definition.body).span),
+                });
+                self.local_function_signature(owner).filter(|signature| !signature.scheme().callable().is_quantified()).map(|_| span)
+            }));
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }

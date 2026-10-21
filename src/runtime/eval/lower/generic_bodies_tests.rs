@@ -2142,6 +2142,36 @@ fn inferred_application_runtime_dependent_proc_cleanup_returns_error_data() {
 }
 
 #[test]
+fn generic_nonmaterial_function_shorthand_preserves_selected_ground_value() {
+    let source = concat!(
+        "pure fixed() -> Int { 11 }\n",
+        "pure keep(payload) { let _ = {items: [], fixed, payload}; payload }\n",
+        "pure number() -> Int { keep(7) }\n",
+        "pure text() -> Str { keep(\"value\") }\n",
+    );
+    let mut sources = SourceMap::default();
+    let source_id = sources.add_file("generic-nonmaterial-function-shorthand.xsh", source.to_string());
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.bodies.selected_function_references.values().any(|(target, _)| target.name == "fixed"));
+    let program = Arc::new(FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources.clone()), source_id).unwrap());
+    drop(checked);
+    drop(parsed);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, expected, "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
 fn generic_nonmaterial_constructors_execute_after_frontend_disposal() {
     for prefix in [
         "let state = {items: [], ...{items: [7]}, payload};",
