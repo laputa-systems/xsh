@@ -557,3 +557,99 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
         }
     }
 }
+
+fn record_form_program(source: &str) -> (Arc<crate::runtime::eval::FullProgram>, SourceMap, SourceId) {
+    let mut sources = SourceMap::default();
+    let source_id = sources.add_file("generic-record-forms.xsh", source.to_string());
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+    let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources.clone()), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+    (Arc::new(program), sources, source_id)
+}
+
+fn record_form_observable(value: Value) -> Value {
+    match value {
+        Value::Record(fields) => Value::Map(fields.into_iter().map(|(name, value)| (crate::runtime::value::MapKey::Str(name), record_form_observable(value))).collect()),
+        value => value,
+    }
+}
+
+#[test]
+fn generic_record_forms_execute_after_frontend_disposal() {
+    use crate::runtime::value::MapKey;
+    let record = |fields: Vec<(&str, Value)>| Value::Map(fields.into_iter().map(|(name, value)| (MapKey::Str(Arc::from(name)), value)).collect());
+    for (prefix, definition, number_type, text_type, number, text) in [
+        ("type Number = {value: Int}\ntype Text = {value: Str}", "pure copy(value) { {value} }", "Number", "Text", record(vec![("value", Value::Int(7))]), record(vec![("value", Value::Str(Arc::from("value")))])),
+        ("type Number = {item: Int}\ntype Text = {item: Str}", "pure copy(value) { let item = value; { let item = 1; let _ = {item} }; {item} }", "Number", "Text", record(vec![("item", Value::Int(7))]), record(vec![("item", Value::Str(Arc::from("value")))])),
+        ("let shared = 9\ntype Number = {value: Int, shared: Int}\ntype Text = {value: Str, shared: Int}", "pure copy(value) { {value, shared} }", "Number", "Text", record(vec![("value", Value::Int(7)), ("shared", Value::Int(9))]), record(vec![("value", Value::Str(Arc::from("value"))), ("shared", Value::Int(9))])),
+        ("", "pure copy(value) { {[\"other\"]: value, value} }", "Map[Str, Int]", "Map[Str, Str]", record(vec![("other", Value::Int(7)), ("value", Value::Int(7))]), record(vec![("other", Value::Str(Arc::from("value"))), ("value", Value::Str(Arc::from("value")))])),
+        ("type Number = {value: Int, items: Set[Int]}\ntype Text = {value: Str, items: Set[Int]}", "pure copy(value) { let first = 1; let second = 2; let items: Set[Int] = {first, second}; {value, items} }", "Number", "Text", record(vec![("value", Value::Int(7)), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))]), record(vec![("value", Value::Str(Arc::from("value"))), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))])),
+        ("type NumberInner = {item: Int, count: Int}\ntype TextInner = {item: Str, count: Int}\ntype Number = {nested: NumberInner, other: Int}\ntype Text = {nested: TextInner, other: Str}", "pure copy(value) { let row = {nested: {item: value, count: 0}, other: value}; {...row, nested.item: value, nested.count: 1} }", "Number", "Text", record(vec![("nested", record(vec![("item", Value::Int(7)), ("count", Value::Int(1))])), ("other", Value::Int(7))]), record(vec![("nested", record(vec![("item", Value::Str(Arc::from("value"))), ("count", Value::Int(1))])), ("other", Value::Str(Arc::from("value")))])),
+    ] {
+        let source = format!("{prefix}\n{definition}\npure number() -> {number_type} {{ copy(7) }}\npure text() -> {text_type} {{ copy(\"value\") }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for (name, expected) in [("number", number.clone()), ("text", text.clone())] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(record_form_observable(actual), expected, "{definition} {name} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_record_forms_updates_preserve_order_failure_and_unsigned_checks() {
+    let source = "proc copy(value) [] { var count = 0; let row = {nested: {first: 0, second: 0}}; let updated = {...{ count = count + 1; row }, nested.first: { count = count + 1; count }, nested.second: { count = count + 1; count }}; {value, count, updated, row} }\nproc number() [] { copy(7) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+        let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the proc retains its checked result boundary") };
+        let Value::Record(fields) = *actual else { panic!("the update returns its actual counter and records") };
+        assert_eq!(fields.get("count"), Some(&Value::Int(3)));
+        for (name, first, second) in [("updated", 2, 3), ("row", 0, 0)] {
+            let Value::Record(row) = fields.get(name).unwrap() else { panic!("the record shape is preserved") };
+            let Value::Record(nested) = row.get("nested").unwrap() else { panic!("the nested record shape is preserved") };
+            assert_eq!(nested.get("first"), Some(&Value::Int(first)));
+            assert_eq!(nested.get("second"), Some(&Value::Int(second)));
+        }
+    }
+    for operation in ["{...{ let _ = [1][first]; row }, nested.first: [2][second]}", "{...row, nested.first: [1][first], nested.second: [2][second]}"] {
+        let source = format!("pure copy(value, first: Int, second: Int) {{ let _ = value; let row = {{nested: {{first: 0, second: 0}}}}; {operation} }}\npure number() {{ copy(7, 1, 2) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
+            assert_eq!(error.kind, "index-out-of-range");
+            assert_eq!(&source[error.span.unwrap().range()], "[1][first]");
+        }
+    }
+    let source = "type Inner = {count: UInt}\ntype Row = {nested: Inner}\npure replace(value, row: Row, signed: Int) { let _ = value; {...row, nested.count: signed} }\npure number(signed: Int) -> UInt { replace(7, {nested: {count: 1}}, signed).nested.count }\npure text(signed: Int) -> UInt { replace(\"value\", {nested: {count: 1}}, signed).nested.count }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for name in ["number", "text"] {
+            for input in [7, -1] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Int(input)], Span::at(source_id, 0)).unwrap();
+                if input == 7 { assert_eq!(actual.unwrap(), Value::Int(7)); }
+                else { let error = actual.unwrap_err(); assert_eq!(error.kind, "type-error"); assert!(error.message.contains("UInt"), "{error:?}"); assert_eq!(&source[error.span.unwrap().range()], "{...row, nested.count: signed}"); }
+            }
+        }
+    }
+}

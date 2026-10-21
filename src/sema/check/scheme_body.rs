@@ -181,7 +181,11 @@ fn is_body_expression(
                         crate::syntax::arena::ArenaRecordFieldKind::Named { value, .. } => pending.push(value),
                         crate::syntax::arena::ArenaRecordFieldKind::Spread { expr, .. } => pending.push(expr),
                         crate::syntax::arena::ArenaRecordFieldKind::Computed { key, value, .. } => { pending.push(key); pending.push(value); }
-                        _ => return false,
+                        crate::syntax::arena::ArenaRecordFieldKind::Path { value, .. } => pending.push(value),
+                        crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } => {
+                            let Some(binding) = bindings.value_sites.get(&(program.arena.span(span), name)) else { return false };
+                            if !available.contains(binding) && !captures.contains(binding) { return false; }
+                        }
                     }
                 }
             }
@@ -485,6 +489,41 @@ mod ordinary_body_tests {
             "pure keep(value, item: Int) { let _ = {1, item}; value }",
             "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)",
         );
+    }
+
+    #[test]
+    fn generic_record_forms_shorthand_retains_the_parameter_binder() {
+        accepts("type Number = {value: Int}\ntype Text = {value: Str}\npure copy(value) { {value} }", "let number: Number = copy(7)\nlet text: Text = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_record_forms_shorthand_follows_local_shadowing() {
+        accepts("type Number = {item: Int}\ntype Text = {item: Str}\npure copy(value) { let item = value; { let item = 1; let _ = {item} }; {item} }", "let number: Number = copy(7)\nlet text: Text = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_record_forms_shorthand_retains_an_immutable_capture() {
+        accepts("let shared = 1\ntype Number = {value: Int, shared: Int}\ntype Text = {value: Str, shared: Int}\npure copy(value) { {value, shared} }", "let number: Number = copy(7)\nlet text: Text = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_record_forms_map_shorthand_keeps_the_payload_domain() {
+        accepts("pure copy(value) { {[\"other\"]: value, value} }", "let number: Map[Str, Int] = copy(7)\nlet text: Map[Str, Str] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_record_forms_set_shorthand_keeps_the_checked_domain() {
+        accepts("pure keep(value, first: Int, second: Int) { let items: Set[Int] = {first, second}; let _ = items; value }", "let number: Int = keep(7, 1, 2)\nlet text: Str = keep(\"value\", 2, 3)");
+    }
+
+    #[test]
+    fn generic_record_forms_nested_updates_preserve_the_payload_binder() {
+        accepts("type NumberInner = {item: Int, count: Int}\ntype TextInner = {item: Str, count: Int}\ntype Number = {nested: NumberInner, other: Int}\ntype Text = {nested: TextInner, other: Str}\npure copy(value) { let row = {nested: {item: value, count: 0}, other: value}; {...row, nested.item: value, nested.count: 1} }", "let number: Number = copy(7)\nlet text: Text = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_record_forms_typed_updates_preserve_the_existing_shape() {
+        accepts("type Inner = {count: Int}\ntype Row = {nested: Inner}\npure keep(value, row: Row) { let updated = {...row, nested.count: 2}; let _ = updated; value }", "let number: Int = keep(7, {nested: {count: 0}})\nlet text: Str = keep(\"value\", {nested: {count: 1}})");
     }
 
 }

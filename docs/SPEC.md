@@ -3839,7 +3839,10 @@ function's Result boundary and runs the operation only on success. The error
 family must fit that boundary.
 
 List splices preserve the checked item domain, including a shared type
-parameter. Named record fields and record spreads use the ordinary ordered
+parameter. Shorthand fields use the same lexical binding as an ordinary name
+read, including shadowed locals and checked immutable captures. Their ordinary
+record, map, or contextual set interpretation is unchanged.
+Named record fields and record spreads use the ordinary ordered
 field rules: later permitted fields replace earlier fields, while every
 expression still evaluates in source order. Computed map keys keep a checked
 scalar key domain; map values may retain the callable's type parameters.
@@ -3848,6 +3851,11 @@ set conversion and remove duplicates. Text and path interpolation use the
 ordinary display and formatting rules. Each interpolated operand must have a
 checked display type in the declaration; a caller cannot supply a display
 operation for an unconstrained parameter.
+Static record updates retain a known base shape and disjoint existing paths.
+The base evaluates once before the replacements; replacements preserve their
+field contracts, including ordinary unsigned validation, and a failure exposes
+no partial update. Complete typed storage checks remain active in a quantified
+body; an annotation does not replace proof of its actual input.
 
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
@@ -3861,9 +3869,8 @@ ordinary checked conversions and failure propagation.
 
 Unsupported quantified body shapes still produce a checking or preparation
 diagnostic, including destructuring declarations, `for`, comparisons,
-logical binary expressions, membership, set operators,
-record shorthand and static record-update paths, dynamically selected calls,
-and captured mutable or resource state. Compile-time constant bindings and registered calls with specialized
+logical binary expressions, membership, set operators, dynamically selected
+calls, and captured mutable or resource state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing
 defaulted parameters. Calls to user functions with defaulted or rest parameters

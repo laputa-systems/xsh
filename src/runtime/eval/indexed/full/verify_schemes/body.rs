@@ -87,24 +87,65 @@ fn condition(types: &BTreeMap<usize, SchemeType>, instruction: usize, role: crat
     Ok(())
 }
 
-fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection) -> Result<Option<SchemeType>, IrVerifyError> {
-    use super::super::CheckedValueProjection as P;
-    let symbolic = match (ty, projection) {
-        (SchemeType::Record { fields, .. }, P::Field(name)) => fields.get(&name).cloned(),
-        (SchemeType::List(item) | SchemeType::Stream(item) | SchemeType::Set(item), P::Element | P::IterationItem) => Some((**item).clone()),
-        (SchemeType::Map(_, value), P::Element | P::IterationItem) => Some((**value).clone()),
-        (SchemeType::Result(ok, _), P::ResultPayload(true)) => Some((**ok).clone()),
-        (SchemeType::Result(_, error), P::ResultPayload(false)) => Some((**error).clone()),
-        (SchemeType::Ground(ty), projection) => match (ty, projection) {
-            (Type::Record(fields), P::Field(name)) => fields.get(&name).cloned().map(SchemeType::Ground),
-            (Type::Result(ok, _), P::ResultPayload(true)) => Some(SchemeType::Ground((**ok).clone())),
-            (Type::Result(_, error), P::ResultPayload(false)) => Some(SchemeType::Ground((**error).clone())),
-            (ty, P::Element | P::IterationItem) => ty.iteration_item_type().map(SchemeType::Ground),
+enum BodyTypeRef<'a> {
+    Scheme(&'a SchemeType),
+    Ground(&'a Type),
+}
+
+impl<'a> BodyTypeRef<'a> {
+    fn field(self, name: Name) -> Option<Self> {
+        match self {
+            Self::Scheme(SchemeType::Record { fields, .. }) => fields.get(&name).map(Self::Scheme),
+            Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).field(name),
+            Self::Ground(Type::Record(fields)) => fields.get(&name).map(Self::Ground),
             _ => None,
-        },
+        }
+    }
+
+    fn materialize(self, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
+        match self {
+            Self::Scheme(ty) => { budget.charge_scheme_clone(ty)?; Ok(ty.clone()) }
+            Self::Ground(ty) => { budget.charge_clone(ty)?; Ok(SchemeType::Ground(ty.clone())) }
+        }
+    }
+}
+
+pub(super) fn record_path(ty: &SchemeType, path: &[Name], budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    let mut selected = BodyTypeRef::Scheme(ty);
+    for &name in path {
+        budget.charge(1)?;
+        let Some(field) = selected.field(name) else { return Ok(None) };
+        selected = field;
+    }
+    selected.materialize(budget).map(Some)
+}
+
+fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection, budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    use super::super::CheckedValueProjection as P;
+    if let P::Field(name) = projection { return record_path(ty, &[name], budget); }
+    budget.charge(1)?;
+    let selected = match (ty, projection) {
+        (SchemeType::List(item) | SchemeType::Stream(item) | SchemeType::Set(item), P::Element | P::IterationItem) => Some(item.as_ref()),
+        (SchemeType::Map(_, value), P::Element | P::IterationItem) => Some(value.as_ref()),
+        (SchemeType::Result(ok, _), P::ResultPayload(true)) => Some(ok.as_ref()),
+        (SchemeType::Result(_, error), P::ResultPayload(false)) => Some(error.as_ref()),
         _ => None,
     };
-    Ok(symbolic)
+    if let Some(selected) = selected { budget.charge_scheme_clone(selected)?; return Ok(Some(selected.clone())); }
+    let SchemeType::Ground(ty) = ty else { return Ok(None) };
+    let selected = match (ty, projection) {
+        (Type::Result(ok, _), P::ResultPayload(true)) => Some(ok.as_ref()),
+        (Type::Result(_, error), P::ResultPayload(false)) => Some(error.as_ref()),
+        _ => None,
+    };
+    if let Some(selected) = selected { budget.charge_clone(selected)?; return Ok(Some(SchemeType::Ground(selected.clone()))); }
+    match projection {
+        P::Element | P::IterationItem => {
+            budget.charge_clone(ty)?;
+            Ok(ty.iteration_item_type().map(SchemeType::Ground))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn subject_after_pattern(decoder: &FullDecoder<'_>, pattern: u32, guarded: bool, subject: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
@@ -124,8 +165,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
     decoder.visit_pattern_evidence(pattern, ground.as_ref(), Some(subject.clone()),
         |ty, step| {
             let Some(ty) = ty else { return Ok(None) };
-            work.borrow_mut().charge_scheme_clone(ty)?;
-            project(ty, step)
+            project(ty, step, &mut work.borrow_mut())
         },
         |slot, actual, projected| {
             if slot >= slot_count { return Err(IrVerifyError::new("generic pattern slot is out of bounds")); }
@@ -1052,6 +1092,205 @@ mod tests {
             }
         }
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    fn record_operand_binding(program: &FullProgram, owner: usize, read: usize) -> (usize, usize) {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::Param(slot) = decoder.expression_view(read).unwrap() else { panic!("the operation reads an ANF binding") };
+        program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot: actual, value, .. }) if actual == slot => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap()
+    }
+
+    fn retarget_record_operand(program: &FullProgram, owner: usize, scheme: FullSchemeId, read: usize, from: usize, to: usize) -> FullProgram {
+        let (declaration, initializer) = record_operand_binding(program, owner, read);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(slot) if slot == from));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let actual = program.store.scheme_types[program.store.scheme_params[parameters.start + to].ty.index()];
+        assert_eq!(actual.children.len, 0);
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = to as u32;
+        for fact in &changed.store.scheme_body_facts {
+            if [read, declaration, initializer].contains(&(fact.instruction as usize)) {
+                let node = &mut changed.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, actual.tag);
+                assert_eq!(node.children.len, 0);
+                node.first = actual.first;
+            }
+        }
+        changed
+    }
+
+    #[test]
+    fn generic_record_forms_shorthand_authenticates_binding_and_scope() {
+        let program = prepare("pure copy(value, other) { {value} }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let read = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut entries)) => match entries.next().unwrap().unwrap() { super::super::super::decode::RecordEntryView::Field(_, value) => Some(value.raw() as usize), _ => None },
+            _ => None,
+        }).unwrap();
+        let changed = retarget_record_operand(&program, owner, scheme, read, 0, 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+
+        let program = prepare("pure copy(value) { let item = value; { let item = 1; let _ = {item} }; {item} }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let inner = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Int(1))) => Some(slot),
+            _ => None,
+        }).unwrap();
+        let read = range.filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut entries)) => match entries.next().unwrap().unwrap() { super::super::super::decode::RecordEntryView::Field(_, value) => Some(value.raw() as usize), _ => None },
+            _ => None,
+        }).last().unwrap();
+        let (_, initializer) = record_operand_binding(&program, owner, read);
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = inner as u32;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body reads an uninitialized slot");
+
+        let program = prepare("pure keep(value, items: Set[Int], wrong: Set[Str]) { let stored: Set[Int] = items; let other: Set[Str] = wrong; let _ = stored; let _ = other; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let input = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, .. }) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_construction_operand(&program, owner, scheme, input, true);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic checked value is not a complete storage contract");
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (check_instruction, other_check, expected) = {
+            let mut checks = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::CheckedValue { check, .. }) => Some((instruction, check.ty.id)),
+                _ => None,
+            });
+            let (first, _) = checks.next().unwrap();
+            let (second, expected) = checks.next().unwrap();
+            assert!(checks.next().is_none());
+            (first, second, expected)
+        };
+        let mut output = BTreeSet::from([check_instruction]);
+        let mut slots = BTreeSet::new();
+        loop {
+            let previous = output.len();
+            for instruction in range.clone() {
+                match decoder.statement_view(instruction) {
+                    Ok(schema::StmtView::Let { slot, value, .. }) if output.contains(&(value.raw() as usize)) => { output.insert(instruction); slots.insert(slot); }
+                    _ => {}
+                }
+                if matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slots.contains(&slot)) { output.insert(instruction); }
+            }
+            if previous == output.len() { break; }
+        }
+        let mut target = program.clone();
+        let payload = target.store.data[check_instruction].range().bounds(target.store.extra.len()).unwrap();
+        let other_payload = target.store.data[other_check].range().bounds(target.store.extra.len()).unwrap();
+        target.store.extra[payload.start + 1] = expected.raw();
+        target.store.extra[payload.start + 2] = program.store.extra[other_payload.start + 2];
+        for instruction in range.clone().filter(|instruction| output.contains(instruction)) {
+            if let Ok(schema::StmtView::Let { slot, annotation: Some(_), .. }) = decoder.statement_view(instruction) {
+                let payload = target.store.data[instruction].range().bounds(target.store.extra.len()).unwrap();
+                assert_eq!(target.store.extra[payload.start + 2], 1);
+                target.store.extra[payload.start + 3] = expected.raw();
+                let facts = target.store.functions[owner].slot_type_facts.bounds(target.store.slot_type_facts.len()).unwrap();
+                if target.store.slot_type_facts[facts.start + slot] != IR_NONE { target.store.slot_type_facts[facts.start + slot] = expected.raw(); }
+            }
+        }
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let expected_item = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()].first;
+        let expected_item = program.store.scheme_types[SchemeTypeId::from_raw(expected_item).unwrap().index()];
+        for fact in &target.store.scheme_body_facts {
+            if output.contains(&(fact.instruction as usize)) {
+                let node = target.store.scheme_types[fact.ty.index()];
+                match node.tag {
+                    FullSchemeTypeTag::Ground => target.store.scheme_types[fact.ty.index()].first = expected.raw(),
+                    FullSchemeTypeTag::Set => {
+                        let child = SchemeTypeId::from_raw(node.first).unwrap();
+                        let item = &mut target.store.scheme_types[child.index()];
+                        assert_eq!(item.tag, expected_item.tag);
+                        item.first = expected_item.first;
+                    }
+                    _ => panic!("unexpected checked Set output type"),
+                }
+            }
+        }
+        assert_eq!(FullVerifier::verify(&target).unwrap_err().message, "generic checked value is not a complete storage contract");
+
+    }
+
+    #[test]
+    fn generic_record_forms_updates_authenticate_paths_and_replacements() {
+        let program = prepare("type Inner = {left: Int, right: Int}\ntype Row = {nested: Inner}\npure keep(value, row: Row, replacement: Int, wrong: Str) { let _ = {...row, nested.left: replacement, nested.right: replacement}; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (first, second, read) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::RecordUpdate { mut updates, .. }) => {
+                let (first, value, _) = updates.next().unwrap().unwrap();
+                let (second, _, _) = updates.next().unwrap().unwrap();
+                Some((first.block_identity_for_test(), second.block_identity_for_test(), value.raw() as usize))
+            }
+            _ => None,
+        }).unwrap();
+        let first = program.store.blocks[first.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let second = program.store.blocks[second.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[first.start], 2);
+        assert_eq!(program.store.extra[second.start], 2);
+        let mut overlap = program.clone();
+        overlap.store.extra[second.start + 2] = overlap.store.extra[first.start + 2];
+        assert_eq!(FullVerifier::verify(&overlap).unwrap_err().message, "record update paths must be nonempty and disjoint");
+        let mut missing = program.clone();
+        missing.store.extra[first.start + 2] = program.symbol_owner().with_current(|| Name::intern("wrong").symbol().raw());
+        assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "generic record update target has no checked field");
+        let changed = retarget_record_operand(&program, owner, scheme, read, 2, 3);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic record update replacement disagrees with its field");
+    }
+
+    fn record_field_type(store: &FullStore, ty: SchemeTypeId, name: &str) -> SchemeTypeId {
+        let node = store.scheme_types[ty.index()];
+        let range = node.children.bounds(store.scheme_fields.len()).unwrap();
+        store.scheme_fields[range].iter().find(|field| store.string(field.name).unwrap() == name).unwrap().ty
+    }
+
+    #[test]
+    fn generic_record_forms_updates_preserve_unsigned_guarantees_and_work_bounds() {
+        let program = prepare("type SignedInner = {count: Int}\ntype UnsignedInner = {count: UInt}\ntype Signed = {nested: SignedInner}\ntype Unsigned = {nested: UnsignedInner}\npure keep(value, row: Signed, unsigned: Unsigned, replacement: Int) { let _ = {...row, nested.count: replacement}; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let read = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::RecordUpdate { base, .. }) => Some(base.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let (declaration, initializer) = record_operand_binding(&program, owner, read);
+        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(1)));
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let actual = program.store.scheme_params[parameters.start + 2].ty;
+        let unsigned = record_field_type(&program.store, record_field_type(&program.store, actual, "nested"), "count");
+        let unsigned = program.store.scheme_types[unsigned.index()];
+        let mut changed = program.clone();
+        let payload = changed.store.data[initializer].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = 2;
+        for fact in &changed.store.scheme_body_facts {
+            if [read, declaration, initializer].contains(&(fact.instruction as usize)) {
+                let leaf = record_field_type(&changed.store, record_field_type(&changed.store, fact.ty, "nested"), "count");
+                let node = &mut changed.store.scheme_types[leaf.index()];
+                assert_eq!(node.tag, unsigned.tag);
+                node.first = unsigned.first;
+            }
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic record update replacement disagrees with its field");
+        for width in [256, 512] {
+            let fields = (0..width).map(|index| format!("f{index}: Int")).collect::<Vec<_>>().join(",");
+            let updates = (0..width).map(|index| format!("nested.f{index}: 0")).collect::<Vec<_>>().join(",");
+            prepare(&format!("type Inner = {{{fields}}}\ntype Row = {{nested: Inner}}\npure keep(value, row: Row) {{ let _ = {{...row, {updates}}}; value }}"));
+        }
     }
 
 }

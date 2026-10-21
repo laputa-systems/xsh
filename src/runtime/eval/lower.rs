@@ -3456,6 +3456,53 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(self.publish_scheme_expression(lowered, facts.expression_types().get(&expression)?.clone(), slots, lowered_types, body))
     }
 
+    fn lower_scheme_shorthand(
+        &mut self, span: Span, name: Name, ty: SchemeType, slots: &mut SlotScope,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        let value = self.lower_bare_ident_at(span, name, slots)?;
+        Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body))
+    }
+
+    fn lower_scheme_set_value(
+        &mut self, values: Vec<BuildExprId>, ty: &SchemeType, span: Span,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        let item = match ty {
+            SchemeType::Set(item) => (**item).clone(),
+            SchemeType::Ground(Type::Set(item)) => SchemeType::Ground((**item).clone()),
+            _ => return None,
+        };
+        let list = push_build_row!(self, expr, BuildExprRow::List(values));
+        lowered_types.insert(list, SchemeType::List(Box::new(item)));
+        let [method] = api_spec().method_overloads(crate::modules::MethodReceiver::List, "to_set")? else { return None };
+        let plan = Arc::new(crate::sema::schemes::RegisteredCallPlan {
+            receiver: Some(crate::modules::MethodReceiver::List), name: Arc::from("to_set"), signature: &method.sig,
+            argument_slots: Arc::from([]), argument_checks: Arc::from([]),
+        });
+        let value = self.set_of_list(list, span);
+        self.scratch.borrow_mut().registered_calls[value.index()] = Some(plan);
+        Some(value)
+    }
+
+    fn scheme_record_field(ty: &SchemeType, name: Name) -> Option<SchemeType> {
+        Self::scheme_record_path(ty, &[name])
+    }
+
+    fn scheme_record_path(ty: &SchemeType, path: &[Name]) -> Option<SchemeType> {
+        enum Selected<'a> { Scheme(&'a SchemeType), Ground(&'a Type) }
+        let mut selected = Selected::Scheme(ty);
+        for name in path {
+            if let Selected::Scheme(SchemeType::Ground(ty)) = selected { selected = Selected::Ground(ty); }
+            selected = match selected {
+                Selected::Scheme(SchemeType::Record { fields, .. }) => Selected::Scheme(fields.get(name)?),
+                Selected::Ground(Type::Record(fields)) => Selected::Ground(fields.get(name)?),
+                _ => return None,
+            };
+        }
+        Some(match selected { Selected::Scheme(ty) => ty.clone(), Selected::Ground(ty) => SchemeType::Ground(ty.clone()) })
+    }
+
     fn lower_scheme_expression(
         &mut self,
         expression: ExprId,
@@ -3621,22 +3668,46 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 for value in self.program.arena.list_elements(items).map(|item| item.value).collect::<Vec<_>>() {
                     values.push(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?);
                 }
-                let item = match &ty { SchemeType::Set(item) => (**item).clone(), _ => return self.block_scheme_lowering_expr(expression) };
-                let list = push_build_row!(self, expr, BuildExprRow::List(values));
-                lowered_types.insert(list, SchemeType::List(Box::new(item)));
-                let [method] = api_spec().method_overloads(crate::modules::MethodReceiver::List, "to_set")? else { return self.block_scheme_lowering_expr(expression) };
-                registered = Some(Arc::new(crate::sema::schemes::RegisteredCallPlan {
-                    receiver: Some(crate::modules::MethodReceiver::List), name: Arc::from("to_set"), signature: &method.sig,
-                    argument_slots: Arc::from([]), argument_checks: Arc::from([]),
-                }));
-                self.set_of_list(list, span)
+                self.lower_scheme_set_value(values, &ty, span, lowered_types)?
             }
             ArenaExprKind::Record(fields) => {
-                if matches!(ty, SchemeType::Map(_, _)) {
+                let fields = self.program.arena.record_fields(fields).to_vec();
+                if fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+                    let ArenaRecordFieldKind::Spread { expr, .. } = fields.first()?.kind else { return self.block_scheme_lowering_expr(expression) };
+                    let base = self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?;
+                    let source = lowered_types.get(&base)?.clone();
+                    let mut updates = Vec::new();
+                    for field in fields.into_iter().skip(1) {
+                        let (path, value, field_span) = match field.kind {
+                            ArenaRecordFieldKind::Path { path, value, span } => (self.program.arena.names(path).collect::<Vec<_>>(), Some(value), self.program.arena.span(span)),
+                            ArenaRecordFieldKind::Named { name, value, span } => (vec![name], Some(value), self.program.arena.span(span)),
+                            ArenaRecordFieldKind::Shorthand { name, span } => (vec![name], None, self.program.arena.span(span)),
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        };
+                        let selected = Self::scheme_record_path(&source, &path)?;
+                        let mut value = match value {
+                            Some(value) => self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?,
+                            None => self.lower_scheme_shorthand(field_span, path[0], selected.clone(), slots, lowered_types, body)?,
+                        };
+                        if let Some(expected) = selected.closed_ground_type().filter(Type::has_unsigned_constraint) {
+                            value = self.checked_unsigned_value(value, &expected, span);
+                            self.record_scheme_storage_elaboration(value, &SchemeType::Ground(expected), lowered_types);
+                        }
+                        updates.push((path, value, field_span));
+                    }
+                    push_build_row!(self, expr, BuildExprRow::RecordUpdate { base, updates: LoweredRecordUpdates(updates), span })
+                } else if let SchemeType::Set(item) = &ty {
+                    let mut values = Vec::new();
+                    for field in fields {
+                        let ArenaRecordFieldKind::Shorthand { name, span } = field.kind else { return self.block_scheme_lowering_expr(expression) };
+                        values.push(self.lower_scheme_shorthand(self.program.arena.span(span), name, (**item).clone(), slots, lowered_types, body)?);
+                    }
+                    self.lower_scheme_set_value(values, &ty, span, lowered_types)?
+                } else if matches!(ty, SchemeType::Map(_, _)) {
                     let SchemeType::Map(ref key_type, _) = ty else { unreachable!() };
                     let key_type = key_type.closed_ground_type()?;
                     let mut entries = Vec::new();
-                    for field in self.program.arena.record_fields(fields).to_vec() {
+                    for field in fields {
                         let (key, value, entry_span) = match field.kind {
                             ArenaRecordFieldKind::Computed { key, value, span } => {
                                 let key_span = self.program.arena.expr(key).span;
@@ -3651,6 +3722,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 lowered_types.insert(key, SchemeType::Ground(if key_type == Type::Path { Type::Path } else { Type::Str }));
                                 (Some(key), self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span))
                             }
+                            ArenaRecordFieldKind::Shorthand { name, span } => {
+                                let key = push_build_row!(self, expr, BuildExprRow::Str(Arc::from(name.as_str().as_str())));
+                                lowered_types.insert(key, SchemeType::Ground(Type::Str));
+                                let SchemeType::Map(_, ref item) = ty else { unreachable!() };
+                                (Some(key), self.lower_scheme_shorthand(self.program.arena.span(span), name, (**item).clone(), slots, lowered_types, body)?, self.program.arena.span(span))
+                            }
                             ArenaRecordFieldKind::Spread { expr, span } => (None, self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span)),
                             _ => return self.block_scheme_lowering_expr(expression),
                         };
@@ -3659,9 +3736,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     push_build_row!(self, expr, BuildExprRow::MapLiteral(entries))
                 } else {
                     let mut entries = Vec::new();
-                    for field in self.program.arena.record_fields(fields).to_vec() {
+                    for field in fields {
                         entries.push(match field.kind {
                             ArenaRecordFieldKind::Named { name, value, .. } => LoweredRecordEntry::Field(name, self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?),
+                            ArenaRecordFieldKind::Shorthand { name, span } => LoweredRecordEntry::Field(name, self.lower_scheme_shorthand(self.program.arena.span(span), name, Self::scheme_record_field(&ty, name)?, slots, lowered_types, body)?),
                             ArenaRecordFieldKind::Spread { expr, .. } => LoweredRecordEntry::Spread(self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?),
                             _ => return self.block_scheme_lowering_expr(expression),
                         });

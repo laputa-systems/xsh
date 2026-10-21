@@ -101,6 +101,15 @@ ordered fields or collection payload. Display and map-key domains come from
 the checked operand types. Generated set conversion retains the canonical
 selected registry method and uses the same native-call proof as a source call.
 
+Shorthand fields contribute their resolved binding identities to the same
+body-read and capture census as explicit reads. Their checked constructor
+context supplies elaboration types; physical slot proof independently
+authenticates each read. Static record updates reuse the ordinary indexed
+update row and its canonical nonempty/disjoint path checks. Generic field
+projection borrows through checked records and materializes only the selected
+leaf under the existing budget. Actual replacements must preserve that field's
+guarantees; complete typed storage boundaries remain explicit executable checks.
+
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
 postfix lowering evaluates the receiver once and places operand elaboration in

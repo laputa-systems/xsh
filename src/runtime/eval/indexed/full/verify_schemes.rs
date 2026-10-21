@@ -1160,6 +1160,18 @@ fn verify_body_expression(
             }
             SchemeType::Record { fields, tail }
         }
+        schema::ExprView::RecordUpdate { base, mut updates, .. } => {
+            let source = child(base, budget)?;
+            if !matches!(source, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))) { return Err(IrVerifyError::new("generic record update has no record base")); }
+            for update in &mut updates {
+                let (path, value, _) = update?;
+                budget.charge(path.len())?;
+                let path = path.collect::<Result<Vec<_>, _>>()?;
+                let selected = body::record_path(&source, &path, budget)?.ok_or_else(|| IrVerifyError::new("generic record update target has no checked field"))?;
+                if !body_type_matches(&child(value, budget)?, &selected, budget)? { return Err(IrVerifyError::new("generic record update replacement disagrees with its field")); }
+            }
+            source
+        }
         schema::ExprView::Ok(value) => {
             let SchemeType::Result(ok, _) = ty else { return Err(IrVerifyError::new("generic success producer has no result contract")); };
             if !body_type_matches(&child(value, budget)?, ok, budget)? { return Err(IrVerifyError::new("generic success payload disagrees with its checked contract")); }
@@ -1288,8 +1300,8 @@ fn verify_body_expression(
         }
         schema::ExprView::CheckedValue { value, check, .. } => {
             let actual = child(value, budget)?;
-            let expected = check.ty.materialize()?;
-            if check.schema.is_some() || !expected.has_unsigned_constraint() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic unsigned argument check is not a complete checked contract")); }
+            let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;
+            if check.schema.is_some() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
             SchemeType::Ground(expected)
         }
         schema::ExprView::Require { value, check, .. } => {

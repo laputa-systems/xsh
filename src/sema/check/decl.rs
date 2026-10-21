@@ -116,7 +116,16 @@ fn collect_body_type_facts(
             | ArenaChild::BuilderBlock(_) => {}
         }
     }
-    let reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect();
+    let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<std::collections::BTreeSet<_>>();
+    for &(expression, usage) in &expressions {
+        if usage == BodyFactUse::Executable && let crate::syntax::arena::ArenaExprKind::Record(fields) = arena.expr(expression).kind {
+            for field in arena.record_fields(fields) {
+                if let crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } = field.kind
+                    && let Some(binding) = bindings.value_sites.get(&(arena.span(span), name))
+                { reads.insert(*binding); }
+            }
+        }
+    }
     let local_statements = statements.into_iter().filter_map(|(statement, usage)| (usage == BodyFactUse::Executable).then_some(statement)).collect();
     (types, tail_types, expression_spans, reads, local_statements)
 }
@@ -254,10 +263,7 @@ impl Checker {
                     });
                 (pure || finite_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
-            let captures = generalized_body_types.keys()
-                .filter_map(|expression| self.resolved_bindings.expressions.get(expression))
-                .chain(generalized_tail_types.keys().filter_map(|statement| self.resolved_bindings.tails.get(statement)))
-                .filter_map(|&id| {
+            let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }
                     self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
