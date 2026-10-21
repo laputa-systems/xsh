@@ -841,6 +841,20 @@ impl Default for FullStore {
 }
 
 impl FullStore {
+    fn direct_error_transfer_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        if self.tags.get(instruction) != Some(&FullTag::ExprTry) { return Ok(None); }
+        let data = self.data.get(instruction).ok_or_else(|| IrVerifyError::new("error transfer has no instruction payload"))?;
+        let mut payload = FullCursor::new(self.payload(data.range())?);
+        let value = payload.raw()? as usize;
+        let location = IrLocationId::from_raw(payload.raw()?).ok_or_else(|| IrVerifyError::new("error transfer location is invalid"))?;
+        payload.finish()?;
+        if self.locations.get(location.index()).is_none() || self.location_sources.get(location.index()).is_none() {
+            return Err(IrVerifyError::new("error transfer location is out of bounds"));
+        }
+        let tag = self.tags.get(value).ok_or_else(|| IrVerifyError::new("error transfer source is out of bounds"))?;
+        Ok((*tag == FullTag::ExprErr).then_some(value))
+    }
+
     #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
@@ -12328,6 +12342,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, body) = branch?;
+                    if condition.raw() as usize == child {
+                        return Ok(Some((prior_false, vec![child])));
+                    }
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
@@ -12355,6 +12372,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, body) = branch?;
+                    if condition.raw() as usize == child {
+                        return Ok(Some((prior_false, vec![child])));
+                    }
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
                     if body.contains(&child) {
@@ -12383,6 +12403,9 @@ impl<'a> FullDecoder<'a> {
                 for branch in &mut branches {
         charge(1)?;
                     let (condition, value) = branch?;
+                    if in_roots(child, &[condition.raw() as usize])? {
+                        return Ok(Some((prior_false, vec![condition.raw() as usize])));
+                    }
                     let value = value.raw() as usize;
                     if in_roots(child, &[value])? {
                         prior_false.push((condition.raw() as usize, true, false));
@@ -12514,6 +12537,12 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn direct_error_transfer(&self, instruction: usize) -> Result<Option<(usize, Option<usize>)>, IrVerifyError> {
+        let Some(operand) = self.store.direct_error_transfer_operand(instruction)? else { return Ok(None) };
+        let schema::ExprView::Err { value, cause } = self.expression_view(operand)? else { unreachable!() };
+        Ok(Some((value.raw() as usize, cause.map(|cause| cause.raw() as usize))))
+    }
+
     fn checked_condition_proves_nonnull(
         &self,
         condition: usize,
@@ -12534,6 +12563,11 @@ impl<'a> FullDecoder<'a> {
                 cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?),
             };
             return match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                schema::BoolView::Slot(slot) => {
+                    let Some(prefix) = &self.producer_prefix else { return Ok(false) };
+                    let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+                    self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge)
+                }
                 schema::BoolView::Not(value) => self.checked_condition_proves_nonnull(
                     value.raw() as usize,
                     !when_true,
@@ -12590,6 +12624,22 @@ impl<'a> FullDecoder<'a> {
             };
         }
 
+        if let schema::ExprView::IfExpr { mut branches, else_value, .. } = self.expression_view(condition)? {
+            charge(3)?;
+            if branches.len() != 1 { return Ok(false); }
+            let (nested, value) = branches.next().unwrap()?;
+            let (schema::ExprView::Bool(yes), schema::ExprView::Bool(no)) =
+                (self.expression_view(value.raw() as usize)?, self.expression_view(else_value.raw() as usize)?)
+            else { return Ok(false) };
+            if yes == no { return Ok(false); }
+            return self.checked_condition_proves_nonnull(nested.raw() as usize, when_true == yes, false,
+                use_site, target, expected_payload, charge);
+        }
+        if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
+            let Some(prefix) = &self.producer_prefix else { return Ok(false) };
+            let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
+            return self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge);
+        }
         let schema::ExprView::Binary {
             op,
             left,
@@ -12758,54 +12808,71 @@ impl<'a> FullDecoder<'a> {
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Ok(false);
             };
-            let short_circuit = self.checked_short_circuit_path_for_child(parent, child, charge)?;
-            if let Some((left, when_true, is_boolean, right)) = short_circuit
-                && self.checked_condition_proves_nonnull(
-                    left,
+            if self.checked_binding_path_is_narrowed_at_parent(field_instruction, parent, child, target, expected_payload, charge)? { return Ok(true); }
+            child = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic parent path",
+        ))
+    }
+
+    fn checked_binding_path_is_narrowed_at_parent(
+        &self,
+        field_instruction: usize,
+        parent: usize,
+        child: usize,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let tag = self.store.tags[parent];
+        let short_circuit = if matches!(tag, FullTag::BoolAnd | FullTag::BoolOr | FullTag::ExprBinary) {
+            self.checked_short_circuit_path_for_child(parent, child, charge)?
+        } else { None };
+        if let Some((left, when_true, is_boolean, right)) = short_circuit
+            && self.checked_condition_proves_nonnull(
+                left,
+                when_true,
+                is_boolean,
+                field_instruction,
+                target,
+                expected_payload,
+                charge,
+            )?
+            && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
+        {
+            return Ok(true);
+        }
+        let branch = if matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool | FullTag::ExprIf | FullTag::StmtWhile | FullTag::StmtWhileBool) {
+            self.checked_branch_conditions_for_child(parent, child, charge)?
+        } else { None };
+        if let Some((conditions, body_roots)) = branch {
+            for (condition, when_true, is_boolean) in conditions {
+                charge(1)?;
+                if !self.checked_parent_path_crosses_repeatable_loop(
+                    field_instruction,
+                    parent,
+                    charge,
+                )? && self.checked_condition_proves_nonnull(
+                    condition,
                     when_true,
                     is_boolean,
                     field_instruction,
                     target,
                     expected_payload,
                     charge,
-                )?
-                && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
-            {
-                return Ok(true);
-            }
-            if let Some((conditions, body_roots)) =
-                self.checked_branch_conditions_for_child(parent, child, charge)?
-            {
-                for (condition, when_true, is_boolean) in conditions {
-        charge(1)?;
-                    if !self.checked_parent_path_crosses_repeatable_loop(
-                        field_instruction,
-                        parent,
-                        charge,
-                    )? && self.checked_condition_proves_nonnull(
-                        condition,
-                        when_true,
-                        is_boolean,
-                        field_instruction,
-                        target,
-                        expected_payload,
-                        charge,
-                    )? && self.checked_branch_preserves_binding_path(
-                        parent,
-                        &body_roots,
-                        field_instruction,
-                        target,
-                        charge,
-                    )? {
-                        return Ok(true);
-                    }
+                )? && self.checked_branch_preserves_binding_path(
+                    parent,
+                    &body_roots,
+                    field_instruction,
+                    target,
+                    charge,
+                )? {
+                    return Ok(true);
                 }
             }
-            child = parent;
         }
-        Err(IrVerifyError::new(
-            "checked optional field receiver has a cyclic parent path",
-        ))
+        Ok(false)
     }
 
     fn checked_instruction_is_in_roots(
@@ -12875,10 +12942,284 @@ impl<'a> FullDecoder<'a> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
-        let Some(mut prefix_roots) = self.checked_block_prefix_roots(body_roots, before, charge)? else {
+        let Some(prefix_roots) = self.checked_block_prefix_roots(body_roots, before, charge)? else {
             return Ok(false);
         };
 
+        self.checked_anchored_prefix_preserves_binding_path(branch_parent, prefix_roots, before, target, charge)
+    }
+
+    fn checked_eager_prefix_preserves_binding_path(
+        &self,
+        parent: usize,
+        child: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        macro_rules! operand {
+            ($value:expr) => {{
+                charge(1)?;
+                let value = $value.raw() as usize;
+                if value == child { return Ok(true); }
+                if !self.checked_expression_preserves_binding_path(value, target, charge)? { return Ok(false); }
+            }};
+        }
+        macro_rules! argument {
+            ($value:expr) => {{
+                let value = match &$value.kind {
+                    decode::RunArgKindView::Single(value) | decode::RunArgKindView::SingleOrSplice(value)
+                    | decode::RunArgKindView::Splice(value) => *value,
+                };
+                operand!(value);
+            }};
+        }
+        macro_rules! run {
+            ($operands:expr) => {{
+                let operands = $operands;
+                for option in &mut operands.options {
+                    let (decode::RunOptionView::Timeout(value) | decode::RunOptionView::CpuMax(value) | decode::RunOptionView::Accept(value)) = option?;
+                    operand!(value);
+                }
+                for entry in &mut operands.env { argument!(entry?.value); }
+                argument!(operands.target);
+                for entry in &mut operands.tail {
+                    match entry? {
+                        decode::RunTailOperandView::Argument(value) => argument!(value),
+                        decode::RunTailOperandView::Redirection(value) => argument!(value.target),
+                    }
+                }
+            }};
+        }
+        if self.store.tags[parent].kind() == schema::InstructionKind::Stmt {
+            match self.store.tags[parent] {
+                FullTag::StmtIf => {
+                    let schema::StmtView::If { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtIfBool => {
+                    let schema::StmtView::IfBool { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtWhile | FullTag::StmtPatternWhile => {
+                    let (schema::StmtView::While { condition, .. } | schema::StmtView::PatternWhile { condition, .. }) = self.statement_view(parent)? else { unreachable!() };
+                    operand!(condition);
+                }
+                FullTag::StmtWhileBool => {
+                    let schema::StmtView::WhileBool { condition, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(condition);
+                }
+                FullTag::StmtWith => {
+                    let schema::StmtView::With { bindings, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for binding in bindings { let (_, value) = binding?; operand!(value); }
+                }
+                FullTag::StmtEnv => {
+                    let schema::StmtView::Env { env, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for entry in env { argument!(entry?.value); }
+                }
+                FullTag::StmtGuard => {
+                    let schema::StmtView::Guard { value, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                }
+                FullTag::StmtAssert => {
+                    let schema::StmtView::Assert { value, message, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                    if let Some(message) = message { operand!(message); }
+                }
+                FullTag::StmtPrint => {
+                    let schema::StmtView::Print { args, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for value in args { operand!(value?); }
+                }
+                FullTag::StmtAssignPath => {
+                    let schema::StmtView::AssignPath { path, value, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for step in path { if let decode::AssignStepView::Index(value) = step? { operand!(value); } }
+                    operand!(value);
+                }
+                FullTag::StmtPatternIf => {
+                    let schema::StmtView::PatternIf { branches, .. } = self.statement_view(parent)? else { unreachable!() };
+                    for branch in branches {
+                        let (condition, body, _) = branch?;
+                        operand!(condition);
+                        for statement in body { charge(1)?; if statement?.raw() as usize == child { return Ok(true); } }
+                    }
+                }
+                FullTag::StmtMatch => {
+                    let schema::StmtView::Match { value, arms, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                    for arm in arms {
+                        charge(1)?;
+                        let (_, guard, mut body) = arm?;
+                        if let Some(guard) = guard { operand!(guard); }
+                        for statement in &mut body {
+                            charge(1)?;
+                            if statement?.raw() as usize == child { return Ok(true); }
+                        }
+                    }
+                }
+                FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
+                    let (schema::StmtView::StrMatch { value, .. } | schema::StmtView::TagMatch { value, .. }) = self.statement_view(parent)? else { unreachable!() };
+                    operand!(value);
+                }
+                FullTag::StmtCd => {
+                    let schema::StmtView::Cd { target: input, .. } = self.statement_view(parent)? else { unreachable!() };
+                    operand!(input);
+                }
+                FullTag::StmtLet | FullTag::StmtLetInt | FullTag::StmtLetBool
+                | FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt
+                | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtValue
+                | FullTag::StmtExpr
+                | FullTag::StmtFor | FullTag::StmtForRecord | FullTag::StmtForStrLines
+                | FullTag::StmtLetRecord | FullTag::StmtScanLines | FullTag::StmtScanBytes
+                | FullTag::StmtRun | FullTag::StmtLoop | FullTag::StmtReturn
+                | FullTag::StmtYield | FullTag::StmtYieldDelegate | FullTag::StmtBreak
+                | FullTag::StmtBreakValue | FullTag::StmtContinue | FullTag::StmtDefer
+                | FullTag::StmtDefaultParameter => {}
+                _ => return Err(IrVerifyError::new("checked guard path has no ordered statement proof")),
+            }
+            return Ok(true);
+        }
+        if self.store.tags[parent].kind() != schema::InstructionKind::Expr { return Ok(true); }
+        let mut view = self.expression_view(parent)?;
+        match &mut view {
+            schema::ExprView::ListPipeline { input, .. } => {
+                operand!(*input);
+                return Err(IrVerifyError::new("checked guard path crosses an unproved pipeline stage prefix"));
+            }
+            schema::ExprView::IfExpr { branches, .. } => {
+                for branch in branches {
+                    let (condition, body) = branch?;
+                    operand!(condition);
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::PatternIf { branches, .. } => {
+                for branch in branches {
+                    let (condition, body, _) = branch?;
+                    operand!(condition);
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::Err { value, cause } => { operand!(*value); if let Some(cause) = cause { operand!(*cause); } }
+            schema::ExprView::Retry { delays, .. } => { for value in delays { operand!(value?); } }
+            schema::ExprView::RunCapture(run) => { run!(&mut run.operands); }
+            schema::ExprView::SpawnRun(run) => { run!(&mut run.operands); }
+            schema::ExprView::RunPipeline { segments, .. } => { for segment in segments { let mut segment = segment?; run!(&mut segment.operands); } }
+            schema::ExprView::ProcessCommandBuilder { entries, .. } => {
+                for entry in entries {
+                    match entry? {
+                        decode::ProcessCommandBuilderEntryView::Field { value, .. } => operand!(value),
+                        decode::ProcessCommandBuilderEntryView::Run { mut operands, .. } => run!(&mut operands),
+                    }
+                }
+            }
+            schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => {
+                for qualifier in qualifiers {
+                    match qualifier? {
+                        decode::CompQualifierView::For { iter, .. } => operand!(iter),
+                        decode::CompQualifierView::If { condition, .. } => operand!(condition),
+                    }
+                }
+                if let schema::ExprView::MapComp { key, .. } = &view { operand!(*key); }
+            }
+            schema::ExprView::FmtString(parts) | schema::ExprView::PathFmtString { parts, .. } => {
+                for part in parts { if let decode::FmtPartView::Expr(value, ..) = part? { operand!(value); } }
+            }
+            schema::ExprView::ContextScope { input, .. } => { operand!(*input); }
+            schema::ExprView::ErrorContext { message, .. } => { operand!(*message); }
+            schema::ExprView::MatchExpr { value, arms, .. } => {
+                operand!(*value);
+                for arm in arms {
+                    charge(1)?;
+                    let (_, guard, body) = arm?;
+                    if let Some(guard) = guard { operand!(guard); }
+                    if body.raw() as usize == child { return Ok(true); }
+                }
+            }
+            schema::ExprView::StrMatchExpr { value, .. } | schema::ExprView::TagMatchExpr { value, .. } => { operand!(*value); }
+            schema::ExprView::Binary { left, right, .. }
+            | schema::ExprView::ResultFallback { left, right } => { operand!(*left); operand!(*right); }
+            schema::ExprView::ComparisonChain { first, pairs } => {
+                operand!(*first);
+                for pair in pairs { let (_, right, _) = pair?; operand!(right); }
+            }
+            schema::ExprView::Index { base, index, .. } => { operand!(*base); operand!(*index); }
+            schema::ExprView::List(items) => { for item in items { operand!(item?); } }
+            schema::ExprView::ListBuild(items) => { for item in items { let (_, value, _) = item?; operand!(value); } }
+            schema::ExprView::Record(entries) => {
+                for entry in entries {
+                    let (decode::RecordEntryView::Field(_, value) | decode::RecordEntryView::Spread(value)) = entry?;
+                    operand!(value);
+                }
+            }
+            schema::ExprView::MapLiteral(entries) => {
+                for entry in entries { let (key, value, _) = entry?; if let Some(key) = key { operand!(key); } operand!(value); }
+            }
+            schema::ExprView::RecordUpdate { base, updates, .. } => {
+                operand!(*base);
+                for update in updates { let (_, value, _) = update?; operand!(value); }
+            }
+            schema::ExprView::Method { receiver, args, .. } => {
+                operand!(*receiver);
+                for arg in args { operand!(arg?); }
+            }
+            schema::ExprView::DynamicCall { callee, args, .. }
+            | schema::ExprView::TypedCall { callee, args, .. } => {
+                operand!(*callee);
+                for arg in args {
+                    match arg? { decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => operand!(value), decode::CallArgView::Default(_) => {} }
+                }
+            }
+            schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. }
+            | schema::ExprView::ExternalCall { args, .. } | schema::ExprView::SelfCall { args, .. } => {
+                for arg in args {
+                    match arg? { decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => operand!(value), decode::CallArgView::Default(_) => {} }
+                }
+            }
+            schema::ExprView::ModuleCall { args, .. } => {
+                for arg in args { if let Some(value) = arg? { operand!(value); } }
+            }
+            schema::ExprView::Field { .. } | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Require { .. } | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::SpawnCommand { .. } | schema::ExprView::Wait { .. }
+            | schema::ExprView::Try { .. } | schema::ExprView::Ok(_)
+            | schema::ExprView::ProcCallResult(_) | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::Capture { .. } | schema::ExprView::Loop { .. } => {}
+            _ => {
+                use crate::runtime::eval::lowered_run::indexed_run::IndexedFrameApplyChild;
+                let mut position = 0;
+                loop {
+                    let value = match crate::runtime::eval::lowered_run::indexed_run::indexed_frame_apply_child_id(
+                        self.store.tags[parent], &mut view, position, Span::new(self.store.source_id, 0, 0),
+                    ).map_err(|error| IrVerifyError::new(error.message))? {
+                        IndexedFrameApplyChild::Expression(value) => value,
+                        IndexedFrameApplyChild::Complete => break,
+                        IndexedFrameApplyChild::Unsupported => return Err(IrVerifyError::new("checked guard path has no ordered operand proof")),
+                    };
+                    charge(1)?;
+                    if value as usize == child { return Ok(true); }
+                    if !self.checked_expression_preserves_binding_path(value as usize, target, charge)? { return Ok(false); }
+                    position += 1;
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    fn checked_anchored_prefix_preserves_binding_path(
+        &self,
+        branch_parent: usize,
+        mut prefix_roots: Vec<usize>,
+        before: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         let mut child = before;
         for _ in 0..=self.instruction_range.len() {
         charge(1)?;
@@ -12887,14 +13228,9 @@ impl<'a> FullDecoder<'a> {
                     "checked optional field receiver is outside its guard path",
                 ));
             };
+            if !self.checked_eager_prefix_preserves_binding_path(parent, child, target, charge)? { return Ok(false); }
             if parent == branch_parent {
                 return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target, charge);
-            }
-            if let Some((conditions, _)) = self.checked_branch_conditions_for_child(parent, child, charge)? {
-                for (condition, _, _) in conditions {
-                    charge(1)?;
-                    if !self.checked_expression_preserves_binding_path(condition, target, charge)? { return Ok(false); }
-                }
             }
             for roots in self.checked_statement_blocks(parent, charge)? {
         charge(1)?;
@@ -15272,8 +15608,8 @@ fn indexed_expr_can_complete(
             }
         }
         schema::ExprView::ResultFallback { left, .. } => child(left.raw())?,
-        schema::ExprView::Try { value, .. }
-        | schema::ExprView::Require { value, .. }
+        schema::ExprView::Try { value, .. } => decoder.direct_error_transfer(instruction)?.is_none() && child(value.raw())?,
+        schema::ExprView::Require { value, .. }
         | schema::ExprView::CheckedValue { value, .. }
         | schema::ExprView::PathFrom { value, .. }
         | schema::ExprView::ProcCallResult(value) => child(value.raw())?,
