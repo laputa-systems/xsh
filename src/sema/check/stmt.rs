@@ -4928,6 +4928,7 @@ impl Checker {
         hook: &ArenaSignalHook,
         span: Span,
     ) {
+        self.collect_signal_hook_local_constraints(arena, source, hook, span);
         if self.options.interactive_commands.is_some() {
             self.error(
                 span,

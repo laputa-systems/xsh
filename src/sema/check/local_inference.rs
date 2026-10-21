@@ -3,7 +3,7 @@ use crate::diagnostic::DiagnosticCode;
 use crate::sema::constraints::TypeVariableId;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
-    ArenaStmtKind, BindingTargetId,
+    ArenaStmtKind, BindingTargetId, ExprId, ArenaListElementRange, ArenaRecordFieldKind, ArenaSignalHook,
 };
 use std::sync::Arc;
 
@@ -12,8 +12,9 @@ pub(super) struct LocalInference {
     collecting: bool,
     pub(super) host_obligations: super::method::HostObligations,
     seeds: BTreeSet<Span>,
-    bindings: BTreeMap<Span, Type>,
+    bindings: BTreeMap<Span, LocalBindingInference>,
     nullable_seed_cells: BTreeSet<TypeVariableId>,
+    aggregate_scopes: Vec<AggregateSeedScope>,
     solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
@@ -22,12 +23,38 @@ pub(super) struct LocalInference {
     unresolved_expr_types: Vec<Span>,
 }
 
+#[derive(Clone)]
+struct LocalBindingInference {
+    ty: Type,
+    holes: Vec<Type>,
+    owner: Option<super::EffectDeclarationId>,
+    initializer: Span,
+}
+
+enum LocalInferenceFailure {
+    Unbound,
+    Resolution(crate::sema::constraints::ConstraintResolutionError),
+}
+
+#[derive(Clone)]
+enum FreshAggregateOrigin {
+    List(ArenaListElementRange),
+    Record(BTreeMap<super::Name, Option<ExprId>>),
+}
+
+#[derive(Clone)]
+struct AggregateSeedScope {
+    initializer: Span,
+    origins: BTreeMap<Span, FreshAggregateOrigin>,
+}
+
 impl LocalInference {
     pub(super) fn merge_prepared_owner(&mut self, other: &Self) {
         assert!(
             !other.collecting
                 && other.bindings.is_empty()
                 && other.nullable_seed_cells.is_empty()
+                && other.aggregate_scopes.is_empty()
                 && other.solved_functions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.checked_bindings.is_empty()
@@ -294,14 +321,14 @@ impl Checker {
         if self.local_inference.solved_functions.contains(&body) {
             return;
         }
-        let start = Span::new(body.source_id, body.start(), body.start());
-        let end = Span::new(body.source_id, body.end(), body.end());
-        let has_local_seeds = self
-            .local_inference
-            .seeds
-            .range(start..end)
-            .next()
-            .is_some();
+        let has_seeds = |span: Span| {
+            let start = Span::new(span.source_id, span.start(), span.start());
+            let end = Span::new(span.source_id, span.end(), span.end());
+            self.local_inference.seeds.range(start..end).next().is_some()
+        };
+        let has_local_seeds = has_seeds(body)
+            || program.arena.params(definition.params).iter().filter_map(|parameter| parameter.default)
+                .any(|expression| has_seeds(program.arena.expr(expression).span));
         let has_unresolved_parameters = pure
             && program.arena.params(definition.params).iter().any(|parameter| {
                 parameter.annotation.is_none()
@@ -314,13 +341,39 @@ impl Checker {
         if !has_local_seeds && !has_unresolved_parameters {
             return;
         }
+        self.collect_local_body_constraints(body, |probe| {
+            if stream {
+                probe.check_stream_function_arena(program, source, definition);
+            } else {
+                probe.check_function_arena(program, source, definition, pure);
+            }
+        });
+    }
+
+    pub(super) fn collect_signal_hook_local_constraints(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        hook: &ArenaSignalHook,
+        span: Span,
+    ) {
+        let body = program.arena.span(program.arena.block(hook.body).span);
+        let start = Span::new(body.source_id, body.start(), body.start());
+        let end = Span::new(body.source_id, body.end(), body.end());
+        if self.local_inference.seeds.range(start..end).next().is_some() {
+            self.collect_local_body_constraints(body, |probe| {
+                probe.check_signal_hook_arena(program, source, hook, span);
+            });
+        }
+    }
+
+    fn collect_local_body_constraints(&mut self, body: Span, check: impl FnOnce(&mut Self)) {
+        if self.local_inference.collecting || self.local_inference.solved_functions.contains(&body) {
+            return;
+        }
         let mut probe = self.constraint_probe();
         probe.local_inference.collecting = true;
-        if stream {
-            probe.check_stream_function_arena(program, source, definition);
-        } else {
-            probe.check_function_arena(program, source, definition, pure);
-        }
+        check(&mut probe);
         if let Err(error) = probe.solve_host_obligations() {
             self.reject_host_inference_resolution(error, body);
         }
@@ -390,6 +443,7 @@ impl Checker {
         let definitely_exiting_block_spans =
             std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
+        let aggregate_scopes = std::mem::take(&mut self.local_inference.aggregate_scopes);
         let probe = self.clone();
         self.checked_declarations = checked_declarations;
         self.resolved_type_expressions = resolved_type_expressions;
@@ -430,6 +484,7 @@ impl Checker {
         self.argument_bindings = argument_bindings;
         self.definitely_exiting_block_spans = definitely_exiting_block_spans;
         self.local_inference.checked_bindings = checked_bindings;
+        self.local_inference.aggregate_scopes = aggregate_scopes;
         probe
     }
 
@@ -441,8 +496,17 @@ impl Checker {
         mutable: bool,
         span: Span,
     ) -> Option<Type> {
-        if let Some(ty) = self.local_inference.bindings.get(&span) {
-            return self.type_constraints.resolve(ty).ok();
+        if let Some(inference) = self.local_inference.bindings.get(&span) {
+            return self.type_constraints.resolve(&inference.ty).ok();
+        }
+        if self.boundary.current_return.is_some()
+            && matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate))
+        {
+            self.local_inference.aggregate_scopes.push(AggregateSeedScope {
+                initializer: super::expr::expr_or_run_span_arena(program, initializer),
+                origins: BTreeMap::new(),
+            });
+            return None;
         }
         if self.boundary.current_return.is_none()
             || !self.local_inference.seeds.contains(&span)
@@ -452,9 +516,177 @@ impl Checker {
             return None;
         }
         let origin = super::expr::expr_or_run_span_arena(program, initializer);
-        let ty = Type::Set(Box::new(self.type_constraints.fresh(origin)));
-        self.local_inference.bindings.insert(span, ty.clone());
+        let variable = self.fresh_local_inference_type(origin);
+        let ty = Type::Set(Box::new(variable.clone()));
+        self.local_inference.bindings.insert(span, LocalBindingInference { ty: ty.clone(), holes: vec![variable], owner: self.local_inference_owner(), initializer: origin });
         self.type_constraints.resolve(&ty).ok()
+    }
+
+    pub(super) fn local_aggregate_record_fields(
+        &self,
+        span: Span,
+    ) -> Option<BTreeMap<super::Name, Option<ExprId>>> {
+        self.local_inference.aggregate_scopes.last().filter(|scope| {
+            scope.initializer.source_id == span.source_id
+                && scope.initializer.start() <= span.start()
+                && span.end() <= scope.initializer.end()
+        }).map(|_| BTreeMap::new())
+    }
+
+    pub(super) fn local_aggregate_spread_fields(
+        &self,
+        span: Span,
+    ) -> Option<BTreeMap<super::Name, Option<ExprId>>> {
+        match self.local_inference.aggregate_scopes.last()?.origins.get(&span)? {
+            FreshAggregateOrigin::Record(fields) => Some(fields.clone()),
+            FreshAggregateOrigin::List(_) => None,
+        }
+    }
+
+    pub(super) fn record_local_aggregate_fields(
+        &mut self,
+        span: Span,
+        fields: BTreeMap<super::Name, Option<ExprId>>,
+    ) {
+        if let Some(scope) = self.local_inference.aggregate_scopes.last_mut() {
+            scope.origins.insert(span, FreshAggregateOrigin::Record(fields));
+        }
+    }
+
+    pub(super) fn record_local_aggregate_list(&mut self, span: Span, range: ArenaListElementRange) {
+        if self.local_aggregate_record_fields(span).is_some()
+            && let Some(scope) = self.local_inference.aggregate_scopes.last_mut()
+        {
+            scope.origins.insert(span, FreshAggregateOrigin::List(range));
+        }
+    }
+
+    fn local_inference_owner(&self) -> Option<super::EffectDeclarationId> {
+        self.stream_origin_owner.filter(|owner| {
+            self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner)).is_some()
+        })
+    }
+
+    pub(super) fn validate_local_inference(
+        &mut self,
+        owner: super::EffectDeclarationId,
+        component: &BTreeSet<super::EffectDeclarationId>,
+        formals: &[Type],
+    ) -> bool {
+        let failures = self.local_inference.bindings.iter().filter_map(|(&binding, inference)| {
+            if inference.owner != Some(owner) { return None; }
+            match self.type_constraints.unresolved_local_holes_are_input_bound(owner, component, &inference.holes, formals) {
+                Ok(true) => None,
+                Ok(false) => Some((binding, inference.initializer, LocalInferenceFailure::Unbound)),
+                Err(error) => Some((binding, inference.initializer, LocalInferenceFailure::Resolution(error))),
+            }
+        }).collect::<Vec<_>>();
+        let valid = failures.is_empty();
+        for (binding, initializer, failure) in failures {
+            if !self.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                && diagnostic.labels.iter().any(|label| label.span == initializer))
+            {
+                let (message, label) = match failure {
+                    LocalInferenceFailure::Unbound =>
+                        ("local type needs an annotation", "no unique concrete type or input relationship is established for this initializer"),
+                    LocalInferenceFailure::Resolution(crate::sema::constraints::ConstraintResolutionError::ForeignVariable) =>
+                        ("local type cannot be established", "inference variables must belong to one bounded checking problem"),
+                    LocalInferenceFailure::Resolution(crate::sema::constraints::ConstraintResolutionError::TypeDepth) =>
+                        ("local type cannot be established", "type inference exceeds the supported nesting depth"),
+                };
+                self.diagnostics.push(Diagnostic::error(message).with_code(DiagnosticCode::CheckLocalInference)
+                    .with_label(Label::primary(initializer, label)));
+            }
+            self.local_inference.checked_bindings.insert(binding, Type::Invalid);
+        }
+        valid
+    }
+
+    fn fresh_local_inference_type(&mut self, origin: Span) -> Type {
+        let level = self.stream_origin_owner
+            .and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+            .map_or(0, super::PendingFunctionSig::solver_level);
+        self.type_constraints.fresh_at_level(origin, level)
+    }
+
+    fn materialize_fresh_aggregate(
+        &mut self,
+        program: &ArenaProgram,
+        expression: ExprId,
+        ordinary: &Type,
+        source_types: &[Type],
+        origins: &BTreeMap<Span, FreshAggregateOrigin>,
+        holes: &mut Vec<Type>,
+    ) -> Type {
+        if source_types.iter().any(|ty| matches!(ty, Type::Any)) {
+            return ordinary.clone();
+        }
+        let span = program.arena.expr(expression).span;
+        match (origins.get(&span), ordinary) {
+            (Some(FreshAggregateOrigin::List(range)), Type::List(item)) if range.is_empty() => {
+                if **item == Type::Unknown
+                    && !source_types.iter().any(|ty| matches!(ty, Type::List(item) if **item == Type::Any))
+                {
+                    let variable = self.fresh_local_inference_type(span);
+                    holes.push(variable.clone());
+                    Type::List(Box::new(variable))
+                } else {
+                    ordinary.clone()
+                }
+            }
+            (Some(FreshAggregateOrigin::Record(selected)), Type::Record(fields)) => {
+                let mut fields = fields.as_ref().clone();
+                for (name, selected) in selected {
+                    if let Some(expression) = selected
+                        && let Some(ty) = fields.get(name).cloned()
+                    {
+                        let source_types = source_types.iter().filter_map(|source_type| match source_type {
+                            Type::Record(fields) => fields.get(name).cloned(),
+                            _ => None,
+                        }).collect::<Vec<_>>();
+                        fields.insert(*name, self.materialize_fresh_aggregate(program, *expression, &ty, &source_types, origins, holes));
+                    }
+                }
+                Type::Record(Arc::new(fields))
+            }
+            (Some(FreshAggregateOrigin::List(range)), Type::List(item)) => {
+                let elements = program.arena.list_elements(*range).collect::<Vec<_>>();
+                let mut item_source_types = source_types.iter().filter_map(|source_type| match source_type {
+                    Type::List(item) => Some(item.as_ref().clone()),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                for element in &elements {
+                    if let Some(ty) = self.expr_types.get(&program.arena.expr(element.value).span) {
+                        if element.splice_span.is_some() {
+                            if let Type::List(item) = ty { item_source_types.push(item.as_ref().clone()); }
+                        } else {
+                            item_source_types.push(ty.clone());
+                        }
+                    }
+                }
+                let mut contributions = Vec::new();
+                for element in &elements {
+                    let child_span = program.arena.expr(element.value).span;
+                    let Some(ty) = self.expr_types.get(&child_span).cloned() else { continue };
+                    let ty = if element.splice_span.is_none() {
+                        self.materialize_fresh_aggregate(program, element.value, &ty, &item_source_types, origins, holes)
+                    } else if let Type::List(item) = ty {
+                        *item
+                    } else {
+                        continue;
+                    };
+                    contributions.push((child_span, ty));
+                }
+                if let Some((_, inferred)) = contributions.iter().find(|(_, ty)| ty.contains_inference()) {
+                    let inferred = inferred.clone();
+                    for (span, actual) in &contributions { self.expect_type(&inferred, actual, *span); }
+                    Type::List(Box::new(inferred))
+                } else {
+                    Type::List(item.clone())
+                }
+            }
+            _ => ordinary.clone(),
+        }
     }
 
     fn has_unshadowed_empty_set(
@@ -510,8 +742,6 @@ impl Checker {
             .unwrap_or(Type::Invalid)
     }
 
-    // Later parameter and return destinations can solve holes nested in a
-    // binding. Preserve their identities until every source constraint is checked.
     pub(super) fn record_checked_local_binding(
         &mut self,
         program: &ArenaProgram,
@@ -561,23 +791,40 @@ impl Checker {
         {
             return ordinary;
         }
-        let raw = if let Some(ty) = self.local_inference.bindings.get(&span) {
-            ty.clone()
+        let inference = if let Some(inference) = self.local_inference.bindings.get(&span) {
+            inference.clone()
+        } else if matches!(seed, LocalSeed::Aggregate) {
+            let origin = super::expr::expr_or_run_span_arena(program, initializer);
+            let scope = self.local_inference.aggregate_scopes.pop()
+                .expect("aggregate initializer owns its origin scope");
+            assert_eq!(scope.initializer, origin);
+            let ArenaExprOrRun::Expr(expression) = initializer else { unreachable!() };
+            let mut holes = Vec::new();
+            let ty = self.materialize_fresh_aggregate(program, expression, &ordinary, &[ordinary.clone()], &scope.origins, &mut holes);
+            if holes.is_empty() { return ordinary; }
+            let inference = LocalBindingInference { ty, holes, owner: self.local_inference_owner(), initializer: origin };
+            self.local_inference.bindings.insert(span, inference.clone());
+            inference
         } else {
             let origin = super::expr::expr_or_run_span_arena(program, initializer);
-            let variable = self.type_constraints.fresh(origin);
+            let variable = self.fresh_local_inference_type(origin);
+            let mut holes = vec![variable.clone()];
             let ty = match seed {
                 LocalSeed::List => Type::List(Box::new(variable)),
                 LocalSeed::Nullable => Type::Optional(Box::new(variable)),
-                LocalSeed::Map => Type::Map(
-                    Box::new(variable),
-                    Box::new(self.type_constraints.fresh(origin)),
-                ),
+                LocalSeed::Map => {
+                    let value = self.fresh_local_inference_type(origin);
+                    holes.push(value.clone());
+                    Type::Map(Box::new(variable), Box::new(value))
+                }
                 LocalSeed::Set => Type::Set(Box::new(variable)),
+                LocalSeed::Aggregate => unreachable!(),
             };
-            self.local_inference.bindings.insert(span, ty.clone());
-            ty
+            let inference = LocalBindingInference { ty, holes, owner: self.local_inference_owner(), initializer: origin };
+            self.local_inference.bindings.insert(span, inference.clone());
+            inference
         };
+        let raw = inference.ty;
         if matches!(&seed, LocalSeed::Nullable)
             && self.local_inference.seeds.contains(&span)
             && let Type::Optional(inner) = &raw
@@ -587,7 +834,9 @@ impl Checker {
         }
         if !self.local_inference.collecting {
             let resolved = self.type_constraints.resolve(&raw).unwrap_or(Type::Invalid);
-            if resolved.contains_inference() {
+            if inference.owner.is_none()
+                && inference.holes.iter().any(|hole| self.type_constraints.resolve(hole).map_or(true, |ty| ty.contains_inference()))
+            {
                 self.diagnostics.push(
                     Diagnostic::error("local type needs an annotation")
                         .with_code(DiagnosticCode::CheckLocalInference)
@@ -630,6 +879,7 @@ enum LocalSeed {
     Nullable,
     Map,
     Set,
+    Aggregate,
 }
 
 pub(super) fn finalize_type(
@@ -696,11 +946,25 @@ fn local_seed_kind(
     match program.arena.expr(expression).kind {
         ArenaExprKind::List(elements) if elements.is_empty() => Some(LocalSeed::List),
         ArenaExprKind::Null if mutable => Some(LocalSeed::Nullable),
+        ArenaExprKind::Record(_) | ArenaExprKind::List(_)
+            if contains_fresh_empty_list(program, expression) => Some(LocalSeed::Aggregate),
         _ if empty_map_call(program, initializer) => Some(LocalSeed::Map),
         _ if mutable && empty_set_call_receiver(program, initializer).is_some() => {
             Some(LocalSeed::Set)
         }
         _ => None,
+    }
+}
+
+fn contains_fresh_empty_list(program: &ArenaProgram, expression: ExprId) -> bool {
+    match program.arena.expr(expression).kind {
+        ArenaExprKind::List(elements) => elements.is_empty() || program.arena.list_elements(elements)
+            .any(|element| element.splice_span.is_none() && contains_fresh_empty_list(program, element.value)),
+        ArenaExprKind::Record(fields) => program.arena.record_fields(fields).iter().any(|field| match field.kind {
+            ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } => contains_fresh_empty_list(program, value),
+            _ => false,
+        }),
+        _ => false,
     }
 }
 
@@ -797,6 +1061,367 @@ mod tests {
     use crate::syntax::arena::BlockId;
     use crate::syntax::parser::Parser;
     use std::sync::Arc;
+
+    fn with_checked_local_source(source: &str, check: impl FnOnce(&super::super::CheckOutput)) {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("main.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let arena = Arc::new(parsed.arena);
+        let sources = Arc::new(sources);
+        let _symbols = arena.symbol_owner().enter();
+        let session = super::super::CheckSession::new(Arc::clone(&arena), sources);
+        let view = session.view_for_root(arena.statements, source_id);
+        let output = session.check_view(&view, super::super::CheckOptions::default());
+        check(&output);
+    }
+
+    #[test]
+    fn nested_aggregate_heterogeneous_literals_preserve_dynamic_item_domain() {
+        with_checked_local_source(
+            "pure sample() -> Int { var state = {items: [\"first\", /first]}; state = {items: [/second, \"second\"]}; 7 }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let ty = output.local_binding_types.values().next().expect("state binding");
+                let Type::Record(fields) = ty else { panic!("{ty:?}") };
+                assert_eq!(fields.values().next(), Some(&Type::List(Box::new(Type::Any))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_authored_any_keeps_heterogeneous_writers() {
+        with_checked_local_source(
+            "type Dynamic = {items: List[Any]}\npure sample(flag: Bool) -> Int { var state: Dynamic = {items: []}; if flag { state = {items: [7]} } else { state = {items: [\"word\"]} }; 7 }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let ty = output.local_binding_types.values().next().expect("state binding");
+                let Type::Record(fields) = ty else { panic!("{ty:?}") };
+                assert_eq!(fields.values().next(), Some(&Type::List(Box::new(Type::Any))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_fresh_reset_does_not_inherit_spread_item_domain() {
+        with_checked_local_source(
+            "type Prefix = {items: List[Str], count: Int}\npure sample(prefix: Prefix) -> Int { var state = {...prefix, items: []}; state = {...state, items: [7]}; state.count }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let ty = output.local_binding_types.values().next().expect("state binding");
+                let Type::Record(fields) = ty else { panic!("{ty:?}") };
+                assert_eq!(fields.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Int))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_incompatible_shared_writers_are_rejected() {
+        with_checked_local_source(
+            "pure sample(flag: Bool) -> Int { var state = {items: []}; if flag { state = {items: [7]} } else { state = {items: [\"word\"]} }; 7 }",
+            |output| assert!(!output.diagnostics.is_empty(), "incompatible writers accepted"),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_surviving_field_before_unrelated_spread_is_inferred() {
+        with_checked_local_source(
+            "pure sample() -> Int { var state = {items: [], ...{count: 7}}; state = {...state, items: [7]}; state.count }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };
+                assert_eq!(fields.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Int))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_overwritten_empty_field_stays_nonmaterial() {
+        with_checked_local_source(
+            "type Prefix = {items: List[Str], count: Int}\npure sample(prefix: Prefix) -> Int { var state = {items: [], ...prefix}; state = {...state, items: [\"word\"]}; state.count }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };
+                assert_eq!(fields.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Str))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_record_and_list_layers_share_writer_constraints() {
+        for writers in ["state = {rows: [{items: [7]}]}; state = {rows: [{items: [8]}]}", "state = {rows: [{items: [8]}]}; state = {rows: [{items: [7]}]}"] {
+            with_checked_local_source(
+                &format!("type Row = {{items: List[Int]}}\npure sample() -> List[Row] {{ var state = {{rows: [{{items: []}}]}}; {writers}; state.rows }}"),
+                |output| {
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };
+                    let Type::List(row) = fields.get(&super::super::Name::intern("rows")).expect("rows") else { panic!("rows list") };
+                    let Type::Record(row) = row.as_ref() else { panic!("row record") };
+                    assert_eq!(row.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Int))));
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn nested_aggregate_uninformed_empty_remains_ambiguous() {
+        with_checked_local_source(
+            "pure sample() -> Int { var state = {items: []}; 7 }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", output.diagnostics),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_sourced_any_does_not_hide_independent_fresh_hole() {
+        with_checked_local_source(
+            "pure sample(raw: Any) -> Int { var state = {items: [], payload: raw}; state.items = [7]; 7 }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };
+                assert_eq!(fields.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Int))));
+                assert_eq!(fields.get(&super::super::Name::intern("payload")), Some(&Type::Any));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_sourced_any_collection_is_not_a_fresh_hole() {
+        with_checked_local_source(
+            "pure sample(raw: List[Any]) -> Int { var state = {items: raw}; state.items = [7]; 7 }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };
+                assert_eq!(fields.get(&super::super::Name::intern("items")), Some(&Type::List(Box::new(Type::Any))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_independent_int_and_string_resets_ignore_client_order() {
+        let definitions = "type Words = {items: List[Str]}\ntype Numbers = {items: List[Int]}\npure numbers(prefix: Words) -> List[Int] { var state = {...prefix, items: []}; state = {...state, items: [7]}; state.items }\npure words(prefix: Numbers) -> List[Str] { var state = {...prefix, items: []}; state = {...state, items: [\"word\"]}; state.items }\n";
+        for clients in ["let first = numbers({items: [\"prefix\"]})\nlet second = words({items: [7]})\n", "let first = words({items: [7]})\nlet second = numbers({items: [\"prefix\"]})\n"] {
+            with_checked_local_source(&format!("{definitions}{clients}"), |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let items = output.local_binding_types.values().filter_map(|ty| match ty {
+                    Type::Record(fields) => fields.get(&super::super::Name::intern("items")),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert!(items.contains(&&Type::List(Box::new(Type::Int))));
+                assert!(items.contains(&&Type::List(Box::new(Type::Str))));
+            });
+        }
+    }
+
+    #[test]
+    fn nested_aggregate_any_callable_is_not_inferred_from_invocation() {
+        let source = "pure sample(raw: Any) -> Int { var state = {items: [], action: raw}; state.items = [7]; state.action(7) }";
+        with_checked_local_source(source, |output| {
+            let call = source.find("state.action(7)").expect("dynamic call");
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.labels.iter().any(|label| label.span.start() >= call)), "{:?}", output.diagnostics);
+        });
+    }
+
+    #[test]
+    fn nested_aggregate_parameter_default_uses_same_constraint_problem() {
+        with_checked_local_source(
+            "pure sample(value: Int = { var state = {items: []}; state.items = [7]; 1 }) -> Int { value }\nlet result: Int = sample()",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                assert!(output.local_binding_types.values().any(|ty| matches!(ty, Type::Record(fields) if fields.get(&super::super::Name::intern("items")) == Some(&Type::List(Box::new(Type::Int))))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_default_nested_initializer_scopes_are_disposed() {
+        with_checked_local_source(
+            "pure sample(value: Int = { var outer = {items: [], count: { var inner = {items: []}; inner.items = [7]; 1 }}; outer.items = [\"word\"]; 1 }) -> Int { value }\nlet result: Int = sample()",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let items = output.local_binding_types.values().filter_map(|ty| match ty {
+                    Type::Record(fields) => fields.get(&super::super::Name::intern("items")),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert!(items.contains(&&Type::List(Box::new(Type::Int))));
+                assert!(items.contains(&&Type::List(Box::new(Type::Str))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_default_error_preserves_diagnostic_without_scope_escape() {
+        with_checked_local_source(
+            "pure sample(value: Int = { var state = {items: []}; state.missing = [7]; 1 }) -> Int { value }\nlet result: Int = sample()",
+            |output| assert!(!output.diagnostics.is_empty(), "missing record field accepted"),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_constraint_probe_does_not_copy_active_origin_history() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            let initializer = Span::new(SourceId::new(0), 0, 1000);
+            let mut origins = BTreeMap::new();
+            for index in 1..256 {
+                origins.insert(Span::new(initializer.source_id, index, index + 1), FreshAggregateOrigin::Record(BTreeMap::new()));
+            }
+            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins });
+            let probe = checker.constraint_probe();
+            assert!(probe.local_inference.aggregate_scopes.is_empty());
+            assert_eq!(checker.local_inference.aggregate_scopes[0].origins.len(), 255);
+        });
+    }
+
+    #[test]
+    fn nested_aggregate_signature_default_probe_preserves_local_inference() {
+        with_checked_local_source(
+            "pure sample(value = { var state = {items: []}; state.items = [7]; 1 }) -> Int { value }\nlet result: Int = sample()",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                assert!(output.local_binding_types.values().any(|ty| matches!(ty, Type::Record(fields) if fields.get(&super::super::Name::intern("items")) == Some(&Type::List(Box::new(Type::Int))))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_signal_hook_uses_ordinary_local_constraints() {
+        with_checked_local_source(
+            "on SIGINT [] { var state = {items: []}; state.items = [7] }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                assert!(output.local_binding_types.values().any(|ty| matches!(ty, Type::Record(fields) if fields.get(&super::super::Name::intern("items")) == Some(&Type::List(Box::new(Type::Int))))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_signal_hook_preserves_effect_bound() {
+        with_checked_local_source(
+            "on SIGINT [] { var state = {items: []}; state.items = [7]; let _ = time.now() }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", output.diagnostics),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_signal_hook_preserves_captured_storage_contract() {
+        with_checked_local_source(
+            "var captured = [7]\non SIGINT [] { var state = {items: []}; state.items = [7]; captured = [\"wrong\"] }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{:?}", output.diagnostics),
+        );
+    }
+
+    fn assert_generic_payload_relationship(output: &super::super::CheckOutput, list_result: bool) {
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let declaration = output.checked_declarations.functions.values().next().expect("generic declaration");
+        let scheme = declaration.scheme.as_ref().expect("published generic scheme");
+        assert_eq!(scheme.type_parameters().len(), 1);
+        let parameter = &scheme.params()[0].ty;
+        assert!(matches!(parameter, crate::sema::schemes::SchemeType::Parameter(_)));
+        if list_result {
+            assert_eq!(scheme.return_type(), &crate::sema::schemes::SchemeType::List(Box::new(parameter.clone())));
+        } else {
+            assert_eq!(scheme.return_type(), parameter);
+        }
+    }
+
+    #[test]
+    fn nested_aggregate_generic_payload_with_ground_list_keeps_relationship() {
+        with_checked_local_source(
+            "pure sample(payload) { var state = {items: [7], payload}; state.items = [8]; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| assert_generic_payload_relationship(output, false),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_overwritten_hole_keeps_unrelated_generic_payload() {
+        with_checked_local_source(
+            "pure sample(payload) { let state = {items: [], ...{items: [7]}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| assert_generic_payload_relationship(output, false),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_solved_hole_keeps_unrelated_generic_payload() {
+        with_checked_local_source(
+            "pure sample(payload) { var state = {items: [], payload}; state.items = [7]; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| assert_generic_payload_relationship(output, false),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_linked_generic_hole_keeps_formal_relationship() {
+        with_checked_local_source(
+            "pure singleton(value) { var state = {items: []}; state.items = [value]; state.items }\nlet number: List[Int] = singleton(7)\nlet word: List[Str] = singleton(\"word\")",
+            |output| assert_generic_payload_relationship(output, true),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_whole_empty_accumulator_matches_generic_relation() {
+        with_checked_local_source(
+            "pure singleton(value) { var items = []; items = [value]; items }\nlet number: List[Int] = singleton(7)\nlet word: List[Str] = singleton(\"word\")",
+            |output| assert_generic_payload_relationship(output, true),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_higher_order_output_keeps_application_relationship() {
+        with_checked_local_source(
+            "pure number() -> Int { 7 }\npure word() -> Str { \"word\" }\npure collect(action) { var state = {items: []}; state.items = [action()]; state.items }\nlet numbers: List[Int] = collect(number)\nlet words: List[Str] = collect(word)",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "collect").expect("higher-order declaration");
+                let scheme = declaration.scheme.as_ref().expect("higher-order scheme");
+                let application = scheme.callable().requirements().applications.first().expect("formal callable application");
+                assert_eq!(&application.callee, &scheme.params()[0].ty);
+                assert!(application.arguments.is_empty());
+                assert_eq!(scheme.return_type(), &crate::sema::schemes::SchemeType::List(Box::new(application.result.clone())));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_output_only_hole_does_not_create_generic_result() {
+        with_checked_local_source(
+            "pure empty() { let state = {items: []}; state.items }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", output.diagnostics),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_captured_mutable_storage_is_not_generalized() {
+        with_checked_local_source(
+            "var captured = [1]\npure read_captured() { var state = {items: [], payload: captured}; state.items = [7]; state.payload }",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let declaration = output.checked_declarations.functions.values().next().expect("capturing declaration");
+                let scheme = declaration.scheme.as_ref().expect("capturing scheme");
+                assert!(scheme.type_parameters().is_empty());
+                assert!(scheme.row_parameters().is_empty());
+                assert_eq!(scheme.return_type().closed_ground_type(), Some(Type::List(Box::new(Type::Int))));
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_unanchored_local_application_does_not_justify_hole() {
+        with_checked_local_source(
+            "pure fabricated() { var state = {items: []}; let action = state.items[0]; action() }",
+            |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", output.diagnostics),
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_captured_generic_storage_keeps_shared_writer_type() {
+        let source = "proc outer(value) [] { var state = {items: []}; state.items = [value]; proc put(item) [] { state.items = [item] }; put(1); put(\"wrong\"); state.items }\nlet result = outer(7)";
+        with_checked_local_source(source, |output| {
+            let wrong = source.find("\"wrong\"").expect("incompatible captured writer");
+            assert!(output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)
+                    && diagnostic.labels.iter().any(|label| label.span.start() <= wrong && wrong < label.span.end())
+            }), "{:?}", output.diagnostics);
+        });
+    }
 
     #[test]
     fn generic_call_result_annotation_fact_is_finalized() {
