@@ -35,6 +35,16 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Source `b0f594598` integrates reviewed generic List, Map and closed-key Set
+comprehensions. All 20 focused controls pass before integration. They cover
+sequential binding scope, actual producer domains, lazy qualifiers and
+projections, Bool and Status filters, validation survival, and stream cleanup
+on both indexed routes. Synthetic lazy blocks retain canonical resource
+transfer evidence. The merged boundary selects 594 tests: 572 pass, 22 fail,
+and zero are ignored. Its failed set exactly matches the previous iteration
+boundary. Matching native products, documentation checks and corpus parity
+remain pending. This is not a qualified compiler baseline.
+
 Source `c0a282df8` integrates reviewed generic destructuring and iteration.
 The lane's 25 focused controls pass before rebase. They cover source-first
 binding publication, invariant writers, actual iterable item types, finite
