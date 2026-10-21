@@ -653,3 +653,112 @@ fn generic_record_forms_updates_preserve_order_failure_and_unsigned_checks() {
         }
     }
 }
+
+#[test]
+fn generic_operators_short_circuit_preserves_lazy_failure_after_frontend_disposal() {
+    for (operator, skipped, reached) in [("and", false, true), ("or", true, false)] {
+        let source = format!("pure copy(value, flag: Bool, index: Int) {{ let result = flag {operator} [true][index]; {{value, result}} }}\npure number(flag: Bool, index: Int) -> Bool {{ copy(7, flag, index).result }}\npure text(flag: Bool, index: Int) -> Bool {{ copy(\"value\", flag, index).result }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for name in ["number", "text"] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let skipped = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(skipped), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(skipped, Value::Bool(operator == "or"), "{operator} {name} frames={force_frames}");
+                let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(reached), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
+                assert_eq!(error.kind, "index-out-of-range");
+                assert_eq!(&source[error.span.unwrap().range()], "[true][index]");
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(reached), Value::Int(0)], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, Value::Bool(true), "{operator} {name} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_operators_short_circuit_preserves_observable_operand_order() {
+    for operator in ["and", "or"] {
+        let source = format!("proc copy(value, flag: Bool) [] {{ var count = 0; let result = {{ count = count + 1; flag }} {operator} {{ count = count + 10; true }}; {{value, result, count}} }}\nproc observe(flag: Bool) [error] {{ copy(7, flag)?.count }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for flag in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(flag)], Span::at(source_id, 0)).unwrap().unwrap();
+                let count = if flag == (operator == "and") { 11 } else { 1 };
+                assert_eq!(actual, Value::ok(Value::Int(count)), "{operator} {flag} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_operators_selected_domains_execute_after_frontend_disposal() {
+    let source = "pure inspect(value, number: Int, text: Str, left: Set[Int], right: Set[Int]) { let union = left | right; let intersection = left & right; let difference = left - right; [value == value, value != value, number < 7, text >= \"a\", number in [1, 2, 3], number not in [4, 5], \"item\" in {[\"item\"]: value}, \"item\" in {item: value}, union == {1, 2, 3}, intersection == {2,}, difference == {1,}, 1s <= 2s, b\"a\" in b\"value\"] }\npure number() -> List[Bool] { inspect(7, 2, \"value\", {1, 2}, {2, 3}) }\npure text() -> List[Bool] { inspect(\"value\", 3, \"other\", {1, 2}, {2, 3}) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for name in ["number", "text"] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let mut expected = vec![Value::Bool(true); 13];
+            expected[1] = Value::Bool(false);
+            assert_eq!(actual, Value::List(expected), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_operators_comparison_chains_evaluate_only_reached_operands_once() {
+    let source = "proc copy(value, number: Int) [] { var count = 0; let result = { count = count + 1; 0 } <= { count = count + 10; number } < { count = count + 100; 7 }; {value, result, count} }\nproc observe(number: Int) [error] { copy(7, number)?.count }\npure choose(value, number: Int, index: Int) { let result = 0 <= number < [7][index]; {value, result} }\npure checked(number: Int, index: Int) -> Bool { choose(7, number, index).result }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let observed = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
+        for (number, count) in [(-1, 11), (2, 111), (9, 111)] {
+            let actual = evaluator.call_indexed_direct(observed, LoweredFunctionKind::Proc, &[Value::Int(number)], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::ok(Value::Int(count)), "{number} frames={force_frames}");
+        }
+        let checked = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("checked")));
+        let skipped = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(-1), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(skipped, Value::Bool(false));
+        let error = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(2), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
+        assert_eq!(error.kind, "index-out-of-range");
+        assert_eq!(&source[error.span.unwrap().range()], "[7][index]");
+    }
+}
+
+#[test]
+fn generic_operators_unsigned_map_membership_keeps_the_ordinary_validation_boundary() {
+    let source = "pure selected(value, key: Int, items: Map[UInt, Int]) { let _ = value; key in items }\npure ordinary(key: Int, items: Map[UInt, Int]) -> Bool { key in items }\npure number(key: Int, items: Map[UInt, Int]) -> Bool { selected(7, key, items) }\npure text(key: Int, items: Map[UInt, Int]) -> Bool { selected(\"value\", key, items) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for key in [-1, 0, 3] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let arguments = [Value::Int(key), Value::Map(Default::default())];
+            let ordinary = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
+            let expected = evaluator.call_indexed_direct(ordinary, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+            if key < 0 { assert!(expected.as_ref().unwrap_err().message.contains("UInt")); }
+            else { assert_eq!(expected.as_ref().unwrap(), &Value::Bool(false)); }
+            for name in ["number", "text"] {
+                let selected = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(selected, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+                match (&expected, actual) {
+                    (Ok(expected), Ok(actual)) => assert_eq!(&actual, expected),
+                    (Err(expected), Err(actual)) => { assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family); }
+                    (expected, actual) => panic!("{name} {key} frames={force_frames}: expected {expected:?}, found {actual:?}"),
+                }
+            }
+        }
+    }
+}

@@ -6046,39 +6046,23 @@ impl<'a> FullDecoder<'a> {
     #[inline(always)]
     fn verify_comparison_chain_shape(
         &self,
-        mut payload: FullCursor<'_>,
+        payload: FullCursor<'_>,
     ) -> Result<(), IrVerifyError> {
-        let id = IrBlockId::from_raw(payload.raw()?)
-            .ok_or_else(|| IrVerifyError::new("comparison chain block id is invalid"))?;
-        let block = self
-            .store
-            .blocks
-            .get(id.index())
-            .ok_or_else(|| IrVerifyError::new("comparison chain block is missing"))?;
-        let mut pairs = self.cursor(self.store.payload(block.instructions)?);
-        let len = pairs.raw()? as usize;
-        if len < 2 {
-            return Err(IrVerifyError::new(
-                "comparison chain requires at least two pairs",
-            ));
+        let schema::ExprView::ComparisonChain { mut pairs, .. } = schema::ExprView::decode_from_decoder(
+            self,
+            FullTag::ExprComparisonChain,
+            FullPayload { store: self.store, cursor: payload },
+        )? else { unreachable!() };
+        if pairs.len() < 2 {
+            return Err(IrVerifyError::new("comparison chain requires at least two pairs"));
         }
-        for _ in 0..len {
-            let pair = pairs.raw()? as usize;
-            if self.store.tags.get(pair) != Some(&FullTag::ExprBinary) {
-                return Err(IrVerifyError::new("comparison chain requires binary pairs"));
-            }
-            let mut pair_payload = self.cursor(self.store.payload(self.store.data[pair].range())?);
-            let op = BinaryOp::decode(self, &mut pair_payload)?;
-            if !matches!(
-                op,
-                BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-            ) {
-                return Err(IrVerifyError::new(
-                    "comparison chain requires ordering operators",
-                ));
+        for pair in &mut pairs {
+            let (op, _, _) = pair?;
+            if !matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
+                return Err(IrVerifyError::new("comparison chain requires ordering operators"));
             }
         }
-        pairs.finish()
+        Ok(())
     }
 
     /// A typed call was checked against one callable type: the row names
@@ -14824,6 +14808,21 @@ fn indexed_configured_range_bound_subjects(
     Ok(Some((start_subject, end_subject)))
 }
 
+fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32) -> Result<Option<i64>, IrVerifyError> {
+    let mut instruction = instruction;
+    for _ in 0..=decoder.instruction_range.len() {
+        if let Some(value) = indexed_int_literal(decoder, instruction)? { return Ok(Some(value)); }
+        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(instruction as usize)? else { return Ok(None) };
+        let Some(first) = body.next().transpose()? else { return Ok(None) };
+        let schema::StmtView::Let { slot, value, annotation: None } = decoder.statement_view(first.raw() as usize)? else { return Ok(None) };
+        let Some(tail) = body.next().transpose()? else { return Ok(None) };
+        let schema::StmtView::Value { value: result } = decoder.statement_view(tail.raw() as usize)? else { return Ok(None) };
+        if body.next().transpose()?.is_some() || !matches!(decoder.expression_view(result.raw() as usize)?, schema::ExprView::Param(actual) if actual == slot) { return Ok(None); }
+        instruction = value.raw();
+    }
+    Ok(None)
+}
+
 fn indexed_expr_can_complete(
     decoder: &FullDecoder<'_>,
     instruction: usize,
@@ -15115,27 +15114,31 @@ fn indexed_expr_can_complete(
         } => {
             indexed_pipeline_can_complete(decoder, input.raw(), &mut stages)?
         }
-        schema::ExprView::ComparisonChain { mut pairs } => {
-            if pairs.len() <= 1 {
-                let mut children = Vec::new();
-                for pair in &mut pairs {
-                    children.push(pair?.raw());
-                }
-                sequence(children)?
+        schema::ExprView::ComparisonChain { first, mut pairs } => {
+            if !child(first.raw())? {
+                false
             } else {
-                let mut first = true;
+                let mut previous = indexed_chain_operand_int_literal(decoder, first.raw())?;
                 let mut can_complete = true;
                 for pair in &mut pairs {
-                    let pair = pair?;
-                    if !child(pair.raw())? {
+                    let (op, right, _) = pair?;
+                    if !child(right.raw())? {
                         can_complete = false;
                         break;
                     }
-                    if !first {
-                        can_complete = true;
-                        break;
-                    }
-                    first = false;
+                    let actual = indexed_chain_operand_int_literal(decoder, right.raw())?;
+                    let known_true = match previous.zip(actual) {
+                        Some((left, right)) => match op {
+                            BinaryOp::Lt => left < right,
+                            BinaryOp::Le => left <= right,
+                            BinaryOp::Gt => left > right,
+                            BinaryOp::Ge => left >= right,
+                            _ => false,
+                        },
+                        None => false,
+                    };
+                    if !known_true { break; }
+                    previous = actual;
                 }
                 can_complete
             }
@@ -19096,6 +19099,7 @@ const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
 impl_vec_codec!(BuildExprId, BLOCK_LIST);
 impl_vec_codec!((usize, BuildExprId), BLOCK_LIST);
+impl_vec_codec!((BinaryOp, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(Option<BuildExprId>, BLOCK_LIST);
 impl_vec_codec!((bool, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(BuildPatternId, BLOCK_LIST);
@@ -37086,7 +37090,7 @@ proc configured() [] -> Int {
             .range()
             .bounds(program.store.extra.len())
             .unwrap();
-        let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
         let pairs = program.store.blocks[block.index()]
             .instructions
             .bounds(program.store.extra.len())
@@ -37099,13 +37103,8 @@ proc configured() [] -> Int {
                 .message
                 .contains("at least two pairs")
         );
-        let first_pair = program.store.extra[pairs.start + 1] as usize;
-        let pair_payload = program.store.data[first_pair]
-            .range()
-            .bounds(program.store.extra.len())
-            .unwrap();
         let mut mixed = program;
-        let op = mixed.store.extra[pair_payload.start] as usize;
+        let op = mixed.store.extra[pairs.start + 1] as usize;
         mixed.store.binary_ops[op] = BinaryOp::Eq;
         assert!(
             FullVerifier::verify(&mixed)

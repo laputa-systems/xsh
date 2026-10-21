@@ -1006,6 +1006,36 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
     }
 }
 
+fn body_ordering_matches(left: &SchemeType, right: &SchemeType) -> Result<(), IrVerifyError> {
+    let left = left.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic ordering operand has no closed domain"))?;
+    let right = right.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic ordering operand has no closed domain"))?;
+    if !left.can_be_ordering_operand() || !right.can_be_ordering_operand() || !right.unvalidated().matches_expected(left.unvalidated()) { return Err(IrVerifyError::new("generic ordering operands have incompatible domains")); }
+    Ok(())
+}
+
+fn body_equality_matches(left: &SchemeType, right: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    budget.charge(1)?;
+    if body_types_equal(left, right) { return Ok(true); }
+    budget.charge_scheme_clone(left)?;
+    budget.charge_scheme_clone(right)?;
+    if let (Some(left), Some(right)) = (left.closed_ground_type(), right.closed_ground_type()) {
+        budget.charge_clone(&left)?;
+        budget.charge_clone(&right)?;
+        let (left, right) = (left.equality_operand_type(), right.equality_operand_type());
+        return Ok(left.matches_expected(&right) || right.matches_expected(&left));
+    }
+    match (left, right) {
+        (SchemeType::Ground(Type::Any), _) | (_, SchemeType::Ground(Type::Any)) => Ok(true),
+        (SchemeType::Validated(_, inner), right) => body_equality_matches(inner, right, budget),
+        (left, SchemeType::Validated(_, inner)) => body_equality_matches(left, inner, budget),
+        (SchemeType::Optional(_), SchemeType::Ground(Type::Null)) | (SchemeType::Ground(Type::Null), SchemeType::Optional(_)) => Ok(true),
+        (SchemeType::Optional(left), SchemeType::Optional(right)) => body_equality_matches(left, right, budget),
+        (SchemeType::Optional(left), right) => body_equality_matches(left, right, budget),
+        (left, SchemeType::Optional(right)) => body_equality_matches(left, right, budget),
+        _ => Ok(false),
+    }
+}
+
 fn body_type_matches_ground(actual: &SchemeType, expected: &Type) -> bool {
     if let Some(actual) = actual.closed_ground_type() { return actual.matches_expected(expected); }
     match (actual, expected) {
@@ -1229,10 +1259,59 @@ fn verify_body_expression(
                 _ => return Err(IrVerifyError::new("generic slice has no collection contract")),
             }
         }
+        schema::ExprView::ComparisonChain { first, mut pairs } => {
+            let mut left = child(first, budget)?;
+            for pair in &mut pairs {
+                budget.charge(1)?;
+                let (op, right, _) = pair?;
+                if !matches!(op, crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge) { return Err(IrVerifyError::new("generic comparison chain requires ordering operators")); }
+                let right = child(right, budget)?;
+                body_ordering_matches(&left, &right)?;
+                left = right;
+            }
+            SchemeType::Ground(Type::Bool)
+        }
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
+            if !body_equality_matches(&child(left, budget)?, &child(right, budget)?, budget)? { return Err(IrVerifyError::new("generic equality operands have incompatible domains")); }
+            SchemeType::Ground(Type::Bool)
+        }
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge, left, right, .. } => {
+            body_ordering_matches(&child(left, budget)?, &child(right, budget)?)?;
+            SchemeType::Ground(Type::Bool)
+        }
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, right, .. } => {
+            let needle = child(left, budget)?;
+            let mut container = child(right, budget)?;
+            while let SchemeType::Validated(_, inner) = container { budget.charge(1)?; container = *inner; }
+            let compatible = match &container {
+                SchemeType::List(item) => body_equality_matches(&needle, item, budget)?,
+                SchemeType::Map(key, _) => match (key.closed_ground_type(), needle.closed_ground_type()) {
+                    (Some(key), Some(needle)) if key.is_map_key() && !key.contains_recovery() => crate::sema::types::MembershipCheck::Expected(&key).accepts_producer(&needle),
+                    _ => false,
+                },
+                SchemeType::Record { .. } => needle.closed_ground_type() == Some(Type::Str),
+                _ => match (container.closed_ground_type(), needle.closed_ground_type()) {
+                    (Some(container), Some(needle)) => container.membership_needle_type(&needle).accepts_producer(&needle),
+                    _ => false,
+                },
+            };
+            if !compatible { return Err(IrVerifyError::new("generic membership operands have incompatible domains")); }
+            SchemeType::Ground(Type::Bool)
+        }
+        schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::And | crate::syntax::node::BinaryOp::Or, left, right, .. } => {
+            for value in [left, right] {
+                let actual = child(value, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic logical operand has no Boolean contract"))?;
+                if !crate::sema::types::ConditionRole::Boolean.accepts(&actual) { return Err(IrVerifyError::new("generic logical operand has no Boolean contract")); }
+            }
+            SchemeType::Ground(Type::Bool)
+        }
         schema::ExprView::Binary { op, left, right, .. } => {
             let left = child(left, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;
             let right = child(right, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic binary operand has no closed operation contract"))?;
-            if op == crate::syntax::node::BinaryOp::Add && matches!(left.unvalidated(), Type::List(_)) {
+            if matches!(op, crate::syntax::node::BinaryOp::Union | crate::syntax::node::BinaryOp::Intersect | crate::syntax::node::BinaryOp::Sub) && matches!(left.unvalidated(), Type::Set(_)) {
+                if !initializer_type_matches_annotation(right.unvalidated(), left.unvalidated(), budget, 0)? { return Err(IrVerifyError::new("generic set operands have incompatible domains")); }
+                SchemeType::Ground(left.into_unvalidated())
+            } else if op == crate::syntax::node::BinaryOp::Add && matches!(left.unvalidated(), Type::List(_)) {
                 let expected = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic concatenation has no closed item contract"))?;
                 budget.charge_clone(&expected)?;
                 let expected = expected.into_unvalidated();

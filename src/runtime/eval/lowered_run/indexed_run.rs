@@ -87,7 +87,7 @@ use assignments::{
 use calls::{append_call_argument, indexed_callable_identity, indexed_typed_callee_kind};
 use operands::{
     indexed_error, indexed_value, decode_record_updates, decode_comparison_chain,
-    decode_comparison_pair, comparison_pair_at, decode_match_expr, match_expr_arm_at,
+    comparison_pair_at, decode_match_expr, match_expr_arm_at,
     record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_fmt,
 };
@@ -1488,10 +1488,8 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 for pair in pairs.by_ref() {
-                    let pair = pair.map_err(|error| indexed_error(error, call_span))?;
-                    let (op, _, right, span) =
-                        decode_comparison_pair(execution, pair, call_span)?;
-                    let right = match self.eval_indexed_expr(execution, right, slots, span)? {
+                    let (op, right, span) = pair.map_err(|error| indexed_error(error, call_span))?;
+                    let right = match self.eval_indexed_expr(execution, right.raw(), slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };

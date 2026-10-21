@@ -2329,6 +2329,22 @@ impl<'a> ProducerProof<'a> {
                 let arguments = args.collect::<Result<Vec<_>, _>>()?.into_iter().map(|argument| argument.raw() as usize).collect::<Vec<_>>();
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, name, &arguments, &expected)
             }
+            schema::ExprView::ComparisonChain { first, mut pairs } => {
+                let mut left = self.need_context(&decoder, first.raw() as usize)?.ok_or_else(|| IrVerifyError::new("comparison chain operand has no producer contract"))?;
+                self.expression(owner, first.raw() as usize, Arc::clone(&left), false);
+                for pair in &mut pairs {
+                    self.budget.charge(1)?;
+                    let (op, right, _) = pair?;
+                    let actual = self.need_context(&decoder, right.raw() as usize)?.ok_or_else(|| IrVerifyError::new("comparison chain operand has no producer contract"))?;
+                    if !matches!(op, crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge)
+                        || !left.can_be_ordering_operand() || !actual.can_be_ordering_operand()
+                        || !actual.unvalidated().matches_expected(left.unvalidated())
+                    { return Err(IrVerifyError::new("comparison chain operands have incompatible ordering domains")); }
+                    self.expression(owner, right.raw() as usize, Arc::clone(&actual), false);
+                    left = actual;
+                }
+                Ok(())
+            }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;

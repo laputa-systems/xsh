@@ -603,6 +603,17 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn can_be_ordering_operand(&self) -> bool {
+        matches!(self.unvalidated(), Self::Int | Self::UInt | Self::Float | Self::Duration | Self::Str)
+    }
+
+    pub(crate) fn equality_operand_type(&self) -> Self {
+        match self {
+            Self::Optional(inner) => Self::Optional(Box::new(inner.unvalidated().clone())),
+            ty => ty.unvalidated().clone(),
+        }
+    }
+
     pub(crate) fn membership_needle_type<'a>(&'a self, needle: &'a Type) -> MembershipCheck<'a> {
         use MembershipCheck as M;
         match self.unvalidated() {

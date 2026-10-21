@@ -3618,11 +3618,39 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 }
             }
+            ArenaExprKind::ComparisonChain(pairs) => {
+                let mut first = None;
+                let mut lowered = Vec::new();
+                for pair in self.program.arena.expr_ids(pairs).collect::<Vec<_>>() {
+                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if first.is_none() { first = Some(self.lower_scheme_lazy_expression(left, slots, current_function, facts, visited, lowered_types)?); }
+                    let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
+                    lowered.push((op, right, self.program.arena.expr(pair).span));
+                }
+                push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered })
+            }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let left_type = facts.expression_types().get(&left).and_then(SchemeType::closed_ground_type);
                 let right_type = facts.expression_types().get(&right).and_then(SchemeType::closed_ground_type);
+                let mut container = facts.expression_types().get(&right)?;
+                while let SchemeType::Validated(_, inner) = container { container = inner; }
+                let unsigned_key = matches!(op, BinaryOp::In | BinaryOp::NotIn) && match container {
+                    SchemeType::Map(key, _) => key.closed_ground_type() == Some(Type::UInt),
+                    SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
+                    _ => false,
+                };
+                let left_span = self.program.arena.expr(left).span;
                 let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
-                let right = self.lower_scheme_expression(right, slots, current_function, facts, visited, lowered_types, body)?;
+                let left = if unsigned_key {
+                    let checked = self.require_uint_key(left, left_span);
+                    self.record_scheme_storage_elaboration(checked, &SchemeType::Ground(Type::UInt), lowered_types);
+                    checked
+                } else { left };
+                let right = if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                    self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?
+                } else {
+                    self.lower_scheme_expression(right, slots, current_function, facts, visited, lowered_types, body)?
+                };
                 let raw = push_build_row!(self, expr, BuildExprRow::Binary { op, left, right, span });
                 if [left_type, right_type].iter().flatten().any(|ty| !matches!(ty.unvalidated(), Type::Int | Type::UInt)) {
                     self.scratch.borrow_mut().non_int_binary_expressions.insert(raw.index());
@@ -6919,18 +6947,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             )),
             ArenaExprKind::ComparisonChain(pairs) => {
-                let pairs = self.program.arena.expr_ids(pairs).collect::<Vec<_>>();
-                let pairs = pairs
-                    .into_iter()
-                    .map(|pair| self.lower_expr(pair, slots, current_function, item_slot))
-                    .collect::<Option<Vec<_>>>()?;
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::ComparisonChain {
-                        pairs,
-                    }
-                ))
+                let mut first = None;
+                let mut lowered = Vec::new();
+                for pair in self.program.arena.expr_ids(pairs).collect::<Vec<_>>() {
+                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return None };
+                    if first.is_none() { first = Some(self.lower_expr(left, slots, current_function, item_slot)?); }
+                    lowered.push((op, self.lower_expr(right, slots, current_function, item_slot)?, self.program.arena.expr(pair).span));
+                }
+                Some(push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered }))
             }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn)

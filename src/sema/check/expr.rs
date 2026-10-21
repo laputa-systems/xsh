@@ -1139,12 +1139,11 @@ impl Checker {
             ArenaExprKind::ComparisonChain(pairs) => {
                 let mut previous = None;
                 for pair in arena.arena.expr_ids(*pairs) {
-                    let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(pair).kind
+                    let ArenaExprKind::Binary { op, left, right } = arena.arena.expr(pair).kind
                     else {
                         unreachable!()
                     };
-                    // An ordering reads its operands as their base types: a
-                    // bounded integer compares as an integer, against any.
+                    let diagnostics = self.diagnostics.len();
                     let left_ty = previous
                         .take()
                         .unwrap_or_else(|| self.check_expr_arena(arena, source, left, None))
@@ -1164,12 +1163,16 @@ impl Checker {
                         arena.arena.expr(left).span,
                         arena.arena.expr(right).span,
                     );
+                    self.publish_binary_operator(pair, op, diagnostics);
                     previous = Some(right_ty);
                 }
                 Type::Bool
             }
             ArenaExprKind::Binary { op, left, right } => {
-                self.check_binary_arena(arena, source, *op, *left, *right, expected)
+                let diagnostics = self.diagnostics.len();
+                let ty = self.check_binary_arena(arena, source, *op, *left, *right, expected);
+                self.publish_binary_operator(id, *op, diagnostics);
+                ty
             }
             ArenaExprKind::Field { base, name }
                 if matches!(arena.arena.expr(*base).kind, ArenaExprKind::Item)
@@ -2971,13 +2974,10 @@ impl Checker {
         left_span: Span,
         right_span: Span,
     ) {
-        let ordered = |ty: &Type| {
-            matches!(ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str)
-        };
         if *left == Type::Any || *right == Type::Any {
             for (ty, other, span) in [(left, right, left_span), (right, left, right_span)] {
                 if *ty == Type::Any {
-                    self.reject_dynamic_use("an ordering operand", ordered(other).then_some(other), span);
+                    self.reject_dynamic_use("an ordering operand", other.can_be_ordering_operand().then_some(other), span);
                 }
             }
             return;
@@ -2985,10 +2985,18 @@ impl Checker {
         if self.reject_unnarrowed_union(left, "an ordering comparison", left_span) {
             return;
         }
-        if !ordered(left) && !left.is_recovery() {
+        if !left.can_be_ordering_operand() && !left.is_recovery() {
             self.error(left_span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
         }
         self.expect_type(left, right, right_span);
+    }
+
+    fn publish_binary_operator(&mut self, expression: ExprId, operator: BinaryOp, diagnostics: usize) {
+        if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+            self.binary_operators.remove(&expression);
+        } else {
+            self.binary_operators.insert(expression, super::CheckedBinaryOperator { operator });
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -3147,14 +3155,7 @@ impl Checker {
                 for (operand, other) in [(right, &left_ty), (left, &right_ty)] {
                     self.note_compared_variant_qualifier(arena, operand, other);
                 }
-                // Equality compares values, and a validated value is a value
-                // of its base: `rel == path` and `maybe_rel == path` compare
-                // as paths do.
-                let compared = |ty: &Type| match ty {
-                    Type::Optional(inner) => Type::Optional(Box::new(inner.unvalidated().clone())),
-                    ty => ty.unvalidated().clone(),
-                };
-                let (left_ty, right_ty) = (compared(&left_ty), compared(&right_ty));
+                let (left_ty, right_ty) = (left_ty.equality_operand_type(), right_ty.equality_operand_type());
                 if left_ty != Type::Any
                     && right_ty != Type::Any
                     && !left_ty.matches_expected(&right_ty)

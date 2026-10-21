@@ -3828,6 +3828,15 @@ concrete-list concatenation, and unary operations retain their ordinary
 contracts. Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
+Equality can retain a shared type parameter, including list membership with
+the same item parameter. Ordering uses concrete checked operand domains.
+Boolean `and` and `or` evaluate the left operand first and evaluate the right
+operand only when needed. Ordering chains evaluate each reached operand once
+and stop at the first false pair. Map membership preserves its declared key
+domain and ordinary unsigned key validation. Set union, intersection, and
+difference preserve the checked element domain; sharing an integer runtime
+representation does not erase an unsigned element guarantee.
+
 Optional parameters and returns retain their nullable contract. Guarded field,
 index, slice, and selected method access use the ordinary postfix rules: a null
 receiver returns null without evaluating its index, slice bounds, or method
@@ -3868,8 +3877,7 @@ declaration's operations. Unsigned argument and map-key contracts keep the
 ordinary checked conversions and failure propagation.
 
 Unsupported quantified body shapes still produce a checking or preparation
-diagnostic, including destructuring declarations, `for`, comparisons,
-logical binary expressions, membership, set operators, dynamically selected
+diagnostic, including destructuring declarations, `for`, dynamically selected
 calls, and captured mutable or resource state. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing

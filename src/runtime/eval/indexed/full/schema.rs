@@ -904,7 +904,8 @@ instruction_schema! {
         } => ExprPathFrom = 30 [0; Scheduled; FrameApply];
         Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply; EagerAtom];
         ComparisonChain {
-            pairs: Vec<BuildExprId>,
+            first: BuildExprId,
+            pairs: Vec<(BinaryOp, BuildExprId, Span)>,
         } => ExprComparisonChain = 32 [0; Operands; FrameControl];
         Binary {
             op: BinaryOp,

@@ -463,6 +463,11 @@ pub enum StatementPosition {
     Value,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CheckedBinaryOperator {
+    pub(crate) operator: BinaryOp,
+}
+
 /// A registered method or module function call's selected overload: its
 /// registry signature, concrete parameter types, and each source argument
 /// entry's parameter slot. Module functions have no receiver.
@@ -570,6 +575,7 @@ pub struct CheckOutput {
     pub requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub(crate) binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     pub stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
@@ -748,6 +754,7 @@ impl CheckOutput {
             .append(&mut module.requirement_expected_targets);
         self.reveal_types.append(&mut module.reveal_types);
         self.expr_types.append(&mut module.expr_types);
+        self.binary_operators.append(&mut module.binary_operators);
         self.stream_stage_types
             .append(&mut module.stream_stage_types);
         self.projections.append(&mut module.projections);
@@ -1769,6 +1776,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     projections: BTreeMap<Span, CheckedProjection>,
     statement_positions: BTreeMap<Span, StatementPosition>,
@@ -2054,6 +2062,7 @@ impl Checker {
             requirement_expected_targets: self.requirement_expected_targets,
             reveal_types: self.reveal_types,
             expr_types: self.expr_types,
+            binary_operators: self.binary_operators,
             stream_stage_types: self.stream_stage_types,
             projections: self.projections,
             statement_positions: self.statement_positions,
@@ -2180,6 +2189,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            binary_operators: BTreeMap::new(),
             stream_stage_types: BTreeMap::new(),
             projections: BTreeMap::new(),
             statement_positions: BTreeMap::new(),

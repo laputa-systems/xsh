@@ -110,6 +110,17 @@ projection borrows through checked records and materializes only the selected
 leaf under the existing budget. Actual replacements must preserve that field's
 guarantees; complete typed storage boundaries remain explicit executable checks.
 
+Generic binary operations prove their actual operand domains before accepting
+their result facts. Equality retains checked parameter relationships; ordering
+uses the same scalar-domain rule as ordinary checking. Membership reuses the
+canonical key or comparison contract, and set results require both operands to
+preserve their element guarantees. Boolean right operands keep all elaboration
+inside a lazy value block. Comparison chains store the first operand and an
+ordered list of operator, right operand, and span tuples. Both lowering paths retain each actual operand
+once. Execution carries each reached right value into the next comparison;
+cold verification proves every operand, including unreached links. Nested chains
+therefore do not duplicate their middle operand subtrees.
+
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
 postfix lowering evaluates the receiver once and places operand elaboration in
@@ -141,6 +152,17 @@ uses the canonical callable instance relation for interface gates; local, creati
 assignment, requirement, and default checks remain exact. Prepared schemas compare
 structurally, including conversion order, nominal names, wire mappings, and error
 names. Preparation failures retain their original diagnostic.
+
+The checker publishes successful binary selections at their executable source
+identities. Comparison-chain pairs have canonical ordinal paths and use the
+preceding actual right operand as the next left domain. Constant preparation
+publishes its own successful fold domains, including the raw result before a
+storage annotation applies. Body comparison consumes these facts without
+folding or resolving operations. It compares operation identity and all operand
+and result domains, specializing with the same retained callable-instance
+evidence used for the interface. Unchanged schemes use the existing bound-type
+equivalence anchored to their declaration signatures. Missing or unmapped
+published selections fail capture.
 
 Private embedded-module bridges carry their native callable contract in the
 stdlib catalog. Prepared bridge declarations must match that contract and remain

@@ -98,6 +98,17 @@ pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&Schem
     BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
 }
 
+pub(super) fn same_bound_operand(
+    left: &SchemeType, left_owner: &TypeScheme, right: &SchemeType, right_owner: &TypeScheme,
+    left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
+) -> bool {
+    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), left_schemas, right_schemas };
+    if !equivalence.scheme(left_owner, right_owner) { return false; }
+    let bound_types = equivalence.types.len();
+    let bound_rows = equivalence.rows.len();
+    equivalence.ty(left, right) && equivalence.types.len() == bound_types && equivalence.rows.len() == bound_rows
+}
+
 impl CheckedCallableContract {
     pub fn kind(&self) -> crate::sema::types::CallableKind {
         self.scheme.kind()
@@ -212,27 +223,10 @@ impl CheckedCallableContract {
     }
 
     fn same_shape(&self, other: &Self) -> bool {
-        if self.scheme.kind() != other.scheme.kind()
-            || self.scheme.type_parameters().len() != other.scheme.type_parameters().len()
-            || self.scheme.row_parameters().len() != other.scheme.row_parameters().len()
-        {
-            return false;
-        }
-        let mut equivalence = BoundEquivalence {
+        BoundEquivalence {
             types: BTreeMap::new(), rows: BTreeMap::new(),
             left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
-        };
-        if !equivalence.parameters(self.scheme.params(), other.scheme.params())
-            || !equivalence.ty(self.scheme.return_type(), other.scheme.return_type())
-            || !equivalence.schema(self.scheme.return_schema(), other.scheme.return_schema())
-        {
-            return false;
-        }
-        self.scheme.row_parameters().iter().all(|left| {
-            equivalence.rows.get(&left.id).and_then(|right| {
-                other.scheme.row_parameters().iter().find(|parameter| parameter.id == *right)
-            }).is_some_and(|right| left.lacks == right.lacks)
-        })
+        }.scheme(&self.scheme, &other.scheme)
     }
 }
 
@@ -296,6 +290,20 @@ fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key
 }
 
 impl BoundEquivalence<'_> {
+    fn scheme(&mut self, left: &TypeScheme, right: &TypeScheme) -> bool {
+        if left.kind() != right.kind()
+            || left.type_parameters().len() != right.type_parameters().len()
+            || left.row_parameters().len() != right.row_parameters().len()
+            || !self.parameters(left.params(), right.params())
+            || !self.ty(left.return_type(), right.return_type())
+            || !self.schema(left.return_schema(), right.return_schema())
+        { return false; }
+        left.row_parameters().iter().all(|left| {
+            self.rows.get(&left.id).and_then(|id| right.row_parameters().iter().find(|parameter| parameter.id == *id))
+                .is_some_and(|right| left.lacks == right.lacks)
+        })
+    }
+
     fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
         let left = left.filter(|schema| schema_has_obligations(schema));
         let right = right.filter(|schema| schema_has_obligations(schema));

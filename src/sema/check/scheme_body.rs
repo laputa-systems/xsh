@@ -166,6 +166,10 @@ fn is_body_expression(
                 if !types.contains_key(&expression) { return false; }
                 pending.push(left); pending.push(right);
             }
+            ArenaExprKind::ComparisonChain(pairs) => {
+                if !types.contains_key(&expression) { return false; }
+                pending.extend(program.arena.comparison_chain_operands(pairs));
+            }
             ArenaExprKind::Unary { expr, .. } => {
                 if !types.contains_key(&expression) { return false; }
                 pending.push(expr);
@@ -489,6 +493,41 @@ mod ordinary_body_tests {
             "pure keep(value, item: Int) { let _ = {1, item}; value }",
             "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)",
         );
+    }
+
+    #[test]
+    fn generic_operators_logical_values_retain_the_payload_binder() {
+        accepts("pure keep(value, first: Bool, second: Bool) { let _ = first and second; let _ = first or second; value }", "let number: Int = keep(7, true, false)\nlet text: Str = keep(\"value\", false, true)");
+    }
+
+    #[test]
+    fn generic_operators_equality_uses_the_same_symbolic_domain() {
+        accepts("pure keep(value) { let _ = value == value; let _ = value != value; value }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_operators_ordering_keeps_closed_domains() {
+        accepts("pure keep(value, number: Int, text: Str, elapsed: Duration) { let _ = number < 7; let _ = text >= \"a\"; let _ = elapsed <= 1s; value }", "let number: Int = keep(7, 2, \"value\", 2s)\nlet text: Str = keep(\"value\", 3, \"other\", 1s)");
+    }
+
+    #[test]
+    fn generic_operators_ordering_chains_keep_adjacent_operands() {
+        accepts("pure keep(value, number: Int) { let _ = 0 <= number < 7; value }", "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)");
+    }
+
+    #[test]
+    fn generic_operators_list_membership_keeps_the_symbolic_item() {
+        accepts("pure keep(value) { let _ = value in [value]; let _ = value not in [value]; value }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_operators_membership_preserves_closed_key_domains() {
+        accepts("pure keep(value, keys: Map[UInt, Int], key: UInt, elements: Set[Int]) { let _ = key in keys; let _ = 1 not in elements; let _ = \"a\" in \"value\"; value }", "let number: Int = keep(7, {}, 1, {1, 2})\nlet text: Str = keep(\"value\", {}, 2, {2, 3})");
+    }
+
+    #[test]
+    fn generic_operators_set_algebra_keeps_the_element_domain() {
+        accepts("pure keep(value, left: Set[Int], right: Set[Int]) { let _ = left | right; let _ = left & right; let _ = left - right; value }", "let number: Int = keep(7, {1, 2}, {2, 3})\nlet text: Str = keep(\"value\", {2, 3}, {3, 4})");
     }
 
     #[test]

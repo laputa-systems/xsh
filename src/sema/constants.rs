@@ -2179,12 +2179,21 @@ impl LiteralConstant {
 pub(crate) const CONSTANT_TYPE_FIT_FAILURE: &str =
     "constant value does not match its expected type";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedBinaryOperator {
+    pub(crate) operator: crate::syntax::node::BinaryOp,
+    pub(crate) left_type: Type,
+    pub(crate) right_type: Type,
+    pub(crate) result_type: Type,
+}
+
 /// Prepared declarations own data only. Lexical runtime bindings remain barriers
 /// to constant lookup even when their initializer happens to be a literal.
 #[derive(Clone, Debug, Default)]
 pub struct PreparedConstants {
     pub values: FxHashMap<ExprId, LiteralConstant>,
     pub types: FxHashMap<ExprId, Type>,
+    pub(crate) binary_operators: FxHashMap<ExprId, PreparedBinaryOperator>,
     pub record_constructor_instances: FxHashMap<ExprId, CheckedRecordConstructor>,
     pub origins: FxHashMap<ExprId, ExprId>,
     pub binding_values: FxHashMap<crate::sema::check::BindingId, ExprId>,
@@ -2470,6 +2479,7 @@ impl PreparedConstants {
     pub(super) fn clear_prepared_declaration_facts(&mut self) {
         self.values.clear();
         self.types.clear();
+        self.binary_operators.clear();
         self.record_constructor_instances.clear();
         self.origins.clear();
         self.binding_values.clear();
@@ -2480,6 +2490,7 @@ impl PreparedConstants {
     pub(super) fn merge_visible(&mut self, other: &Self) {
         merge_owned_map_by(&mut self.values, &other.values, LiteralConstant::same_prepared_source);
         merge_owned_map(&mut self.types, &other.types);
+        merge_owned_map(&mut self.binary_operators, &other.binary_operators);
         merge_owned_map(&mut self.record_constructor_instances, &other.record_constructor_instances);
         merge_owned_map(&mut self.origins, &other.origins);
         merge_owned_map(&mut self.binding_values, &other.binding_values);
@@ -2547,6 +2558,7 @@ impl PreparedConstants {
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.record_constructor_instances
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.binary_operators.retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.origins
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.binding_values.retain(|binding, _| {
@@ -3330,24 +3342,13 @@ impl ConstantPreparation<'_> {
             ArenaExprKind::Binary { op, left, right } => {
                 let (left_id, right_id) = (left, right);
                 let left = self.expression(left, namespace, None, depth + 1)?;
-                // Both operands must belong to the subset; short circuiting cannot admit runtime dependencies.
                 let right = self.expression(right, namespace, None, depth + 1)?;
-                if matches!(
+                let left_type = self.prepared.types.get(&left_id).cloned().unwrap_or_else(|| left.value_type());
+                let right_type = self.prepared.types.get(&right_id).cloned().unwrap_or_else(|| right.value_type());
+                let value = if matches!(
                     op,
                     crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne
                 ) {
-                    let left_type = self
-                        .prepared
-                        .types
-                        .get(&left_id)
-                        .cloned()
-                        .unwrap_or_else(|| left.value_type());
-                    let right_type = self
-                        .prepared
-                        .types
-                        .get(&right_id)
-                        .cloned()
-                        .unwrap_or_else(|| right.value_type());
                     if !right_type.matches_expected(&left_type) {
                         return Err((
                             expr.span,
@@ -3367,7 +3368,9 @@ impl ConstantPreparation<'_> {
                             "invalid constant operation or arithmetic overflow".into(),
                         )
                     })?
-                }
+                };
+                self.prepared.binary_operators.insert(id, PreparedBinaryOperator { operator: op, left_type, right_type, result_type: value.value_type() });
+                value
             }
             ArenaExprKind::List(items) => {
                 // The elements and spreads are read against the base; the
@@ -3786,7 +3789,7 @@ impl ConstantPreparation<'_> {
                             .record_constructor_instances
                             .insert(expression, fact);
                     }
-                    for ty in self.prepared.types.values_mut() {
+                    for ty in self.prepared.types.values_mut().chain(self.prepared.binary_operators.values_mut().flat_map(|operation| [&mut operation.left_type, &mut operation.right_type, &mut operation.result_type])) {
                         if ty.contains_inference() {
                             *ty = self.type_constraints.resolve(ty).map_err(|_| {
                                 (

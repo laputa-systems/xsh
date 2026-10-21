@@ -1293,4 +1293,157 @@ mod tests {
         }
     }
 
+    #[test]
+    fn generic_operators_logical_contracts_reject_conflicting_operands_and_results() {
+        let program = prepare("pure keep(value, flag: Bool, wrong: Int) { let _ = flag and flag; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (binary, right) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::And, right, .. }) => Some((instruction, right.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_construction_operand(&program, owner, scheme, right, false);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic logical operand has no Boolean contract");
+        let mut operation = program.clone();
+        let payload = operation.store.data[binary].range().bounds(operation.store.extra.len()).unwrap();
+        let selected = operation.store.extra[payload.start] as usize;
+        operation.store.binary_ops[selected] = crate::syntax::node::BinaryOp::Add;
+        assert_eq!(FullVerifier::verify(&operation).unwrap_err().message, "generic binary operands disagree with the operation");
+        let mut output = BTreeSet::from([binary]);
+        let mut slots = BTreeSet::new();
+        loop {
+            let previous = output.len();
+            for instruction in range.clone() {
+                if let Ok(schema::StmtView::Let { slot, value, .. }) = decoder.statement_view(instruction)
+                    && output.contains(&(value.raw() as usize))
+                { output.insert(instruction); slots.insert(slot); }
+                if matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slots.contains(&slot)) { output.insert(instruction); }
+            }
+            if output.len() == previous { break; }
+        }
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let flag = program.store.scheme_params[parameters.start + 1].ty;
+        let integer = program.store.scheme_types[program.store.scheme_params[parameters.start + 2].ty.index()].first;
+        let mut result = program.clone();
+        for fact in &result.store.scheme_body_facts {
+            if output.contains(&(fact.instruction as usize)) {
+                assert_ne!(fact.ty, flag);
+                let node = &mut result.store.scheme_types[fact.ty.index()];
+                assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+                node.first = integer;
+            }
+        }
+        let facts = result.store.functions[owner].slot_type_facts.bounds(result.store.slot_type_facts.len()).unwrap();
+        for slot in slots {
+            if result.store.slot_type_facts[facts.start + slot] != IR_NONE { result.store.slot_type_facts[facts.start + slot] = integer; }
+        }
+        assert_eq!(result.store.scheme_types[flag.index()], program.store.scheme_types[flag.index()]);
+        assert_eq!(FullVerifier::verify(&result).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_operators_membership_and_sets_preserve_actual_domains() {
+        let program = prepare("pure keep(value, other) { let _ = value in [value]; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let left = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In, left, .. }) => Some(left.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_record_operand(&program, owner, scheme, left, 0, 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic membership operands have incompatible domains");
+        for operator in ["|", "&", "-"] {
+            let program = prepare(&format!("pure keep(value, items: Set[UInt], wrong: Set[Int]) {{ let _ = items {operator} items; value }}"));
+            let (owner, scheme) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let right = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::Binary { right, .. }) => Some(right.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let changed = retarget_construction_operand(&program, owner, scheme, right, true);
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic set operands have incompatible domains");
+        }
+    }
+
+    #[test]
+    fn generic_operators_chain_links_authenticate_unreached_operand_domains() {
+        let program = prepare("pure keep(value, number: Int, wrong: Str) { let _ = 0 <= number < number; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let ignored = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ComparisonChain { mut pairs, .. }) => {
+                pairs.next().unwrap().unwrap();
+                let (_, right, _) = pairs.next().unwrap().unwrap();
+                Some(right.raw() as usize)
+            }
+            _ => None,
+        }).unwrap();
+        let changed = retarget_construction_operand(&program, owner, scheme, ignored, false);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic ordering operands have incompatible domains");
+    }
+
+    #[test]
+    fn generic_operators_chain_completion_preserves_a_skipped_return() {
+        let program = Arc::new(prepare("pure choose(number: Int, wrong: Str) -> Int { let _ = 0 < number < { return 7 }; 0 }"));
+        let owner = 0;
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let chain = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprComparisonChain).unwrap();
+        assert!(super::super::super::indexed_expr_can_complete(&decoder, chain, 0).unwrap());
+        let tail = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Int(0)))).last().unwrap();
+        let mut wrong_tail = (*program).clone();
+        wrong_tail.store.tags[tail] = super::super::super::FullTag::ExprParam;
+        let words = wrong_tail.store.data[tail].range().bounds(wrong_tail.store.extra.len()).unwrap();
+        wrong_tail.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&wrong_tail).is_err());
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("choose")));
+            for (number, expected) in [(-1, 0), (1, 7)] {
+                let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::LoweredFunctionKind::Pure, &[crate::runtime::value::Value::Int(number), crate::runtime::value::Value::Str(Arc::from("wrong"))], crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, crate::runtime::value::Value::Int(expected), "frames={force_frames}");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_operators_chain_completion_keeps_required_operands() {
+        for definition in [
+            "pure choose() -> Int { let _ = 0 < 1 < { return 7 }; 0 }",
+            "pure choose() -> Int { let _ = { return 7 } < 1 < 2; 0 }",
+            "pure choose() -> Int { let _ = 0 < { return 7 } < 2; 0 }",
+        ] {
+            let program = prepare(definition);
+            let decoder = decoder_for_function(&program.store, 0).unwrap();
+            let chain = program.store.function_instruction_range(0).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprComparisonChain).unwrap();
+            assert!(!super::super::super::indexed_expr_can_complete(&decoder, chain, 0).unwrap(), "{definition}");
+        }
+    }
+
+    fn nested_chain_expression(depth: usize) -> String {
+        let mut expression = "1".to_string();
+        for _ in 0..depth { expression = format!("0 < {{ let _ = {expression}; 1 }} < 2"); }
+        expression
+    }
+
+    #[test]
+    fn generic_operators_nested_chains_keep_physical_growth_bounded() {
+        let source = |depth| format!("pure keep(value) {{ let _ = {}; value }}", nested_chain_expression(depth));
+        let shallow = prepare(&source(8));
+        let deep = prepare(&source(12));
+        eprintln!("generic nested chain depth 8/12 rows: {}/{}", shallow.instruction_count(), deep.instruction_count());
+        assert!(deep.instruction_count() <= shallow.instruction_count() * 2, "nested chain rows grew from {} to {}", shallow.instruction_count(), deep.instruction_count());
+    }
+
+    #[test]
+    fn generic_operators_ordinary_nested_chains_keep_physical_growth_bounded() {
+        let source = |depth| format!("pure keep(value: Int) -> Int {{ let _ = {}; value }}", nested_chain_expression(depth));
+        let shallow = prepare(&source(8));
+        let deep = prepare(&source(12));
+        eprintln!("ordinary nested chain depth 8/12 rows: {}/{}", shallow.instruction_count(), deep.instruction_count());
+        assert!(deep.instruction_count() <= shallow.instruction_count() * 2, "ordinary nested chain rows grew from {} to {}", shallow.instruction_count(), deep.instruction_count());
+    }
+
 }

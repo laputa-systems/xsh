@@ -355,6 +355,7 @@ impl Checker {
         let resolved_type_expressions = std::mem::take(&mut self.resolved_type_expressions);
         let block_exit_bindings = std::mem::take(&mut self.block_exit_bindings);
         let expr_types = std::mem::take(&mut self.expr_types);
+        let binary_operators = std::mem::take(&mut self.binary_operators);
         let stream_expr_origins = std::mem::take(&mut self.stream_expr_origins);
         let stream_stmt_origins = std::mem::take(&mut self.stream_stmt_origins);
         let stream_stmt_results = std::mem::take(&mut self.stream_stmt_results);
@@ -396,6 +397,7 @@ impl Checker {
         self.resolved_type_expressions = resolved_type_expressions;
         self.block_exit_bindings = block_exit_bindings;
         self.expr_types = expr_types;
+        self.binary_operators = binary_operators;
         self.stream_expr_origins = stream_expr_origins;
         self.stream_stmt_origins = stream_stmt_origins;
         self.stream_stmt_results = stream_stmt_results;

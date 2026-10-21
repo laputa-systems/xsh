@@ -1,7 +1,7 @@
 use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
-use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_schema, schema_identities};
+use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_schema, schema_identities};
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
@@ -11,7 +11,7 @@ use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::arena::{ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
-use crate::syntax::node::{Effect, StreamStageKind};
+use crate::syntax::node::{BinaryOp, Effect, StreamStageKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -29,9 +29,6 @@ pub enum BodyContractError {
     AmbiguousSite(Span),
 }
 
-/// In-memory checked operation selections and declaration effect facts.
-/// Syntax preservation and runtime behavior separately cover operator rules
-/// without published selections and the execution of generalized evidence.
 #[derive(Clone, Debug)]
 pub(crate) struct SemanticBodyContract {
     source_name: Arc<str>,
@@ -113,7 +110,7 @@ impl PendingBodyContracts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize), RunValue }
+enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize), ComparisonPair(usize), RunValue }
 
 type NodePath = Vec<PathStep>;
 
@@ -173,6 +170,20 @@ impl OperandType {
             Self::Ground(ty) => Some(ty.clone()),
             Self::Scheme { ty, .. } => ty.closed_ground_type(),
             Self::Missing => None,
+        }
+    }
+
+    fn preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>,
+        left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
+    {
+        match (self, candidate) {
+            (Self::Ground(left), Self::Ground(right)) => left == right,
+            (Self::Ground(left), Self::Scheme { .. }) => candidate.ground().as_ref() == Some(left)
+                || instance.is_some_and(|instance| candidate.specialized(instance).as_ref() == Some(left)),
+            (Self::Scheme { .. }, Self::Ground(right)) => self.ground().as_ref() == Some(right),
+            (Self::Scheme { ty: left, owner: left_owner }, Self::Scheme { ty: right, owner: right_owner }) =>
+                same_bound_operand(left, left_owner, right, right_owner, left_schemas, right_schemas),
+            _ => false,
         }
     }
 
@@ -255,8 +266,28 @@ struct ResourceTransfer {
     cause: TransferCause,
 }
 
+#[derive(Clone, Debug)]
+struct OperatorElaboration {
+    operator: BinaryOp,
+    left: OperandType,
+    right: OperandType,
+    result: OperandType,
+}
+
+impl OperatorElaboration {
+    fn preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>,
+        left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
+    {
+        self.operator == candidate.operator
+            && self.left.preserved_by(&candidate.left, instance, left_schemas, right_schemas)
+            && self.right.preserved_by(&candidate.right, instance, left_schemas, right_schemas)
+            && self.result.preserved_by(&candidate.result, instance, left_schemas, right_schemas)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct NodeSelection {
+    binary: Option<OperatorElaboration>,
     requirement: Option<RequirementTarget>,
     constructor: Option<CheckedRecordConstructor>,
     constructor_fields: Option<Vec<Name>>,
@@ -331,7 +362,12 @@ impl SemanticBodyContract {
             (Some(left), Some(right)) => self.span_paths.get(&left) == candidate.span_paths.get(&right),
             _ => false,
         };
-        same_requirement && same_constructor && same_projection && same_collect
+        let same_binary = match (&left.binary, &right.binary) {
+            (None, None) => true,
+            (Some(left), Some(right)) => left.preserved_by(right, instance, &self.schemas, &candidate.schemas),
+            _ => false,
+        };
+        same_binary && same_requirement && same_constructor && same_projection && same_collect
             && left.constructor_fields == right.constructor_fields && left.conversion == right.conversion
             && left.typed_call == right.typed_call && left.user_call == right.user_call && left.alias == right.alias
             && left.arguments == right.arguments && left.variant == right.variant && left.pattern_variant == right.pattern_variant
@@ -377,6 +413,8 @@ struct Capture<'a> {
     schemas: Arc<BTreeMap<TypeDefId, SchemaIdentity>>,
     registered: BTreeMap<ExprId, Arc<RegisteredCallPlan>>,
     seen_registered: BTreeSet<ExprId>,
+    seen_binary: BTreeSet<ExprId>,
+    seen_prepared_binary: BTreeSet<ExprId>,
     seen_api: BTreeSet<Span>,
     seen_commands: BTreeSet<Span>,
     seen_effects: BTreeSet<EffectDeclarationId>,
@@ -411,7 +449,7 @@ impl PendingBodyContracts {
         definitions.extend(checked.record_constructor_instances.values().map(|constructor| constructor.instance.definition));
         let schemas = schema_identities(program, &checked.checked_declarations.record_constructors, definitions);
         let mut capture = Capture { checked, program, sources, bodies: BTreeMap::new(), schemas,
-            registered: BTreeMap::new(), seen_registered: BTreeSet::new(), seen_api: BTreeSet::new(),
+            registered: BTreeMap::new(), seen_registered: BTreeSet::new(), seen_binary: BTreeSet::new(), seen_prepared_binary: BTreeSet::new(), seen_api: BTreeSet::new(),
             seen_commands: BTreeSet::new(), seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
             user_sources: BTreeSet::new(), transfers: BTreeMap::new(), seen_stages: BTreeSet::new(), module_sources: BTreeMap::new(),
             sites: BTreeMap::new(), value_boundaries: BTreeSet::new(),
@@ -639,6 +677,7 @@ impl Capture<'_> {
         if let ArenaChild::Expr(expression) = node {
             let span = self.program.arena.expr(expression).span;
             self.bodies.get_mut(owner).unwrap().expr_paths.insert(expression, path.to_vec());
+            self.binary_operators(expression, owner, path)?;
             self.pipeline_stages(expression, owner, path, namespace)?;
             self.shorthand_fields(expression, owner, path, namespace)?;
             let ordinary = self.checked.api_calls.get(&span);
@@ -672,6 +711,60 @@ impl Capture<'_> {
                 self.seen_commands.insert(span);
                 self.bodies.get_mut(owner).unwrap().operations.insert(path.to_vec(), Operation { selection, command_arguments: Some(command_arguments) });
             }
+        }
+        Ok(())
+    }
+
+    fn binary_elaboration(&mut self, expression: ExprId, operator: BinaryOp, left: ExprId, right: ExprId, result: OperandType)
+        -> Result<OperatorElaboration, BodyContractError>
+    {
+        let span = self.program.arena.expr(expression).span;
+        let ordinary = if let Some(checked) = self.checked.binary_operators.get(&expression) {
+            if checked.operator != operator { return Err(BodyContractError::UnsupportedSelection(span)); }
+            self.seen_binary.insert(expression);
+            Some(OperatorElaboration { operator, left: self.expression_type(left), right: self.expression_type(right), result })
+        } else { None };
+        let prepared = if let Some(checked) = self.checked.prepared_constants.binary_operators.get(&expression) {
+            if checked.operator != operator { return Err(BodyContractError::UnsupportedSelection(span)); }
+            self.seen_prepared_binary.insert(expression);
+            Some(OperatorElaboration { operator, left: OperandType::Ground(checked.left_type.clone()), right: OperandType::Ground(checked.right_type.clone()), result: OperandType::Ground(checked.result_type.clone()) })
+        } else { None };
+        if let (Some(ordinary), Some(prepared)) = (&ordinary, &prepared)
+            && !ordinary.preserved_by(prepared, None, &self.schemas, &self.schemas)
+        { return Err(BodyContractError::UnsupportedSelection(span)); }
+        let elaboration = prepared.or(ordinary).ok_or(BodyContractError::UnmappedFact(span))?;
+        for operand in [&elaboration.left, &elaboration.right, &elaboration.result] {
+            if matches!(operand, OperandType::Missing)
+                || operand.ground().is_some_and(|ty| ty.contains_inference() || ty.contains_recovery())
+            { return Err(BodyContractError::UnsupportedSelection(span)); }
+        }
+        Ok(elaboration)
+    }
+
+    fn binary_operators(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) -> Result<(), BodyContractError> {
+        match self.program.arena.expr(expression).kind {
+            ArenaExprKind::Binary { op, left, right } => {
+                let result = self.expression_type(expression);
+                let elaboration = self.binary_elaboration(expression, op, left, right, result)?;
+                self.bodies.get_mut(owner).unwrap().selections.get_mut(path).unwrap().binary = Some(elaboration);
+            }
+            ArenaExprKind::ComparisonChain(pairs) => {
+                let mut previous = None;
+                for (ordinal, pair) in self.program.arena.expr_ids(pairs).collect::<Vec<_>>().into_iter().enumerate() {
+                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return Err(BodyContractError::UnsupportedSelection(self.program.arena.expr(pair).span)); };
+                    let left = previous.unwrap_or(left);
+                    let elaboration = self.binary_elaboration(pair, op, left, right, OperandType::Ground(Type::Bool))?;
+                    let mut pair_path = path.to_vec();
+                    pair_path.push(PathStep::ComparisonPair(ordinal));
+                    let body = self.bodies.get_mut(owner).unwrap();
+                    body.expr_paths.insert(pair, pair_path.clone());
+                    if body.selections.insert(pair_path, NodeSelection { binary: Some(elaboration), ..NodeSelection::default() }).is_some() {
+                        return Err(BodyContractError::UnmappedFact(self.program.arena.expr(pair).span));
+                    }
+                    previous = Some(right);
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -782,6 +875,7 @@ impl Capture<'_> {
         let mut control = BTreeSet::new();
         for (kind, spans) in control_sets(checked) { if spans.contains(&span) { control.insert(kind); } }
         let selection = NodeSelection {
+            binary: None,
             requirement: checked.requirement_targets.get(&span).cloned(),
             constructor: checked.record_constructor_instances.get(&span).cloned(),
             constructor_fields: checked.record_constructor_fields.get(&span).cloned(), conversion,
@@ -831,6 +925,12 @@ impl Capture<'_> {
         }
         for span in self.checked.module_commands.keys().filter(|span| relevant(span)) {
             if !self.seen_commands.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
+        }
+        for expression in self.checked.prepared_constants.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr(**expression).span)) {
+            if !self.seen_prepared_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
+        }
+        for expression in self.checked.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr(**expression).span)) {
+            if !self.seen_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
         }
         for expression in self.registered.keys() {
             if !self.seen_registered.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
@@ -1378,4 +1478,80 @@ mod tests {
         pending.value_boundaries.clear();
         assert_eq!(pending.canonical_site(BodyContractSite::ValueBoundary(span)), Err(BodyContractError::AmbiguousSite(span)));
     }
+    #[test]
+    fn generic_operators_contract_preserves_selected_domains_after_generalization() {
+        for (parameters, result, expression) in [
+            ("value: Int", "Bool", "value == value"),
+            ("value: Int, flag: Bool", "Int", "{ let _ = flag and flag; value }"),
+            ("value: Int, number: Int", "Int", "{ let _ = number < 7; value }"),
+            ("value: Int", "Int", "{ let _ = value in [value]; value }"),
+            ("value: Int, left: Set[Int], right: Set[Int]", "Int", "{ let _ = left | right; value }"),
+            ("value: Int, number: Int", "Int", "{ let _ = 0 <= number < 7; value }"),
+        ] {
+            let body = if expression.starts_with('{') { expression.to_string() } else { format!("{{ {expression} }}") };
+            let original = format!("pure keep({parameters}) -> {result} {body}\n");
+            let parameters = parameters.replacen("value: Int", "value", 1);
+            let candidate = format!("pure keep({parameters}) {body}\n");
+            let (old_program, old_sources, old_checked) = checked(&original);
+            let (new_program, new_sources, new_checked) = checked(&candidate);
+            let old = old_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+            let new = new_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+            let instance = old.instance_evidence(&new).unwrap().unwrap();
+            let old = PendingBodyContracts::capture(&old_checked, &old_program, &old_sources).unwrap().into_contracts().into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+            let new = PendingBodyContracts::capture(&new_checked, &new_program, &new_sources).unwrap().into_contracts().into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+            assert!(old.preserved_by_instance(&new, Some(&instance)), "{expression}");
+            let mut operation = new.clone();
+            let selection = operation.selections.values_mut().find_map(|selection| selection.binary.as_mut()).unwrap();
+            selection.operator = if selection.operator == BinaryOp::Eq { BinaryOp::Ne } else { BinaryOp::Eq };
+            assert!(!old.preserved_by_instance(&operation, Some(&instance)), "{expression}");
+            let mut domain = new.clone();
+            domain.selections.values_mut().find_map(|selection| selection.binary.as_mut()).unwrap().right = OperandType::Ground(Type::Path);
+            assert!(!old.preserved_by_instance(&domain, Some(&instance)), "{expression}");
+        }
+    }
+
+    #[test]
+    fn generic_operators_contract_rejects_missing_selections_and_tracks_chain_pairs() {
+        let source = "pure keep(value: Int, number: Int) -> Int { let _ = 0 <= number < 7; value }\n";
+        let (program, sources, checked) = checked(source);
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
+        let body = contracts.iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+        let pairs = body.selections.iter().filter(|(path, selection)| matches!(path.last(), Some(PathStep::ComparisonPair(_))) && selection.binary.is_some()).count();
+        assert_eq!(pairs, 2);
+        for expression in checked.binary_operators.keys() {
+            let mut missing = checked.clone();
+            missing.binary_operators.remove(expression);
+            assert!(matches!(PendingBodyContracts::capture(&missing, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
+        }
+        let mut shifted = checked.clone();
+        let literal = program.arena.expr_tags.iter().enumerate().find_map(|(index, _)| {
+            let expression = ExprId::from_index(index);
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::Int(_)).then_some(expression)
+        }).unwrap();
+        shifted.binary_operators.insert(literal, super::super::CheckedBinaryOperator { operator: BinaryOp::Eq });
+        assert!(matches!(PendingBodyContracts::capture(&shifted, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
+    }
+
+    #[test]
+    fn generic_operators_contract_preserves_checked_constant_operations() {
+        let source = "const total: Int = 1 + 2\nconst numbers: List[Int] = [1 + 2, 3 * 4]\ntype Pair = {first: Int, second: Int}\nconst fields: Pair = {first: 2 + 3, second: 4 * 5}\nconst one: UInt = 1KiB\nconst total_unsigned: UInt = one + 1KiB\npure keep(value: Int) -> Int { let _ = total; value }\n";
+        let (program, sources, checked) = checked(source);
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
+        let entry = contracts.iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap();
+        let operation = entry.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert_eq!(operation.operator, BinaryOp::Add);
+        assert_eq!(operation.left.ground(), Some(Type::Int));
+        assert_eq!(operation.right.ground(), Some(Type::Int));
+        assert_eq!(operation.result.ground(), Some(Type::Int));
+        assert_eq!(entry.selections.values().filter(|selection| selection.binary.is_some()).count(), 6);
+        let (expression, unsigned) = checked.prepared_constants.binary_operators.iter().find(|(_, operation)| operation.left_type == Type::UInt && operation.right_type == Type::UInt).unwrap();
+        assert_eq!(unsigned.result_type, Type::Int);
+        assert_eq!(checked.prepared_constants.types.get(expression), Some(&Type::UInt));
+        for expression in checked.prepared_constants.binary_operators.keys() {
+            let mut missing = checked.clone();
+            missing.prepared_constants.binary_operators.remove(expression);
+            assert!(matches!(PendingBodyContracts::capture(&missing, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
+        }
+    }
+
 }
