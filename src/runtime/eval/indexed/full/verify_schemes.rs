@@ -2,6 +2,7 @@ mod producers;
 mod body;
 mod effects;
 mod applications;
+mod references;
 pub(super) use effects::ScopedEffectProof;
 pub(super) use producers::ProducerContexts;
 pub(super) use producers::{GroundProducerIndex, ProducerPrefixContext};
@@ -1130,7 +1131,8 @@ fn verify_scheme_body_facts(
         let statements = store.payload(block.instructions)?;
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget)?;
+        let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1251,6 +1253,7 @@ fn verify_body_expression(
     registered_coverage: &mut BTreeSet<u32>,
     expected_return: &SchemeType,
     budget: &mut SchemeInstantiationBudget,
+    constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<SchemeType, IrVerifyError> {
     budget.charge(1)?;
     if !visited.insert(instruction) { return Err(IrVerifyError::new("generic body expression is shared or cyclic")); }
@@ -1286,6 +1289,13 @@ fn verify_body_expression(
         schema::ExprView::Bytes(_) => SchemeType::Ground(Type::Bytes),
         schema::ExprView::Duration(_) => SchemeType::Ground(Type::Duration),
         schema::ExprView::PreparedRegex(_) => SchemeType::Ground(Type::Regex),
+        schema::ExprView::PreparedConstant(value) => {
+            budget.charge_scheme_clone(ty)?;
+            let expected = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic prepared constant has no closed contract"))?;
+            ensure_substitution_type(&expected)?;
+            decoder.verify_prepared_constant_type(value, &expected, &mut |amount| constant_budget.charge(amount))?;
+            ty.clone()
+        }
         schema::ExprView::Path(_) => SchemeType::Ground(Type::Path),
         schema::ExprView::List(mut values) => {
             let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
@@ -1653,7 +1663,7 @@ fn verify_call_instantiations(
         if instruction >= store.tags.len()
             || !matches!(
                 store.tags[instruction],
-                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall
+                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam
             )
         {
             return Err(IrVerifyError::new("generic call instantiation has no direct call"));
@@ -1673,6 +1683,7 @@ fn verify_call_instantiations(
             .and_then(Option::as_ref)
             .ok_or_else(|| IrVerifyError::new("generic call target has no binder scope"))?;
         let scheme = store.scheme(scheme_id)?;
+        let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam);
         if instantiation.application_bindings.len != scheme.applications.len {
             return Err(IrVerifyError::new("generic call application binding is incomplete"));
         }
@@ -1709,6 +1720,14 @@ fn verify_call_instantiations(
                 applications::ApplicationSubstitution::Symbolic(&substitution),
                 Some((store.scheme(caller_scheme)?, caller_scope)),
                 bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut budget)?;
+            if reference {
+                let fact = scheme_body_fact_type(store, caller_scheme, instantiation.instruction, FullSchemeBodyFactKind::Expression)?
+                    .ok_or_else(|| IrVerifyError::new("callable reference has no checked scheme type"))?;
+                let claimed = decode_scheme_type(store, caller_scope, fact, &mut budget, 0)?;
+                references::verify(store, target_function, scheme, scope,
+                    applications::ApplicationSubstitution::Symbolic(&substitution), &claimed, &mut budget)?;
+                continue;
+            }
             verify_symbolic_call_arguments(
                 store,
                 instruction,
@@ -1754,6 +1773,15 @@ fn verify_call_instantiations(
             applications::verify_bindings(store, scheme, scope,
                 applications::ApplicationSubstitution::Ground(&substitution), None,
                 bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
+            if reference {
+                let fact = checked_expression_type_id(store, instantiation.instruction)
+                    .ok_or_else(|| IrVerifyError::new("callable reference has no checked type"))?;
+                let claimed = store.semantic.to_type_with_budget(fact, &mut materialization.semantic_types)?;
+                ensure_closed_type(&claimed)?;
+                references::verify(store, target_function, scheme, scope,
+                    applications::ApplicationSubstitution::Ground(&substitution), &SchemeType::Ground(claimed), &mut materialization)?;
+                continue;
+            }
             requests.ground_arguments.extend(verify_instantiated_call_arguments(
                 store,
                 instruction,
@@ -2900,6 +2928,15 @@ fn checked_argument_type(
         materialization.charge(1)?;
         if !aliases.insert((current.owner, instruction)) {
             return Err(IrVerifyError::new("generic argument alias chain contains a cycle"));
+        }
+        if store.tags.get(instruction) == Some(&FullTag::ExprParam)
+            && store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+        {
+            let type_id = checked_expression_type_id(store, instruction as u32)
+                .ok_or_else(|| IrVerifyError::new("materialized callable argument has no checked type"))?;
+            let actual = store.semantic.to_type_with_budget(type_id, &mut materialization.semantic_types)?;
+            ensure_closed_type(&actual)?;
+            break Some(CheckedArgumentType::Known(actual));
         }
         let schema::ExprView::Param(slot) = current.expression_view(instruction)? else {
             break checked_argument_type_inner(

@@ -100,10 +100,19 @@ class InferenceWorkloadTests(unittest.TestCase):
                     self.assertIn('field projection', case.logical_output_shape)
                 else:
                     self.assertEqual(len(re.findall(r'^type Deep_\d+ =', annotated, re.MULTILINE)), case.size + 1)
-                    self.assertEqual(annotated.count('{next: '), 2 * case.size)
-                    self.assertEqual(reduced.count('{next: '), 2 * case.size)
-                    self.assertIn('.next' * case.size + '.leaf', annotated)
-                    self.assertIn('.next' * case.size + '.leaf', reduced)
+                    for source in (annotated, reduced):
+                        self.assertEqual(len(re.findall(r'^pure make_\d+\(', source, re.MULTILINE)), case.size + 1)
+                        self.assertEqual(len(re.findall(r'^pure project_\d+\(', source, re.MULTILINE)), case.size + 1)
+                        depth = 0
+                        maximum_depth = 0
+                        for line in source.splitlines():
+                            depth += line.count('{') - line.count('}')
+                            maximum_depth = max(maximum_depth, depth)
+                            self.assertGreaterEqual(depth, 0)
+                        self.assertEqual(depth, 0)
+                        self.assertLessEqual(maximum_depth, 2)
+                        self.assertNotRegex(source, r'\.next{2,}')
+                        self.assertIn(f'project_{case.size}(make_{case.size}(7))', source)
                     self.assertIn('leaf projection', case.logical_output_shape)
 
     def test_higher_order_stream_effect_and_overload_sources_retain_operations(self):

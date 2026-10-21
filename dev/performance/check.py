@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import importlib.util
@@ -72,11 +73,12 @@ class Config:
     functional: dict | None
     baseline: dict | None = None
     measurement: dict | None = None
+    inference_performance: dict | None = None
 
 
 def parse_config(value):
     required = ('schema', 'source_root', 'commit', 'tree', 'laputa_root', 'product_receipt', 'xsh', 'xsht', 'scratch', 'functional')
-    fields(value, (*required, *(name for name in ('baseline', 'measurement') if name in value)), 'config')
+    fields(value, (*required, *(name for name in ('baseline', 'measurement', 'inference_performance') if name in value)), 'config')
     require(type(value['schema']) is int and value['schema'] == 1, 'unsupported config schema')
     for name in ('commit', 'tree'):
         require(isinstance(value[name], str) and re.fullmatch('[0-9a-f]{40}', value[name]), f'{name} must be a full lowercase Git ID')
@@ -95,20 +97,49 @@ def parse_config(value):
     if measurement is not None:
         fields(measurement, ('fixtures', 'output'), 'measurement')
         measurement = {name: canonical(path) for name, path in measurement.items()}
-    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional, baseline=baseline, measurement=measurement)
+    inference_performance = value.get('inference_performance')
+    if inference_performance is not None:
+        fields(inference_performance, ('output', 'reference'), 'inference_performance')
+        fields(inference_performance['reference'], ('source_root', 'commit', 'tree', 'profile_receipt'), 'inference_performance reference')
+        reference = inference_performance['reference']
+        for name in ('commit', 'tree'):
+            require(isinstance(reference[name], str) and re.fullmatch('[0-9a-f]{40}', reference[name]),
+                    f'inference_performance reference {name} must be a full lowercase Git ID')
+        inference_performance = {
+            'output': canonical(inference_performance['output']),
+            'reference': {name: canonical(reference[name])
+                          for name in ('source_root', 'profile_receipt')}
+                          | {'commit': reference['commit'], 'tree': reference['tree']},
+        }
+        require(inference_performance['output'].is_relative_to(paths['scratch']), 'inference_performance output must be under adapter scratch')
+    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional, baseline=baseline, measurement=measurement, inference_performance=inference_performance)
 
 
 def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args], text=True, timeout=15).strip()
 
 
+def source_identity_at(source_root, commit, tree):
+    require(source_root.is_dir(), f'source checkout is unavailable: {source_root}')
+    require(git(source_root, 'rev-parse', '--show-toplevel') == str(source_root), 'source_root must be a Git repository root')
+    require(git(source_root, 'rev-parse', 'HEAD') == commit, 'source commit mismatch')
+    require(git(source_root, 'rev-parse', 'HEAD^{tree}') == tree, 'source tree mismatch')
+    require(git(source_root, 'status', '--porcelain=v1', '--untracked-files=all') == '', 'source must be clean')
+    return {'commit': commit, 'git_tree': tree, 'status': 'clean'}
+
+
 def source_identity(config):
-    for path in (config.source_root, config.laputa_root, config.product_receipt, config.xsh, config.xsht, config.scratch, *(config.functional or {}).values(), *(config.baseline or {}).values(), *(config.measurement or {}).values()):
+    reference = (config.inference_performance or {}).get('reference', {})
+    reference_paths = tuple(reference[name] for name in ('source_root', 'profile_receipt') if name in reference)
+    paths = [config.source_root, config.laputa_root, config.product_receipt, config.xsh,
+             config.xsht, config.scratch, *(config.functional or {}).values(),
+             *(config.baseline or {}).values(), *(config.measurement or {}).values(),
+             *reference_paths]
+    if config.inference_performance is not None:
+        paths.append(config.inference_performance['output'])
+    for path in paths:
         require(path == path.resolve(), f'path contains a symlink: {path}')
-    require(git(config.source_root, 'rev-parse', '--show-toplevel') == str(config.source_root), 'source_root must be a Git repository root')
-    require(git(config.source_root, 'rev-parse', 'HEAD') == config.commit, 'source commit mismatch')
-    require(git(config.source_root, 'rev-parse', 'HEAD^{tree}') == config.tree, 'source tree mismatch')
-    require(git(config.source_root, 'status', '--porcelain=v1', '--untracked-files=all') == '', 'source must be clean')
+    source_identity_at(config.source_root, config.commit, config.tree)
     require(config.laputa_root.is_dir() and (config.laputa_root / 'pm').is_dir(), 'explicit Laputa checkout is unavailable')
     return {'commit': config.commit, 'git_tree': config.tree, 'status': 'clean'}
 
@@ -141,6 +172,170 @@ def qualify_products(config):
     else:
         check_product_policy(receipt, identity, binaries)
     return binaries
+
+
+def inference_release_build(config, source_root, receipt_path, selected, image_id):
+    producer = baseline_owner(
+        config, 'dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py',
+        'inference_profile_producer',
+    )
+    receipt = read_json(receipt_path)
+    require(receipt.get('native_image', {}).get('image_id') == image_id == producer.NATIVE_IMAGE_ID,
+            'inference profile must use the pinned release image')
+    for key, filename in (('cargo_lock_sha256', 'Cargo.lock'), ('cargo_toml_sha256', 'Cargo.toml'),
+                          ('rust_toolchain_sha256', 'rust-toolchain.toml')):
+        require(receipt.get(key) == owned_digest(source_root / filename),
+                f'inference release profile build input changed: {filename}')
+    results = receipt.get('results')
+    require(isinstance(results, list) and len(results) == 1 and isinstance(results[0], dict),
+            'inference release profile must contain one selected result')
+    result = results[0]
+    build = result.get('build')
+    require(isinstance(build, dict) and type(build.get('status')) is int and build['status'] == 0,
+            'inference release profile build did not succeed')
+    require(build.get('container_cleanup', {}).get('resolved') is True,
+            'inference release profile build cleanup is unresolved')
+    command = build.get('command')
+    require(isinstance(command, list) and all(isinstance(argument, str) for argument in command),
+            'inference release profile build command is malformed')
+    run_id = receipt.get('run_id')
+    cpus = receipt.get('resources', {}).get('cpuset_cpus')
+    require(isinstance(run_id, str) and run_id and isinstance(cpus, str) and cpus,
+            'inference release profile run and CPU bindings are missing')
+    temporary = [volume.split(':')[0] for index, argument in enumerate(command[:-1])
+                 if argument == '-v' and (volume := command[index + 1]).endswith(':/t:rw')]
+    require(len(temporary) == 1, 'inference release profile temporary mount is ambiguous')
+    expected = producer.profile_build(
+        source_root, Path(selected['directory']).parents[1], 3,
+        cpus, producer.NATIVE_IMAGE_ID,
+        Path(temporary[0]), laputa_corpus=config.laputa_root,
+    )
+    expected = owned.owned_docker_command(
+        expected, cidfile=receipt_path.parent / 'opt3/build.cid',
+        owner=run_id, stage='release-opt3-build',
+    )
+    require(command == expected and result.get('build_command') == command,
+            'inference release profile command or feature policy differs from the canonical producer')
+    return {
+        'profile': receipt['profile'],
+        'result': {name: result[name] for name in ('name', 'profile', 'opt_level', 'lto', 'codegen_units')},
+        'target': receipt['target'],
+        'image_id': receipt['native_image']['image_id'],
+        'build_command': command,
+    }
+
+
+def qualify_inference_profile(config, source_root, commit, tree, receipt_path, image_id, owner):
+    observer = baseline_owner(
+        config, 'dev/consolidation/winddown/gate-tools/final-performance-gates/final-observers.py',
+        owner,
+    )
+    selected = observer.load_profile_binaries(
+        receipt_path, source_root, commit, 3, allow_artifact_qualified=True,
+    )
+    receipt = read_json(receipt_path)
+    require(receipt.get('target') == observer.TARGET,
+            f'{owner}: profile target differs from the qualified release target')
+    require(receipt.get('native_image', {}).get('image_id') == image_id,
+            f'{owner}: profile uses a different pinned native image')
+    source = source_identity_at(source_root, commit, tree)
+    build = inference_release_build(config, source_root, receipt_path, selected, image_id)
+    binaries = {}
+    for name in ('xsh', 'xsht'):
+        record = selected['binaries'][name]
+        path = Path(record['path'])
+        require(path.is_absolute() and path == path.resolve() and path.is_file()
+                and os.access(path, os.X_OK), f'{owner}: {name} is not a canonical executable')
+        require(owned_digest(path) == record['sha256'], f'{owner}: {name} hash changed after profile qualification')
+        binaries[name] = {'path': str(path), 'sha256': record['sha256']}
+    return {
+        'source': source,
+        'source_root': str(source_root),
+        'profile_receipt': {'path': str(receipt_path), 'sha256': owned_digest(receipt_path)},
+        'profile': selected['profile'],
+        'build_policy': build,
+        'binaries': binaries,
+        'binary_sizes': {name: Path(record['path']).stat().st_size for name, record in binaries.items()},
+    }
+
+
+def qualify_inference_candidate(config, canonical):
+    selected = qualify_inference_profile(
+        config, config.source_root, config.commit, config.tree, config.product_receipt,
+        canonical.IMAGE, 'inference_candidate',
+    )
+    for name in ('xsh', 'xsht'):
+        require(selected['binaries'][name]['path'] == str(getattr(config, name)),
+                f'inference candidate {name} differs from its release profile receipt')
+    return selected
+
+
+def qualify_inference_reference(config, canonical):
+    reference = config.inference_performance['reference']
+    source_root = reference['source_root']
+    require(source_root != config.source_root, 'inference reference must use a distinct frozen source checkout')
+    require(not paths_overlap(source_root, config.source_root),
+            'inference reference and candidate source checkouts must not overlap')
+    require(reference['commit'] != config.commit and reference['tree'] != config.tree,
+            'inference reference must name a distinct source revision')
+    selected = qualify_inference_profile(
+        config, source_root, reference['commit'], reference['tree'], reference['profile_receipt'],
+        canonical.IMAGE, 'inference_reference',
+    )
+    require(selected['source']['git_tree'] == reference['tree'],
+            'inference reference source tree mismatch')
+    return selected
+
+
+def inference_product_snapshot(config, candidate, reference):
+    source = source_identity(config)
+    reference_source = source_identity_at(
+        config.inference_performance['reference']['source_root'],
+        config.inference_performance['reference']['commit'],
+        config.inference_performance['reference']['tree'],
+    )
+    return {
+        'candidate_source': source,
+        'candidate_receipt_sha256': owned_digest(config.product_receipt),
+        'candidate_products': {
+            name: {'path': record['path'], 'sha256': owned_digest(Path(record['path']))}
+            for name, record in candidate.items()
+        },
+        'reference_source': reference_source,
+        'reference_receipt_sha256': owned_digest(config.inference_performance['reference']['profile_receipt']),
+        'reference_products': {
+            name: {'path': record['path'], 'sha256': owned_digest(Path(record['path']))}
+            for name, record in reference['binaries'].items()
+        },
+    }
+
+
+def inference_input_snapshot(config):
+    reference_receipt = read_json(config.inference_performance['reference']['profile_receipt'])
+    results = reference_receipt.get('results')
+    require(isinstance(results, list) and len(results) == 1 and isinstance(results[0], dict),
+            'inference reference profile receipt must contain one selected release result')
+    recorded = results[0].get('binaries')
+    require(isinstance(recorded, dict) and {'xsh', 'xsht'}.issubset(recorded),
+            'inference reference profile receipt must bind xsh and xsht')
+    candidate = {name: {'path': str(getattr(config, name))} for name in ('xsh', 'xsht')}
+    reference = {'binaries': {name: {'path': recorded[name].get('path')} for name in ('xsh', 'xsht')}}
+    return inference_product_snapshot(config, candidate, reference)
+
+
+@contextmanager
+def inference_performance_locks(comparative, image_id):
+    held = []
+    try:
+        held.append(comparative.acquire_lock(comparative.OWNERSHIP_LOCK, reject_unresolved=True))
+        held.append(comparative.acquire_lock(comparative.INFRA / 'native-suite.lock'))
+        held.append(comparative.acquire_lock(comparative.INFRA / 'cargo.lock'))
+        held.append(comparative.acquire_lock(comparative.PARITY_LOCK))
+        comparative.no_native_containers(image_id)
+        yield
+    finally:
+        for stream in reversed(held):
+            stream.close()
 
 
 def owned_digest(path):
@@ -1010,6 +1205,198 @@ def measure(config, baseline_report=None):
     return report
 
 
+def inference_performance(config):
+    require(config.inference_performance is not None, 'inference_performance output is not configured')
+    output = config.inference_performance['output']
+    require(config.scratch.is_dir() and output.parent.is_dir() and not output.exists(), 'inference_performance requires an existing scratch directory and fresh output')
+    initial = inference_input_snapshot(config)
+    canonical = load_canonical(config)
+    candidate = qualify_inference_candidate(config, canonical)
+    binaries = candidate['binaries']
+    reference = qualify_inference_reference(config, canonical)
+    require(inference_product_snapshot(config, binaries, reference) == initial,
+            'source, receipt, or products changed during inference qualification')
+    comparative = baseline_owner(config, 'dev/consolidation/winddown/gate-tools/final-performance-gates/final-comparative.py', 'inference_comparative')
+    from dev.performance import inference_measurement, inference_workloads
+
+    cases = inference_workloads.fixed_inference_workloads()
+    run_directory = Path(tempfile.mkdtemp(prefix='inference-', dir=config.scratch))
+    materialized = inference_measurement.source_maps(cases, run_directory / 'sources')
+    source_records = {}
+    source_map_snapshots = {}
+    for case in cases:
+        source_records[case.name] = {}
+        for variant, sources in (('annotated', case.annotated_sources), ('reduced', case.reduced_sources)):
+            directory = materialized[case.name][variant]
+            snapshot = inference_measurement.source_map_snapshot(directory)
+            require(set(snapshot) == set(sources), f'{case.name}/{variant}: generated source file set changed')
+            source_map_snapshots[str(directory)] = snapshot
+            source_records[case.name][variant] = {
+                'files': {path: {'bytes': len(contents.encode()), 'sha256': hashlib.sha256(contents.encode()).hexdigest()}
+                          for path, contents in sources.items()},
+                'source_bytes': sum(len(contents.encode()) for contents in sources.values()),
+                'directory': str(directory),
+            }
+    image = canonical.IMAGE
+    cpu = baseline_owner(config, 'bench/consolidation/run.py', 'inference_cpu').host_allowed_cpus()[0]
+    readiness = []
+    workload_shapes = {
+        case.name: {
+            'family': case.family,
+            'shape': case.shape,
+            'size': case.size,
+            'units': case.expected_units,
+            'expected_runtime_output_bytes': case.expected_runtime_bytes,
+            'logical_output_shape': case.logical_output_shape,
+            'logical_evidence_shape': case.logical_evidence_shape,
+            'frontend_expectation': case.frontend_expectation,
+        }
+        for case in cases
+    }
+    report = {
+        'schema': 1,
+        'mode': 'inference_performance',
+        'scope': 'inference-performance',
+        'scope_basis': 'section-12-performance-only',
+        'performance_complete': False,
+        'timing_discarded': False,
+        'samples_complete': False,
+        'timing_complete': False,
+        'counters_complete': False,
+        'qualification_complete': False,
+        'source': initial['candidate_source'],
+        'products': {name: record | {'bytes': Path(record['path']).stat().st_size} for name, record in binaries.items()},
+        'candidate_profile': candidate['build_policy'],
+        'reference': {
+            'source': reference['source'],
+            'source_root': reference['source_root'],
+            'profile_receipt': reference['profile_receipt'],
+            'profile': reference['profile'],
+            'build_policy': reference['build_policy'],
+            'products': {name: record | {'bytes': reference['binary_sizes'][name]}
+                        for name, record in reference['binaries'].items()},
+        },
+        'image': image,
+        'method': {
+            'families': len(inference_workloads.FAMILIES),
+            'sizes': list(inference_workloads.SCALING_SIZES),
+            'check_pairs_per_distribution': inference_measurement.PAIR_COUNT,
+            'runtime_pairs_per_distribution': inference_measurement.RUNTIME_PAIR_COUNT,
+            'reference_comparison_pairs': '100 check and 5 runtime per reference-supported annotated workload',
+            'pair_order': 'alternating arms in both candidate annotation and reference comparisons',
+            'filesystem_cache': 'warm; no host page-cache flush',
+            'process_lifecycle': 'fresh owned process per sample',
+            'check_command': 'xsht check <entry>',
+            'runtime_command': 'xsh <entry>',
+            'counter_command': 'xsht frontend-stats --json <entry>',
+            'qualification': 'measurement completion and performance qualification are separate',
+        },
+        'source_maps': source_records,
+        'workload_shapes': workload_shapes,
+        'workloads': {},
+        'readiness': readiness,
+    }
+    output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+
+    def identity():
+        current_source_maps = {
+            directory: inference_measurement.source_map_snapshot(directory)
+            for directory in source_map_snapshots
+        }
+        require(inference_product_snapshot(config, binaries, reference) == initial
+                and current_source_maps == source_map_snapshots,
+                'source, generated inference inputs, or products changed during measurement')
+
+    def ready(case_name, stage, after):
+        check_owner = comparative.perf_gate_check(after=after)
+        readiness.append({'workload': case_name, 'stage': stage, 'after': after, **check_owner})
+        require(check_owner['exit_code'] == 0, 'perf gate deferred: host busy')
+
+    def discard_timing():
+        report.update(timing_discarded=True, samples_complete=False, timing_complete=False,
+                      counters_complete=False, qualification_complete=False,
+                      performance_complete=False)
+
+    def launch(case, stage):
+        count = inference_measurement.RUNTIME_PAIR_COUNT if stage == 'runtime' else inference_measurement.PAIR_COUNT
+        result_path = run_directory / f'{case.name}-{stage}.json'
+        reference_root = config.inference_performance['reference']['source_root']
+        reference_products = reference['binaries']
+        command = [
+            'docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--read-only',
+            '--cpuset-cpus', str(cpu), '--memory=4g', '--memory-swap=4g', '--user', f'{os.getuid()}:{os.getgid()}',
+        ]
+        mounted = (config.source_root, config.scratch, reference_root, config.xsh, config.xsht,
+                   Path(reference_products['xsh']['path']), Path(reference_products['xsht']['path']))
+        for path in dict.fromkeys(mounted):
+            command += ['-v', f'{path}:{path}:{"rw" if path == config.scratch else "ro"}']
+        command += [
+            '-w', str(config.source_root), image, '/usr/bin/python3', '-B', '-m',
+            'dev.performance.inference_measurement', '--container-distribution',
+            '--source-root', str(config.source_root), '--workload', case.name,
+            '--workload-root', str(run_directory / 'sources' / case.name), '--stage', stage,
+            '--pairs', str(count), '--xsh', str(config.xsh), '--xsht', str(config.xsht),
+            '--reference-root', str(reference_root),
+            '--reference-xsh', reference_products['xsh']['path'],
+            '--reference-xsht', reference_products['xsht']['path'],
+            '--cpu-id', str(cpu),
+            '--output', str(result_path),
+        ]
+        if stage == 'runtime' and case.name == 'finite-overload-chain-64':
+            command.append('--include-monomorphic')
+
+        def operation():
+            status, stdout, stderr = checked_docker(command, config.scratch, timeout_seconds=900)
+            check_result(status, stdout, stderr, b'')
+            result = read_json(result_path)
+            workload_result = report['workloads'].setdefault(case.name, dict(workload_shapes[case.name]))
+            if case.frontend_expectation == 'expected-type-depth-rejection':
+                workload_result['expected_rejection_control'] = result['expected_rejection_control']
+            else:
+                workload_result[stage] = result
+            output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+            return result
+
+        return inference_measurement.bracketed_measurement(
+            lambda after: ready(case.name, stage, after), identity, operation,
+            discard=discard_timing)
+
+    try:
+        with inference_performance_locks(comparative, image):
+            identity()
+            for case in cases:
+                launch(case, 'check')
+                if case.frontend_expectation != 'expected-type-depth-rejection':
+                    launch(case, 'runtime')
+        monomorphic_runtime = next((value['runtime'].get('monomorphic_runtime')
+                                    for value in report['workloads'].values()
+                                    if isinstance(value.get('runtime'), dict)
+                                    and value['runtime'].get('monomorphic_runtime')), None)
+        binary_sizes = {
+            'reference': reference['binary_sizes'],
+            'candidate': {name: Path(record['path']).stat().st_size for name, record in binaries.items()},
+        }
+        qualification = inference_measurement.qualify_measurements(
+            report['workloads'], monomorphic_runtime=monomorphic_runtime, binary_sizes=binary_sizes)
+        report.update(qualification)
+        report['samples_complete'] = qualification['samples_complete']
+        report['timing_complete'] = qualification['samples_complete'] and qualification['runtime_complete']
+        report['counters_complete'] = qualification['counters_complete']
+        report['qualification_complete'] = qualification['qualification_complete']
+        report['performance_complete'] = qualification['qualification_complete']
+        output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+        require(report['performance_complete'], 'inference performance measurement is incomplete or unqualified; inspect the saved report')
+        return report
+    except BaseException as error:
+        report['failure'] = str(error)
+        report['performance_complete'] = False
+        try:
+            output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+        except BaseException as failure:
+            error.add_note(f'inference failure report could not be written: {failure}')
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, type=Path)
@@ -1032,6 +1419,9 @@ def main():
         elif args.mode == 'measure':
             require(args.check, 'measure requires --check')
             measure(config)
+        elif args.mode == 'inference':
+            require(args.check, 'inference requires --check')
+            raise CheckError('inference: full capability, joint corpus, and classification evidence are still required')
         else:
             raise CheckError(f'{args.mode}: unavailable until existing owner is integrated')
         return 0

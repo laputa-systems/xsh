@@ -2944,6 +2944,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     })?;
                 (body, BTreeMap::new(), BTreeMap::new())
             };
+        let result_unit_tail = scheme_body_facts.is_none()
+            && matches!(return_kind, LoweredReturnKind::Result(LoweredType::Unit))
+            && self.program.arena.stmt_ids(self.program.arena.block(def.body).statements)
+                .last()
+                .map(|tail| self.program.arena.core_stmt_id(tail))
+                .is_some_and(|tail| match self.program.arena.stmt(tail).kind {
+                    ArenaStmtKind::Expr(expression) => self.checked_expr_type(expression).is_some_and(|ty| ty.is_result_unit()),
+                    ArenaStmtKind::TailBareIdent(name) => self.bodies.resolved_bindings
+                        .at(self.program.arena.stmt(tail).span, name)
+                        .and_then(|binding| slots.binding_type(binding))
+                        .is_some_and(Type::is_result_unit),
+                    _ => false,
+                });
+        let forwards_result_unit = if result_unit_tail && let Some(&tail) = body.last() {
+            let row = self.scratch.borrow().statements[tail.index()].clone();
+            if let BuildStmtRow::Expr { value, .. } = row {
+                self.scratch.borrow_mut().statements[tail.index()] = BuildStmtRow::Return { value };
+                true
+            } else { false }
+        } else { false };
         default_prefix.append(&mut body);
         body = default_prefix;
         // The construct probe is permissive: it substitutes `Unit` for any
@@ -2964,7 +2984,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             return Err(CompactFunctionBlocker::Body);
         }
-        let body_cannot_fall_through = if scheme_body_facts.is_some() {
+        let body_cannot_fall_through = if scheme_body_facts.is_some() || forwards_result_unit {
             true
         } else {
             let tail_is_value = self
@@ -3135,10 +3155,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         match self.program.arena.stmt(statement).kind {
-            ArenaStmtKind::TailBareIdent(_) => {
+            ArenaStmtKind::TailBareIdent(name) => {
                 let ty = facts.tail_types().get(&statement)?.clone();
-                let binding = self.bodies.resolved_bindings.tails.get(&statement)?;
-                let value = push_build_row!(self, expr, BuildExprRow::Param(slots.resolve_binding(*binding)?));
+                let value = self.lower_bare_ident_stmt(statement, name, slots)?;
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -3753,6 +3772,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if !visited.insert(expression) { return self.block_scheme_lowering_expr(expression); }
         let mut ty = facts.expression_types().get(&expression)?.clone();
+        if self.declarations.prepared_constants.values.contains_key(&expression) {
+            let value = self.lower_expr(expression, slots, Some(current_function), None)?;
+            return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+        }
         let span = self.program.arena.expr(expression).span;
         let mut registered = None;
         let lowered = match self.program.arena.expr(expression).kind {
@@ -3760,11 +3783,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let body = self.lower_scheme_capture_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::Capture { body, span })
             }
-            ArenaExprKind::Ident(_) => {
-                let binding = self.expression_binding(expression)?;
-                let slot = slots.resolve_binding(binding)?;
-                push_build_row!(self, expr, BuildExprRow::Param(slot))
-            }
+            ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
@@ -6518,7 +6537,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             producer
         } else { lowered };
-        if ty.contains_typed_callable() {
+        let materialized_callable = self.bodies.call_instantiations.contains_key(&id)
+            && matches!(self.program.arena.expr(id).kind, ArenaExprKind::Ident(_));
+        if ty.contains_typed_callable() && !materialized_callable {
             let parameter_slot = {
                 let scratch = self.scratch.borrow();
                 match scratch.expressions.get(lowered.index()) {

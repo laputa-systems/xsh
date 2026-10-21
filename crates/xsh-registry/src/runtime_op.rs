@@ -133,6 +133,7 @@ pub enum RuntimeOp {
     CompressionTransform,
 
     CompressionGzipName,
+    CryptoEd25519Verify,
     LinuxModulePlan,
     LinuxBlockSignatures,
     LinuxWipeBlockSignatures,
@@ -208,6 +209,7 @@ pub enum RuntimeOp {
     SetDiscard,
     SetToList,
     ModuleLoad,
+    NetValidateRootBundle,
     NetRequest,
     NetRequestMany,
     NetDownloadMany,

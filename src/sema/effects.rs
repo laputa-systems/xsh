@@ -311,6 +311,13 @@ pub(crate) enum EffectContract<V> {
 }
 
 impl<V: Ord> EffectContract<V> {
+    pub(crate) fn for_invocation(self, kind: crate::sema::types::CallableKind) -> Self {
+        match kind {
+            crate::sema::types::CallableKind::Pure => Self::finite(EffectSet::default()),
+            crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream => self,
+        }
+    }
+
     pub(crate) fn from_clause(effects: Option<impl IntoIterator<Item = Effect>>) -> Self {
         match effects {
             Some(effects) => Self::finite(EffectSet::new(effects)),

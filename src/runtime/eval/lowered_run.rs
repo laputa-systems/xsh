@@ -9,7 +9,7 @@ use crate::map_key::MapKey;
 use crate::modules::{
     RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
     diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
-    group as group_module, hash as hash_module, ini as ini_module, json as json_module,
+    crypto as crypto_module, group as group_module, hash as hash_module, ini as ini_module, json as json_module,
     linux as linux_module, mime as mime_module, net as net_module, patch as patch_module,
     process as process_module, regex as regex_module, shlex, system, tui, unix as unix_module,
     user as user_module,
@@ -5636,6 +5636,16 @@ impl Evaluator {
                 let name = lowered_str_arg_owned(values.pop(), "", "group.remove", span)?;
                 lowered_runtime_result(group_module::remove(&name, span), span)?
             }
+            callable; RuntimeOp::CryptoEd25519Verify if values.len() == 3 => {
+                let message = lowered_bytes_arg(&values[0], "crypto.ed25519_verify", span)?;
+                let public_key = lowered_bytes_arg(&values[1], "crypto.ed25519_verify", span)?;
+                let signature = lowered_bytes_arg(&values[2], "crypto.ed25519_verify", span)?;
+                lowered_runtime_result(
+                    crypto_module::ed25519_verify(message, public_key, signature, span)
+                        .map(Value::Bool),
+                    span,
+                )?
+            }
             callable; RuntimeOp::HashDigestFile if (2..=3).contains(&values.len()) => {
                 let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.digest_file", span)?;
                 let length = lowered_int_arg_or(values.get(2).cloned(), 0, "hash.digest_file", span)?;
@@ -6336,6 +6346,10 @@ impl Evaluator {
                 )?
             }
             callable; RuntimeOp::ModuleLoad if values.len() == 1 => return self.eval_lowered_module_load_values(values, span),
+            callable; RuntimeOp::NetValidateRootBundle if values.len() == 1 => {
+                let pem = lowered_bytes_arg(&values[0], "net.validate_root_bundle", span)?;
+                lowered_runtime_result(net_module::validate_root_bundle(pem, span).map(|()| Value::Unit), span)?
+            }
             callable; RuntimeOp::NetPool if values.len() <= 3 => return self.eval_lowered_net_pool_values(values, span),
             callable; RuntimeOp::NetClosePool if values.len() <= 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "default", "net.close_pool", span)?;

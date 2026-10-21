@@ -50,6 +50,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: compression_module(),
             },
             ModuleEntry {
+                name: "crypto",
+                sig: crypto_module(),
+            },
+            ModuleEntry {
                 name: "cpu",
                 sig: cpu_module(),
             },
@@ -1080,6 +1084,22 @@ fn compression_module() -> ModuleSig {
     ])
 }
 
+fn crypto_module() -> ModuleSig {
+    module_sig(vec![(
+        "ed25519_verify",
+        sig(
+            vec![
+                param("message", Type::Bytes),
+                param("public_key", Type::Bytes),
+                param("signature", Type::Bytes),
+            ],
+            result(Type::Bool),
+            true,
+            RuntimeOp::CryptoEd25519Verify,
+        ),
+    )])
+}
+
 fn shlex_module() -> ModuleSig {
     module_sig(vec![
         (
@@ -1117,6 +1137,15 @@ fn module_module() -> ModuleSig {
 
 fn net_module() -> ModuleSig {
     module_sig(vec![
+        (
+            "validate_root_bundle",
+            sig(
+                vec![param("pem", Type::Bytes)],
+                result(Type::Unit),
+                true,
+                RuntimeOp::NetValidateRootBundle,
+            ),
+        ),
         (
             "request",
             sig(

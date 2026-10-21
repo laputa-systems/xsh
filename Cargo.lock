@@ -549,9 +549,9 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client"
-version = "0.1.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8a8538043b17a2754598e461773f5d1322f1798399aa398492455ffc5e606e1"
+checksum = "bed965470cb076d20b8a29a2b2f2bd13c23b3d73cb31b01b00ba78e49ed85211"
 dependencies = [
  "async-io",
  "async-net",
@@ -571,18 +571,18 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client-normalize"
-version = "0.1.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01db50ff0de5dfd384056c42c8544bd8671d7a3f31fa9fb147cf4cedea09f1f5"
+checksum = "664f98965870e40bbe1b42c90bc4cc37ae6dd82ac1330688f9c8c5f799d0e0e4"
 dependencies = [
  "http",
 ]
 
 [[package]]
 name = "h12tiny-core"
-version = "0.1.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8161e4576861dc463275d69c16e0da70af2d3f25ae21a86a16e35f4f50301285"
+checksum = "65b14f686f9d467159c65130277ea21667d25a4fa912ff257c78de52fb886e24"
 dependencies = [
  "async-io",
  "futures-io",
@@ -777,30 +777,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "laputa-h2-futures"
-version = "0.4.16-beta.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7dc39bf4eac6ebb135f71c4e7f7b2560dc5a65284b38a6dd14a5d70151ebf5"
-dependencies = [
- "atomic-waker",
- "bytes",
- "fnv",
- "futures-core",
- "futures-io",
- "futures-lite",
- "futures-sink",
- "http",
- "indexmap",
- "log",
- "pin-project-lite",
- "slab",
-]
-
-[[package]]
 name = "laputa-h2-futures-lite"
-version = "0.4.16-beta.0"
+version = "0.4.20-beta.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2915c4cf9fae00e9e1937bac974c698951dd2a54aab63d7c85a203f3f3c3b5c"
+checksum = "2d26dcbb89718ab44652ef9cf634a7082c6700f4b060069de08cad304e7da0ef"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -818,9 +798,9 @@ dependencies = [
 
 [[package]]
 name = "laputa-hyper-futures-lite"
-version = "1.11.0-beta.0"
+version = "1.12.0-beta.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38df59f5dc3db79b0659359a02596f61afdc9857d5b8d7897d679fccafcdcd45"
+checksum = "cf2f825e7b83ea97d3c32efe96cd423c2dee61fd735224da9577cef59ad68bc7"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -832,7 +812,7 @@ dependencies = [
  "http-body",
  "httparse",
  "itoa",
- "laputa-h2-futures",
+ "laputa-h2-futures-lite",
  "pin-project-lite",
  "smallvec",
  "want",
@@ -1232,9 +1212,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -1582,9 +1562,9 @@ dependencies = [
 
 [[package]]
 name = "want"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
+checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
 dependencies = [
  "try-lock",
 ]
@@ -1649,18 +1629,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.7"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -1871,6 +1851,7 @@ dependencies = [
  "directories",
  "flate2",
  "futures-rustls",
+ "graviola",
  "http",
  "ignore",
  "laputa-h2-futures-lite",
@@ -1937,6 +1918,7 @@ dependencies = [
  "async-net",
  "crossbeam-channel",
  "futures-lite",
+ "graviola",
  "h12tiny-client",
  "http",
  "http-body-util",
@@ -1948,6 +1930,7 @@ dependencies = [
  "rustls-graviola",
  "rustls-pemfile",
  "rustls-platform-verifier",
+ "rustls-webpki",
 ]
 
 [[package]]

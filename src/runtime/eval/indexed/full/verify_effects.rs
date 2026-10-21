@@ -94,6 +94,7 @@ pub(super) fn require_callable(decoder: &FullDecoder<'_>, scopes: &VerifiedSchem
 
 pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &VerifiedSchemeScopes) -> Result<(), IrVerifyError> {
     let owner = OwnerEffects::for_function(decoder.store, index)?;
+    verify_script_implementation(decoder.store, index, &owner)?;
     let mutable_captures = if owner.kind == CallableKind::Pure {
         let captures = decoder.store.functions[index].captures.bounds(decoder.store.captures.len())
             .ok_or_else(|| IrVerifyError::new("pure callable capture range is invalid"))?;
@@ -147,14 +148,20 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     schema::ExprView::SelfCall { .. } => index,
                     _ => unreachable!(),
                 };
-                let effects = proof.call_contract(index, instruction, target, &mut budget.borrow_mut())?;
-                let target = OwnerEffects::for_function(decoder.store, target)?;
-                match effects.concrete() {
-                    Ok(effects) => require(instruction, effects.as_deref(), target.kind == CallableKind::Pure, &mut captured)?,
-                    Err(_) => {
-                        let captures = owner.kind != CallableKind::Pure
-                            && captures_error(decoder, instruction, &mut captured, |at| decoder.instruction_parent_of(at))?;
-                        owner.require_contract(&proof, &mut budget.borrow_mut(), &effects, target.kind == CallableKind::Pure, captures)?;
+                match script_implementation_rule(decoder.store, target)? {
+                    Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
+                    Some(NativeEffectRule::OperandDependent) => require(instruction, None, false, &mut captured)?,
+                    None => {
+                        let effects = proof.call_contract(index, instruction, target, &mut budget.borrow_mut())?;
+                        let target = OwnerEffects::for_function(decoder.store, target)?;
+                        match effects.concrete() {
+                            Ok(effects) => require(instruction, effects.as_deref(), target.kind == CallableKind::Pure, &mut captured)?,
+                            Err(_) => {
+                                let captures = owner.kind != CallableKind::Pure
+                                    && captures_error(decoder, instruction, &mut captured, |at| decoder.instruction_parent_of(at))?;
+                                owner.require_contract(&proof, &mut budget.borrow_mut(), &effects, target.kind == CallableKind::Pure, captures)?;
+                            }
+                        }
                     }
                 }
             }
@@ -165,7 +172,15 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 require(instruction, effects.as_deref().or(if pure { Some(&[]) } else { None }), pure, &mut captured)?;
             }
             FullTag::ExprDynamicCall => {}
-            FullTag::ExprExternalCall => require(instruction, None, false, &mut captured)?,
+            FullTag::ExprExternalCall => {
+                let schema::ExprView::ExternalCall { function, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let rule = crate::stdlib::find_by_namespace(&function.namespace.as_str())
+                    .and_then(|module| crate::modules::signature::script_implementation_effect_rule(module.identity, &function.member.as_str()));
+                match rule {
+                    Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
+                    Some(NativeEffectRule::OperandDependent) | None => require(instruction, None, false, &mut captured)?,
+                }
+            }
             FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
                 require(instruction, Some(&[Effect::Fs]), false, &mut captured)?;
                 let (schema::ExprView::FsFiles { result_wrapped, .. } | schema::ExprView::FsWalk { result_wrapped, .. }) = decoder.expression_view(instruction)? else { unreachable!() };
@@ -259,8 +274,40 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
     Ok(())
 }
 
+fn verify_script_implementation(store: &FullStore, index: usize, owner: &OwnerEffects) -> Result<(), IrVerifyError> {
+    let Some(rule) = script_implementation_rule(store, index)? else { return Ok(()); };
+    let NativeEffectRule::Uniform { effects, pure } = rule else {
+        return Err(IrVerifyError::new("script implementation has ambiguous public effects"));
+    };
+    if (owner.kind == CallableKind::Pure) != pure || owner.kind == CallableKind::Stream {
+        return Err(IrVerifyError::new("script implementation kind differs from its registry contract"));
+    }
+    let actual_effects = function_effects(store, index)?;
+    let actual = actual_effects.as_deref().ok_or_else(|| IrVerifyError::new("script implementation has unknown effects"))?;
+    let return_kind = match store.functions[index].contract {
+        FullCallableContract::Ground(signature) => super::lowered_return_kind(store.semantic.to_type(store.semantic.signature_return_type(signature)?)?)?,
+        FullCallableContract::Scheme(id) => super::scheme_return_kind(store, store.scheme(id)?.return_type)?,
+    };
+    let captures_error = owner.kind == CallableKind::Proc && matches!(return_kind, super::LoweredReturnKind::Result(_));
+    if actual.iter().any(|effect| !(*effect == Effect::Error && captures_error)
+        && !crate::sema::check::Checker::effects_covers(effects, effect)) {
+        return Err(IrVerifyError::new("script implementation effects exceed its registry contract"));
+    }
+    Ok(())
+}
+
+fn script_implementation_rule(store: &FullStore, index: usize) -> Result<Option<NativeEffectRule>, IrVerifyError> {
+    let metadata = store.function_metadata[index];
+    if metadata.owner == super::IR_NONE { return Ok(None); }
+    let Some(module) = crate::stdlib::find_by_namespace(store.string(metadata.owner)?) else { return Ok(None); };
+    Ok(crate::modules::signature::script_implementation_effect_rule(module.identity, store.string(store.functions[index].name)?))
+}
+
 pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store.tags[instruction];
+    if tag == FullTag::ExprTry {
+        return store.try_operand(instruction).map(|operand| operand.is_some_and(|value| matches!(store.tags[value], FullTag::ExprErr | FullTag::ExprMatch)));
+    }
     if matches!(tag, FullTag::ExprAbort | FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder
         | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand | FullTag::ExprWait | FullTag::ExprCapture) { return Ok(true); }
     if !matches!(tag, FullTag::ExprModuleCall | FullTag::ExprMethod) { return Ok(false); }
