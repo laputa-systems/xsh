@@ -153,9 +153,9 @@ pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<
     None
 }
 
-/// The contract of a typed callable. `sig.effects` is the upper bound a call
-/// charges to its caller. Parameters carry no defaults and no rest
-/// parameter, so a call supplies every argument.
+/// The contract of a callable value. `sig.effects` bounds invocation effects.
+/// Declaration-derived values retain parameter labels, defaults, and rest
+/// layout. Authored callable type expressions require every listed argument.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedCallable {
     pub pure: bool,
@@ -229,8 +229,9 @@ impl TypedCallable {
     /// Why a callable with signature `actual` (`actual_pure` for a pure
     /// function) cannot be used where `self` is expected, or `None` when it
     /// can. The rule is deliberately narrow: the same kind, the same
-    /// parameter labels and types in order, and the same return type. Only
-    /// effects vary: the callable may need fewer than the bound allows.
+    /// parameter labels and types in order, the same rest layout, and the
+    /// same return type. A required default must exist. The callable may need
+    /// fewer effects than the bound allows.
     /// `check_effects` is false while effect summaries are still being
     /// solved, when an inferred callable's effects and types may not be
     /// known yet. Otherwise a type the checker has not resolved does not fit:
@@ -259,11 +260,17 @@ impl TypedCallable {
         }
         for (index, (found, expected)) in actual.params.iter().zip(&self.sig.params).enumerate() {
             let position = index + 1;
-            if found.rest {
+            if found.rest && !expected.rest {
                 return Some(format!(
                     "parameter {position} `{}` is a rest parameter",
                     found.name
                 ));
+            }
+            if expected.rest && !found.rest {
+                return Some(format!("parameter {position} `{}` is not a rest parameter", found.name));
+            }
+            if expected.defaulted && !found.defaulted {
+                return Some(format!("parameter {position} `{}` has no default", found.name));
             }
             if found.name != expected.name {
                 return Some(format!(
@@ -2086,6 +2093,30 @@ mod tests {
             proc(Some(vec![Effect::Error])),
         )])));
         assert!(!Type::Module(module_type(BTreeMap::new())).matches_expected(&expected));
+    }
+
+    #[test]
+    fn materialized_callable_layouts_preserve_default_and_rest_guarantees() {
+        SymbolOwner::new().with_current(|| {
+            let mut signature = CallableType {
+                params: vec![CallableParamType { name: Name::intern("items"), ty: Type::List(Box::new(Type::Int)), defaulted: false, rest: true }],
+                return_ty: Box::new(Type::Int), effects: super::CallableEffects::finite([]),
+            };
+            let expected = super::TypedCallable { pure: true, sig: signature.clone() };
+            assert!(expected.mismatch(true, &signature, true).is_none());
+            signature.params[0].rest = false;
+            assert!(expected.mismatch(true, &signature, true).unwrap().contains("not a rest parameter"));
+            assert!(expected.mismatch(false, &expected.sig, true).unwrap().contains("found a proc"));
+            signature.params[0].ty = Type::Int;
+            signature.params[0].defaulted = true;
+            let mut expected = super::TypedCallable { pure: true, sig: signature.clone() };
+            assert!(expected.mismatch(true, &signature, true).is_none());
+            signature.params[0].defaulted = false;
+            assert!(expected.mismatch(true, &signature, true).unwrap().contains("has no default"));
+            expected.sig.params[0].defaulted = false;
+            signature.params[0].defaulted = true;
+            assert!(expected.mismatch(true, &signature, true).is_none());
+        });
     }
 
     #[test]

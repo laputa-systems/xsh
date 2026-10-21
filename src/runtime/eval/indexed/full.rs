@@ -1208,6 +1208,15 @@ pub(in crate::runtime::eval) struct FullProgram {
         std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(in crate::runtime::eval) struct PreparedApplicationBindings {
+    layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
+}
+
+impl PreparedApplicationBindings {
+    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() }
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
     program: &'a FullProgram,
@@ -1221,6 +1230,45 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
+    pub(in crate::runtime::eval) fn invocation_applications(
+        &self, instruction: u32, caller: &PreparedApplicationBindings,
+    ) -> Result<PreparedApplicationBindings, IrVerifyError> {
+        let Ok(index) = self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction) else {
+            return Ok(PreparedApplicationBindings::default());
+        };
+        let instance = self.store.call_instantiations[index];
+        let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
+            .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
+        let mut layouts = Vec::with_capacity(range.len());
+        for binding in &self.store.call_application_bindings[range] {
+            let layout = match binding {
+                schemes::FullApplicationBinding::Selected { argument_slots, omitted_slots } => {
+                    let arguments = argument_slots.bounds(self.store.call_application_slots.len())
+                        .ok_or_else(|| IrVerifyError::new("invocation argument layout range is invalid"))?;
+                    let omitted = omitted_slots.bounds(self.store.call_application_slots.len())
+                        .ok_or_else(|| IrVerifyError::new("invocation omitted layout range is invalid"))?;
+                    Arc::new(crate::sema::arguments::StaticArgumentBinding {
+                        argument_slots: self.store.call_application_slots[arguments].iter().map(|slot| *slot as usize).collect(),
+                        omitted_slots: self.store.call_application_slots[omitted].iter().map(|slot| *slot as usize).collect(),
+                    })
+                }
+                schemes::FullApplicationBinding::Forwarded(ordinal) => caller.layouts.get(*ordinal as usize).cloned()
+                    .ok_or_else(|| IrVerifyError::new("invocation has no actual forwarded application"))?,
+            };
+            layouts.push(layout);
+        }
+        Ok(PreparedApplicationBindings { layouts: layouts.into() })
+    }
+
+    pub(in crate::runtime::eval) fn application_layout(
+        &self, instruction: u32, invocation: &PreparedApplicationBindings,
+    ) -> Result<Option<Arc<crate::sema::arguments::StaticArgumentBinding>>, IrVerifyError> {
+        let Ok(index) = self.store.scheme_application_calls.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
+        let ordinal = self.store.scheme_application_calls[index].application;
+        invocation.layouts.get(ordinal as usize).cloned().map(Some)
+            .ok_or_else(|| IrVerifyError::new("application call has no actual invocation layout"))
+    }
+
     pub(in crate::runtime::eval) fn fresh_binding_namespace() -> u64 {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let namespace = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -6220,17 +6268,23 @@ impl<'a> FullDecoder<'a> {
                 "typed call kind does not match its callable type",
             ));
         }
-        let len = args.len();
-        if len != semantic.signature_param_count(signature)? {
-            return Err(IrVerifyError::new(
-                "typed call argument count does not match its signature",
-            ));
-        }
+        let count = semantic.signature_param_count(signature)?;
+        let mut position = 0;
         for argument in args {
-            if !matches!(argument?, decode::CallArgView::Single(_)) {
-                return Err(IrVerifyError::new(
-                    "typed call argument is not a single value",
-                ));
+            if position >= count { return Err(IrVerifyError::new("typed call argument count does not match its signature")); }
+            let flags = semantic.signature_param(signature, position)?.2;
+            let rest = flags & 2 != 0;
+            match argument? {
+                decode::CallArgView::Default(slot) if slot == position && flags & 1 != 0 && !rest => {}
+                decode::CallArgView::Default(_) => return Err(IrVerifyError::new("typed call default has no actual parameter default")),
+                decode::CallArgView::Splice(_) if !rest => return Err(IrVerifyError::new("typed call splice has no rest parameter")),
+                decode::CallArgView::Single(_) | decode::CallArgView::Splice(_) => {}
+            }
+            if !rest { position += 1; }
+        }
+        for parameter in position..count {
+            if semantic.signature_param(signature, parameter)?.2 & 3 == 0 {
+                return Err(IrVerifyError::new("typed call argument count does not match its signature"));
             }
         }
         Ok(())
@@ -23121,6 +23175,10 @@ assert apply(40) == 42
             let FullCallableContract::Scheme(scheme) = program.store.functions[traced].contract else { panic!("generic caller") };
             let effects = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
+            let mut wrong_owner = program.clone();
+            wrong_owner.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
+            let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+            assert!(error.message.contains("executable operation requires effect io outside its owner contract"), "{}", error.message);
             let mut forged = program.clone();
             let mut semantic = SemanticPoolBuilder::default();
             let signature = semantic.intern_signature(&mut forged.store.semantic, &signature).unwrap();
@@ -23213,7 +23271,7 @@ assert apply(40) == 42
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
             let mut forged = program.clone();
             forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
-            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic body proc effects exceed its owner contract"));
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("executable operation requires effect io outside its owner contract"));
             let constructor = program.store.checked_expr_types.iter().position(|fact| {
                 program.store.tags[fact.instruction as usize] == FullTag::ExprOk
                     && matches!(program.store.semantic.to_type(fact.type_id).unwrap(), Type::Result(ok, _) if *ok == Type::Int)
@@ -38199,17 +38257,14 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 "typed call argument count does not match its signature",
             );
 
-            // Pointing the argument at an instruction that does not produce
-            // one value is rejected before ownership validation.
             let mut unowned_argument = (*program).clone();
             let first = arguments(&unowned_argument) + 1;
             unowned_argument.store.extra[first] = 2;
             rejected(
                 &unowned_argument,
-                "typed call argument is not a single value",
+                "typed call default has no actual parameter default",
             );
 
-            // The type's signature lets a call omit a parameter.
             let mut defaulted = (*program).clone();
             assert!(
                 defaulted
@@ -38219,7 +38274,7 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             );
             rejected(
                 &defaulted,
-                "typed callable signature has a defaulted or rest parameter",
+                "function parameter metadata disagrees with its signature",
             );
 
             // A row made consistent with a proc type of the same arity still

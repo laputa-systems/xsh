@@ -4108,14 +4108,22 @@ build(workspace)
 run_step(Step(name: "release", build: release_build), workspace)
 ```
 
-A value gets a callable type in one of two ways: a function is named where
-the type is expected (a declaration, a module export, or an alias that kept
-its signature), or a value of a fitting callable type is passed along (5.2).
+A value gets an authored callable type in one of two ways: a function is named
+where the type is expected (a declaration, a module export, or an alias that
+kept its signature), or a value of a fitting callable type is passed along (5.2).
 Where the type is expected, a block may end in a bare function name, so both
 branches of an `if` or the arms of a `match` can select one. A function with
 defaulted parameters fits when its labels and types match, because a call
 through the type passes every argument; one with a rest parameter does not
 fit.
+
+An inferred declaration-derived callable retains its complete selected signature,
+including parameter labels, available defaults, and the final rest parameter.
+An application requirement constrains that actual callable without replacing its
+signature. Supplied entries evaluate in source order before their checked binding
+places them in formal slots; omitted defaults execute in the selected declaration's
+scope, and list splices contribute to its rest parameter. Aliases and returned
+callable values retain the same signature.
 
 A call through the type is written `value(args)`, `record.field(args)` for a
 record field of a callable type, which takes precedence over a record method
@@ -4125,8 +4133,8 @@ position or by label, the result has the type's return type, and the type's
 effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
-call passes each argument explicitly; `@` splices and `...` spreads are
-rejected. A stream stage's callable is still a function name; a value of a
+call through an authored fixed-arity type passes each argument explicitly;
+`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was

@@ -2141,21 +2141,22 @@ impl<'a> ProducerProof<'a> {
                                 continue;
                             }
                             let function = function_index(owner)?;
-                            let FullCallableContract::Ground(signature) = self.store.functions[function].contract else {
-                                return Err(IrVerifyError::new("callable parameter source has no ground signature"));
+                            let parameter_type = match self.store.functions[function].contract {
+                                FullCallableContract::Ground(signature) => {
+                                    let (_, ty, _) = self.store.semantic.signature_param(signature, parameter)?;
+                                    Some(self.contract_type(ty)?)
+                                }
+                                FullCallableContract::Scheme(_) => self.scheme_parameter(owner, parameter)?,
                             };
-                            let (_, parameter_type, _) = self.store.semantic.signature_param(signature, parameter)?;
-                            if self.contract_type(parameter_type)?.contains_typed_callable() {
-                                has_contract_source = true;
-                            }
-
+                            if parameter_type.is_some_and(|ty| ty.contains_typed_callable()) { has_contract_source = true; }
+                            let parameter_flags = bounded(self.store.functions[function].params, &self.store.params, "callable parameter range is invalid")?
+                                .get(parameter).ok_or_else(|| IrVerifyError::new("callable parameter is out of bounds"))?.flags;
+                            self.budget.charge(self.incoming.get(&function).map_or(0, Vec::len))?;
                             for caller in self.incoming.get(&function).cloned().unwrap_or_default() {
                                 let caller_owner = self.index.instruction_owner(caller)?;
                                 let caller_decoder = self.owner(caller_owner)?;
                                 let values = call_values(&caller_decoder, caller)?;
-                                let FullCallableContract::Ground(signature) = self.store.functions[function].contract else { return Err(IrVerifyError::new("callable parameter source has no ground signature")) };
-                                let (_, _, flags) = self.store.semantic.signature_param(signature, parameter)?;
-                                if flags & 2 != 0 {
+                                if parameter_flags & 1 != 0 {
                                     for argument in values.iter().skip(parameter) {
                                         let mut path = path.clone();
                                         match argument {
@@ -2615,24 +2616,24 @@ impl<'a> ProducerProof<'a> {
                 }.into_iter().map(|value| value.map(|value| value.raw() as usize)).collect();
                 self.verify_native_call(&decoder, instruction, op, None, arguments, &result)
             }
-            schema::ExprView::TypedCall { callee, signature, args, pure, .. } => {
+            schema::ExprView::TypedCall { callee, signature, pure, .. } => {
                 let targets = self.function_targets(owner, callee.raw() as usize)?;
                 let contract = self.contract_type(signature.id)?;
                 let Type::Callable(callable) = contract.as_ref() else { return Err(IrVerifyError::new("typed producer call has no callable contract")) };
                 if callable.pure != pure { return Err(IrVerifyError::new("typed producer call kind disagrees with its contract")); }
                 if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("typed producer call return disagrees with its checked contract")); }
                 self.expression(owner, callee.raw() as usize, Arc::clone(&contract), false);
-                let mut arguments = Vec::new();
-                for argument in args {
-                    let super::super::decode::CallArgView::Single(value) = argument? else { return Err(IrVerifyError::new("verified typed call has a non-single argument")) };
-                    arguments.push(ProducerArgument::Single(value.raw() as usize));
-                }
-                if arguments.len() != callable.sig.params.len() { return Err(IrVerifyError::new("typed producer call arguments do not match its contract")); }
-                for (argument, parameter) in arguments.iter().zip(&callable.sig.params) {
-                    let ProducerArgument::Single(value) = *argument else { unreachable!("typed arguments were decoded as single values") };
-                    self.budget.charge_clone(&parameter.ty)?;
-                    self.expression(owner, value, Arc::new(parameter.ty.clone()), false);
-                }
+                let arguments = call_values(&decoder, instruction)?;
+                self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(),
+                    |position| {
+                        let parameter = &callable.sig.params[position];
+                        Ok(u32::from(parameter.defaulted) | (u32::from(parameter.rest) << 1))
+                    },
+                    |proof, position| {
+                        let ty = &callable.sig.params[position].ty;
+                        proof.budget.charge_clone(ty)?;
+                        Ok(Arc::new(ty.clone()))
+                    })?;
                 for target in targets {
                     let incoming = self.incoming.entry(target).or_default();
                     if !incoming.contains(&instruction) { incoming.push(instruction); }

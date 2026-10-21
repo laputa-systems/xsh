@@ -83,8 +83,6 @@ pub(super) enum TypeTag {
     // A closed union. `lhs` is the member count and `rhs` the offset of the
     // member type ids in `type_extra`, in the order the union lists them.
     Union,
-    // A callable with a checked signature. `lhs` is the signature id; the
-    // signature has no defaulted or rest parameter.
     TypedProc,
     TypedPure,
     // A base type narrowed by a validation. `lhs` is the base type id and
@@ -1228,10 +1226,6 @@ impl SemanticPools {
                         }
                     }
                 }
-                // A call through a typed callable supplies exactly the
-                // parameters its signature lists, so a signature that would
-                // let one be omitted or collected was not produced by
-                // lowering.
                 TypeTag::TypedProc | TypeTag::TypedPure => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
@@ -1239,12 +1233,16 @@ impl SemanticPools {
                     if data.rhs != 0 {
                         return Err(IrVerifyError::new("typed callable type has invalid data"));
                     }
-                    for param in 0..self.signature_param_count(signature)? {
-                        if self.signature_param(signature, param)?.2 != 0 {
-                            return Err(IrVerifyError::new(
-                                "typed callable signature has a defaulted or rest parameter",
-                            ));
-                        }
+                    let count = self.signature_param_count(signature)?;
+                    let mut defaulted = false;
+                    for param in 0..count {
+                        let (_, ty, flags) = self.signature_param(signature, param)?;
+                        if flags & PARAM_REST != 0 {
+                            if param + 1 != count || flags & PARAM_DEFAULTED != 0 || self.list_item_type_id(ty)?.is_none() {
+                                return Err(IrVerifyError::new("typed callable rest parameter has an invalid layout"));
+                            }
+                        } else if flags & PARAM_DEFAULTED != 0 { defaulted = true; }
+                        else if defaulted { return Err(IrVerifyError::new("typed callable required parameter follows a default")); }
                     }
                 }
                 _ => return Err(IrVerifyError::new("type tag has no verification schema")),

@@ -1515,27 +1515,6 @@ fn verify_body_expression(
                 });
             }
             let target = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
-            if store.function_metadata[function.id.index()].flags & 1 != 0 {
-                let owner = IrFunctionId::from_raw(decoder.owner).and_then(|id| store.functions.get(id.index()))
-                    .ok_or_else(|| IrVerifyError::new("generic call has no function owner"))?;
-                let FullCallableContract::Scheme(owner_scheme) = owner.contract else { return Err(IrVerifyError::new("generic call owner has no scheme")) };
-                let owner_scheme = store.scheme(owner_scheme)?;
-                if owner_scheme.callable_kind != crate::sema::types::CallableKind::Proc || !owner_scheme.effects.known {
-                    return Err(IrVerifyError::new("generic body calls a proc without a finite proc effect contract"));
-                }
-                let ceiling = owner_scheme.effects.concrete(store)?.ok_or_else(|| IrVerifyError::new("generic owner effects are unrestricted"))?;
-                let required = match target.contract {
-                    FullCallableContract::Ground(signature) => store.semantic.to_signature_with_budget(signature, 0, &mut budget.semantic_types)?.effects.concrete()
-                        .map_err(|_| IrVerifyError::new("generic call target effect contract is unresolved"))?,
-                    FullCallableContract::Scheme(scheme) => {
-                        let scheme = store.scheme(scheme)?;
-                        scheme.effects.concrete(store)?
-                    }
-                }.ok_or_else(|| IrVerifyError::new("generic body proc call has unrestricted effects"))?;
-                if required.iter().any(|effect| !crate::sema::check::Checker::effects_covers(&ceiling, effect)) {
-                    return Err(IrVerifyError::new("generic body proc effects exceed its owner contract"));
-                }
-            }
             match target.contract {
                 FullCallableContract::Scheme(_) => ty.clone(),
                 FullCallableContract::Ground(signature) => {

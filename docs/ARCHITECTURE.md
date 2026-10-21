@@ -387,6 +387,16 @@ operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
 
+Each invocation retains the checked application layouts selected by its canonical
+call substitution. Forwarded entries share the caller's actual layout instead of
+building a chain of unresolved applications. Argument evaluation retains source
+entry boundaries through splice expansion. After all supplied entries finish,
+those layouts place values and actual declaration defaults in formal slots. The
+runtime consumes prepared slot indices and preserves actual callee header checks.
+Declaration-derived callable signatures retain defaults and rest metadata; typed
+call verification checks their layout and every argument against both the callable
+contract and its actual target writers.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 

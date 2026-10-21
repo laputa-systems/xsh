@@ -1439,3 +1439,105 @@ fn prepared_applications_results_anchor_empty_collection_arguments() {
         }
     }
 }
+
+fn assert_prepared_application_result(source: &str, kind: LoweredFunctionKind, expected: Value) {
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+        let actual = evaluator.call_indexed_direct(key, kind, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(record_form_observable(actual), expected, "frames={force_frames}\n{source}");
+    }
+}
+
+#[test]
+fn inferred_application_runtime_named_arguments_keep_source_order() {
+    let source = "pure target(first: Int, last: Int) -> Int { first * 100 + last }\npure apply(action, value) { var trace = 0; let result = action(last: { trace = trace * 10 + 1; value }, first: { trace = trace * 10 + 2; 1 }); {result, trace} }\npure number() { apply(target, 7) }\n";
+    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Map([
+        (crate::runtime::value::MapKey::Str(Arc::from("result")), Value::Int(107)),
+        (crate::runtime::value::MapKey::Str(Arc::from("trace")), Value::Int(12)),
+    ].into_iter().collect()));
+}
+
+#[test]
+fn inferred_application_runtime_interior_defaults_use_actual_layout() {
+    let source = "pure target(first: Int = 11, payload: Int = 7) -> Int { first * 100 + payload }\npure apply(action, value) { action(payload: value) }\npure number() -> Int { apply(target, 7) }\n";
+    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(1107));
+}
+
+#[test]
+fn inferred_application_runtime_named_rest_preserves_splice_groups() {
+    let source = "pure target(first: Int, payload: Int, ...items: List[Int]) -> Int { first * 100 + payload * 10 + items.len() }\npure apply(action, value) { action(payload: value, first: 1, @[2, 3], @[4]) }\npure number() -> Int { apply(target, 7) }\n";
+    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(173));
+}
+
+#[test]
+fn inferred_application_runtime_returned_callable_keeps_authored_labels() {
+    let source = "pure target(payload: Int, scale: Int = 2) -> Int { payload * scale }\npure keep(action, value) { let _ = action(value); action }\npure number() -> Int { let returned = keep(target, 7); returned(scale: 4, payload: 3) }\n";
+    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(12));
+}
+
+#[test]
+fn inferred_application_runtime_proc_returns_follow_actual_application_origin() {
+    for (definition, callback, value, expected) in [
+        ("pure identity(payload: Int) -> Int { payload }", "identity", "7", Value::Result(ResultValue::Ok(Box::new(Value::Int(7))))),
+        ("pure data(payload: Int) -> Result[Int, Str] { Err(\"stored\") }", "data", "7", Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("stored")))))),
+        ("proc identity(payload: Int) [] -> Int { payload }", "identity", "7", Value::Result(ResultValue::Ok(Box::new(Value::Int(7))))),
+    ] {
+        for returned in ["action(value)", "let result = action(value); result"] {
+            let source = format!("{definition}\nproc relay(action, value) {{ {returned} }}\nproc number() [] {{ relay({callback}, {value}) }}\n");
+            assert_prepared_application_result(&source, LoweredFunctionKind::Proc, expected.clone());
+        }
+    }
+}
+
+#[test]
+fn inferred_application_runtime_formal_result_keeps_its_data_envelope() {
+    let source = "pure identity(payload: Result[Int, Str]) -> Result[Int, Str] { payload }\npure data() -> Result[Int, Str] { Err(\"stored\") }\nproc keep(action, value) { let _ = action(value); value }\nproc number() [] -> Result[Result[Int, Str]] { keep(identity, data()) }\n";
+    let data = Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("stored")))));
+    assert_prepared_application_result(source, LoweredFunctionKind::Proc, Value::Result(ResultValue::Ok(Box::new(data))));
+}
+
+#[test]
+fn inferred_application_runtime_forwarded_layout_retains_caller_binding() {
+    let source = "pure target(first: Int, last: Int) -> Int { first * 100 + last }\npure apply(action, value) { action(last: value, first: 1) }\npure forward(action, value) { apply(action, value) }\npure number() -> Int { forward(target, 7) }\n";
+    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(107));
+}
+
+#[test]
+fn inferred_application_runtime_defaults_keep_order_failure_and_cleanup() {
+    for fail in [false, true] {
+        let valid = if fail { "false" } else { "true" };
+        let source = format!("var trace = 0\nvar closed = 0\nproc close() [] {{ closed = closed + 1 }}\nproc tick(digit: Int) [] -> Int {{ trace = trace * 10 + digit; digit }}\nproc first(valid: Bool) [error] -> Int {{ defer close(); let _ = tick(3); assert valid; 3 }}\nproc target(payload: Int = first({valid}), scale: Int = tick(4)) [error] -> Int {{ payload * 100 + scale }}\nproc apply(action, value) {{ let captured = try {{ action(scale: {{ let _ = tick(2); value }}) }}; {{captured}} }}\nproc omitted(action) {{ let captured = try {{ action() }}; {{captured}} }}\nproc number(omit: Bool) [error] {{ let _ = tick(1); let returned = if omit {{ omitted(target) }} else {{ apply(target, 7) }}; let observed = returned?; {{result: observed.captured, trace, closed}} }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for omit in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+                }
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omit)], Span::at(source_id, 0)).unwrap().unwrap();
+                let Value::Result(ResultValue::Ok(record)) = actual else { panic!("the enclosing proc preserves its success boundary") };
+                let Value::Record(fields) = *record else { panic!("the observations retain their checked record") };
+                assert_eq!(fields.get("closed"), Some(&Value::Int(1)));
+                assert_eq!(fields.get("trace"), Some(&Value::Int(if omit { if fail { 13 } else { 134 } } else { 123 })));
+                match fields.get("result").unwrap() {
+                    Value::Result(ResultValue::Ok(value)) if !fail => assert_eq!(**value, Value::Int(if omit { 304 } else { 307 })),
+                    Value::Result(ResultValue::Err(error)) if fail => {
+                        let Value::Error(error) = error.as_ref() else { panic!("capture retains the actual assertion error") };
+                        assert_eq!((&*error.family, &*error.variant), ("AssertionError", "Failed"));
+                    }
+                    other => panic!("default result transport differs: {other:?}"),
+                }
+            }
+        }
+    }
+}
