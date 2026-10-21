@@ -507,6 +507,7 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
         "f\"{ { count = count + 1; count } }:{ { count = count + 1; count } }\"",
         "[@[{ count = count + 1; count }], { count = count + 1; count }]",
         "{first: { count = count + 1; count }, ...{first: 99}, second: { count = count + 1; count }}",
+        "{...{items: [], first: { count = count + 1; count }}, ...{items: [7]}, first: 99, second: { count = count + 1; count }}",
         "{[0]: { count = count + 1; count }, [0]: { count = count + 1; count }}",
     ] {
         let source = format!("proc keep(value) [] {{ var count = 0; let built = {operation}; {{item: value, count: count, built: built}} }}\nproc number() [] {{ keep(7) }}\n");
@@ -531,11 +532,12 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
             let expected = if operation.starts_with('f') { Value::Str(Arc::from("1:2")) }
                 else if operation.starts_with('[') { Value::List(vec![Value::Int(1), Value::Int(2)]) }
                 else if operation.starts_with("{first:") { Value::Record([(Arc::from("first"), Value::Int(99)), (Arc::from("second"), Value::Int(2))].into_iter().collect()) }
+                else if operation.starts_with("{...") { Value::Record([(Arc::from("items"), Value::List(vec![Value::Int(7)])), (Arc::from("first"), Value::Int(99)), (Arc::from("second"), Value::Int(2))].into_iter().collect()) }
                 else { Value::Map([(crate::runtime::value::MapKey::Int(0), Value::Int(2))].into_iter().collect()) };
             assert_eq!(fields.get("built"), Some(&expected), "{operation}");
         }
     }
-    for operation in ["f\"{[1][first]}:{[2][second]}\"", "[@[[1][first]], [2][second]]", "{...{first: [1][first]}, second: [2][second]}", "{[0]: [1][first], [1]: [2][second]}"] {
+    for operation in ["{...{items: [], first: [1][first]}, ...{items: [7]}, second: [2][second]}", "f\"{[1][first]}:{[2][second]}\"", "[@[[1][first]], [2][second]]", "{...{first: [1][first]}, second: [2][second]}", "{[0]: [1][first], [1]: [2][second]}"] {
         let source = format!("pure keep(value, first: Int, second: Int) {{ let _ = value; {operation} }}\npure number() {{ keep(7, 1, 2) }}\n");
         let mut sources = SourceMap::default();
         let source_id = sources.add_file("generic-construction-failure.xsh", source.clone());
@@ -1663,4 +1665,42 @@ fn inferred_application_runtime_dependent_proc_cleanup_returns_error_data() {
         "proc relay(action, value) { defer close(); action(value) }\n",
         "proc number() [error] { let actual = relay(identity, 7); {actual} }\n",
     ));
+}
+
+#[test]
+fn generic_nonmaterial_constructors_execute_after_frontend_disposal() {
+    for prefix in [
+        "let state = {items: [], ...{items: [7]}, payload};",
+        "let _ = map.empty();",
+        "let _ = [];",
+        "let state = {...{items: []}, ...{items: [7]}, payload};",
+        "let state = {...{items: [], payload}, ...{items: [7]}};",
+        "let fixed = {other: 1}; let state = {...{items: [], ...fixed, payload}, ...{items: [7]}};",
+        "let state = {...{nested: {items: []}}, ...{nested: {items: [7]}}, payload};",
+        "let state = {items: map.empty(), ...{items: {[\"key\"]: 7}}, payload};",
+        "let state = {...{items: map.empty(), payload}, ...{items: {[\"key\"]: 7}}};",
+        "let _ = {items: [], payload};",
+        "let _ = {items: map.empty(), payload};",
+    ] {
+        let source = format!("pure keep(payload) {{ {prefix} payload }}\npure number() -> Int {{ keep(7) }}\npure text() -> Str {{ keep(\"value\") }}\n");
+        let mut sources = SourceMap::default();
+        let source_id = sources.add_file("generic-nonmaterial-constructor.xsh", source.clone());
+        let parsed = Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let program = Arc::new(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources.clone()), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}")));
+        drop(checked);
+        drop(parsed);
+        for force_frames in [false, true] {
+            for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, expected, "{prefix} frames={force_frames}");
+            }
+        }
+    }
 }

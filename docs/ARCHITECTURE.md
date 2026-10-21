@@ -344,7 +344,14 @@ Other owners retain the full flow traversal. Writer census lookup reuses a compl
 for an owner-local block and slot only after checking region overrides and earlier
 local declarations at the actual writer. Read and presence queries retain their
 uncached lexical lookup. This evidence contains no type or
-refinement. Guard queries borrow the exact owner census and visit
+refinement. Generic body facts distinguish typed expressions from nonmaterial constructor producers.
+Empty lists, empty maps, and closed record wrappers retain their actual physical
+instructions and ordered field writers. The cold verifier reconstructs their
+producer shapes; an unresolved empty payload must be discarded or overwritten
+before the shape reaches typed storage, a call, projection, or return. Constructor
+facts carry no semantic type or scheme binder.
+
+Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation
 and stopping once an overlapping writer is established. Selected native arguments,

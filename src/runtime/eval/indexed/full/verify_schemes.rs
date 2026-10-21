@@ -1,4 +1,5 @@
 mod producers;
+mod constructors;
 mod body;
 mod effects;
 mod applications;
@@ -505,7 +506,7 @@ fn verify_scheme_tables(
             &store.scheme_body_facts,
             "scheme body fact range is invalid",
         )? {
-            roots.push(fact.ty);
+            roots.extend(fact.ty());
         }
         for root in roots {
             visit_scheme_type(
@@ -1091,14 +1092,19 @@ fn verify_scheme_body_facts(
         let facts_range = scheme.body_facts.bounds(store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("scheme body fact range is invalid"))?;
         let mut budget = SchemeInstantiationBudget::new(store);
         let mut types = BTreeMap::new();
+        let mut constructors = BTreeMap::new();
         let mut tails = BTreeMap::new();
         let mut declarations = BTreeMap::new();
         for (offset, fact) in store.scheme_body_facts[facts_range.clone()].iter().enumerate() {
             covered[facts_range.start + offset] = true;
             let instruction = fact.instruction as usize;
-            if fact.function != function_id || !instruction_range.contains(&instruction) || fact.reserved != [0; 3] { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
-            let ty = decode_scheme_type(store, scope, fact.ty, &mut budget, 0)?;
-            match fact.kind {
+            if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
+            let Some(type_id) = fact.ty() else {
+                if store.tags[instruction].kind() != schema::InstructionKind::Expr || constructors.insert(instruction, fact.kind()).is_some() { return Err(IrVerifyError::new("constructor body fact has invalid or duplicated ownership")); }
+                continue;
+            };
+            let ty = decode_scheme_type(store, scope, type_id, &mut budget, 0)?;
+            match fact.kind() {
                 FullSchemeBodyFactKind::Expression if store.tags[instruction].kind() == schema::InstructionKind::Expr => {
                     if types.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body expression fact is duplicated")); }
                 }
@@ -1106,7 +1112,7 @@ fn verify_scheme_body_facts(
                     if tails.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body tail fact is duplicated")); }
                 }
                 FullSchemeBodyFactKind::LocalImmutable | FullSchemeBodyFactKind::LocalMutable if matches!(store.tags[instruction], FullTag::StmtLet | FullTag::StmtLetRecord) => {
-                    if declarations.insert(instruction, (ty, fact.kind == FullSchemeBodyFactKind::LocalMutable)).is_some() { return Err(IrVerifyError::new("generic local declaration fact is duplicated")); }
+                    if declarations.insert(instruction, (ty, fact.kind() == FullSchemeBodyFactKind::LocalMutable)).is_some() { return Err(IrVerifyError::new("generic local declaration fact is duplicated")); }
                 }
                 _ => return Err(IrVerifyError::new("generic body fact has an invalid instruction kind")),
             }
@@ -1132,7 +1138,7 @@ fn verify_scheme_body_facts(
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &constructors, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1144,7 +1150,7 @@ fn verify_scheme_body_facts(
             };
             if !equal { return Err(IrVerifyError::new("generic slot type fact disagrees with its initialized value")); }
         }
-        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
+        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() + constructors.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
         let mut encoded_expressions = BTreeSet::new();
         let mut encoded_statements = BTreeSet::new();
         for instruction in instruction_range {
@@ -1246,6 +1252,7 @@ fn verify_body_expression(
     decoder: &FullDecoder<'_>,
     instruction: usize,
     types: &BTreeMap<usize, SchemeType>,
+    constructors: &constructors::ConstructorFacts,
     slots: &body::LexicalScope,
     scopes: &body::LexicalScopes,
     pending: &mut Vec<usize>,
@@ -1353,40 +1360,12 @@ fn verify_body_expression(
             }
             ty.clone()
         }
-        schema::ExprView::Record(mut entries) => {
-            let mut fields = BTreeMap::new();
-            let mut has_spread = false;
-            let mut tail = SchemeRowTail::Closed;
-            for entry in &mut entries {
-                match entry? {
-                    super::decode::RecordEntryView::Field(name, value) => {
-                        if fields.contains_key(&name) && !has_spread { return Err(IrVerifyError::new("generic record producer repeats a field")); }
-                        fields.insert(name, child(value, budget)?);
-                    }
-                    super::decode::RecordEntryView::Spread(value) => {
-                        has_spread = true;
-                        let mut source = child(value, budget)?;
-                        while let SchemeType::Validated(_, inner) = source { budget.charge(1)?; source = *inner; }
-                        let (spread, spread_tail) = match source {
-                            SchemeType::Record { fields, tail } => (fields, tail),
-                            SchemeType::Ground(source) => {
-                                let Type::Record(fields) = source.unvalidated() else { return Err(IrVerifyError::new("generic record spread has no record producer")) };
-                                let mut spread = BTreeMap::new();
-                                for (name, ty) in fields.iter() { budget.charge_clone(ty)?; spread.insert(*name, SchemeType::Ground(ty.clone())); }
-                                (spread, SchemeRowTail::Closed)
-                            }
-                            _ => return Err(IrVerifyError::new("generic record spread has no record producer")),
-                        };
-                        if spread_tail != SchemeRowTail::Closed {
-                            if tail != SchemeRowTail::Closed && tail != spread_tail { return Err(IrVerifyError::new("generic record spreads disagree on their row domain")); }
-                            tail = spread_tail;
-                        }
-                        fields.extend(spread);
-                    }
-                }
-            }
-            SchemeType::Record { fields, tail }
-        }
+        schema::ExprView::Record(_) => constructors::record_type(decoder, instruction, constructors, visited, budget, |instruction, budget| {
+            let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic record child has no checked body fact"))?;
+            budget.charge_scheme_clone(ty)?;
+            pending.push(instruction);
+            Ok(ty.clone())
+        })?,
         schema::ExprView::RecordUpdate { base, mut updates, .. } => {
             let source = child(base, budget)?;
             if !matches!(source, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))) { return Err(IrVerifyError::new("generic record update has no record base")); }
@@ -2010,8 +1989,8 @@ fn scheme_body_fact_type(
         "scheme body fact range is invalid",
     )? {
         if fact.instruction == instruction
-            && fact.kind == kind
-            && found.replace(fact.ty).is_some()
+            && fact.kind() == kind
+            && found.replace(fact.ty().ok_or_else(|| IrVerifyError::new("constructor fact has no semantic type"))?).is_some()
         {
             return Err(IrVerifyError::new("generic body fact is duplicated"));
         }

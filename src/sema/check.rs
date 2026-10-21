@@ -1124,10 +1124,10 @@ impl PendingFunctionSig {
         }
     }
 
-    pub(super) fn generalized_empty_constructors(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>> {
+    pub(super) fn generalized_constructor_producers(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialConstructor>> {
         match &self.callable {
             PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
-            PendingCallable::Generalized(callable) => Some(&callable.empty_constructors),
+            PendingCallable::Generalized(callable) => Some(&callable.constructor_producers),
         }
     }
 
@@ -1159,7 +1159,7 @@ impl PendingFunctionSig {
         callable: Arc<super::schemes::CallableScheme>,
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
-        empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
+        constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1172,7 +1172,7 @@ impl PendingFunctionSig {
             callable,
             generalization_scope,
             body_types,
-            empty_constructors,
+            constructor_producers,
             tail_types,
             registered_calls,
             read_bindings,
@@ -1185,7 +1185,7 @@ struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
-    empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
+    constructor_producers: BTreeMap<ExprId, super::schemes::NonmaterialConstructor>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,

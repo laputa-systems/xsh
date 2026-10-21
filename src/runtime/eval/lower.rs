@@ -3121,7 +3121,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let tail_type = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::TailBareIdent(_)) {
             lowered_types.get(&value).cloned()
         } else { None };
-        if visited.len() != facts.expression_types().len()
+        if visited.len() != facts.expression_types().len() + facts.constructor_producers().len()
             || return_site.is_none() && !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type()))
         { return self.block_scheme_lowering(block); }
         let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value });
@@ -3771,6 +3771,40 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if let Some(base) = base { return self.lower_scheme_guarded_expression(expression, base, slots, current_function, facts, visited, lowered_types, body); }
         }
         if !visited.insert(expression) { return self.block_scheme_lowering_expr(expression); }
+        if let Some(&kind) = facts.constructor_producers().get(&expression) {
+            use crate::sema::schemes::NonmaterialConstructor;
+            let lowered = match (kind, self.program.arena.expr(expression).kind) {
+                (NonmaterialConstructor::EmptyList, ArenaExprKind::List(elements)) if elements.is_empty() => push_build_row!(self, expr, BuildExprRow::List(Vec::new())),
+                (NonmaterialConstructor::EmptyMap, ArenaExprKind::Call { .. }) => push_build_row!(self, expr, BuildExprRow::EmptyMap),
+                (NonmaterialConstructor::Record, ArenaExprKind::Record(fields)) => {
+                    let fields = self.program.arena.record_fields(fields).to_vec();
+                    let mut entries = Vec::with_capacity(fields.len());
+                    for field in fields {
+                        entries.push(match field.kind {
+                            ArenaRecordFieldKind::Named { name, value, .. } => LoweredRecordEntry::Field(name, self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?),
+                            ArenaRecordFieldKind::Shorthand { name, span } => {
+                                let span = self.program.arena.span(span);
+                                let binding = self.bodies.resolved_bindings.at(span, name)?;
+                                let ty = slots.types.get(&binding).cloned().or_else(|| {
+                                    facts.scheme().params().get(slots.resolve_binding(binding)?).map(|parameter| parameter.ty.clone())
+                                }).or_else(|| {
+                                    let prepared = &self.declarations.prepared_constants;
+                                    let initializer = prepared.binding_values.get(&binding)?;
+                                    prepared.types.get(initializer).cloned().map(SchemeType::Ground)
+                                })?;
+                                LoweredRecordEntry::Field(name, self.lower_scheme_shorthand(span, name, ty, slots, lowered_types, body)?)
+                            }
+                            ArenaRecordFieldKind::Spread { expr, .. } => LoweredRecordEntry::Spread(self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?),
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        });
+                    }
+                    push_build_row!(self, expr, BuildExprRow::Record(entries))
+                }
+                _ => return self.block_scheme_lowering_expr(expression),
+            };
+            self.scratch.borrow_mut().scheme_constructors.insert(lowered.index(), kind);
+            return Some(lowered);
+        }
         let mut ty = facts.expression_types().get(&expression)?.clone();
         if self.declarations.prepared_constants.values.contains_key(&expression) {
             let value = self.lower_expr(expression, slots, Some(current_function), None)?;
