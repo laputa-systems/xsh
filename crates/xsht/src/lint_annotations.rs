@@ -1175,7 +1175,7 @@ impl<'a> Linter<'a> {
 mod tests {
     use super::super::{LintOptions, Linter};
     use xsh::diagnostic::DiagnosticCode;
-    use xsh::frontend::check::{Checker, CheckedEffects};
+    use xsh::frontend::check::{CheckOptions, Checker, CheckedEffects};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -1265,23 +1265,33 @@ mod tests {
     #[test]
     fn inferred_effect_clause_is_not_removed_without_a_body_proof() {
         let source = "proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc output(input: Int) [io] -> Int { print $input; input }\nproc combine(left, right, value) { let argument = value; let _ = try { left(argument) }; right(argument) }\nproc bounded() [env, io] -> Result[Int] { combine(fallible, output, 7) }\nproc stable() [] -> Int { 1 }\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let source_id = SourceId::new(0);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
+        let sources = super::super::probes::standalone_sources(source_id, source);
+        let mut checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            CheckOptions::for_execution(),
+        );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let program = &parsed.arena;
-        let stable_body = program
+        let stable_definition = program
             .statement_ids()
             .find_map(|statement| match program.arena.stmt(statement).kind {
                 xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(definition)
                     if program.arena.function_def(definition).name.as_str() == "stable" =>
                 {
-                    let body = program.arena.function_def(definition).body;
-                    Some(program.arena.span(program.arena.block(body).span))
+                    Some(definition)
                 }
                 _ => None,
             })
             .expect("stable declaration exists");
+        let stable_body = {
+            let body = program.arena.function_def(stable_definition).body;
+            program.arena.span(program.arena.block(body).span)
+        };
         assert!(
             checked
                 .function_effect_facts
@@ -1290,17 +1300,68 @@ mod tests {
                 .is_some_and(|fact| fact.redundant_clause),
             "stable has a checked redundant effect clause"
         );
-        let stable_clause_start = source.find("[] -> Int").expect("stable effect clause");
-        let output = Linter::lint(
-            &parsed.arena,
+        let (_, effect_bodies) = super::super::checked_source_effect_bodies(
+            program,
+            program.statement_ids(),
             source,
-            LintOptions {
-                checked_output: Some(std::sync::Arc::new(checked)),
-                prefer_inferred_private_effects: true,
-                only: Some(vec![DiagnosticCode::LintPreferInferredPrivateEffects]),
-                ..LintOptions::default()
-            },
+        )
+        .expect("the source owns its function effect facts");
+        let valid_body_contracts = program.symbol_owner().with_current(|| {
+            super::super::probes::checked_source_body_contracts(
+                &checked,
+                program,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(valid_body_contracts.is_some(), "the original body proof is available");
+        let stable_clause_start = source.find("[] -> Int").expect("stable effect clause");
+        let lint = |checked| {
+            Linter::lint(
+                &parsed.arena,
+                source,
+                LintOptions {
+                    checked_output: Some(std::sync::Arc::new(checked)),
+                    prefer_inferred_private_effects: true,
+                    only: Some(vec![DiagnosticCode::LintPreferInferredPrivateEffects]),
+                    ..LintOptions::default()
+                },
+            )
+        };
+        let valid_output = lint(checked.clone());
+        assert!(
+            valid_output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.labels.iter().any(|label| label.span.start() == stable_clause_start)
+            }),
+            "a valid body proof authorizes stable's clause removal: {:?}",
+            valid_output.diagnostics
         );
+
+        checked
+            .checked_declarations
+            .functions
+            .remove(&stable_definition)
+            .expect("stable checked declaration exists");
+        assert!(
+            checked
+                .function_effect_facts
+                .iter()
+                .find_map(|(id, fact)| (id.body == stable_body).then_some(fact))
+                .is_some_and(|fact| fact.redundant_clause),
+            "fault injection preserves stable's redundant effect fact"
+        );
+        let unavailable_body_contracts = program.symbol_owner().with_current(|| {
+            super::super::probes::checked_source_body_contracts(
+                &checked,
+                program,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(unavailable_body_contracts.is_none(), "the removed declaration blocks the body proof");
+        let output = lint(checked);
         assert!(
             !output.diagnostics.iter().any(|diagnostic| {
                 diagnostic.labels.iter().any(|label| label.span.start() == stable_clause_start)
