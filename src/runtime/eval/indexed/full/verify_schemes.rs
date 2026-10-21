@@ -32,7 +32,7 @@ mod scalar_predicate_tests;
 const SCHEME_TYPE_WORK_PER_NODE: usize = 8;
 const SCHEME_TYPE_WORK_BASE: usize = 128;
 
-struct SchemeScope {
+pub(super) struct SchemeScope {
     type_parameters: Vec<FullSchemeTypeParameter>,
     row_parameters: Vec<FullSchemeRowParameter>,
     type_binders: BTreeMap<u32, usize>,
@@ -1522,7 +1522,13 @@ fn verify_body_expression(
                 },
             }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?
         }
-        schema::ExprView::Call { function, args, .. } | schema::ExprView::DirectPureCall { function, args, .. } => {
+        schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } => {
+            let function = match decoder.expression_view(instruction)? {
+                schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => function.id,
+                schema::ExprView::SelfCall { .. } => IrFunctionId::from_raw(decoder.owner)
+                    .ok_or_else(|| IrVerifyError::new("generic self call has no function owner"))?,
+                _ => unreachable!("call argument view has a call target"),
+            };
             let mut arguments = Vec::new();
             for argument in args {
                 arguments.push(match argument? {
@@ -1531,7 +1537,7 @@ fn verify_body_expression(
                     super::decode::CallArgView::Default(slot) => { budget.charge(1)?; if slot as usize != arguments.len() { return Err(IrVerifyError::new("generic default argument has an invalid slot")); } None },
                 });
             }
-            let target = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
+            let target = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
             match target.contract {
                 FullCallableContract::Scheme(_) => ty.clone(),
                 FullCallableContract::Ground(signature) => {

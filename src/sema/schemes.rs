@@ -837,6 +837,7 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
+    pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
 
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
         self.registered_calls = calls;
@@ -880,7 +881,7 @@ impl SchemeBodyFacts {
                     .sum::<usize>(),
             )
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
-            .saturating_add(self.proc_return_sites.len() * size_of::<(Span, SchemeProcReturnSite)>())
+            .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())

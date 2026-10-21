@@ -164,6 +164,80 @@ mod tests {
     }
 
     #[test]
+    fn recursive_peer_application_scopes_preserve_cells_and_reject_forged_relationships() {
+        SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let first_owner = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 1, 2) };
+            let second_owner = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 3, 4) };
+            let first_callback = constraints.fresh_at_level(span(), 1);
+            let second_callback = constraints.fresh_at_level(span(), 1);
+            let first_value = constraints.fresh_at_level(span(), 1);
+            let second_value = constraints.fresh_at_level(span(), 1);
+            let first_application = application(&mut constraints, first_callback.clone(), vec![(StaticArgumentKind::Positional, first_value.clone())], CallableKindRequirement::Pure);
+            let second_application = application(&mut constraints, second_callback.clone(), vec![(StaticArgumentKind::Named(Name::intern("payload")), second_value.clone())], CallableKindRequirement::Immediate);
+            let first_id = constraints.register_callable_application(CallableApplicationScope::Declaration(first_owner), first_application).unwrap();
+            let second_id = constraints.register_callable_application(CallableApplicationScope::Declaration(second_owner), second_application).unwrap();
+            let owners = BTreeSet::from([first_owner, second_owner]);
+            let types = [first_callback, first_value, second_callback, second_value, Type::Int];
+            let build = |constraints: &TypeConstraints, owner, types: &[Type]| {
+                let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls_in_component(
+                    types, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, owner, &owners,
+                ).unwrap();
+                let mut types = generalized.types;
+                let result = types.pop().unwrap();
+                let params = ["first", "left", "second", "right"].into_iter().zip(types).map(|(name, ty)| crate::sema::schemes::SchemeParameter {
+                    name: Name::intern(name), ty, schema_expectation: None, defaulted: false, rest: false,
+                }).collect();
+                let callable = crate::sema::schemes::CallableScheme::new(generalized.type_parameters, generalized.row_parameters, params, result, None, false, generalized.requirements).unwrap();
+                (callable, generalized.generalization_scope)
+            };
+            let (first_scheme, first_scope) = build(&constraints, first_owner, &types);
+            let reordered = [types[2].clone(), types[3].clone(), types[0].clone(), types[1].clone(), Type::Int];
+            let (second_scheme, second_scope) = build(&constraints, second_owner, &reordered);
+            let counts = (constraints.variables.len(), constraints.rows.len(), constraints.applications.entries.len());
+            let first_instance = constraints.reuse_callable_instance(&first_scheme, &first_scope, first_owner, span()).unwrap();
+            let second_instance = constraints.reuse_callable_instance(&second_scheme, &second_scope, second_owner, span()).unwrap();
+            assert_eq!(first_instance.applications, vec![first_id, second_id]);
+            assert_eq!(second_instance.applications, first_instance.applications);
+            assert_eq!(counts, (constraints.variables.len(), constraints.rows.len(), constraints.applications.entries.len()));
+            let call = constraints.generalize_scoped_call_instantiation(&first_scheme, &first_scope, &second_scheme, &second_instance).unwrap();
+            assert_eq!(call.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0), crate::sema::schemes::CallableApplicationBinding::Forwarded(1)]);
+            assert_ne!(first_instance.type_arguments, second_instance.type_arguments);
+            let peer_reference = constraints.callable_application_reference(second_id).unwrap();
+            assert_eq!(peer_reference.ordinal, 0);
+            assert_eq!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &first_scope).unwrap(), Some(1));
+            let mut wrong_binder = first_scope.clone();
+            wrong_binder.owner = CallableApplicationScope::Declaration(second_owner);
+            assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_binder).is_err());
+            let mut wrong_owner = first_scope.clone();
+            wrong_owner.application_sources.get_mut(&second_id).unwrap().scope = CallableApplicationScope::Declaration(first_owner);
+            assert!(matches!(constraints.reuse_callable_instance(&first_scheme, &wrong_owner, first_owner, span()), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
+            assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_owner).is_err());
+            let mut wrong_ordinal = first_scope.clone();
+            wrong_ordinal.applications.insert(first_id, 1);
+            wrong_ordinal.applications.insert(second_id, 0);
+            assert!(matches!(constraints.generalize_scoped_call_instantiation(&first_scheme, &wrong_ordinal, &second_scheme, &second_instance), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
+            assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_ordinal).is_err());
+            let mut wrong_type = first_scope.clone();
+            let ids = wrong_type.types.keys().copied().take(2).collect::<Vec<_>>();
+            let first = wrong_type.types[&ids[0]];
+            let second = wrong_type.types[&ids[1]];
+            wrong_type.types.insert(ids[0], second);
+            wrong_type.types.insert(ids[1], first);
+            assert!(constraints.reuse_callable_instance(&first_scheme, &wrong_type, first_owner, span()).is_err());
+            assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_type).is_err());
+            let mut wrong_effect = first_scope;
+            let effects = wrong_effect.effects.keys().copied().collect::<Vec<_>>();
+            let first = wrong_effect.effects[&effects[0]];
+            let second = wrong_effect.effects[&effects[1]];
+            wrong_effect.effects.insert(effects[0], second);
+            wrong_effect.effects.insert(effects[1], first);
+            assert!(constraints.reuse_callable_instance(&first_scheme, &wrong_effect, first_owner, span()).is_err());
+            assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_effect).is_err());
+        });
+    }
+
+    #[test]
     fn callable_requirement_source_identity_is_journaled_without_merging_invocations() {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();
@@ -631,11 +705,17 @@ impl TypeConstraints {
         u32::try_from(index).map_err(|_| ConstraintResolutionError::TypeDepth.into())
     }
 
-    pub(crate) fn generalized_application_ordinal(&self, reference: CallableApplicationReference, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, CallableApplicationError> {
-        if reference.scope != scope.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
-        let id = self.referenced_callable_application(reference)?;
-        if let Some(ordinal) = scope.applications.get(&id) { return Ok(Some(*ordinal)); }
-        if self.applications.entries[&id].binding.is_some() { return Ok(None); }
+    pub(crate) fn generalized_application_ordinal(&self, reference: CallableApplicationReference, owner: EffectDeclarationId, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, super::SchemeOperationError> {
+        if scope.owner != CallableApplicationScope::Declaration(owner) {
+            return Err(ConstraintResolutionError::ForeignVariable.into());
+        }
+        self.validate_generalized_applications(callable, scope)?;
+        let id = self.referenced_callable_application(reference).map_err(super::SchemeOperationError::Application)?;
+        if scope.application_sources.get(&id) == Some(&reference) {
+            return scope.applications.get(&id).copied().map(Some)
+                .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
+        }
+        if reference.scope == scope.owner && self.applications.entries[&id].binding.is_some() { return Ok(None); }
         Err(ConstraintResolutionError::ForeignVariable.into())
     }
 
@@ -745,14 +825,29 @@ impl TypeConstraints {
 
     pub(super) fn generalize_callable_requirements(
         &self,
-        owner: EffectDeclarationId,
+        owners: &BTreeSet<EffectDeclarationId>,
         environment_level: u32,
         generalization: &mut super::Generalization,
     ) -> Result<crate::sema::schemes::CallableRequirements, super::SchemeOperationError> {
         let mut applications = Vec::new();
-        for (&id, scoped) in self.applications.entries.iter().filter(|(_, entry)| entry.owner == CallableApplicationScope::Declaration(owner)) {
+        for (&id, _) in self.applications.entries.iter().filter(|(_, entry)| matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner))) {
             generalization.applications.insert(id, u32::try_from(applications.len()).expect("application ordinals fit their existing source range"));
-            let application = &scoped.application;
+            applications.push(self.generalize_callable_application(id, environment_level, generalization)?);
+        }
+        let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
+        Ok(crate::sema::schemes::CallableRequirements {
+            applications, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
+        })
+    }
+
+
+    pub(super) fn generalize_callable_application(
+        &self,
+        id: CallableApplicationId,
+        environment_level: u32,
+        generalization: &mut super::Generalization,
+    ) -> Result<CallableApplication<crate::sema::schemes::SchemeType, crate::sema::schemes::SchemeEffectParameterId>, super::SchemeOperationError> {
+        let application = &self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.application;
             let callee = self.generalize_type(&application.callee, environment_level, generalization, 0)?;
             let arguments = application.arguments.iter().map(|argument| Ok(crate::sema::callable_application::CallableApplicationArgument {
                 kind: argument.kind,
@@ -766,14 +861,8 @@ impl TypeConstraints {
                 propagated_errors: envelope.propagated_errors.iter().map(|error| self.generalize_type(error, environment_level, generalization, 0)).collect::<Result<Vec<_>, _>>()?.into(),
                 span: envelope.span,
             })).collect::<Result<Vec<_>, super::SchemeOperationError>>()?;
-            applications.push(CallableApplication { callee, arguments: arguments.into(), result, effects, proc_returns: proc_returns.into(), kind: application.kind, span: application.span });
-        }
-        let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
-        Ok(crate::sema::schemes::CallableRequirements {
-            applications, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
-        })
+        Ok(CallableApplication { callee, arguments: arguments.into(), result, effects, proc_returns: proc_returns.into(), kind: application.kind, span: application.span })
     }
-
 
     fn application_dependencies(&self, application: &CallableApplication<Type, super::EffectVariableId>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }

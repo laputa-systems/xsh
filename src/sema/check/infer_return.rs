@@ -1,13 +1,13 @@
 use crate::sema::callable_application::{inferred_proc_return_envelope, join_error_types};
 use super::{
-    AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
+    AnnotationFact, AnnotationFactKind, BTreeMap, CheckBundleView, Checker, FxHashSet, Name, Span,
     Type,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind,
+    ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun,
     ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
-    PatternId, StmtId,
+    StmtId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,32 +31,15 @@ struct ReturnDeclaration {
     function: Option<FunctionDefId>,
     proc_def: bool,
     statement: StmtId,
-    parameters: FxHashSet<Name>,
 }
 
-/// Where the program reads and rebinds names. Dependency ordering consults
-/// it for every module, so it is collected once per checked program rather
-/// than once per module.
 #[derive(Clone, Default)]
 pub(super) struct ReturnInferenceIndex {
-    /// The source ranges in which a local binding hides each name.
-    shadows: FxHashMap<Name, Vec<Span>>,
-    /// Every name read, in source order, and whether it is a call's callee.
-    references: Vec<(Span, Name, bool)>,
+    references: Vec<(Span, Name, Option<ExprId>)>,
 }
 
 impl ReturnInferenceIndex {
     pub(super) fn merge_owner(&mut self, other: &Self) {
-        for (&name, spans) in &other.shadows {
-            self.shadows
-                .entry(name)
-                .or_default()
-                .extend(spans.iter().copied());
-        }
-        for spans in self.shadows.values_mut() {
-            spans.sort_unstable();
-            spans.dedup();
-        }
         self.references.extend(other.references.iter().copied());
         self.references.sort_unstable();
         self.references.dedup();
@@ -64,179 +47,10 @@ impl ReturnInferenceIndex {
 
     pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
-        let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
-        let mut add_shadow = |target, span| {
-            for name in binding_names(program, target) {
-                shadows.entry(name).or_default().push(span);
-            }
-        };
-        // Every pass below reads only the rows of this view's sources; the
-        // arena may hold a whole workspace.
-        let blocks = view.block_ids();
-        for &block_id in &blocks {
-            let block = program.arena.block(block_id);
-            let block_span = program.arena.span(block.span);
-            for id in program.arena.stmt_ids(block.statements) {
-                let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
-                match stmt.kind {
-                    ArenaStmtKind::Let { target, .. }
-                    | ArenaStmtKind::Const { target, .. }
-                    | ArenaStmtKind::Var { target, .. }
-                    | ArenaStmtKind::Guard { target, .. } => {
-                        add_shadow(
-                            target,
-                            Span::new(stmt.span.source_id, stmt.span.end(), block_span.end()),
-                        );
-                    }
-                    ArenaStmtKind::For { target, block, .. } => {
-                        add_shadow(target, program.arena.span(program.arena.block(block).span));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        drop(add_shadow);
-        for &block_id in &blocks {
-            let block = program.arena.block(block_id);
-            let span = program.arena.span(block.span);
-            for param in program.arena.block_params(block.params) {
-                shadows.entry(param.name).or_default().push(span);
-            }
-        }
-        let statements = view.stmt_ids();
-        for &statement_id in &statements {
-            let statement = program.arena.stmt(statement_id);
-            match statement.kind {
-                ArenaStmtKind::Match { arms, .. } => {
-                    for arm in program.arena.match_arms(arms) {
-                        let span = program.arena.span(arm.span);
-                        for name in pattern_binding_names(program, arm.pattern) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaStmtKind::If { branches, .. } => {
-                    for branch in program.arena.if_branches(branches) {
-                        let span = program.arena.span(program.arena.block(branch.block).span);
-                        for name in pattern_condition_bindings(program, branch.condition) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaStmtKind::While { condition, block } => {
-                    let span = program.arena.span(program.arena.block(block).span);
-                    for name in pattern_condition_bindings(program, condition) {
-                        shadows.entry(name).or_default().push(span);
-                    }
-                }
-                ArenaStmtKind::With { bindings, body, .. } => {
-                    let span = program.arena.span(program.arena.block(body).span);
-                    for binding in program.arena.with_bindings(bindings) {
-                        shadows.entry(binding.name).or_default().push(span);
-                    }
-                }
-                _ => {}
-            }
-        }
         let expressions = view.expr_ids();
-        for &expr_id in &expressions {
-            let expr = program.arena.expr(expr_id);
-            match expr.kind {
-                ArenaExprKind::Match { arms, .. } => {
-                    for arm in program.arena.match_expr_arms(arms) {
-                        let span = program.arena.span(arm.span);
-                        for name in pattern_binding_names(program, arm.pattern) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                ArenaExprKind::If { branches, .. } => {
-                    for branch in program.arena.if_expr_branches(branches) {
-                        let span = program.arena.expr(branch.value).span;
-                        for name in pattern_condition_bindings(program, branch.condition) {
-                            shadows.entry(name).or_default().push(span);
-                        }
-                    }
-                }
-                // A resource binding is in scope from the end of its value
-                // to the end of the scope.
-                ArenaExprKind::ResourceScope { bindings, .. } => {
-                    for binding in program.arena.with_bindings(bindings) {
-                        let span = Span::new(
-                            expr.span.source_id,
-                            program.arena.expr(binding.initializer).span.end(),
-                            expr.span.end(),
-                        );
-                        shadows.entry(binding.name).or_default().push(span);
-                    }
-                }
-                ArenaExprKind::ListComp { qualifiers, .. }
-                | ArenaExprKind::MapComp { qualifiers, .. } => {
-                    for qualifier in program.arena.comp_qualifiers(qualifiers) {
-                        if let ArenaCompQualifier::For { target, iter, .. } = qualifier {
-                            let span = Span::new(
-                                expr.span.source_id,
-                                program.arena.expr(*iter).span.end(),
-                                expr.span.end(),
-                            );
-                            for name in binding_names(program, *target) {
-                                shadows.entry(name).or_default().push(span);
-                                let outputs = match expr.kind {
-                                    ArenaExprKind::ListComp { expr, .. } => vec![expr],
-                                    ArenaExprKind::MapComp { key, value, .. } => vec![key, value],
-                                    _ => Vec::new(),
-                                };
-                                for output in outputs {
-                                    shadows
-                                        .entry(name)
-                                        .or_default()
-                                        .push(program.arena.expr(output).span);
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut callees = FxHashSet::default();
-        for &expr_id in &expressions {
-            if let ArenaExprKind::Call { callee, .. } = program.arena.expr(expr_id).kind {
-                callees.insert(callee);
-            }
-        }
-        // Named record keys may have speculative Ident rows in the arena.
-        // Their spelling selects a field and does not read a binding.
+        let statements = view.stmt_ids();
         let rows = program.arena.source_rows();
-        let record_keys = view
-            .record_field_indices()
-            .into_iter()
-            .map(|index| &program.arena.record_fields[index])
-            .filter_map(|field| match field.kind {
-                ArenaRecordFieldKind::Path { path, span, .. } => {
-                    let span = program.arena.span(span);
-                    if !view.contains_source(span.source_id) {
-                        return None;
-                    }
-                    program
-                        .arena
-                        .names(path)
-                        .next()
-                        .map(|name| (span.source_id, span.start(), name))
-                }
-                ArenaRecordFieldKind::Named { name, span, .. } => {
-                    let span = program.arena.span(span);
-                    if !view.contains_source(span.source_id) {
-                        return None;
-                    }
-                    Some((span.source_id, span.start(), name))
-                }
-                _ => None,
-            })
-            .collect::<FxHashSet<_>>();
         let mut references = Vec::new();
-        // A shorthand field of any source is a reference, so the record
-        // expressions of every source are visited with this view's.
         let mut reference_exprs = expressions.clone();
         reference_exprs.extend(rows.record_expr_ids());
         reference_exprs.sort_unstable();
@@ -245,14 +59,13 @@ impl ReturnInferenceIndex {
             let expr = program.arena.expr(id);
             if view.contains_source(expr.span.source_id)
                 && let ArenaExprKind::Ident(name) = expr.kind
-                && !record_keys.contains(&(expr.span.source_id, expr.span.start(), name))
             {
-                references.push((expr.span, name, callees.contains(&id)));
+                references.push((expr.span, name, Some(id)));
             }
             if let ArenaExprKind::Record(fields) = expr.kind {
                 for field in program.arena.record_fields(fields) {
                     if let ArenaRecordFieldKind::Shorthand { name, span } = &field.kind {
-                        references.push((program.arena.span(*span), *name, false));
+                        references.push((program.arena.span(*span), *name, None));
                     }
                 }
             }
@@ -260,23 +73,15 @@ impl ReturnInferenceIndex {
         for &statement_id in &statements {
             let stmt = program.arena.stmt(statement_id);
             if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
-                references.push((stmt.span, name, false));
+                references.push((stmt.span, name, None));
             }
         }
         references.sort_unstable_by_key(|(span, _, _)| (span.source_id, span.start()));
-        Self {
-            shadows,
-            references,
-        }
+        Self { references }
     }
 }
 
 impl Checker {
-    /// Infer definitions in dependency order before checking their callers.
-    /// An annotation fixes a callable boundary, but every recursive component
-    /// still requires its unannotated pure members to declare that boundary.
-    /// Unannotated procs whose body may produce a value are probed here too;
-    /// their bodies are still checked in source order with the inferred return.
     pub(super) fn infer_local_pure_returns(
         &mut self,
         view: &CheckBundleView<'_>,
@@ -303,12 +108,6 @@ impl Checker {
                         function: Some(function),
                         proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
                         statement,
-                        parameters: program
-                            .arena
-                            .params(def.params)
-                            .iter()
-                            .map(|param| param.name)
-                            .collect(),
                     });
                 }
                 ArenaStmtKind::Let { target, .. }
@@ -326,7 +125,6 @@ impl Checker {
                             function: None,
                             proc_def: false,
                             statement,
-                            parameters: FxHashSet::default(),
                         });
                     }
                 }
@@ -346,11 +144,31 @@ impl Checker {
         }) {
             return;
         }
-        let indices: FxHashMap<_, _> = declarations
-            .iter()
-            .enumerate()
-            .flat_map(|(index, decl)| decl.names.iter().map(move |name| (*name, index)))
-            .collect();
+        let function_indices = declarations.iter().enumerate().filter_map(|(index, declaration)| {
+            let definition = declaration.function?;
+            let def = program.arena.function_def(definition);
+            Some((super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body)), index))
+        }).collect::<BTreeMap<_, _>>();
+        let mut binding_indices = BTreeMap::new();
+        for (index, declaration) in declarations.iter().enumerate() {
+            let target = match program.arena.stmt(declaration.statement).kind {
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => target,
+                _ => continue,
+            };
+            let mut pending = vec![(target, declaration.span)];
+            while let Some((target, span)) = pending.pop() {
+                match program.arena.binding_target(target).kind {
+                    ArenaBindingTargetKind::Name(name) => {
+                        if let Some(&binding) = self.resolved_bindings.declaration_sites.get(&(span, name)) {
+                            binding_indices.insert(binding, index);
+                        }
+                    }
+                    ArenaBindingTargetKind::Record { fields, .. } => {
+                        pending.extend(program.arena.destructure_fields(fields).iter().map(|field| (field.target, program.arena.span(field.span))));
+                    }
+                }
+            }
+        }
         let index = match &self.return_inference_index {
             Some(index) => index.clone(),
             None => {
@@ -359,14 +177,9 @@ impl Checker {
                 index
             }
         };
-        let ReturnInferenceIndex {
-            shadows,
-            references,
-        } = &*index;
+        let references = &index.references;
         let mut edges = vec![Vec::new(); declarations.len()];
         for (index, decl) in declarations.iter().enumerate() {
-            // Binding target spellings are declarations, not dependencies.
-            // Parser speculation may retain nodes with those source spans.
             let dependency_span = match program.arena.stmt(decl.statement).kind {
                 ArenaStmtKind::Let { initializer, .. }
                 | ArenaStmtKind::Const { initializer, .. }
@@ -379,7 +192,7 @@ impl Checker {
                 (span.source_id, span.start())
                     < (dependency_span.source_id, dependency_span.start())
             });
-            for &(span, name, callee) in &references[start..] {
+            for &(span, name, expression) in &references[start..] {
                 if span.source_id != dependency_span.source_id
                     || span.start() >= dependency_span.end()
                 {
@@ -388,47 +201,21 @@ impl Checker {
                 if span.end() > dependency_span.end() {
                     continue;
                 }
-                let parameter_shadow = decl.parameters.contains(&name)
-                    && decl.function.is_some_and(|id| {
-                        let body_span = program.arena.span(
-                            program
-                                .arena
-                                .block(program.arena.function_def(id).body)
-                                .span,
-                        );
-                        span.start() >= body_span.start() && span.end() <= body_span.end()
-                    });
-                let shadowed = parameter_shadow
-                    || shadows.get(&name).is_some_and(|ranges| {
-                        ranges.iter().any(|range| {
-                            range.source_id == span.source_id
-                                && range.start() <= span.start()
-                                && range.end() >= span.end()
-                        })
-                    });
-                if (!shadowed
-                    || callee && (self.pures.contains_key(&name) || self.procs.contains_key(&name)))
-                    && let Some(&dependency) = indices.get(&name)
-                {
-                    edges[index].push(dependency);
+                if expression.is_some_and(|expression| !self.resolved_bindings.expression_namespaces.contains_key(&expression)) {
+                    continue;
                 }
+                let dependency = if let Some(binding) = self.resolved_bindings.value_sites.get(&(span, name)) {
+                    binding_indices.get(binding).copied()
+                } else {
+                    self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name))
+                        .and_then(|declaration| function_indices.get(declaration)).copied()
+                };
+                if let Some(dependency) = dependency { edges[index].push(dependency); }
             }
             edges[index].sort_unstable();
             edges[index].dedup();
         }
         let (order, cyclic) = declaration_dependency_order(&edges);
-        for &index in &cyclic {
-            let decl = &declarations[index];
-            if !decl.proc_def && let Some(id) = decl.function {
-                let def = program.arena.function_def(id);
-                let declaration = super::FunctionDeclarationId::new(
-                    self.effect_declaration_id(program, def.body),
-                );
-                if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
-                    signature.make_monomorphic();
-                }
-            }
-        }
         let saved_scopes = self.scopes.clone();
         // Imports provide checked signatures and immutable module values to
         // inferred bodies even when their use statement follows a definition.
@@ -446,60 +233,62 @@ impl Checker {
             }
         }
         for component in order {
+            if component.iter().any(|index| cyclic.contains(index)) {
+                self.infer_recursive_bodies(program, source, &component, &declarations);
+                continue;
+            }
             for &index in &component {
                 let decl = &declarations[index];
                 let Some(id) = decl.function else {
-                    if !cyclic.contains(&index) {
-                        let kind = program.arena.stmt(decl.statement).kind;
-                        if let ArenaStmtKind::Let {
-                            target,
-                            ty,
-                            initializer,
-                        }
-                        | ArenaStmtKind::Const {
-                            target,
-                            ty,
-                            initializer,
-                        }
-                        | ArenaStmtKind::Var {
-                            target,
-                            ty,
-                            initializer,
-                        } = kind
-                        {
-                            let before = self.annotation_facts.len();
-                            let reported = self.diagnostics.len();
-                            let annotated = ty.map(|id| self.type_from_arena(program, id));
-                            let actual = self.without_pending_call_instantiations(|checker| {
-                                checker.check_expr_or_run_arena(
-                                    program,
-                                    source,
-                                    initializer,
-                                    annotated.as_ref(),
-                                )
-                            });
-                            self.diagnostics.truncate(reported);
-                            let ty = annotated.unwrap_or(actual);
-                            let origin = match initializer {
-                                ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
-                                ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
-                            };
-                            let alias = if matches!(kind, ArenaStmtKind::Let { ty: None, .. } | ArenaStmtKind::Const { ty: None, .. }) {
-                                match initializer { ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(program, expression), _ => None }
-                            } else { None };
-                            self.define_binding_target_arena(
+                    let kind = program.arena.stmt(decl.statement).kind;
+                    if let ArenaStmtKind::Let {
+                        target,
+                        ty,
+                        initializer,
+                    }
+                    | ArenaStmtKind::Const {
+                        target,
+                        ty,
+                        initializer,
+                    }
+                    | ArenaStmtKind::Var {
+                        target,
+                        ty,
+                        initializer,
+                    } = kind
+                    {
+                        let before = self.annotation_facts.len();
+                        let reported = self.diagnostics.len();
+                        let annotated = ty.map(|id| self.type_from_arena(program, id));
+                        let actual = self.without_pending_call_instantiations(|checker| {
+                            checker.check_expr_or_run_arena(
                                 program,
-                                target,
-                                &ty,
-                                matches!(kind, ArenaStmtKind::Var { .. }),
-                                decl.span,
-                                &origin,
-                            );
-                            if let Some(alias) = alias
-                                && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
-                            { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }
-                            self.annotation_facts.truncate(before);
-                        }
+                                source,
+                                initializer,
+                                annotated.as_ref(),
+                            )
+                        });
+                        self.diagnostics.truncate(reported);
+                        let ty = annotated.unwrap_or(actual);
+                        let origin = match initializer {
+                            ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
+                            ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
+                        };
+                        let alias = if matches!(kind, ArenaStmtKind::Let { ty: None, .. } | ArenaStmtKind::Const { ty: None, .. }) {
+                            match initializer { ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(program, expression), _ => None }
+                        } else { None };
+                        self.define_binding_target_arena(
+                            program,
+                            target,
+                            &ty,
+                            matches!(kind, ArenaStmtKind::Var { .. }),
+                            decl.span,
+                            &origin,
+                        );
+                        if let Some(alias) = alias
+                            && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
+                        { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }
+                        self.annotation_facts.truncate(before);
                     }
                     continue;
                 };
@@ -510,46 +299,28 @@ impl Checker {
                 if !def.return_ty_defaulted {
                     if decl.proc_def && !infers_parameters { continue; }
                     self.check_body_before_callers(program, source, decl, &declarations, def);
-                    if !cyclic.contains(&index) {
-                        self.generalize_pending_function(program, id);
-                    }
+                    self.generalize_pending_function(program, id);
                     continue;
                 }
                 if decl.proc_def {
                     if proc_may_return_value(program, def) {
                         let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                             Some("entry")
-                        } else if cyclic.contains(&index) {
-                            Some("recursive")
                         } else {
                             None
                         };
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
                         if infers_parameters {
                             self.check_body_before_callers(program, source, decl, &declarations, def);
-                            if !cyclic.contains(&index) {
-                                self.generalize_pending_function(program, id);
-                            }
+                            self.generalize_pending_function(program, id);
                         }
                     } else if infers_parameters {
                         self.check_body_before_callers(program, source, decl, &declarations, def);
-                        if !cyclic.contains(&index) {
-                            self.generalize_pending_function(program, id);
-                        }
+                        self.generalize_pending_function(program, id);
                     }
                     continue;
                 }
                 let body_span = program.arena.span(program.arena.block(def.body).span);
-                if cyclic.contains(&index) {
-                    let message = format!(
-                        "recursive pure `{}` requires an explicit return annotation",
-                        decl.name
-                    );
-                    self.error(decl.span, &message, DiagnosticCode::CheckRequiredReturn);
-                    self.function_return_types.insert(body_span, Type::Invalid);
-                    self.update_pending_return_type(program, def, Type::Invalid);
-                    continue;
-                }
                 self.inferred_returns = Some(Vec::new());
                 self.inferred_propagations.clear();
                 self.inference_reachable = true;
@@ -604,34 +375,104 @@ impl Checker {
                     }
                 }
             }
-            for index in component {
-                let decl = &declarations[index];
-                if decl.proc_def || !cyclic.contains(&index) {
-                    continue;
-                }
-                let Some(id) = decl.function else { continue; };
-                let def = program.arena.function_def(id);
-                if def.return_ty_defaulted {
-                    continue;
-                }
-                let mut reported = std::collections::BTreeSet::new();
-                for parameter in program.arena.params(def.params) {
-                    let span = program.arena.span(parameter.span);
-                    if let Some(ty) = self.parameter_types.get_mut(&span) {
-                        super::local_inference::finalize_type(
-                            &self.type_constraints,
-                            ty,
-                            span,
-                            &mut reported,
-                            &mut self.diagnostics,
-                        );
-                    }
-                }
-                self.publish_parameter_types(program, def);
-                self.generalize_pending_function(program, id);
-            }
         }
         self.scopes = saved_scopes;
+    }
+
+    fn infer_recursive_bodies(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        component: &[usize],
+        declarations: &[ReturnDeclaration],
+    ) {
+        let definitions = component.iter().filter_map(|&index| declarations[index].function).collect::<Vec<_>>();
+        let start = self.diagnostics.len();
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.function else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted { continue; }
+            if declaration.proc_def && (declaration.name == "main" || declaration.name.as_str().starts_with("main "))
+                && proc_may_return_value(program, def)
+            {
+                self.error(declaration.span, "entry proc returns a value and requires an explicit return annotation", DiagnosticCode::CheckRequiredReturn);
+            }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let ty = if declaration.proc_def {
+                if proc_may_return_value(program, def) {
+                    Type::Result(Box::new(self.type_constraints.fresh_at_level(body, 1)), Box::new(Type::Error))
+                } else { self.type_from_arena(program, def.return_ty) }
+            } else { self.type_constraints.fresh_at_level(body, 1) };
+            self.update_pending_return_type(program, def, ty.clone());
+            self.function_return_types.insert(body, ty);
+        }
+        let mut propagations = Vec::new();
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.function else {
+                self.error(declaration.span, "recursive value bindings require a callable declaration boundary", DiagnosticCode::CheckLocalInference);
+                continue;
+            };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted {
+                self.check_body_before_callers(program, source, declaration, declarations, def);
+                continue;
+            }
+            self.inferred_returns = Some(Vec::new());
+            self.inferred_propagations.clear();
+            self.inference_reachable = true;
+            self.return_conflicts = declaration.proc_def.then(Vec::new);
+            self.check_body_before_callers(program, source, declaration, declarations, def);
+            let candidates = self.inferred_returns.take().expect("recursive return checking owns its candidates");
+            let errors = std::mem::take(&mut self.inferred_propagations);
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let original = self.function_return_types[&body].clone();
+            if declaration.proc_def {
+                let actual = self.normalize_inferred_proc_returns(self.effect_declaration_id(program, def.body), candidates, &errors);
+                self.expect_type(&original, &actual, body);
+                for (left, right, span) in self.return_conflicts.take().unwrap_or_default() {
+                    self.error(span, &format!("incompatible recursive proc completions `{left}` and `{right}`"), DiagnosticCode::CheckTypeMismatch);
+                }
+            } else {
+                for candidate in candidates {
+                    self.expect_type(&original, &candidate.ty, candidate.span);
+                }
+                propagations.push((original, errors));
+            }
+        }
+        if let Err(error) = self.solve_host_obligations() {
+            let span = definitions.first().map(|&definition| program.arena.span(program.arena.block(program.arena.function_def(definition).body).span))
+                .unwrap_or_else(|| Span::at(crate::source::SourceId::new(0), 0));
+            self.reject_host_inference_resolution(error, span);
+        }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            let span = declarations[component[0]].span;
+            self.error(span, &format!("recursive callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
+        }
+        for (ty, errors) in propagations {
+            let ty = self.type_constraints.resolve(&ty).unwrap_or(Type::Invalid);
+            for (error, span) in errors {
+                match &ty {
+                    Type::Result(_, expected) => self.expect_type(expected, &error, span),
+                    _ => self.error(span, "recursive propagation requires a Result return determined by the component", DiagnosticCode::CheckTryContext),
+                }
+            }
+        }
+        for &definition in &definitions {
+            let def = program.arena.function_def(definition);
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let Some(ty) = self.function_return_types.get(&body) else { continue; };
+            let ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
+            if !return_type_is_concrete(&ty) {
+                self.error(body, "recursive return shape is not determined by its component", DiagnosticCode::CheckInferReturn);
+            }
+        }
+        if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+            self.reject_recursive_component(program, &definitions);
+            return;
+        }
+        self.generalize_recursive_component(program, &definitions);
     }
 
     fn check_body_before_callers(
@@ -688,9 +529,6 @@ impl Checker {
         probe.return_conflicts = Some(Vec::new());
         probe.inference_reachable = true;
         probe.boundary.current_return = None;
-        if boundary == Some("recursive") {
-            probe.update_pending_return_type(program, def, Type::Unknown);
-        }
         probe.check_function_arena(program, source, def, false);
         let clean = !probe
             .diagnostics
@@ -769,16 +607,6 @@ impl Checker {
         self.proc_return_sites.remove(&owner);
         let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
         let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
-        if !candidates.iter().any(|candidate| candidate.origin.return_applications().iter().any(Option::is_some)) {
-            let mut inferred = None;
-            for candidate in candidates {
-                inferred = Some(match inferred {
-                    None => candidate.ty,
-                    Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
-                });
-            }
-            return inferred.map(|ty| inferred_proc_return_envelope(ty, &errors)).unwrap_or(Type::Invalid);
-        }
         let mut inferred = None;
         for candidate in candidates {
             let applications = candidate.origin.return_applications();
@@ -804,7 +632,7 @@ impl Checker {
                             ty
                         }
                         Err(error) => {
-                            self.error(candidate.span, &format!("proc return application requirement failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            self.error(candidate.span, &format!("proc return application requirement failed: {error}"), DiagnosticCode::CheckLocalInference);
                             return Type::Invalid;
                         }
                     }
@@ -1013,50 +841,4 @@ fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {
         });
     }
     names
-}
-
-fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name> {
-    let mut names = Vec::new();
-    let mut work = vec![pattern];
-    while let Some(pattern) = work.pop() {
-        match program.arena.pattern(pattern).kind {
-            ArenaPatternKind::Alias { name, .. } | ArenaPatternKind::Binding(name) => {
-                names.push(name);
-            }
-            ArenaPatternKind::Type { binding, .. } | ArenaPatternKind::TextHole { binding, .. } => {
-                if let Some(name) = binding {
-                    names.push(name);
-                }
-            }
-            ArenaPatternKind::Group(_)
-            | ArenaPatternKind::Wildcard
-            | ArenaPatternKind::TestName { .. }
-            | ArenaPatternKind::Literal(_)
-            | ArenaPatternKind::Record { .. }
-            | ArenaPatternKind::List { .. }
-            | ArenaPatternKind::Alternation(_)
-            | ArenaPatternKind::Constructor { .. }
-            | ArenaPatternKind::ErrorVariant { .. }
-            | ArenaPatternKind::Facet(_)
-            | ArenaPatternKind::Tuple(_)
-            | ArenaPatternKind::Text(_) => {}
-        }
-        program.arena.for_each_pattern_child(pattern, |child| {
-            if let ArenaChild::Pattern(child) = child {
-                work.push(child);
-            }
-        });
-    }
-    names
-}
-
-// Pattern captures are visible only in the selected body, never in the
-// condition subject or a sibling branch.
-fn pattern_condition_bindings(program: &ArenaProgram, condition: ExprId) -> Vec<Name> {
-    match program.arena.expr(condition).kind {
-        ArenaExprKind::PatternCondition { arms, .. } => {
-            pattern_binding_names(program, program.arena.match_expr_arms(arms)[0].pattern)
-        }
-        _ => Vec::new(),
-    }
 }
