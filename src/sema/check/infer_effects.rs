@@ -587,7 +587,7 @@ mod joint_effect_tests {
                 applications: Vec::new(),
             },
         ).unwrap();
-        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), &[], &[], caller).unwrap()
+        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), &[], &[], caller, &[]).unwrap()
     }
 
     fn symbolic_owner(graph: &mut EffectGraph, owner: EffectDeclarationId, parameter: SchemeEffectParameterId) {

@@ -263,6 +263,36 @@ mod tests {
     }
 
     #[test]
+    fn callable_requirement_forwarded_instances_retain_caller_obligations() {
+        SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let selected = Arc::new(generic_application_scheme(&mut constraints));
+            let caller = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 2, 3) };
+            let instance = constraints.instantiate_callable(&selected, 1, span(), CallableApplicationScope::Declaration(caller)).unwrap();
+            assert!(constraints.applications.entries[&instance.applications[0]].binding.is_none());
+            let calls = BTreeMap::from([(span(), (Arc::clone(&selected), instance.clone()))]);
+            let result = constraints.generalize_callable_body_with_calls(
+                &[instance.params[0].clone(), instance.params[1].clone(), instance.return_type.clone()],
+                &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller,
+            );
+            let (generalized, _, _, calls) = result.expect("a forwarded application remains the same caller-qualified obligation");
+            assert_eq!(generalized.requirements.applications.len(), 1);
+            assert_eq!(calls.len(), 1);
+            let evidence = &calls[&span()];
+            assert_eq!(evidence.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0)]);
+            for (binding, requirements) in [
+                (crate::sema::schemes::CallableApplicationBinding::Forwarded(0), &[][..]),
+                (crate::sema::schemes::CallableApplicationBinding::Forwarded(1), generalized.requirements.applications.as_slice()),
+            ] {
+                assert_eq!(crate::sema::schemes::CallInstantiation::new(
+                    &selected, evidence.type_arguments().clone(), evidence.row_arguments().clone(), evidence.effect_arguments().clone(), vec![binding],
+                    &generalized.type_parameters, &generalized.row_parameters, &generalized.requirements.effect_parameters, requirements,
+                ), Err(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
+            }
+        });
+    }
+
+    #[test]
     fn callable_requirement_instances_share_one_scope_and_keep_clients_fresh() {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();
@@ -277,7 +307,7 @@ mod tests {
                 assert_eq!(constraints.resolve(&instance.return_type).unwrap(), actual);
                 let evidence = constraints.resolve_call_instantiation(&scheme, &instance).unwrap();
                 assert_eq!(evidence.type_arguments().len(), 3);
-                assert_eq!(evidence.application_bindings(), &[StaticArgumentBinding { argument_slots: vec![0], omitted_slots: vec![1] }]);
+                assert_eq!(evidence.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Selected(StaticArgumentBinding { argument_slots: vec![0], omitted_slots: vec![1] })]);
                 assert_eq!(evidence.effect_arguments().values().next().unwrap().closed(), Some(if pure { EffectSet::default() } else { EffectSet::new([Effect::Env, Effect::Error]) }));
                 let fresh = *instance.effect_arguments.values().next().unwrap();
                 assert_ne!(previous_effect, Some(fresh));
@@ -339,7 +369,7 @@ mod tests {
                 Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))));
             let mut constraints = TypeConstraints::default();
             let scheme = generic_application_scheme(&mut constraints);
-            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), &[], &[], &[]),
+            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), &[], &[], &[], &[]),
                 Err(crate::sema::schemes::SchemeBuildError::UnboundTypeParameter)));
             let instance = constraints.instantiate_callable(&scheme, 1, span(), CallableApplicationScope::Invocation).unwrap();
             assert!(matches!(constraints.resolve_call_instantiation(&scheme, &instance), Err(super::super::SchemeOperationError::Build(_))));
@@ -632,9 +662,15 @@ impl TypeConstraints {
     }
 
 
-    pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme) -> Result<Vec<StaticArgumentBinding>, super::SchemeOperationError> {
-        instance.applications.iter().map(|id| self.applications.entries.get(id).and_then(|entry| entry.binding.clone())
-            .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))).collect()
+    pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
+        instance.applications.iter().map(|id| {
+            if let Some(binding) = self.applications.entries.get(id).and_then(|entry| entry.binding.clone()) {
+                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding));
+            }
+            generalization.and_then(|generalization| generalization.applications.get(id)).copied()
+                .map(crate::sema::schemes::CallableApplicationBinding::Forwarded)
+                .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))
+        }).collect()
     }
 
 
@@ -645,7 +681,8 @@ impl TypeConstraints {
         generalization: &mut super::Generalization,
     ) -> Result<crate::sema::schemes::CallableRequirements, super::SchemeOperationError> {
         let mut applications = Vec::new();
-        for scoped in self.applications.entries.values().filter(|entry| entry.owner == CallableApplicationScope::Declaration(owner)) {
+        for (&id, scoped) in self.applications.entries.iter().filter(|(_, entry)| entry.owner == CallableApplicationScope::Declaration(owner)) {
+            generalization.applications.insert(id, u32::try_from(applications.len()).expect("application ordinals fit their existing source range"));
             let application = &scoped.application;
             let callee = self.generalize_type(&application.callee, environment_level, generalization, 0)?;
             let arguments = application.arguments.iter().map(|argument| Ok(crate::sema::callable_application::CallableApplicationArgument {

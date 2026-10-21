@@ -333,7 +333,11 @@ layout through aliases and returned values.
 `CallableScheme` owns the bound effect scope and application requirements.
 Generalization includes obligation-only result binders before freezing the body
 scope. Instantiation allocates one type, row, and effect substitution and retains
-the selected argument layouts. Declaration-owned requirements remain distinct
+the selected argument layouts. An unresolved nested invocation instead retains
+a reference to its actual caller-owned application requirement. Ground invocation
+evidence still requires a selected layout. Physical verification must compare the
+substituted application relationship against that caller requirement independently
+of constructor range checks. Declaration-owned requirements remain distinct
 from nongeneralizing invocations. Nested committed transactions and speculative
 trials share the same journal, including fresh scope ownership and panic rollback.
 Direct source applications retain one declaration-and-expression identity across

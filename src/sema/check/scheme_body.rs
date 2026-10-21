@@ -264,7 +264,7 @@ pub(super) fn is_body_expression(
                 for branch in program.arena.if_expr_branches(branches) { pending.push(branch.condition); pending.push(branch.value); }
                 pending.push(else_value);
             }
-            ArenaExprKind::ValueBlock(block) => {
+            ArenaExprKind::ValueBlock(block) | ArenaExprKind::Capture(block) => {
                 if !supports_generalized_body(program, block, bindings, available, captures,
                     tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Value)
                 { return false; }

@@ -297,6 +297,7 @@ struct Generalization {
     row_parameters: Vec<SchemeRowParameter>,
     effect_ids: BTreeMap<EffectVariableId, SchemeEffectParameterId>,
     effect_parameters: Vec<SchemeEffectParameterId>,
+    applications: BTreeMap<CallableApplicationId, u32>,
 }
 
 #[derive(Debug)]
@@ -665,6 +666,7 @@ impl TypeConstraints {
                 &mut generalization,
                 environment_level,
                 ground_caller,
+                &requirements.applications,
             )?;
             call_instantiations.insert(span, call);
         }
@@ -697,6 +699,7 @@ impl TypeConstraints {
         generalization: &mut Generalization,
         environment_level: u32,
         ground_caller: bool,
+        caller_applications: &[super::callable_application::CallableApplication<SchemeType, SchemeEffectParameterId>],
     ) -> Result<CallInstantiation, SchemeOperationError> {
         let type_arguments = instantiated
             .type_arguments
@@ -756,11 +759,11 @@ impl TypeConstraints {
         let effect_arguments = instantiated.effect_arguments.iter().map(|(&id, &variable)| {
             Ok((id, self.generalize_effect_contract(&super::effects::EffectContract::variable(variable), environment_level, generalization)?))
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
-        let bindings = self.callable_application_bindings(instantiated)?;
+        let bindings = self.callable_application_bindings(instantiated, Some(generalization))?;
         CallInstantiation::new(
             callable, type_arguments, row_arguments, effect_arguments, bindings,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
-        )
+        caller_applications)
         .map_err(SchemeOperationError::Build)
     }
 
@@ -912,8 +915,8 @@ impl TypeConstraints {
             let contract = contract.substitute(|_| Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects)))?;
             Ok((id, contract))
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
-        let bindings = self.callable_application_bindings(instantiated)?;
-        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[])
+        let bindings = self.callable_application_bindings(instantiated, None)?;
+        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[])
             .map_err(SchemeOperationError::Build)?;
         if callable.is_quantified() {
             self.counters

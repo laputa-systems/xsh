@@ -1121,7 +1121,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-            )
+             &[])
             .unwrap();
             let mut builder = super::super::FullBuilder::new(crate::source::SourceId::new(0));
             let scheme_id = builder.intern_scheme(&scheme).unwrap();

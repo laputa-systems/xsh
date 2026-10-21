@@ -94,11 +94,17 @@ pub(crate) struct TypeScheme {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CallableApplicationBinding {
+    Selected(super::arguments::StaticArgumentBinding),
+    Forwarded(u32),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CallInstantiation {
     type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
     row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
     effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
-    application_bindings: Vec<super::arguments::StaticArgumentBinding>,
+    application_bindings: Vec<CallableApplicationBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -585,10 +591,11 @@ impl CallInstantiation {
         type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
         row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
         effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
-        application_bindings: Vec<super::arguments::StaticArgumentBinding>,
+        application_bindings: Vec<CallableApplicationBinding>,
         caller_types: &[SchemeTypeParameterId],
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
+        caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
     ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable.type_parameters.iter().copied().collect()
@@ -608,6 +615,9 @@ impl CallInstantiation {
             != callable.requirements.effect_parameters.iter().copied().collect()
         {
             return Err(SchemeBuildError::UnboundEffectParameter);
+        }
+        if application_bindings.iter().any(|binding| matches!(binding, CallableApplicationBinding::Forwarded(ordinal) if caller_applications.get(*ordinal as usize).is_none())) {
+            return Err(SchemeBuildError::UnresolvedCallableApplication);
         }
         if application_bindings.len() != callable.requirements.applications.len() {
             return Err(SchemeBuildError::UnresolvedCallableApplication);
@@ -693,7 +703,7 @@ impl CallInstantiation {
         &self.effect_arguments
     }
 
-    pub(crate) fn application_bindings(&self) -> &[super::arguments::StaticArgumentBinding] {
+    pub(crate) fn application_bindings(&self) -> &[CallableApplicationBinding] {
         &self.application_bindings
     }
 
@@ -710,9 +720,12 @@ impl CallInstantiation {
         size_of::<Self>()
             .saturating_add(self.effect_arguments.len() * size_of::<SchemeEffectParameterId>())
             .saturating_add(self.effect_arguments.values().map(EffectContract::retained_bytes).sum::<usize>())
-            .saturating_add(self.application_bindings.capacity() * size_of::<super::arguments::StaticArgumentBinding>())
+            .saturating_add(self.application_bindings.capacity() * size_of::<CallableApplicationBinding>())
             .saturating_add(self.application_bindings.iter().map(|binding| {
-                (binding.argument_slots.capacity() + binding.omitted_slots.capacity()) * size_of::<usize>()
+                match binding {
+                    CallableApplicationBinding::Selected(binding) => (binding.argument_slots.capacity() + binding.omitted_slots.capacity()) * size_of::<usize>(),
+                    CallableApplicationBinding::Forwarded(_) => 0,
+                }
             }).sum::<usize>())
             .saturating_add(
                 self.type_arguments.len() * size_of::<SchemeTypeParameterId>(),
@@ -1698,7 +1711,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-            )
+             &[])
             .is_ok());
             assert!(TypeScheme::new(
                 crate::sema::types::CallableKind::Pure,
@@ -1753,7 +1766,7 @@ mod tests {
                         lacks: BTreeSet::new(),
                     }],
                     &[],
-            ),
+             &[]),
                 Err(SchemeBuildError::RowLacksMismatch),
             );
         });
@@ -1866,7 +1879,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-            )
+             &[])
             .unwrap();
 
             let required_bytes = std::mem::size_of::<CallInstantiation>()

@@ -430,6 +430,21 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn inferred_callable_forwarding_retains_the_same_qualified_application() {
+        accepts("pure invoke(action, value) { action(value) }\npure forwarded(action, value) { invoke(action, value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet integer: Int = forwarded(number, 7)\nlet string: Str = forwarded(text, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_discarded_forwarding_keeps_full_returned_layout() {
+        accepts("pure invoke(action, value) { action(value) }\npure keep(action, value) { let _ = invoke(action, value); action }\npure scaled(payload: Int, scale: Int = 2) -> Int { payload * scale }\nlet returned = keep(scaled, 7)\nlet integer: Int = returned(payload: 3, scale: 4)\n");
+    }
+
+    #[test]
+    fn inferred_callable_mutual_proc_components_keep_effect_scopes_separate() {
+        accepts("proc left(action, value, count: Int) { if count == 0 { action(value) } else { right(action, value, count - 1) } }\nproc right(action, value, count: Int) { left(action, value, count) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet integer: Result[Int] = left(number, 7, 2)\nlet string: Result[Str] = right(text, \"value\", 2)\n");
+    }
+
+    #[test]
     fn inferred_callable_recursive_uses_are_monomorphic_within_the_component() {
         accepts("pure repeated(action, value, count: Int) { if count == 0 { value } else { repeated(action, action(value), count - 1) } }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = repeated(number, 7, 2)\nlet text_result: Str = repeated(text, \"value\", 2)\n");
     }
