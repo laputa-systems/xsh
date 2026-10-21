@@ -21,6 +21,18 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Source `c0a282df8` integrates reviewed generic destructuring and iteration.
+The lane's 25 focused controls pass before rebase. They cover source-first
+binding publication, invariant writers, actual iterable item types, finite
+and Result sources, lazy stream cleanup, and owner error boundaries on both
+indexed routes. Ordinary and generic lowering share Result-stream adaptation.
+A corrected coordinated callee mutation passes target/effect/header assertions,
+then is accepted when the new stream-owner proof is omitted and rejected when
+it is retained. The earlier wrong-ID mutation establishes no bypass.
+The inherited merged boundary is running in
+`.work/wt/full-inference-iteration-qualified`; combined qualification remains
+pending. The producer lane retains the source and work-limit repairs below.
+
 Source `01b6b5a64` adds actual paired-comparator controls. All three selected
 XSHT tests pass after integration in `.work/wt/full-inference-paired-qualified`.
 One unchanged generic body preserves both concrete Int and Str instances.
