@@ -170,20 +170,37 @@ The production signing public key remains unprovisioned; authenticated update
 deployment still requires an explicitly provisioned key.
 These security changes do not supply inference or deployment acceptance credit.
 
-Isolated compiler checkpoint `dc21c8501` passes thirteen runtime-layout controls
-with one remaining Proc-origin failure. A later draft passes its first three
-Proc-origin controls, including direct and aliased returns, Result-as-data,
-and malformed physical return-site evidence. Ordinary branch, recursive and
-Stream completion remain mandatory. These drafts are not integrated or qualified.
-Checkpoint `50d808463` compiles and passes five of seven focused controls.
-Actual Proc error propagation now preserves the Result envelope and cleanup.
-Generic function arguments and polymorphic aliases passed through another
-generic callable still fail. Independent review finds no new confirmed blocker
-in the bounded checkpoint. Callable wiring, recursion and Stream remain open.
+Isolated carrier checkpoint `f506a237b` passes three runtime controls on both
+post-disposal routes. Generic callback materialization, polymorphic aliases at
+Int and Str in both client orders, and Result-as-data all pass. Three cold
+controls reject forged targets, layouts, kinds and nested effects. Independent
+review approves that bounded prefix. The warning-denied non-test check still
+needs the canonical reuse API's SCC production consumer. Host `.call` and
+`utils.cache` adapters, SelfCall completion, recursion and Stream remain open.
+This checkpoint is not integrated or qualified for master.
+
+The recursive-component prototype passes its staged publication and mutation
+controls, including the reproduced late-effect failure. Its matching products
+build and its narrow warning-denied non-test check passes. Only one of six
+native runtime controls passes before subsequent source repairs. Application
+origins need authenticated callee-scope normalization before export; no SCC
+membership waiver supplies authority.
+
+Nested fresh aggregate inference has twenty focused checker passes, including
+a reproduced default-parameter panic regression and signal-hook inference.
+Generic payload preservation and actual `expr` preparation still need proof.
+Explicit `List[Any]` and genuinely heterogeneous literals remain dynamic.
+Two missing native witnesses are integrated at `6397a90cf`, covering compatible
+mutable-callable reassignment and a named constant inside a generic body.
+Both remain unrun. Four reproduced core-compatibility causes have focused
+passes. The remaining `expr`, `btop` and prepared-record boundaries still need
+combined behavior qualification. No verifier work bound is raised.
 Work-counter repair `ab26826b9` passes nine focused controls and a non-test
 check. It counts discarded diagnostics and nested retained type nodes.
-Independent review finds no remaining blocker. Integration and merged replay
-remain required before performance use.
+Independent review finds no blocker in that checkpoint. Merged adaptation must
+count the newly retained proc-return site evidence and check actual Stream/hook
+body-entry coverage. Integration and merged replay remain required before
+performance use.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
