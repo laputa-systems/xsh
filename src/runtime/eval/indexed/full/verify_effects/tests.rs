@@ -48,6 +48,45 @@ fn without_effect(program: &FullProgram, owner: usize, effect: Effect) -> FullPr
     forged
 }
 
+#[test]
+fn result_unit_tail_forwarding_retains_interior_error_effects() {
+    let program = fixture(r#"
+pure completed() -> Result[Unit] { Ok() }
+error TailFailure = Failed(message: Str)
+var order = 0
+proc fail_tail() [] -> Result[Unit] {
+    order = order * 10 + 1
+    Err(TailFailure.Failed("stopped"))
+}
+proc forward_failure() [] {
+    defer { order = order * 10 + 2 }
+    errdefer { order = order * 10 + 3 }
+    fail_tail()
+}
+proc forward_success() [] {
+    errdefer { order = 99 }
+    completed()
+}
+proc inferred() [] { completed() }
+proc explicit() [] -> Result[Unit] { completed() }
+proc interior() [error] -> Result[Unit] {
+    completed()
+    Ok()
+}
+assert inferred() is Ok(_)
+assert explicit() is Ok(_)
+assert interior() is Ok(_)
+assert forward_failure() is Err(_)
+assert order == 132
+assert forward_success() is Ok(_)
+assert order == 132
+"#);
+    execute_both(&program);
+    let invalid = without_effect(&program, function(&program, "interior"), Effect::Error);
+    let error = FullVerifier::verify(&invalid).unwrap_err();
+    assert!(error.message.contains("requires effect error"), "{error:?}");
+}
+
 
 
 #[test]

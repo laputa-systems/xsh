@@ -2944,6 +2944,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     })?;
                 (body, BTreeMap::new(), BTreeMap::new())
             };
+        let result_unit_tail = scheme_body_facts.is_none()
+            && matches!(return_kind, LoweredReturnKind::Result(LoweredType::Unit))
+            && self.program.arena.stmt_ids(self.program.arena.block(def.body).statements)
+                .last()
+                .map(|tail| self.program.arena.core_stmt_id(tail))
+                .is_some_and(|tail| match self.program.arena.stmt(tail).kind {
+                    ArenaStmtKind::Expr(expression) => self.checked_expr_type(expression).is_some_and(|ty| ty.is_result_unit()),
+                    _ => false,
+                });
+        let forwards_result_unit = if result_unit_tail && let Some(&tail) = body.last() {
+            let row = self.scratch.borrow().statements[tail.index()].clone();
+            if let BuildStmtRow::Expr { value, .. } = row {
+                self.scratch.borrow_mut().statements[tail.index()] = BuildStmtRow::Return { value };
+                true
+            } else { false }
+        } else { false };
         default_prefix.append(&mut body);
         body = default_prefix;
         // The construct probe is permissive: it substitutes `Unit` for any
@@ -2964,7 +2980,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             return Err(CompactFunctionBlocker::Body);
         }
-        let body_cannot_fall_through = if scheme_body_facts.is_some() {
+        let body_cannot_fall_through = if scheme_body_facts.is_some() || forwards_result_unit {
             true
         } else {
             let tail_is_value = self
