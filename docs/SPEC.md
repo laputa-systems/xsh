@@ -1786,8 +1786,9 @@ An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
 record or list initializer follow the same rule. Each surviving empty list has
-one element type across all writers. An empty field replaced by a later record
-spread contributes no unresolved type. Explicit `Any` domains and heterogeneous
+one element type across all writers. A discarded `map.empty()` or an empty
+list field replaced by a later record spread contributes no unresolved type. These
+expressions still evaluate in source order. Explicit `Any` domains and heterogeneous
 list literals keep their declared or inferred domains. Parameter defaults and
 signal hook bodies use the same local inference rules. An unannotated mutable
 local initialized to `set.empty()` follows the same rule for its element type. Resolve these
@@ -3977,7 +3978,10 @@ command statement's value. A final `Result[Unit]` call in a `Unit` or
 Pure functions can omit their return annotation when the checker infers one
 closed type or rank-1 scheme from explicit returns and reachable tails. This
 rule also allows exported pure functions to omit return annotations. Recursive
-pure functions still need an explicit return annotation.
+pure declarations share provisional parameter and return types within their
+component. The checker solves every member before generalizing the component;
+recursive calls use those shared monotypes, and independent outside calls
+instantiate the published schemes freshly.
 Checked tooling contracts retain quantified parameter relationships and open
 record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
@@ -3989,9 +3993,11 @@ early returns. A proc's inferred success envelope retains the same identity.
 A structurally equal raw record or a different constructor does not establish
 that schema identity.
 
-The checker infers mutually recursive pure parameters together before checking
-callers. Those parameters remain monomorphic. A parameter that the recursive
-bodies leave undetermined needs an annotation.
+The checker infers mutually recursive parameters and returns before checking
+callers. Variables that are independent of the captured environment can become
+rank-1 scheme parameters after the component is solved. Infinite types and
+recursive calls that require a fresh polymorphic instance are rejected. A failed
+component publishes no member scheme.
 
 - A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is

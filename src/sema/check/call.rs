@@ -1448,6 +1448,11 @@ impl Checker {
         }
         let signature = self.declaration_inference.pending(declaration)?.clone();
         let (params, return_ty, instantiation) = if let Some(shape) = signature.provisional() {
+            if let Some(owner) = self.stream_origin_owner {
+                let previous = self.provisional_function_calls.insert(span, (owner, declaration));
+                assert!(previous.is_none_or(|previous| previous == (owner, declaration)),
+                    "a provisional call retains its caller and callee declarations");
+            }
             (
                 shape
                     .params()

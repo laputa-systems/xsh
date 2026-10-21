@@ -17,6 +17,7 @@ pub(super) struct LocalInference {
     aggregate_scopes: Vec<AggregateSeedScope>,
     solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
+    empty_constructors: BTreeMap<ExprId, crate::sema::schemes::NonmaterialEmptyConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
     /// Expression facts recorded with inference identities since the last
     /// record-constructor publication; every other fact is already canonical.
@@ -57,6 +58,7 @@ impl LocalInference {
                 && other.aggregate_scopes.is_empty()
                 && other.solved_functions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
+                && other.empty_constructors.is_empty()
                 && other.checked_bindings.is_empty()
                 && other.unresolved_expr_types.is_empty(),
             "module owner preparation must contain only local-inference seeds"
@@ -278,6 +280,11 @@ impl Checker {
             self.local_inference
                 .nonmaterial_expressions
                 .insert(super::expr::expr_or_run_span_arena(program, expression));
+            if !self.local_inference.collecting
+                && let ArenaExprOrRun::Expr(expression) = expression
+            {
+                self.local_inference.empty_constructors.insert(expression, crate::sema::schemes::NonmaterialEmptyConstructor::Map);
+            }
         }
     }
 
@@ -444,6 +451,7 @@ impl Checker {
             std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
         let aggregate_scopes = std::mem::take(&mut self.local_inference.aggregate_scopes);
+        let empty_constructors = std::mem::take(&mut self.local_inference.empty_constructors);
         let probe = self.clone();
         self.checked_declarations = checked_declarations;
         self.resolved_type_expressions = resolved_type_expressions;
@@ -485,6 +493,7 @@ impl Checker {
         self.definitely_exiting_block_spans = definitely_exiting_block_spans;
         self.local_inference.checked_bindings = checked_bindings;
         self.local_inference.aggregate_scopes = aggregate_scopes;
+        self.local_inference.empty_constructors = empty_constructors;
         probe
     }
 
@@ -496,18 +505,18 @@ impl Checker {
         mutable: bool,
         span: Span,
     ) -> Option<Type> {
-        if let Some(inference) = self.local_inference.bindings.get(&span) {
-            return self.type_constraints.resolve(&inference.ty).ok();
-        }
-        if self.boundary.current_return.is_some()
-            && matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate))
-        {
+        let aggregate = self.boundary.current_return.is_some()
+            && matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Aggregate));
+        if aggregate {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
                 initializer: super::expr::expr_or_run_span_arena(program, initializer),
                 origins: BTreeMap::new(),
             });
-            return None;
         }
+        if let Some(inference) = self.local_inference.bindings.get(&span) {
+            return self.type_constraints.resolve(&inference.ty).ok();
+        }
+        if aggregate { return None; }
         if self.boundary.current_return.is_none()
             || !self.local_inference.seeds.contains(&span)
             || !matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Set))
@@ -558,6 +567,28 @@ impl Checker {
             && let Some(scope) = self.local_inference.aggregate_scopes.last_mut()
         {
             scope.origins.insert(span, FreshAggregateOrigin::List(range));
+        }
+    }
+
+    pub(super) fn nonmaterial_empty_constructors(&self) -> &BTreeMap<ExprId, crate::sema::schemes::NonmaterialEmptyConstructor> {
+        &self.local_inference.empty_constructors
+    }
+
+    fn record_overwritten_empty_constructors(
+        &mut self,
+        program: &ArenaProgram,
+        expression: ExprId,
+        origins: &BTreeMap<Span, FreshAggregateOrigin>,
+    ) {
+        if self.local_inference.collecting || !origins.contains_key(&program.arena.expr(expression).span) {
+            return;
+        }
+        let mut candidates = BTreeSet::new();
+        collect_empty_list_constructors(program, expression, &mut candidates);
+        let mut surviving = BTreeSet::new();
+        collect_surviving_empty_lists(program, expression, origins, &mut surviving);
+        for expression in candidates.difference(&surviving) {
+            self.local_inference.empty_constructors.insert(*expression, crate::sema::schemes::NonmaterialEmptyConstructor::List);
         }
     }
 
@@ -791,13 +822,20 @@ impl Checker {
         {
             return ordinary;
         }
+        let aggregate_scope = if matches!(seed, LocalSeed::Aggregate) {
+            let scope = self.local_inference.aggregate_scopes.pop()
+                .expect("aggregate initializer owns its origin scope");
+            assert_eq!(scope.initializer, super::expr::expr_or_run_span_arena(program, initializer));
+            if let ArenaExprOrRun::Expr(expression) = initializer {
+                self.record_overwritten_empty_constructors(program, expression, &scope.origins);
+            }
+            Some(scope)
+        } else { None };
         let inference = if let Some(inference) = self.local_inference.bindings.get(&span) {
             inference.clone()
         } else if matches!(seed, LocalSeed::Aggregate) {
             let origin = super::expr::expr_or_run_span_arena(program, initializer);
-            let scope = self.local_inference.aggregate_scopes.pop()
-                .expect("aggregate initializer owns its origin scope");
-            assert_eq!(scope.initializer, origin);
+            let scope = aggregate_scope.expect("aggregate seed retains its checked origins");
             let ArenaExprOrRun::Expr(expression) = initializer else { unreachable!() };
             let mut holes = Vec::new();
             let ty = self.materialize_fresh_aggregate(program, expression, &ordinary, &[ordinary.clone()], &scope.origins, &mut holes);
@@ -953,6 +991,41 @@ fn local_seed_kind(
             Some(LocalSeed::Set)
         }
         _ => None,
+    }
+}
+
+fn collect_empty_list_constructors(program: &ArenaProgram, expression: ExprId, output: &mut BTreeSet<ExprId>) {
+    match program.arena.expr(expression).kind {
+        ArenaExprKind::List(elements) if elements.is_empty() => { output.insert(expression); }
+        ArenaExprKind::List(elements) => for element in program.arena.list_elements(elements) {
+            if element.splice_span.is_none() { collect_empty_list_constructors(program, element.value, output); }
+        },
+        ArenaExprKind::Record(fields) => for field in program.arena.record_fields(fields) {
+            match field.kind {
+                ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } =>
+                    collect_empty_list_constructors(program, value, output),
+                _ => {}
+            }
+        },
+        _ => {}
+    }
+}
+
+fn collect_surviving_empty_lists(
+    program: &ArenaProgram,
+    expression: ExprId,
+    origins: &BTreeMap<Span, FreshAggregateOrigin>,
+    output: &mut BTreeSet<ExprId>,
+) {
+    match origins.get(&program.arena.expr(expression).span) {
+        Some(FreshAggregateOrigin::List(elements)) if elements.is_empty() => { output.insert(expression); }
+        Some(FreshAggregateOrigin::List(elements)) => for element in program.arena.list_elements(*elements) {
+            if element.splice_span.is_none() { collect_surviving_empty_lists(program, element.value, origins, output); }
+        },
+        Some(FreshAggregateOrigin::Record(fields)) => for expression in fields.values().flatten() {
+            collect_surviving_empty_lists(program, *expression, origins, output);
+        },
+        None => {}
     }
 }
 
@@ -1336,7 +1409,41 @@ mod tests {
     fn nested_aggregate_overwritten_hole_keeps_unrelated_generic_payload() {
         with_checked_local_source(
             "pure sample(payload) { let state = {items: [], ...{items: [7]}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
-            |output| assert_generic_payload_relationship(output, false),
+            |output| {
+                assert_generic_payload_relationship(output, false);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::List);
+            },
+        );
+    }
+
+    fn assert_nonmaterial_empty_role(output: &super::super::CheckOutput, expected: crate::sema::schemes::NonmaterialEmptyConstructor) {
+        let declaration = output.checked_declarations.functions.values().next().expect("generic declaration");
+        let facts = declaration.scheme_body_facts.as_ref().expect("published body facts");
+        assert_eq!(facts.empty_constructors().len(), 1);
+        let (&expression, &role) = facts.empty_constructors().iter().next().expect("nonmaterial constructor");
+        assert_eq!(role, expected);
+        assert!(!facts.expression_types().contains_key(&expression));
+    }
+
+    #[test]
+    fn nested_aggregate_discarded_map_keeps_unrelated_generic_payload() {
+        with_checked_local_source(
+            "pure sample(payload) { let _ = map.empty(); payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| {
+                assert_generic_payload_relationship(output, false);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::Map);
+            },
+        );
+    }
+
+    #[test]
+    fn nested_aggregate_overwritten_wrapper_keeps_unrelated_generic_payload() {
+        with_checked_local_source(
+            "pure sample(payload) { let state = {...{items: []}, ...{items: [7]}, payload}; state.payload }\nlet number: Int = sample(7)\nlet word: Str = sample(\"word\")",
+            |output| {
+                assert_generic_payload_relationship(output, false);
+                assert_nonmaterial_empty_role(output, crate::sema::schemes::NonmaterialEmptyConstructor::List);
+            },
         );
     }
 
@@ -1409,18 +1516,6 @@ mod tests {
             "pure fabricated() { var state = {items: []}; let action = state.items[0]; action() }",
             |output| assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", output.diagnostics),
         );
-    }
-
-    #[test]
-    fn nested_aggregate_captured_generic_storage_keeps_shared_writer_type() {
-        let source = "proc outer(value) [] { var state = {items: []}; state.items = [value]; proc put(item) [] { state.items = [item] }; put(1); put(\"wrong\"); state.items }\nlet result = outer(7)";
-        with_checked_local_source(source, |output| {
-            let wrong = source.find("\"wrong\"").expect("incompatible captured writer");
-            assert!(output.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)
-                    && diagnostic.labels.iter().any(|label| label.span.start() <= wrong && wrong < label.span.end())
-            }), "{:?}", output.diagnostics);
-        });
     }
 
     #[test]

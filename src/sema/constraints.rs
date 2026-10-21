@@ -18,6 +18,8 @@ pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, Effe
 #[path = "constraints/applications.rs"]
 mod application_constraints;
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
+#[path = "constraints/input_support.rs"]
+mod input_support;
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
@@ -582,6 +584,13 @@ impl TypeConstraints {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub(crate) fn retain_environment_monotypes(&mut self, types: &[Type]) -> Result<(), ConstraintResolutionError> {
+        self.apply_journaled(|this, changes| {
+            for ty in types { this.lower_levels_in_type(ty, 0, changes)?; }
+            Ok(())
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn generalize_types(
         &self,
@@ -597,6 +606,7 @@ impl TypeConstraints {
             types,
             generalization_scope: CallableGeneralizationScope {
                 owner: CallableApplicationScope::Invocation,
+                application_sources: BTreeMap::new(),
                 types: generalization.type_ids, rows: generalization.row_ids,
                 effects: generalization.effect_ids, applications: generalization.applications,
             },
@@ -620,12 +630,36 @@ impl TypeConstraints {
         BTreeMap<StmtId, SchemeType>,
         BTreeMap<Span, CallInstantiation>,
     ), SchemeOperationError> {
+        self.generalize_callable_body_with_calls_in_component(
+            callable_types, body_types, tail_types, calls, environment_level, owner,
+            &BTreeSet::from([owner]),
+        )
+    }
+
+    pub(crate) fn generalize_callable_body_with_calls_in_component(
+        &self,
+        callable_types: &[Type],
+        body_types: &BTreeMap<ExprId, Type>,
+        tail_types: &BTreeMap<StmtId, Type>,
+        calls: &BTreeMap<Span, (Arc<CallableScheme>, InstantiatedScheme)>,
+        environment_level: u32,
+        owner: crate::sema::check::EffectDeclarationId,
+        component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
+    ) -> Result<(
+        GeneralizedTypes,
+        BTreeMap<ExprId, SchemeType>,
+        BTreeMap<StmtId, SchemeType>,
+        BTreeMap<Span, CallInstantiation>,
+    ), SchemeOperationError> {
+        if !component.contains(&owner) {
+            return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+        }
         let mut generalization = Generalization::default();
         let types = callable_types
             .iter()
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
-        let requirements = self.generalize_callable_requirements(owner, environment_level, &mut generalization)?;
+        let requirements = self.generalize_callable_requirements(component, environment_level, &mut generalization)?;
         let type_parameter_count = generalization.type_parameters.len();
         let row_parameter_count = generalization.row_parameters.len();
         let effect_parameter_count = generalization.effect_parameters.len();
@@ -687,6 +721,9 @@ impl TypeConstraints {
                 types,
                 generalization_scope: CallableGeneralizationScope {
                     owner: CallableApplicationScope::Declaration(owner),
+                    application_sources: generalization.applications.keys().map(|&id| {
+                        self.callable_application_reference(id).map(|reference| (id, reference))
+                    }).collect::<Result<_, _>>().map_err(SchemeOperationError::Application)?,
                     types: generalization.type_ids, rows: generalization.row_ids,
                     effects: generalization.effect_ids, applications: generalization.applications,
                 },
@@ -775,6 +812,36 @@ impl TypeConstraints {
         .map_err(SchemeOperationError::Build)
     }
 
+    pub(crate) fn generalize_scoped_call_instantiation(
+        &self,
+        caller: &CallableScheme,
+        scope: &CallableGeneralizationScope,
+        callee: &CallableScheme,
+        instance: &InstantiatedScheme,
+    ) -> Result<CallInstantiation, SchemeOperationError> {
+        self.validate_generalized_applications(caller, scope)?;
+        let mut generalization = Self::callable_generalization(caller, scope);
+        let call = self.generalize_call_instantiation(
+            callee, instance, &mut generalization, 0,
+            caller.type_parameters().is_empty() && caller.row_parameters().is_empty(),
+            &caller.requirements().applications,
+        )?;
+        if generalization.type_ids != scope.types || generalization.row_ids != scope.rows
+            || generalization.effect_ids != scope.effects || generalization.applications != scope.applications
+        {
+            return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+        }
+        Ok(call)
+    }
+
+    fn callable_generalization(callable: &CallableScheme, scope: &CallableGeneralizationScope) -> Generalization {
+        Generalization {
+            type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
+            applications: scope.applications.clone(), type_parameters: callable.type_parameters().to_vec(),
+            row_parameters: callable.row_parameters().to_vec(), effect_parameters: callable.requirements().effect_parameters.clone(),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn instantiate_scheme(
         &mut self,
@@ -808,14 +875,7 @@ impl TypeConstraints {
             for ty in type_arguments.values() { this.resolve(ty)?; }
             for &row in row_arguments.values() { this.row_representative_root(row)?; }
             for &effect in effect_arguments.values() { this.resolve_effect(&super::effects::EffectContract::variable(effect))?; }
-            let mut applications = scope.applications.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
-            applications.sort_unstable();
-            if applications.len() != callable.requirements().applications.len()
-                || applications.iter().enumerate().any(|(index, (ordinal, id))| *ordinal as usize != index
-                    || this.applications.entries.get(id).is_none_or(|application| application.owner != scope.owner))
-            {
-                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
-            }
+            let applications = this.validate_generalized_applications(callable, scope)?;
             let params = callable.params().iter().map(|parameter| this.instantiate_scheme_type(
                 &parameter.ty, &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0,
             )).collect::<Result<Vec<_>, _>>()?;
@@ -823,6 +883,35 @@ impl TypeConstraints {
             Ok(InstantiatedScheme { params, return_type, type_arguments, row_arguments, effect_arguments,
                 applications: applications.into_iter().map(|(_, id)| id).collect() })
         })
+    }
+
+    fn validate_generalized_applications(
+        &self,
+        callable: &CallableScheme,
+        scope: &CallableGeneralizationScope,
+    ) -> Result<Vec<(u32, CallableApplicationId)>, SchemeOperationError> {
+        let mut applications = scope.applications.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        applications.sort_unstable();
+        if applications.len() != callable.requirements().applications.len()
+            || applications.iter().enumerate().any(|(index, (ordinal, id))| *ordinal as usize != index
+                || self.callable_application_reference(*id).ok().as_ref() != scope.application_sources.get(id))
+        {
+            return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+        }
+        if scope.application_sources.len() != applications.len() {
+            return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+        }
+        let mut generalization = Self::callable_generalization(callable, scope);
+        for &(ordinal, id) in &applications {
+            let application = self.generalize_callable_application(id, 0, &mut generalization)?;
+            if callable.requirements().applications.get(ordinal as usize) != Some(&application) {
+                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
+            }
+        }
+        if generalization.type_ids != scope.types || generalization.row_ids != scope.rows || generalization.effect_ids != scope.effects {
+            return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+        }
+        Ok(applications)
     }
 
     pub(crate) fn instantiate_callable(

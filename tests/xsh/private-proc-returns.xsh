@@ -190,11 +190,6 @@ test test_private_proc_inference_rejects_boundaries { |ctx|
       code: "check.required-return",
     },
     {
-      source: """proc count(depth: Int) { if depth == 0 { 0 } else { count(depth - 1)? + 1 } }
-""",
-      code: "check.required-return",
-    },
-    {
       source: """proc empty() { [] }
 """,
       code: "check.infer-return",

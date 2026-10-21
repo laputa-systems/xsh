@@ -1,5 +1,5 @@
 use super::{ConstraintChange, ConstraintResolutionError, TypeConstraints, MAX_TYPE_DEPTH};
-use crate::sema::effects::{EffectContract, EffectSet};
+use crate::sema::effects::EffectContract;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +16,7 @@ pub(crate) struct CallableGeneralizationScope {
     pub(super) rows: BTreeMap<super::RowVariableId, crate::sema::schemes::SchemeRowParameterId>,
     pub(super) effects: BTreeMap<EffectVariableId, crate::sema::schemes::SchemeEffectParameterId>,
     pub(super) applications: BTreeMap<super::CallableApplicationId, u32>,
+    pub(super) application_sources: BTreeMap<super::CallableApplicationId, super::CallableApplicationReference>,
 }
 
 pub(crate) type EffectPredicate = crate::sema::effects::EffectPredicate<EffectVariableId>;
@@ -340,6 +341,7 @@ impl TypeConstraints {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sema::effects::EffectSet;
     use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::node::Effect;

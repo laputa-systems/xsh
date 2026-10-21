@@ -808,6 +808,23 @@ pub(super) struct DeferredEffectCheck {
 }
 
 impl Checker {
+    pub(super) fn publish_recursive_invocation_instances(
+        &mut self,
+        instances: &BTreeMap<Span, super::PendingCallInstantiation>,
+    ) {
+        for check in &mut self.deferred_effect_checks {
+            if let Some(instantiation) = instances.get(&check.span)
+                && let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), instance, .. } = &mut check.kind
+            {
+                let (_, callee) = self.provisional_function_calls.get(&check.span)
+                    .expect("a recursive effect check retains its selected call");
+                assert_eq!(*owner, callee.effect_declaration());
+                assert!(instance.is_none());
+                *instance = Some(instantiation.clone());
+            }
+        }
+    }
+
     pub(super) fn defer_required_effect(
         &mut self,
         effect: Effect,

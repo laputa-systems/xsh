@@ -1274,3 +1274,19 @@ fn producer_context_native_constructor_preparation_stays_within_work_bound() {
         FullVerifier::verify(&program).unwrap();
     });
 }
+
+#[test]
+fn mutable_record_spreads_preserve_initial_contextual_fields() {
+    let program = fixture(r#"
+type State = {at: Int, items: List[Int]}
+pure updated(source: State) -> State {
+    var current = {...source, items: []}
+    current = {...current, at: current.at + 1}
+    current
+}
+let result = updated(State(0, [7]))
+assert result.at == 1
+assert result.items.len() == 0
+"#);
+    execute_both(&program);
+}

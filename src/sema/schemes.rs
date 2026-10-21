@@ -4,7 +4,6 @@ use super::callable_application::CallableApplication;
 use super::effects::{CheckedEffects, EffectContract, EffectPredicate};
 use crate::source::Span;
 use crate::symbol::Name;
-use crate::syntax::node::Effect;
 use crate::sema::validated::Validation;
 use crate::syntax::arena::{ExprId, StmtId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -159,10 +158,17 @@ pub(crate) struct SchemeProcReturnSite {
     pub(crate) envelope: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NonmaterialEmptyConstructor {
+    List,
+    Map,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SchemeBodyFacts {
     scheme: Arc<TypeScheme>,
     expression_types: BTreeMap<ExprId, SchemeType>,
+    empty_constructors: BTreeMap<ExprId, NonmaterialEmptyConstructor>,
     tail_types: BTreeMap<StmtId, SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>,
     read_bindings: BTreeSet<super::check::BindingId>,
@@ -205,7 +211,7 @@ impl TypeScheme {
         return_type: SchemeType,
         return_schema: Option<SchemaExpectation>,
         explicit_return: bool,
-        effects: Option<Vec<Effect>>,
+        effects: Option<Vec<crate::syntax::node::Effect>>,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
         let callable = Arc::new(CallableScheme::new(
@@ -816,6 +822,7 @@ impl SchemeBodyFacts {
         Ok(Self {
             scheme,
             expression_types,
+            empty_constructors: BTreeMap::new(),
             tail_types,
             registered_calls: BTreeMap::new(),
             read_bindings: BTreeSet::new(),
@@ -838,6 +845,16 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
+    pub(crate) fn proc_return_site_count(&self) -> usize { self.proc_return_sites.len() }
+
+    pub(crate) fn with_empty_constructors(mut self, constructors: BTreeMap<ExprId, NonmaterialEmptyConstructor>) -> Self {
+        self.empty_constructors = constructors;
+        self
+    }
+
+    pub(crate) fn empty_constructors(&self) -> &BTreeMap<ExprId, NonmaterialEmptyConstructor> {
+        &self.empty_constructors
+    }
 
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
         self.registered_calls = calls;
@@ -880,8 +897,9 @@ impl SchemeBodyFacts {
                     .map(SchemeType::retained_bytes)
                     .sum::<usize>(),
             )
+            .saturating_add(self.empty_constructors.len() * size_of::<(ExprId, NonmaterialEmptyConstructor)>())
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
-            .saturating_add(self.proc_return_sites.len() * size_of::<(Span, SchemeProcReturnSite)>())
+            .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())

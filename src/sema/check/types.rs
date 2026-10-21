@@ -159,6 +159,7 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
+        if return_ty.is_result() { return; }
         let super::InvocationEffects::Checked(effects) = effects else {
             if !self.collecting_effects {
                 self.error(span, "invocation error flow has no settled effect contract", DiagnosticCode::CheckLocalInference);
