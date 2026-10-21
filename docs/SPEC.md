@@ -2311,8 +2311,11 @@ evaluated anew per outer binding, a false filter skips the rest, and the
 projection runs once per surviving combination. Sources may be lists, sets,
 streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
-are `Bool` values, never assertions. A failed comprehension exposes no partial
-result. A map comprehension is the only entry in its braces; an entry or
+accept `Bool` or `Status`, using the ordinary control-condition rules. A zero
+status selects the remaining clauses; a nonzero status skips them. Filters
+never assert. Each binding becomes visible after its source evaluates and
+remains visible to later clauses and the projection. A failed comprehension
+exposes no partial result. A map comprehension is the only entry in its braces; an entry or
 spread before it is an error (`parse.map-comprehension-entries`).
 
 Braces around a projection without a `key:` are a set comprehension:
@@ -3823,6 +3826,11 @@ the ordinary item order and snapshot behavior. Result sources propagate their
 actual error family. Stream sources remain lazy, and leaving a loop releases
 its source through ordinary cleanup. The enclosing result contract must admit
 both source errors and errors from pulling a stream.
+List and map comprehensions retain the item or value relationship to quantified
+parameters. Set comprehensions require a checked scalar key domain. Qualifiers
+keep their ordinary sequential scope, lazy source evaluation, filter behavior,
+and cleanup. A single unfiltered mapping of a `NonEmpty` list preserves that
+validation; filters and additional sources do not.
 
 Values may be scalar literals, parameter or local reads, ground immutable
 runtime captures, required `.field` projections, list literals without splices,

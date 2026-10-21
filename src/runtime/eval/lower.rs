@@ -3307,19 +3307,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 ArenaStmtKind::For { target, iter, block } => {
                     let item_type = facts.expression_types().get(&iter)?.closed_ground_type().and_then(|ty| ty.iteration_item_type());
-                    let mut iter = self.lower_scheme_expression(iter, slots, current_function, facts, visited, lowered_types, body)?;
-                    let source = lowered_types.get(&iter)?;
-                    let success = match source {
-                        SchemeType::Result(ok, _) => Some((**ok).clone()),
-                        SchemeType::Ground(Type::Result(ok, _)) => Some(SchemeType::Ground((**ok).clone())),
-                        _ => None,
-                    };
-                    if let Some(success) = success
-                        && lowered_scheme_physical_type(&success).is_some_and(values::direct_iterable_result_needs_unwrap)
-                    {
-                        iter = push_build_row!(self, expr, BuildExprRow::Try { value: iter, span: node.span });
-                        lowered_types.insert(iter, success);
-                    }
+                    let iter = self.lower_scheme_expression(iter, slots, current_function, facts, visited, lowered_types, body)?;
+                    let iter = self.lower_scheme_iterable_value(iter, node.span, lowered_types)?;
                     let saved = slots.enter();
                     let target = self.lower_comp_target_typed(target, slots, item_type.as_ref())?;
                     let statements = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
@@ -3386,6 +3375,49 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(())
     }
 
+    fn lower_scheme_iterable_value(
+        &mut self, mut value: BuildExprId, span: Span,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        let success = match lowered_types.get(&value)? {
+            SchemeType::Result(ok, _) => Some((**ok).clone()),
+            SchemeType::Ground(Type::Result(ok, _)) => Some(SchemeType::Ground((**ok).clone())),
+            _ => None,
+        };
+        if let Some(success) = success
+            && lowered_scheme_physical_type(&success).is_some_and(values::direct_iterable_result_needs_unwrap)
+        {
+            value = push_build_row!(self, expr, BuildExprRow::Try { value, span });
+            lowered_types.insert(value, success);
+        }
+        Some(value)
+    }
+
+    fn lower_scheme_comp_qualifiers(
+        &mut self, qualifiers: crate::syntax::arena::ArenaRange, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<super::LoweredCompQualifiers> {
+        let mut lowered = Vec::new();
+        for qualifier in self.program.arena.comp_qualifiers(qualifiers).to_vec() {
+            lowered.push(match qualifier {
+                crate::syntax::arena::ArenaCompQualifier::For { target, iter, span } => {
+                    let item_type = facts.expression_types().get(&iter)?.closed_ground_type().and_then(|ty| ty.iteration_item_type());
+                    let iter = self.lower_scheme_lazy_expression(iter, slots, current_function, facts, visited, lowered_types)?;
+                    let iter = self.lower_scheme_iterable_value(iter, span, lowered_types)?;
+                    slots.enter();
+                    let target = Box::new(self.lower_comp_target_typed(target, slots, item_type.as_ref())?);
+                    super::LoweredCompQualifier::For { target, iter, span }
+                }
+                crate::syntax::arena::ArenaCompQualifier::If { condition, span } => {
+                    let condition = self.lower_scheme_lazy_expression(condition, slots, current_function, facts, visited, lowered_types)?;
+                    super::LoweredCompQualifier::If { condition, span }
+                }
+            });
+        }
+        Some(super::LoweredCompQualifiers(lowered))
+    }
+
     fn lower_scheme_lazy_expression(
         &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
@@ -3394,7 +3426,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut body = Vec::new();
         let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, &mut body)?;
         let ty = lowered_types.get(&value)?.clone();
-        body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+        let tail = push_build_row!(self, stmt, BuildStmtRow::Value { value });
+        if ty.may_hold_resource() { self.scratch.borrow_mut().mark_resource_transfer(tail); }
+        body.push(tail);
         let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.expr(expression).span });
         lowered_types.insert(value, ty);
         Some(value)
@@ -3509,6 +3543,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let list = push_build_row!(self, expr, BuildExprRow::List(values));
         lowered_types.insert(list, SchemeType::List(Box::new(item)));
+        self.lower_scheme_set_of_list(list, span)
+    }
+
+    fn lower_scheme_set_of_list(&mut self, list: BuildExprId, span: Span) -> Option<BuildExprId> {
         let [method] = api_spec().method_overloads(crate::modules::MethodReceiver::List, "to_set")? else { return None };
         let plan = Arc::new(crate::sema::schemes::RegisteredCallPlan {
             receiver: Some(crate::modules::MethodReceiver::List), name: Arc::from("to_set"), signature: &method.sig,
@@ -3808,6 +3846,39 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     push_build_row!(self, expr, BuildExprRow::Record(entries))
                 }
+            }
+            ArenaExprKind::ListComp { expr: projection, qualifiers } | ArenaExprKind::SetComp { expr: projection, qualifiers } => {
+                let saved = slots.enter();
+                let qualifiers = self.lower_scheme_comp_qualifiers(qualifiers, slots, current_function, facts, visited, lowered_types)?;
+                let value = self.lower_scheme_lazy_expression(projection, slots, current_function, facts, visited, lowered_types)?;
+                slots.exit(saved);
+                let list = push_build_row!(self, expr, BuildExprRow::ListComp { value, qualifiers, span });
+                if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::SetComp { .. }) {
+                    let item = match &ty {
+                        SchemeType::Set(item) => (**item).clone(),
+                        SchemeType::Ground(Type::Set(item)) => SchemeType::Ground((**item).clone()),
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    };
+                    lowered_types.insert(list, SchemeType::List(Box::new(item)));
+                    self.lower_scheme_set_of_list(list, span)?
+                } else { list }
+            }
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                let saved = slots.enter();
+                let qualifiers = self.lower_scheme_comp_qualifiers(qualifiers, slots, current_function, facts, visited, lowered_types)?;
+                let key_span = self.program.arena.expr(key).span;
+                let mut key = self.lower_scheme_lazy_expression(key, slots, current_function, facts, visited, lowered_types)?;
+                if match &ty {
+                    SchemeType::Map(key, _) => key.closed_ground_type() == Some(Type::UInt),
+                    SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
+                    _ => return self.block_scheme_lowering_expr(expression),
+                } {
+                    key = self.require_uint_key(key, key_span);
+                    self.record_scheme_storage_elaboration(key, &SchemeType::Ground(Type::UInt), lowered_types);
+                }
+                let value = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
+                slots.exit(saved);
+                push_build_row!(self, expr, BuildExprRow::MapComp { key, value, qualifiers, span })
             }
             ArenaExprKind::If { branches, else_value } => {
                 let mut values = Vec::new();

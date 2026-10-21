@@ -925,3 +925,126 @@ fn generic_iteration_result_maps_preserve_the_payload_binder() {
         }
     }
 }
+
+#[test]
+fn generic_comprehension_constructions_preserve_the_checked_payload_relationships() {
+    use crate::runtime::value::MapKey;
+    let record = |value, field: &str, payload| Value::Map([(MapKey::Str(Arc::from("value")), value), (MapKey::Str(Arc::from(field)), payload)].into_iter().collect());
+    for (prefix, definition, number_type, text_type, suffix, number, text) in [
+        ("", "pure copy(value) { [item for item in [value, value]] }", "List[Int]", "List[Str]", "", Value::List(vec![Value::Int(7), Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value")), Value::Str(Arc::from("value"))])),
+        ("", "pure copy(value) { [inner for outer in [value] for {item: inner} in [{item: outer}]] }", "List[Int]", "List[Str]", "", Value::List(vec![Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value"))])),
+        ("", "pure copy(value) { [item for item in [value] for item in [item]] }", "List[Int]", "List[Str]", "", Value::List(vec![Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value"))])),
+        ("", "pure copy(value) { {key: value for key in [\"b\", \"a\"]} }", "Map[Str, Int]", "Map[Str, Str]", "", Value::Map([(MapKey::Str(Arc::from("a")), Value::Int(7)), (MapKey::Str(Arc::from("b")), Value::Int(7))].into_iter().collect()), Value::Map([(MapKey::Str(Arc::from("a")), Value::Str(Arc::from("value"))), (MapKey::Str(Arc::from("b")), Value::Str(Arc::from("value")))].into_iter().collect())),
+        ("type Number = {value: Int, unique: Set[Int]}\ntype Text = {value: Str, unique: Set[Int]}", "pure copy(value) { let unique = {item for item in [2, 1, 2]}; {value, unique} }", "Number", "Text", "", record(Value::Int(7), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect())), record(Value::Str(Arc::from("value")), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))),
+        ("type Number = {value: Int, copied: NonEmpty[Int]}\ntype Text = {value: Str, copied: NonEmpty[Int]}", "pure copy(value, items: NonEmpty[Int]) { let copied = [item for item in items]; {value, copied} }", "Number", "Text", ", [1, 2]", record(Value::Int(7), "copied", Value::List(vec![Value::Int(1), Value::Int(2)])), record(Value::Str(Arc::from("value")), "copied", Value::List(vec![Value::Int(1), Value::Int(2)]))),
+        ("", "pure copy(value) { Ok([item.value for item in Ok({[\"key\"]: value})]) }", "Result[List[Int]]", "Result[List[Str]]", "", Value::Result(ResultValue::Ok(Box::new(Value::List(vec![Value::Int(7)])))), Value::Result(ResultValue::Ok(Box::new(Value::List(vec![Value::Str(Arc::from("value"))]))))),
+    ] {
+        let source = format!("{prefix}\n{definition}\npure number() -> {number_type} {{ copy(7{suffix}) }}\npure text() -> {text_type} {{ copy(\"value\"{suffix}) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for (name, expected) in [("number", number.clone()), ("text", text.clone())] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(record_form_observable(actual), expected, "{definition} {name} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_comprehension_qualifiers_keep_nested_evaluation_and_failure_lazy() {
+    let source = "proc copy(value, selected: Bool) [error] { var trace = 0; let rows = [{ trace = trace * 10 + 4; item } for outer in { trace = trace * 10 + 1; [value, value] } if { trace = trace * 10 + 2; selected } for item in { trace = trace * 10 + 3; if selected { [outer] } else { let _ = [outer][9]; [outer] } }]; {rows, trace} }\nproc number() [error] { copy(7, true) }\nproc text() [error] { copy(\"value\", false) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, rows, trace) in [("number", vec![Value::Int(7), Value::Int(7)], 1234234), ("text", Vec::new(), 122)] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the selected qualifier path succeeds") };
+            let Value::Record(fields) = *actual else { panic!("the comprehension returns its observations") };
+            assert_eq!(fields.get("rows"), Some(&Value::List(rows)), "{name} frames={force_frames}");
+            assert_eq!(fields.get("trace"), Some(&Value::Int(trace)), "{name} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_comprehension_status_filters_keep_exit_success_selection() {
+    let source = "pure copy(value, selected: Status) { [item for item in [value] if selected] }\npure number(selected: Status) -> List[Int] { copy(7, selected) }\npure text(selected: Status) -> List[Str] { copy(\"value\", selected) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for code in [0, 7] {
+            for (name, value) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let status = Value::Status(crate::runtime::process::ProcessStatus::exited(code));
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[status], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, Value::List(if code == 0 { vec![value] } else { Vec::new() }), "{name} status={code} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_comprehension_streams_preserve_source_projection_and_cleanup_boundaries() {
+    let source = "error SourceFailure = Missing(message: Str) : NotFound\nvar created = 0\nvar pulls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nstream items() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 1; pulls = pulls + 1; yield 2 }\nproc source(fail: Bool) [error] -> Result[Stream[Int], SourceFailure] { created = created + 1; if fail { Err(.Missing(message: \"source failed\")) } else { Ok(items()) } }\nproc copy(marker, source_fails: Bool, projection_fails: Bool) [error] { [ { let _ = [marker][if projection_fails { 9 } else { 0 }]; marker } for item in source(source_fails) ] }\nproc number() [error] { let rows = copy(7, false, false)?; {rows, created, pulls, closed} }\nproc text() [error] { let rows = copy(\"value\", false, false)?; {rows, created, pulls, closed} }\nproc source_failed() [error] { copy(7, true, false) }\nproc projection_failed() [error] { copy(7, false, true) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, marker) in [("number", Some(Value::Int(7))), ("text", Some(Value::Str(Arc::from("value")))), ("source_failed", None), ("projection_failed", None)] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap();
+            if let Some(marker) = marker {
+                let Value::Result(ResultValue::Ok(actual)) = actual.unwrap() else { panic!("the comprehension succeeds") };
+                let Value::Record(fields) = *actual else { panic!("the ground caller returns its observations") };
+                assert_eq!(fields.get("rows"), Some(&Value::List(vec![marker.clone(), marker])));
+                assert_eq!(fields.get("created"), Some(&Value::Int(1)));
+                assert_eq!(fields.get("pulls"), Some(&Value::Int(2)));
+                assert_eq!(fields.get("closed"), Some(&Value::Int(1)));
+            } else {
+                let (pulls, closed) = if name == "source_failed" {
+                    let Value::Result(ResultValue::Err(error)) = actual.unwrap() else { panic!("the selected failure propagates") };
+                    let Value::Error(error) = *error else { panic!("the original nominal error remains data") };
+                    assert_eq!((error.family.as_str(), error.variant.as_str(), error.message.as_str()), ("SourceFailure", "Missing", "source failed"));
+                    (0, 0)
+                } else {
+                    let error = actual.unwrap_err();
+                    assert_eq!(error.kind, "index-out-of-range");
+                    assert_eq!(&source[error.span.unwrap().range()], "[marker][if projection_fails { 9 } else { 0 }]");
+                    (1, 1)
+                };
+                for (name, expected) in [("created", 1), ("pulls", pulls), ("closed", closed)] {
+                    let actual = program.symbol_owner().with_current(|| evaluator.lookup(Name::intern(name)).map(|binding| binding.value.clone()));
+                    assert_eq!(actual, Some(Value::Int(expected)));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_comprehension_unsigned_keys_keep_the_ordinary_checked_elaboration() {
+    use crate::runtime::value::MapKey;
+    let source = "pure copy(value, keys: List[UInt]) { {key: value for key in keys} }\npure number(keys: List[UInt]) -> Map[UInt, Int] { copy(7, keys) }\npure text(keys: List[UInt]) -> Map[UInt, Str] { copy(\"value\", keys) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, value) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::List(vec![Value::Int(1), Value::Int(2)])], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Map([(MapKey::Int(1), value.clone()), (MapKey::Int(2), value)].into_iter().collect()), "{name} frames={force_frames}");
+        }
+    }
+}

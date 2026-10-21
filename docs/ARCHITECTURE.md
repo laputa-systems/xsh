@@ -101,6 +101,16 @@ ordered fields or collection payload. Display and map-key domains come from
 the checked operand types. Generated set conversion retains the canonical
 selected registry method and uses the same native-call proof as a source call.
 
+Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
+Every source must establish its actual item type before its immutable target
+bindings enter a child lexical frame. Filters use the checked control-condition
+role. Later qualifiers and the projection see those bindings; earlier sources
+cannot read them. Source, filter, key, and value elaboration stays inside lazy
+value blocks. Resource-bearing block results transfer through the existing
+cleanup mechanism before iteration begins. Cold verification proves every
+source and projection, checks propagated error families, and accepts `NonEmpty`
+only for the canonical single-source unfiltered mapping.
+
 Shorthand fields contribute their resolved binding identities to the same
 body-read and capture census as explicit reads. Their checked constructor
 context supplies elaboration types; physical slot proof independently

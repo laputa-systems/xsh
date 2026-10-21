@@ -150,6 +150,27 @@ fn pattern_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, availab
     available
 }
 
+fn comprehension_bindings(
+    program: &ArenaProgram,
+    bindings: &ResolvedBindings,
+    available: &FxHashSet<BindingId>,
+    qualifiers: crate::syntax::arena::ArenaRange,
+    mut expression: impl FnMut(&FxHashSet<BindingId>, crate::syntax::arena::ExprId) -> bool,
+) -> Option<FxHashSet<BindingId>> {
+    let mut available = available.clone();
+    for qualifier in program.arena.comp_qualifiers(qualifiers) {
+        match *qualifier {
+            crate::syntax::arena::ArenaCompQualifier::For { target, iter, .. } => {
+                if !expression(&available, iter) || !declare_target_bindings(program, bindings, target, &mut available) { return None; }
+            }
+            crate::syntax::arena::ArenaCompQualifier::If { condition, .. } => {
+                if !expression(&available, condition) { return None; }
+            }
+        }
+    }
+    Some(available)
+}
+
 fn is_body_expression(
     program: &ArenaProgram,
     bindings: &ResolvedBindings,
@@ -214,6 +235,14 @@ fn is_body_expression(
                 }
             }
             ArenaExprKind::Set(items) => pending.extend(program.arena.list_elements(items).map(|item| item.value)),
+            ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
+                let Some(inner) = comprehension_bindings(program, bindings, available, qualifiers, |available, expression| is_body_expression(program, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression)) else { return false };
+                if !is_body_expression(program, bindings, &inner, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expr) { return false; }
+            }
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                let Some(inner) = comprehension_bindings(program, bindings, available, qualifiers, |available, expression| is_body_expression(program, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression)) else { return false };
+                if ![key, value].into_iter().all(|expression| is_body_expression(program, bindings, &inner, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression)) { return false; }
+            }
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in program.arena.fmt_parts(parts) {
                     if let crate::syntax::arena::ArenaFmtPart::Expr(value, _) = part { pending.push(value); }
@@ -553,6 +582,51 @@ mod ordinary_body_tests {
     #[test]
     fn generic_iteration_closed_sources_keep_their_item_domains() {
         accepts("pure keep(value) { for item in [1] { let _ = item }; for byte in b\"x\" { let _ = byte }; for letter in \"x\" { let _ = letter }; for entry in {[\"key\"]: value} { let _ = entry.value }; value }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_list_items_retain_the_payload_binder() {
+        accepts("pure copy(value) { [item for item in [value]] }", "let number: List[Int] = copy(7)\nlet text: List[Str] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_nested_targets_keep_sequential_binding_identity() {
+        accepts("pure copy(value) { [inner for outer in [value] for {item: inner} in [{item: outer}]] }", "let number: List[Int] = copy(7)\nlet text: List[Str] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_shadowed_targets_read_the_previous_binding_first() {
+        accepts("pure copy(value) { [item for item in [value] for item in [item]] }", "let number: List[Int] = copy(7)\nlet text: List[Str] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_filters_preserve_the_selected_payload_type() {
+        accepts("pure copy(value, selected: Bool) { [item for item in [value] if selected] }", "let number: List[Int] = copy(7, true)\nlet text: List[Str] = copy(\"value\", false)");
+    }
+
+    #[test]
+    fn generic_comprehension_map_values_retain_the_payload_binder() {
+        accepts("pure copy(value) { {key: value for key in [\"a\", \"b\"]} }", "let number: Map[Str, Int] = copy(7)\nlet text: Map[Str, Str] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_set_items_keep_the_closed_key_domain() {
+        accepts("pure copy(value, items: List[Int]) { let unique = {item for item in items}; {value, unique} }", "let number = copy(7, [1, 2])\nlet text = copy(\"value\", [2, 3])");
+    }
+
+    #[test]
+    fn generic_comprehension_nonempty_mapping_preserves_its_source_validation() {
+        accepts("pure copy(value, items: NonEmpty[Int]) { let copied = [item for item in items]; {value, copied} }", "let number = copy(7, [1])\nlet text = copy(\"value\", [2])");
+    }
+
+    #[test]
+    fn generic_comprehension_result_map_items_retain_the_success_binder() {
+        accepts("pure copy(value) { Ok([item.value for item in Ok({[\"key\"]: value})]) }", "let number: Result[List[Int]] = copy(7)\nlet text: Result[List[Str]] = copy(\"value\")");
+    }
+
+    #[test]
+    fn generic_comprehension_filters_retain_the_ordinary_status_condition() {
+        accepts("pure copy(value, selected: Status) { [item for item in [value] if selected] }", "pure number(selected: Status) -> List[Int] { copy(7, selected) }\npure text(selected: Status) -> List[Str] { copy(\"value\", selected) }");
     }
 
     #[test]

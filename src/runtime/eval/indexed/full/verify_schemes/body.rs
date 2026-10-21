@@ -118,6 +118,31 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
+    fn list_item(self) -> Option<Self> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::List(item)) => Some(Self::Scheme(item)),
+            Self::Ground(Type::List(item)) => Some(Self::Ground(item)),
+            _ => None,
+        }
+    }
+
+    fn map_parts(self) -> Option<(Self, Self)> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::Map(key, value)) => Some((Self::Scheme(key), Self::Scheme(value))),
+            Self::Ground(Type::Map(key, value)) => Some((Self::Ground(key), Self::Ground(value))),
+            _ => None,
+        }
+    }
+
+    fn validation(self) -> Option<Validation> {
+        match self {
+            Self::Scheme(SchemeType::Validated(validation, _)) => Some(*validation),
+            Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).validation(),
+            Self::Ground(Type::Validated(ty)) => Some(ty.validation()),
+            _ => None,
+        }
+    }
+
     fn materialize(self, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
         match self {
             Self::Scheme(ty) => { budget.charge_scheme_clone(ty)?; Ok(ty.clone()) }
@@ -214,6 +239,49 @@ fn target_bindings(target: super::super::decode::CompTargetView<'_>, source: &Sc
     Ok(bindings)
 }
 
+fn comprehension_scope(
+    types: &BTreeMap<usize, SchemeType>,
+    mut qualifiers: super::super::decode::ListView<'_, crate::runtime::eval::LoweredCompQualifier>,
+    scope: &LexicalScope, scopes: &mut LexicalScopes, slot_count: usize,
+    writers: &mut BTreeMap<usize, SchemeType>, expected_return: &SchemeType,
+    pending: &mut Vec<Obligation>, stream_iterations: &mut Vec<super::producers::StreamProducer>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<(LexicalScope, Option<Validation>), IrVerifyError> {
+    let count = qualifiers.len();
+    if count == 0 { return Err(IrVerifyError::new("comprehension has no iteration source")); }
+    let mut current = *scope;
+    let mut mapped_validation = None;
+    let mut position = 0;
+    while qualifiers.len() != 0 {
+        budget.charge(1)?;
+        match qualifiers.next().ok_or_else(|| IrVerifyError::new("comprehension qualifier is absent"))?? {
+            super::super::decode::CompQualifierView::For { target, iter, .. } => {
+                let instruction = iter.raw() as usize;
+                let source = expression_type(types, instruction, budget)?;
+                if count == 1 { mapped_validation = BodyTypeRef::Scheme(&source).validation().filter(|validation| validation.survives_mapping()); }
+                let (item, stream_source) = iteration_item(&source, instruction, expected_return, budget)?;
+                if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push(source); }
+                pending.push(Obligation::Expression(instruction, current));
+                let bindings = target_bindings(target, &item, budget)?;
+                current = branch_scope(&current, scopes, budget)?;
+                for (slot, ty) in bindings {
+                    budget.charge_scheme_clone(&ty)?;
+                    if slot >= slot_count || writers.insert(slot, ty.clone()).is_some() { return Err(IrVerifyError::new("generic comprehension binding slot is duplicated or out of bounds")); }
+                    declare(&current, scopes, slot, ty, false, None, budget)?;
+                }
+            }
+            super::super::decode::CompQualifierView::If { condition: value, .. } => {
+                if position == 0 { return Err(IrVerifyError::new("comprehension does not start with an iteration source")); }
+                let instruction = value.raw() as usize;
+                condition(types, instruction, crate::sema::types::ConditionRole::Control, budget)?;
+                pending.push(Obligation::Expression(instruction, current));
+            }
+        }
+        position += 1;
+    }
+    Ok((current, mapped_validation))
+}
+
 fn subject_after_pattern(decoder: &FullDecoder<'_>, pattern: u32, guarded: bool, subject: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
     budget.charge(1)?;
     if !decoder.pattern_excludes_null(pattern, guarded)? { return Ok(subject); }
@@ -296,6 +364,30 @@ pub(super) fn verify_body(
                         let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
                         budget.charge(statements.len())?;
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: Some(claimed) });
+                    }
+                    schema::ExprView::ListComp { value, qualifiers, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
+                        let (inner, mapped_validation) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, expected_return, &mut pending, &mut stream_iterations, budget)?;
+                        if let Some(validation) = BodyTypeRef::Scheme(&claimed).validation()
+                            && Some(validation) != mapped_validation
+                        { return Err(IrVerifyError::new("generic comprehension cannot establish its claimed validation")); }
+                        if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &item, budget)? { return Err(IrVerifyError::new("generic comprehension value disagrees with its item domain")); }
+                        pending.push(Obligation::Expression(value.raw() as usize, inner));
+                    }
+                    schema::ExprView::MapComp { key, value, qualifiers, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        if BodyTypeRef::Scheme(&claimed).validation().is_some() { return Err(IrVerifyError::new("generic map comprehension cannot establish a validation")); }
+                        let (expected_key, item) = BodyTypeRef::Scheme(&claimed).map_parts().ok_or_else(|| IrVerifyError::new("generic map comprehension has no map contract"))?;
+                        let expected_key = expected_key.materialize(budget)?;
+                        let domain = expected_key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map comprehension key domain is unresolved"))?;
+                        if !domain.is_map_key() { return Err(IrVerifyError::new("generic map comprehension key domain is invalid")); }
+                        let item = item.materialize(budget)?;
+                        let (inner, _) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, expected_return, &mut pending, &mut stream_iterations, budget)?;
+                        if !body_type_matches(&expression_type(types, key.raw() as usize, budget)?, &expected_key, budget)? { return Err(IrVerifyError::new("generic comprehension key disagrees with its map domain")); }
+                        if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &item, budget)? { return Err(IrVerifyError::new("generic comprehension value disagrees with its item domain")); }
+                        pending.push(Obligation::Expression(value.raw() as usize, inner));
+                        pending.push(Obligation::Expression(key.raw() as usize, inner));
                     }
                     schema::ExprView::Loop { body, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
@@ -1546,6 +1638,178 @@ mod tests {
         let deep = prepare(&source(12));
         eprintln!("ordinary nested chain depth 8/12 rows: {}/{}", shallow.instruction_count(), deep.instruction_count());
         assert!(deep.instruction_count() <= shallow.instruction_count() * 2, "ordinary nested chain rows grew from {} to {}", shallow.instruction_count(), deep.instruction_count());
+    }
+
+    fn retarget_comprehension_operand(program: &FullProgram, owner: usize, scheme: FullSchemeId, root: usize, from: usize, to: usize) -> FullProgram {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let actual = program.store.scheme_types[program.store.scheme_params[parameters.start + to].ty.index()];
+        let mut pending = vec![root];
+        let mut instructions = BTreeSet::new();
+        let mut leaves = Vec::new();
+        while let Some(instruction) = pending.pop() {
+            if !instructions.insert(instruction) { continue; }
+            match decoder.expression_view(instruction).unwrap() {
+                schema::ExprView::ValueBlock { mut body, .. } => {
+                    for statement in &mut body {
+                        let statement = statement.unwrap().raw() as usize;
+                        instructions.insert(statement);
+                        match decoder.statement_view(statement).unwrap() {
+                            schema::StmtView::Let { value, .. } | schema::StmtView::Value { value } => pending.push(value.raw() as usize),
+                            _ => panic!("the fixture operand contains only its ANF bindings and terminal value"),
+                        }
+                    }
+                }
+                schema::ExprView::List(mut items) => { for item in &mut items { pending.push(item.unwrap().raw() as usize); } }
+                schema::ExprView::Param(slot) => { if slot == from { leaves.push(instruction); } }
+                _ => panic!("the fixture operand derives its domain from one header parameter"),
+            }
+        }
+        assert_eq!(leaves.len(), 1);
+        let mut changed = program.clone();
+        let words = changed.store.data[leaves[0]].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = to as u32;
+        let mut changed_types = BTreeSet::new();
+        for fact in &program.store.scheme_body_facts {
+            if !instructions.contains(&(fact.instruction as usize)) { continue; }
+            let mut pending = vec![fact.ty];
+            while let Some(ty) = pending.pop() {
+                if !changed_types.insert(ty) { continue; }
+                let node = &mut changed.store.scheme_types[ty.index()];
+                match node.tag {
+                    FullSchemeTypeTag::List => pending.push(SchemeTypeId::from_raw(node.first).unwrap()),
+                    FullSchemeTypeTag::Parameter | FullSchemeTypeTag::Ground => {
+                        assert_eq!(node.tag, actual.tag);
+                        node.first = actual.first;
+                    }
+                    _ => panic!("the coordinated fixture has only scalar and list domains"),
+                }
+            }
+        }
+        for parameter in &program.store.scheme_params[parameters] {
+            assert_eq!(program.store.scheme_types[parameter.ty.index()], changed.store.scheme_types[parameter.ty.index()]);
+        }
+        changed
+    }
+
+    #[test]
+    fn generic_comprehension_actual_iterables_authenticate_item_binders() {
+        let program = prepare("pure copy(value, other) { [item for item in [value]] }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let source = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListComp { mut qualifiers, .. }) => match qualifiers.next().unwrap().unwrap() { super::super::super::decode::CompQualifierView::For { iter, .. } => Some(iter.raw() as usize), _ => None },
+            _ => None,
+        }).unwrap();
+        let changed = retarget_comprehension_operand(&program, owner, scheme, source, 0, 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_comprehension_filters_authenticate_actual_control_domains() {
+        let program = prepare("pure copy(value, selected: Bool, wrong: Int) { [item for item in [value] if selected] }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let condition = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListComp { mut qualifiers, .. }) => qualifiers.find_map(|qualifier| match qualifier.unwrap() { super::super::super::decode::CompQualifierView::If { condition, .. } => Some(condition.raw() as usize), _ => None }),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_comprehension_operand(&program, owner, scheme, condition, 1, 2);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic condition disagrees with its control role");
+    }
+
+    #[test]
+    fn generic_comprehension_keys_and_values_authenticate_actual_domains() {
+        for key in [true, false] {
+            let source = if key { "pure copy(value, key: Str, wrong: Int) { let _ = {key: value for item in [1]}; value }" } else { "pure copy(value, other) { let _ = [value for item in [1]]; value }" };
+            let program = prepare(source);
+            let (owner, scheme) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let projection = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::MapComp { key, .. }) => Some(key.raw() as usize),
+                Ok(schema::ExprView::ListComp { value, .. }) => Some(value.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let changed = retarget_comprehension_operand(&program, owner, scheme, projection, if key { 1 } else { 0 }, if key { 2 } else { 1 });
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, if key { "generic comprehension key disagrees with its map domain" } else { "generic comprehension value disagrees with its item domain" });
+        }
+    }
+
+    #[test]
+    fn generic_comprehension_bindings_remain_immutable_and_lexically_owned() {
+        let program = prepare("proc copy(value) [] { var result = value; let rows = [{ result = item; item } for item in [value]]; result }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListComp { mut qualifiers, .. }) => match qualifiers.next().unwrap().unwrap() { super::super::super::decode::CompQualifierView::For { target: super::super::super::decode::CompTargetView::Slot(slot), .. } => Some(slot), _ => None },
+            _ => None,
+        }).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let mut mutable = program.clone();
+        let words = mutable.store.data[assignment].range().bounds(mutable.store.extra.len()).unwrap();
+        mutable.store.extra[words.start] = slot as u32;
+        assert_eq!(FullVerifier::verify(&mutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
+        let tail = range.filter_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::Return { value }) => Some(value.raw() as usize), _ => None }).last().unwrap();
+        let schema::ExprView::Ok(tail) = decoder.expression_view(tail).unwrap() else { panic!("the proc wraps its actual tail") };
+        let tail = tail.raw() as usize;
+        assert!(matches!(decoder.expression_view(tail).unwrap(), schema::ExprView::Param(_)));
+        let mut escaped = program.clone();
+        let words = escaped.store.data[tail].range().bounds(escaped.store.extra.len()).unwrap();
+        escaped.store.extra[words.start] = slot as u32;
+        assert_eq!(FullVerifier::verify(&escaped).unwrap_err().message, "generic body reads an uninitialized slot");
+    }
+
+    #[test]
+    fn generic_comprehension_early_qualifiers_cannot_read_later_bindings() {
+        for filter in [false, true] {
+            let source = if filter { "pure copy(value, selected: Bool) { [early for early in [value] if selected for late in [selected]] }" } else { "pure copy(value) { [late for early in [value] for late in [early]] }" };
+            let program = prepare(source);
+            let (owner, _) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let mut range = program.store.function_instruction_range(owner).unwrap();
+            let slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::ListComp { qualifiers, .. }) => qualifiers.filter_map(|qualifier| match qualifier.unwrap() { super::super::super::decode::CompQualifierView::For { target: super::super::super::decode::CompTargetView::Slot(slot), .. } => Some(slot), _ => None }).last(),
+                _ => None,
+            }).unwrap();
+            let from = if filter { 1 } else { 0 };
+            let read = range.find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == from)).unwrap();
+            let mut changed = program.clone();
+            let words = changed.store.data[read].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start] = slot as u32;
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body reads an uninitialized slot");
+        }
+    }
+
+    #[test]
+    fn generic_comprehension_validation_requires_the_actual_single_source_mapping() {
+        for qualifier in ["if true", "for other in empty"] {
+            let mut program = prepare(&format!("pure copy(value, items: NonEmpty[Int], empty: List[Int]) {{ let _ = [item for item in items {qualifier}]; value }}"));
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            let (owner, scheme) = generic_owner(&program);
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let mut range = program.store.function_instruction_range(owner).unwrap();
+            let comprehension = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::ListComp { .. }))).unwrap();
+            let (declaration, slot) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == comprehension => Some((instruction, slot)), _ => None }).unwrap();
+            let read = range.find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+            let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+            let source = program.store.scheme_params[parameters.start + 1].ty;
+            let source_type = program.store.scheme_types[source.index()];
+            assert_eq!(source_type.tag, FullSchemeTypeTag::Validated);
+            let mut changed = program.clone();
+            for fact in &mut changed.store.scheme_body_facts {
+                if [comprehension, declaration, read].contains(&(fact.instruction as usize)) {
+                    assert_eq!(changed.store.scheme_types[fact.ty.index()].tag, FullSchemeTypeTag::List);
+                    let mut validated = source_type;
+                    validated.first = fact.ty.raw();
+                    fact.ty = SchemeTypeId::new(changed.store.scheme_types.len()).unwrap();
+                    changed.store.scheme_types.push(validated);
+                }
+            }
+            assert_eq!(program.store.scheme_types[source.index()], changed.store.scheme_types[source.index()]);
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic comprehension cannot establish its claimed validation");
+        }
     }
 
     #[test]
