@@ -136,6 +136,17 @@ which cannot parse its `cargo metadata` output. Native stages do not run.
 The failed receipt remains in `full-inference-producers-qualified-r5`.
 Source stays clean, cleanup resolves, and peak memory is 4,343,279,616 bytes
 with no OOM events. This run supplies no timing or combined acceptance credit.
+The metadata failure comes from an uncached locked `webpki-root-certs` 1.0.10.
+Fetching that package makes the original unfiltered offline metadata command
+and unchanged hygiene test pass. No source, lockfile or audit policy changes.
+The fresh R4 attempt on the same source passes bootstrap and all 232 root
+integration tests. Ambient-filesystem, symbol and compatibility-boundary groups
+also pass. Core compatibility then stops at 31 passes, 27 failures, three
+ignores and two filters. Failures include stream provenance in `cp`, record
+spread proofs in `expr`, a producer mismatch in the selected `ls` test and
+an unproved binary expression in `btop`. Group the remaining terminal and
+startup failures by reproduced cause before another full attempt.
+Preserve R4 under the same frozen checkout. Later native stages remain unrun.
 
 The owner also requested isolated Laputa certificate hardening. Laputa commit
 `2549eb0` removes unauthenticated live certificate downloads, updates packaged
@@ -156,6 +167,11 @@ with one remaining Proc-origin failure. A later draft passes its first three
 Proc-origin controls, including direct and aliased returns, Result-as-data,
 and malformed physical return-site evidence. Ordinary branch, recursive and
 Stream completion remain mandatory. These drafts are not integrated or qualified.
+Checkpoint `50d808463` compiles and passes five of seven focused controls.
+Actual Proc error propagation now preserves the Result envelope and cleanup.
+Generic function arguments and polymorphic aliases passed through another
+generic callable still fail. Independent review finds no new confirmed blocker
+in the bounded checkpoint. Callable wiring, recursion and Stream remain open.
 Work-counter repair `ab26826b9` passes nine focused controls and a non-test
 check. It counts discarded diagnostics and nested retained type nodes.
 Independent review finds no remaining blocker. Integration and merged replay
