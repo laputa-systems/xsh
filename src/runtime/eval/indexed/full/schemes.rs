@@ -7,7 +7,7 @@ use super::{
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
     CallInstantiation, RowEvidence, SchemeRowTail,
-    SchemeType, SchemeTypeParameterId, SchemeRowParameterId, TypeScheme,
+    SchemeType, SchemeTypeParameterId, SchemeRowParameterId, SchemeEffectParameterId, TypeScheme,
 };
 use crate::sema::types::Type;
 use crate::sema::validated::Validation;
@@ -86,16 +86,123 @@ pub(super) enum FullSchemeBodyFactKind {
 pub(super) struct FullScheme {
     pub(super) type_parameters: IrRange,
     pub(super) row_parameters: IrRange,
+    pub(super) effect_parameters: IrRange,
     pub(super) params: IrRange,
     pub(super) return_type: SchemeTypeId,
     pub(super) return_schema: Option<FullSchemeSchemaExpectationId>,
-    pub(super) effects: IrRange,
+    pub(super) effects: FullEffectContract,
+    pub(super) effect_predicates: IrRange,
+    pub(super) applications: IrRange,
     pub(super) body_facts: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
-    pub(super) has_effects: bool,
     pub(super) explicit_return: bool,
     pub(super) inferred_effects: bool,
     pub(super) reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[repr(C)]
+pub(super) struct FullEffectContract {
+    pub(super) direct: IrRange,
+    pub(super) terms: IrRange,
+    pub(super) known: bool,
+    pub(super) reserved: [u8; 3],
+}
+
+impl FullEffectContract {
+    pub(super) fn concrete(self, store: &FullStore) -> Result<Option<Vec<crate::syntax::node::Effect>>, super::IrVerifyError> {
+        let direct = self.direct.bounds(store.scheme_effects.len())
+            .ok_or_else(|| super::IrVerifyError::new("scheme direct effect range is invalid"))?;
+        let terms = self.terms.bounds(store.scheme_effect_terms.len())
+            .ok_or_else(|| super::IrVerifyError::new("scheme effect term range is invalid"))?;
+        if self.reserved != [0; 3] || !self.known && (!direct.is_empty() || !terms.is_empty()) {
+            return Err(super::IrVerifyError::new("scheme effect contract metadata is invalid"));
+        }
+        if !terms.is_empty() {
+            return Err(super::IrVerifyError::new("symbolic scheme effects require an invocation substitution"));
+        }
+        if direct.len() > crate::syntax::node::Effect::ALL.len() {
+            return Err(super::IrVerifyError::new("scheme direct effects exceed the capability set"));
+        }
+        let effects = &store.scheme_effects[direct];
+        for (index, effect) in effects.iter().enumerate() {
+            if effects[..index].contains(effect) {
+                return Err(super::IrVerifyError::new("scheme direct effects are duplicated"));
+            }
+        }
+        Ok(self.known.then(|| effects.to_vec()))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullEffectParameter {
+    pub(super) id: u32,
+    pub(super) binder: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullEffectTerm {
+    pub(super) binder: u32,
+    pub(super) mask: u8,
+    pub(super) reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullEffectPredicate {
+    Equal(FullEffectContract, FullEffectContract),
+    Included(FullEffectContract, FullEffectContract),
+    Covered(FullEffectContract, FullEffectContract),
+    Excluded(FullEffectContract, u8),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullEffectArgument {
+    pub(super) binder: u32,
+    pub(super) expression: FullEffectContract,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullSchemeApplication {
+    pub(super) callee: SchemeTypeId,
+    pub(super) result: SchemeTypeId,
+    pub(super) effects: FullEffectContract,
+    pub(super) arguments: IrRange,
+    pub(super) proc_returns: IrRange,
+    pub(super) kind: crate::sema::callable_application::CallableKindRequirement,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullApplicationArgumentKind {
+    Positional,
+    Named(u32),
+    Splice,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullApplicationArgument {
+    pub(super) ty: SchemeTypeId,
+    pub(super) kind: FullApplicationArgumentKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullProcReturnEnvelope {
+    pub(super) result: SchemeTypeId,
+    pub(super) propagated_errors: IrRange,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullApplicationBinding {
+    Selected { argument_slots: IrRange, omitted_slots: IrRange },
+    Forwarded(u32),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,10 +233,9 @@ pub(super) struct FullSchemeCallableMonotype {
     pub(super) params: IrRange,
     pub(super) return_type: SchemeTypeId,
     pub(super) return_schema: Option<FullSchemeSchemaExpectationId>,
-    pub(super) effects: IrRange,
+    pub(super) effects: FullEffectContract,
     pub(super) kind: crate::sema::types::CallableKind,
-    pub(super) has_effects: bool,
-    pub(super) reserved: [u8; 2],
+    pub(super) reserved: [u8; 3],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -216,6 +322,15 @@ pub(super) struct FullCallInstantiation {
     pub(super) instruction: u32,
     pub(super) type_arguments: IrRange,
     pub(super) row_arguments: IrRange,
+    pub(super) effect_arguments: IrRange,
+    pub(super) application_bindings: IrRange,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullSchemeApplicationCall {
+    pub(super) instruction: u32,
+    pub(super) application: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -273,6 +388,64 @@ impl FullStore {
 }
 
 impl FullBuilder {
+    pub(super) fn intern_effect_contract(
+        &mut self,
+        contract: &crate::sema::effects::EffectContract<SchemeEffectParameterId>,
+        parameters: &BTreeMap<SchemeEffectParameterId, u32>,
+    ) -> Result<FullEffectContract, IrBuildError> {
+        let direct_start = self.store.scheme_effects.len();
+        let terms_start = self.store.scheme_effect_terms.len();
+        let known = match contract {
+            crate::sema::effects::EffectContract::Unknown => false,
+            crate::sema::effects::EffectContract::Known(expression) => {
+                let mut terms = expression.variables().map(|(parameter, mask)| {
+                    let binder = *parameters.get(parameter)
+                        .ok_or_else(|| IrBuildError::format("scheme_effect_parameter_scope", None, 0, 0))?;
+                    Ok(FullEffectTerm { binder, mask: mask.bits(), reserved: [0; 3] })
+                }).collect::<Result<Vec<_>, IrBuildError>>()?;
+                terms.sort_by_key(|term| term.binder);
+                self.store.scheme_effects.extend(expression.direct().iter());
+                self.store.scheme_effect_terms.extend(terms);
+                true
+            }
+        };
+        Ok(FullEffectContract {
+            direct: super::table_range(direct_start, self.store.scheme_effects.len())?,
+            terms: super::table_range(terms_start, self.store.scheme_effect_terms.len())?,
+            known,
+            reserved: [0; 3],
+        })
+    }
+
+    fn intern_effect_predicate(
+        &mut self,
+        predicate: &crate::sema::effects::EffectPredicate<SchemeEffectParameterId>,
+        parameters: &BTreeMap<SchemeEffectParameterId, u32>,
+    ) -> Result<FullEffectPredicate, IrBuildError> {
+        use crate::sema::effects::EffectPredicate;
+        Ok(match predicate {
+            EffectPredicate::Equal(left, right) => FullEffectPredicate::Equal(
+                self.intern_effect_contract(left, parameters)?, self.intern_effect_contract(right, parameters)?),
+            EffectPredicate::Included(left, right) => FullEffectPredicate::Included(
+                self.intern_effect_contract(left, parameters)?, self.intern_effect_contract(right, parameters)?),
+            EffectPredicate::Covered(left, right) => FullEffectPredicate::Covered(
+                self.intern_effect_contract(left, parameters)?, self.intern_effect_contract(right, parameters)?),
+            EffectPredicate::Excluded(expression, excluded) => FullEffectPredicate::Excluded(
+                self.intern_effect_contract(expression, parameters)?, excluded.bits()),
+        })
+    }
+
+    fn scheme_effect_parameter_map(
+        &self, scheme: FullSchemeId,
+    ) -> Result<BTreeMap<SchemeEffectParameterId, u32>, IrBuildError> {
+        let record = self.store.schemes.get(scheme.index())
+            .ok_or_else(|| IrBuildError::format("scheme_id", None, 0, 0))?;
+        let range = record.effect_parameters.bounds(self.store.scheme_effect_parameters.len())
+            .ok_or_else(|| IrBuildError::format("scheme_effect_parameters", None, 0, 0))?;
+        Ok(self.store.scheme_effect_parameters[range].iter()
+            .map(|parameter| (SchemeEffectParameterId(parameter.id), parameter.binder)).collect())
+    }
+
     pub(super) fn intern_scheme(
         &mut self,
         scheme: &TypeScheme,
@@ -302,6 +475,14 @@ impl FullBuilder {
             })
             .collect::<Result<BTreeMap<_, _>, IrBuildError>>()?;
 
+        let effect_parameters = scheme.callable().requirements().effect_parameters.iter().copied().enumerate()
+            .map(|(binder, id)| Ok((id, u32::try_from(binder).map_err(|_| IrBuildError::format("scheme_effect_binder_overflow", None, 0, 0))?)))
+            .collect::<Result<BTreeMap<_, _>, IrBuildError>>()?;
+        let effect_parameters_start = self.store.scheme_effect_parameters.len();
+        for &id in &scheme.callable().requirements().effect_parameters {
+            self.store.scheme_effect_parameters.push(FullEffectParameter { id: id.0, binder: effect_parameters[&id] });
+        }
+        let effect_parameters_range = super::table_range(effect_parameters_start, self.store.scheme_effect_parameters.len())?;
         let type_parameters_start = self.store.scheme_type_parameters.len();
         for (binder, id) in scheme.type_parameters().iter().copied().enumerate() {
             self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
@@ -344,7 +525,7 @@ impl FullBuilder {
 
         let params_start = self.store.scheme_params.len();
         for parameter in scheme.params() {
-            let ty = self.intern_scheme_type(&parameter.ty, &type_parameters, &row_parameters)?;
+            let ty = self.intern_scheme_type(&parameter.ty, &type_parameters, &row_parameters, &effect_parameters)?;
             let schema = parameter
                 .schema_expectation
                 .as_ref()
@@ -360,29 +541,71 @@ impl FullBuilder {
             closed_return.as_ref().unwrap_or_else(|| scheme.return_type()),
             &type_parameters,
             &row_parameters,
+            &effect_parameters,
         )?;
         let return_schema = scheme
             .return_schema()
             .map(|expectation| self.intern_scheme_schema(expectation))
             .transpose()?;
-        let checked_effects = scheme.effects().concrete().map_err(|_| IrBuildError::format("unresolved_scheme_effects", None, 0, 0))?;
-        let effects_start = self.store.scheme_effects.len();
-        if let Some(effects) = &checked_effects {
-            self.store.scheme_effects.extend_from_slice(effects);
+        let effects = self.intern_effect_contract(scheme.effects().contract(), &effect_parameters)?;
+        let effect_predicates_start = self.store.scheme_effect_predicates.len();
+        for predicate in &scheme.callable().requirements().effect_predicates {
+            let predicate = self.intern_effect_predicate(predicate, &effect_parameters)?;
+            self.store.scheme_effect_predicates.push(predicate);
         }
-        let effects = super::table_range(effects_start, self.store.scheme_effects.len())?;
+        let effect_predicates = super::table_range(effect_predicates_start, self.store.scheme_effect_predicates.len())?;
+        let mut applications = Vec::new();
+        for application in &scheme.callable().requirements().applications {
+            let callee = self.intern_scheme_type(&application.callee, &type_parameters, &row_parameters, &effect_parameters)?;
+            let result = self.intern_scheme_type(&application.result, &type_parameters, &row_parameters, &effect_parameters)?;
+            let effects = self.intern_effect_contract(&application.effects, &effect_parameters)?;
+            let mut arguments = Vec::new();
+            for argument in application.arguments.iter() {
+                let ty = self.intern_scheme_type(&argument.ty, &type_parameters, &row_parameters, &effect_parameters)?;
+                let kind = match argument.kind {
+                    crate::sema::arguments::StaticArgumentKind::Positional => FullApplicationArgumentKind::Positional,
+                    crate::sema::arguments::StaticArgumentKind::Named(name) => FullApplicationArgumentKind::Named(self.intern_string(name.as_str().as_str())?.raw()),
+                    crate::sema::arguments::StaticArgumentKind::Splice => FullApplicationArgumentKind::Splice,
+                };
+                arguments.push(FullApplicationArgument { ty, kind });
+            }
+            let arguments_start = self.store.scheme_application_arguments.len();
+            self.store.scheme_application_arguments.extend(arguments);
+            let arguments = super::table_range(arguments_start, self.store.scheme_application_arguments.len())?;
+            let mut proc_returns = Vec::new();
+            for envelope in application.proc_returns.iter() {
+                let result = self.intern_scheme_type(&envelope.result, &type_parameters, &row_parameters, &effect_parameters)?;
+                let mut errors = Vec::new();
+                for error in envelope.propagated_errors.iter() {
+                    errors.push(self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters)?);
+                }
+                let errors_start = self.store.scheme_children.len();
+                self.store.scheme_children.extend(errors);
+                proc_returns.push(FullProcReturnEnvelope { result,
+                    propagated_errors: super::table_range(errors_start, self.store.scheme_children.len())? });
+            }
+            let returns_start = self.store.scheme_proc_returns.len();
+            self.store.scheme_proc_returns.extend(proc_returns);
+            applications.push(FullSchemeApplication { callee, result, effects, arguments,
+                proc_returns: super::table_range(returns_start, self.store.scheme_proc_returns.len())?, kind: application.kind });
+        }
+        let applications_start = self.store.scheme_applications.len();
+        self.store.scheme_applications.extend(applications);
+        let applications = super::table_range(applications_start, self.store.scheme_applications.len())?;
         let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
             type_parameters: type_parameters_range,
             row_parameters: row_parameters_range,
+            effect_parameters: effect_parameters_range,
             params,
             return_type,
             return_schema,
             effects,
+            effect_predicates,
+            applications,
             body_facts: IrRange::default(),
             callable_kind,
-            has_effects: checked_effects.is_some(),
             explicit_return: scheme.explicit_return(),
             inferred_effects: scheme.inferred_effects(),
             reserved: [0; 3],
@@ -418,9 +641,11 @@ impl FullBuilder {
             .map(|scheme| self.scheme_row_parameter_map(scheme))
             .transpose()?
             .unwrap_or_default();
+        let effect_parameters = self.active_scheme.map(|scheme| self.scheme_effect_parameter_map(scheme))
+            .transpose()?.unwrap_or_default();
         let type_arguments_start = self.store.call_type_arguments.len();
         for (binder, ty) in instantiation.type_arguments() {
-            let ty = self.intern_scheme_type(ty, &type_parameters, &row_parameters)?;
+            let ty = self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters)?;
             self.store.call_type_arguments.push(FullTypeArgument {
                 binder: binder.0,
                 ty,
@@ -432,7 +657,7 @@ impl FullBuilder {
         )?;
         let row_arguments_start = self.store.call_row_arguments.len();
         for (binder, evidence) in instantiation.row_arguments() {
-            let fields = self.intern_row_evidence(evidence, &type_parameters, &row_parameters)?;
+            let fields = self.intern_row_evidence(evidence, &type_parameters, &row_parameters, &effect_parameters)?;
             let tail = match evidence.tail() {
                 SchemeRowTail::Closed => IR_NONE,
                 SchemeRowTail::Parameter(id) => *row_parameters.get(&id).ok_or_else(|| {
@@ -454,11 +679,40 @@ impl FullBuilder {
             row_arguments_start,
             self.store.call_row_arguments.len(),
         )?;
+        let effect_arguments_start = self.store.call_effect_arguments.len();
+        for (binder, expression) in instantiation.effect_arguments() {
+            let expression = self.intern_effect_contract(expression, &effect_parameters)?;
+            self.store.call_effect_arguments.push(FullEffectArgument { binder: binder.0, expression });
+        }
+        let effect_arguments = super::table_range(effect_arguments_start, self.store.call_effect_arguments.len())?;
+        let bindings_start = self.store.call_application_bindings.len();
+        for binding in instantiation.application_bindings() {
+            let binding = match binding {
+                crate::sema::schemes::CallableApplicationBinding::Selected(binding) => {
+                    let arguments_start = self.store.call_application_slots.len();
+                    for &slot in &binding.argument_slots {
+                        self.store.call_application_slots.push(u32::try_from(slot).map_err(|_| IrBuildError::format("application_slot_overflow", None, 0, slot))?);
+                    }
+                    let argument_slots = super::table_range(arguments_start, self.store.call_application_slots.len())?;
+                    let omitted_start = self.store.call_application_slots.len();
+                    for &slot in &binding.omitted_slots {
+                        self.store.call_application_slots.push(u32::try_from(slot).map_err(|_| IrBuildError::format("application_slot_overflow", None, 0, slot))?);
+                    }
+                    FullApplicationBinding::Selected { argument_slots,
+                        omitted_slots: super::table_range(omitted_start, self.store.call_application_slots.len())? }
+                }
+                crate::sema::schemes::CallableApplicationBinding::Forwarded(ordinal) => FullApplicationBinding::Forwarded(*ordinal),
+            };
+            self.store.call_application_bindings.push(binding);
+        }
+        let application_bindings = super::table_range(bindings_start, self.store.call_application_bindings.len())?;
         self.store.call_instantiations.push(FullCallInstantiation {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
             type_arguments,
             row_arguments,
+            effect_arguments,
+            application_bindings,
         });
         Ok(())
     }
@@ -473,7 +727,8 @@ impl FullBuilder {
     ) -> Result<(), IrBuildError> {
         let type_parameters = self.scheme_type_parameter_map(scheme)?;
         let row_parameters = self.scheme_row_parameter_map(scheme)?;
-        let ty = self.intern_scheme_type(ty, &type_parameters, &row_parameters)?;
+        let effect_parameters = self.scheme_effect_parameter_map(scheme)?;
+        let ty = self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters)?;
         self.store.scheme_body_facts.push(FullSchemeBodyFact {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_body_instruction", None, 0, instruction))?,
@@ -557,6 +812,7 @@ impl FullBuilder {
         ty: &SchemeType,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
         row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
+        effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
     ) -> Result<SchemeTypeId, IrBuildError> {
         let node = match ty {
             SchemeType::Callable { kind, monotype, effects } => {
@@ -564,7 +820,7 @@ impl FullBuilder {
                 for parameter in monotype.params() {
                     parameters.push(FullSchemeCallableParameter {
                         name: self.intern_string(parameter.name.as_str().as_str())?.raw(),
-                        ty: self.intern_scheme_type(&parameter.ty, type_parameters, row_parameters)?,
+                        ty: self.intern_scheme_type(&parameter.ty, type_parameters, row_parameters, effect_parameters)?,
                         schema: parameter.schema_expectation.as_ref().map(|schema| self.intern_scheme_schema(schema)).transpose()?,
                         flags: u8::from(parameter.rest) | u8::from(parameter.defaulted) << 1,
                         reserved: [0; 3],
@@ -573,22 +829,18 @@ impl FullBuilder {
                 let params_start = self.store.scheme_callable_parameters.len();
                 self.store.scheme_callable_parameters.extend(parameters);
                 let params = super::table_range(params_start, self.store.scheme_callable_parameters.len())?;
-                let return_type = self.intern_scheme_type(monotype.return_type(), type_parameters, row_parameters)?;
+                let return_type = self.intern_scheme_type(monotype.return_type(), type_parameters, row_parameters, effect_parameters)?;
                 let return_schema = monotype.return_schema().map(|schema| self.intern_scheme_schema(schema)).transpose()?;
-                let effects = effects.concrete().map_err(|_| IrBuildError::format("unresolved_scheme_callable_effects", None, 0, 0))?;
-                let effects_start = self.store.scheme_effects.len();
-                if let Some(effects) = &effects { self.store.scheme_effects.extend_from_slice(effects); }
-                let effects_range = super::table_range(effects_start, self.store.scheme_effects.len())?;
+                let effects = self.intern_effect_contract(effects, effect_parameters)?;
                 let index = u32::try_from(self.store.scheme_callable_monotypes.len()).ok().filter(|index| *index != IR_NONE)
                     .ok_or_else(|| IrBuildError::format("scheme_callable_monotype_overflow", None, 0, 0))?;
                 self.store.scheme_callable_monotypes.push(FullSchemeCallableMonotype {
                     params,
                     return_type,
                     return_schema,
-                    effects: effects_range,
+                    effects,
                     kind: *kind,
-                    has_effects: effects.is_some(),
-                    reserved: [0; 2],
+                    reserved: [0; 3],
                 });
                 FullSchemeTypeNode { first: index, second: 0, children: IrRange::default(), tag: FullSchemeTypeTag::Callable, reserved: [0; 3] }
             }
@@ -612,24 +864,28 @@ impl FullBuilder {
                 inner,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::List,
             )?,
             SchemeType::Stream(inner) => self.unary_scheme_node(
                 inner,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::Stream,
             )?,
             SchemeType::Set(inner) => self.unary_scheme_node(
                 inner,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::Set,
             )?,
             SchemeType::Optional(inner) => self.unary_scheme_node(
                 inner,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::Optional,
             )?,
             SchemeType::Map(key, value) => self.binary_scheme_node(
@@ -637,6 +893,7 @@ impl FullBuilder {
                 value,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::Map,
             )?,
             SchemeType::Result(ok, error) => self.binary_scheme_node(
@@ -644,6 +901,7 @@ impl FullBuilder {
                 error,
                 type_parameters,
                 row_parameters,
+                effect_parameters,
                 FullSchemeTypeTag::Result,
             )?,
             SchemeType::Record { fields, tail } => {
@@ -653,6 +911,7 @@ impl FullBuilder {
                         field_type,
                         type_parameters,
                         row_parameters,
+                        effect_parameters,
                     )?;
                     encoded_fields.push(FullSchemeField {
                         name: self.intern_string(name.as_str().as_str())?.raw(),
@@ -684,6 +943,7 @@ impl FullBuilder {
                         member,
                         type_parameters,
                         row_parameters,
+                        effect_parameters,
                     )?);
                 }
                 let children_start = self.store.scheme_children.len();
@@ -700,7 +960,7 @@ impl FullBuilder {
                 }
             }
             SchemeType::Validated(validation, inner) => {
-                let ty = self.intern_scheme_type(inner, type_parameters, row_parameters)?;
+                let ty = self.intern_scheme_type(inner, type_parameters, row_parameters, effect_parameters)?;
                 let validation = self.intern_scheme_validation(*validation)?;
                 FullSchemeTypeNode {
                     first: ty.raw(),
@@ -721,9 +981,10 @@ impl FullBuilder {
         inner: &SchemeType,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
         row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
+        effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
         tag: FullSchemeTypeTag,
     ) -> Result<FullSchemeTypeNode, IrBuildError> {
-        let inner = self.intern_scheme_type(inner, type_parameters, row_parameters)?;
+        let inner = self.intern_scheme_type(inner, type_parameters, row_parameters, effect_parameters)?;
         Ok(FullSchemeTypeNode {
             first: inner.raw(),
             second: 0,
@@ -739,10 +1000,11 @@ impl FullBuilder {
         second: &SchemeType,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
         row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
+        effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
         tag: FullSchemeTypeTag,
     ) -> Result<FullSchemeTypeNode, IrBuildError> {
-        let first = self.intern_scheme_type(first, type_parameters, row_parameters)?;
-        let second = self.intern_scheme_type(second, type_parameters, row_parameters)?;
+        let first = self.intern_scheme_type(first, type_parameters, row_parameters, effect_parameters)?;
+        let second = self.intern_scheme_type(second, type_parameters, row_parameters, effect_parameters)?;
         Ok(FullSchemeTypeNode {
             first: first.raw(),
             second: second.raw(),
@@ -915,6 +1177,7 @@ impl FullBuilder {
         evidence: &RowEvidence,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
         row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
+        effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
     ) -> Result<IrRange, IrBuildError> {
         let start = self.store.call_row_fields.len();
         let mut fields = evidence.fields().iter().collect::<Vec<_>>();
@@ -923,7 +1186,7 @@ impl FullBuilder {
         });
         for (name, ty) in fields {
             let name = self.intern_string(name.as_str().as_str())?.raw();
-            let ty = self.intern_scheme_type(ty, type_parameters, row_parameters)?;
+            let ty = self.intern_scheme_type(ty, type_parameters, row_parameters, effect_parameters)?;
             self.store.call_row_fields.push(FullRowEvidenceField {
                 name,
                 ty,

@@ -194,11 +194,9 @@ impl EffectConstraints {
     }
 
     fn check(&mut self, predicate: &EffectPredicate, changes: &mut Vec<ConstraintChange>) -> Result<bool, EffectConstraintError> {
-        let mut contracts = predicate.contracts().map(|contract| self.resolve(contract, 0, &mut BTreeSet::new()));
-        let left = contracts.next().expect("effect predicates have a subject")?;
-        let right = contracts.next().transpose()?;
-        match (predicate, left, right) {
-            (EffectPredicate::Equal(_, _), left, Some(right)) => {
+        let resolved = predicate.try_map_contracts(|contract| self.resolve(contract, 0, &mut BTreeSet::new()))?;
+        let resolved = match resolved {
+            EffectPredicate::Equal(left, right) => {
                 if left == right { return Ok(true); }
                 if let EffectContract::Known(expression) = &left
                     && let Some(id) = expression.single_variable()
@@ -210,37 +208,14 @@ impl EffectConstraints {
                 {
                     return self.bind(*id, left, changes);
                 }
-                match (&left, &right) {
-                    (EffectContract::Unknown, _) | (_, EffectContract::Unknown) => Err(EffectConstraintError::Mismatch),
-                    _ => match (left.closed(), right.closed()) {
-                        (Some(left), Some(right)) if left != right => Err(EffectConstraintError::Mismatch),
-                        (Some(_), Some(_)) => Ok(true),
-                        _ => Ok(false),
-                    },
-                }
+                EffectPredicate::Equal(left, right)
             }
-            (EffectPredicate::Included(_, _) | EffectPredicate::Covered(_, _), left, Some(right)) => {
-                if matches!(right, EffectContract::Unknown) { return Ok(true); }
-                if matches!(left, EffectContract::Unknown) { return Err(EffectConstraintError::Mismatch); }
-                if left == right { return Ok(true); }
-                let (Some(left), Some(right)) = (left.closed(), right.closed()) else { return Ok(false); };
-                let fits = match predicate {
-                    EffectPredicate::Included(_, _) => left.is_subset(right),
-                    EffectPredicate::Covered(_, _) => {
-                        let permissions = right.iter().collect::<Vec<_>>();
-                        left.iter().all(|effect| crate::sema::check::Checker::effects_covers(&permissions, &effect))
-                    }
-                    _ => unreachable!(),
-                };
-                if fits { Ok(true) } else { Err(EffectConstraintError::Mismatch) }
-            }
-            (EffectPredicate::Excluded(_, excluded), left, None) => {
-                let EffectContract::Known(expression) = left else { return Err(EffectConstraintError::Mismatch); };
-                let prohibited = excluded.prohibited_requirements();
-                if !expression.direct().intersection(prohibited).is_empty() { return Err(EffectConstraintError::Mismatch); }
-                Ok(expression.variables().all(|(_, mask)| mask.intersection(prohibited).is_empty()))
-            }
-            _ => unreachable!("effect predicate arity is fixed"),
+            predicate => predicate,
+        };
+        match resolved.satisfaction() {
+            Some(true) => Ok(true),
+            Some(false) => Err(EffectConstraintError::Mismatch),
+            None => Ok(false),
         }
     }
 

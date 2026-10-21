@@ -13,6 +13,7 @@ use super::super::decode::BorrowCodec;
 
 pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     demand: crate::runtime::eval::ProducerDemand,
+    scheme_scopes: OnceCell<super::VerifiedSchemeScopes>,
     checked_producers: Vec<usize>,
     driver_outputs: Vec<usize>,
     effect_operations: Vec<usize>,
@@ -159,6 +160,31 @@ pub(super) struct StreamIteration {
     pub(super) owner: u32,
     pub(super) source: StreamProducer,
     pub(super) expected_return: Arc<crate::sema::schemes::SchemeType>,
+}
+
+pub(super) struct CaptureErrorRequest {
+    pub(super) owner: u32,
+    pub(super) instruction: usize,
+    pub(super) expected_error: crate::sema::schemes::SchemeType,
+}
+
+pub(super) struct GroundEmptyArgumentRequest {
+    pub(super) owner: u32,
+    pub(super) call: usize,
+    pub(super) argument: usize,
+    pub(super) expected: Type,
+}
+
+#[derive(Default)]
+pub(super) struct SchemeProducerRequests {
+    pub(super) streams: Vec<StreamIteration>,
+    pub(super) ground_arguments: Vec<GroundEmptyArgumentRequest>,
+    pub(super) captures: Vec<CaptureErrorRequest>,
+    pub(super) applications: BTreeSet<(u32, usize)>,
+}
+
+impl SchemeProducerRequests {
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() }
 }
 
 enum ProcessWordRole {
@@ -409,8 +435,16 @@ impl GroundProducerIndex {
         let demand = if driver_output_demand || selected_demand {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, checked_producers, driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_return_analyses: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, scheme_scopes: OnceCell::new(), checked_producers, driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_return_analyses: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn scheme_scopes(&self, store: &FullStore) -> Result<&super::VerifiedSchemeScopes, IrVerifyError> {
+        if self.scheme_scopes.get().is_none() {
+            self.scheme_scopes.set(super::prepare_tables(store)?)
+                .map_err(|_| IrVerifyError::new("scheme scopes were initialized more than once"))?;
+        }
+        self.scheme_scopes.get().ok_or_else(|| IrVerifyError::new("scheme scopes were not initialized"))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn prefix_context(&self, owner: u32, range: &std::ops::Range<usize>) -> Result<Option<ProducerPrefixContext<'_>>, IrVerifyError> {
@@ -796,6 +830,7 @@ impl GroundProducerIndex {
     pub(in crate::runtime::eval::indexed::full) fn temporary_payload_bytes(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
+            + self.scheme_scopes.get().map_or(0, super::VerifiedSchemeScopes::temporary_payload_bytes)
             + self.checked_producers.capacity() * size_of::<usize>()
             + self.conditions.capacity() * size_of::<(usize, ConditionRole)>() + self.effect_operations.capacity() * size_of::<usize>() + self.storage_reads.capacity() * size_of::<(u32, usize, TypeId)>()
             + self.work.as_ref().map_or(0, |_| size_of::<RefCell<SchemeInstantiationBudget>>() + 2 * size_of::<usize>())
@@ -935,7 +970,6 @@ struct ProducerProof<'a> {
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: BTreeSet<(u32, usize)>,
     bindings: BTreeMap<(u32, usize, usize), ProducerBinding>,
-    scheme_scopes: BTreeMap<usize, super::SchemeScope>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
     slots: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     prefixes: BTreeMap<(u32, usize, usize), Vec<Arc<Type>>>,
@@ -950,21 +984,29 @@ struct ProducerProof<'a> {
     deferred_sources: BTreeMap<(u32, ProducerBinding), usize>,
     contextual_reads: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     captured_errors: BTreeMap<(u32, usize), CapturedErrorDerivation>,
+    scheme_applications: BTreeSet<(u32, usize)>,
+    scheme_captures: BTreeSet<(u32, usize)>,
     incoming: BTreeMap<usize, Vec<usize>>,
     budget: SchemeInstantiationBudget,
 }
 
-pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, stream_iterations: Vec<StreamIteration>) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, requests: SchemeProducerRequests) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     if index.demand == crate::runtime::eval::ProducerDemand::Absent
         && store.checked_expr_types.iter().any(|fact| !fact.is_contract())
     {
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent {
-        if !stream_iterations.is_empty() { return Err(IrVerifyError::new("generic stream iteration has no mandatory producer demand")); }
+        if !requests.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
         return Ok(Vec::new());
     }
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    proof.budget.charge(requests.captures.len())?;
+    for request in &requests.captures {
+        if !proof.scheme_captures.insert((request.owner, request.instruction)) {
+            return Err(IrVerifyError::new("generic captured-error request is duplicated"));
+        }
+    }
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
     for &step in &index.driver_outputs {
         proof.budget.charge(1)?;
@@ -988,6 +1030,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     }
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
+        if proof.scheme_applications.contains(&(owner, instruction)) || proof.scheme_captures.contains(&(owner, instruction)) { continue; }
         if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand
             | FullTag::ExprWait | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder)
         { proof.producer_owner_contract(owner)?; }
@@ -1020,6 +1063,13 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             }
         }
     }
+    let mut ground_arguments = BTreeMap::new();
+    for request in requests.ground_arguments {
+        proof.budget.charge(1)?;
+        if ground_arguments.insert((request.owner, request.call, request.argument), request.expected).is_some() {
+            return Err(IrVerifyError::new("generic empty argument request is duplicated"));
+        }
+    }
     for instantiation in &store.call_instantiations {
         let owner = index.instruction_owner(instantiation.instruction as usize)?;
         if super::super::driver_owner_index(owner).is_none() && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_)) { continue; }
@@ -1027,11 +1077,30 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let (_, arguments) = call_parts(&decoder, instantiation.instruction as usize)?;
         for argument in arguments {
             let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
-            let ty = proof.need_context(&decoder, argument)?.ok_or_else(|| IrVerifyError::new("generic call argument has no ground producer contract"))?;
+            let ty = if let Some(expected) = ground_arguments.remove(&(owner, instantiation.instruction as usize, argument)) {
+                proof.budget.charge(1)?;
+                Arc::new(expected)
+            } else {
+                proof.need_context(&decoder, argument)?.ok_or_else(|| IrVerifyError::new("generic call argument has no ground producer contract"))?
+            };
             proof.expression(owner, argument, ty, false);
         }
     }
-    for iteration in stream_iterations {
+    if !ground_arguments.is_empty() { return Err(IrVerifyError::new("generic empty argument request has no actual call operand")); }
+    for request in requests.captures {
+        proof.budget.charge(1)?;
+        let decoder = proof.owner(request.owner)?;
+        if store.tags.get(request.instruction) != Some(&FullTag::ExprCapture) {
+            return Err(IrVerifyError::new("generic captured-error request has no capture instruction"));
+        }
+        for actual in proof.captured_error_types(&decoder, request.instruction)?.iter() {
+            proof.budget.charge_clone(actual)?;
+            if !super::body_type_matches(&crate::sema::schemes::SchemeType::Ground(actual.clone()), &request.expected_error, &mut proof.budget)? {
+                return Err(IrVerifyError::new("generic captured error disagrees with its actual producer"));
+            }
+        }
+    }
+    for iteration in requests.streams {
         proof.budget.charge(1)?;
         let decoder = proof.owner(iteration.owner)?;
         if proof.stream_may_propagate_error(&decoder, iteration.source)? {
@@ -1099,9 +1168,10 @@ fn call_values(decoder: &FullDecoder<'_>, instruction: usize) -> Result<Vec<Prod
 }
 
 impl<'a> ProducerProof<'a> {
-    fn require_callable_effects(&self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
-        super::super::verify_effects::require_callable(decoder, instruction, effects, pure, |at| {
-            let owner = self.index.owners.get(&decoder.owner).ok_or_else(|| IrVerifyError::new("callable effect proof has no executable owner"))?;
+    fn require_callable_effects(&mut self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
+        let index = self.index;
+        super::super::verify_effects::require_callable(decoder, index.scheme_scopes(self.store)?, &mut self.budget, instruction, effects, pure, |at| {
+            let owner = index.owners.get(&decoder.owner).ok_or_else(|| IrVerifyError::new("callable effect proof has no executable owner"))?;
             let offset = at.checked_sub(owner.range.start).ok_or_else(|| IrVerifyError::new("callable effect proof leaves its owner"))?;
             owner.parents.get(offset).copied().ok_or_else(|| IrVerifyError::new("callable effect proof parent is out of bounds"))
         })
@@ -1191,14 +1261,8 @@ impl<'a> ProducerProof<'a> {
         let function = function_index(owner)?;
         let FullCallableContract::Scheme(id) = self.store.functions[function].contract else { return Ok(None) };
         let scheme = self.store.scheme(id)?;
-        if !self.scheme_scopes.contains_key(&function) {
-            let types = bounded(scheme.type_parameters, &self.store.scheme_type_parameters, "scheme type parameter range is invalid")?;
-            let rows = bounded(scheme.row_parameters, &self.store.scheme_row_parameters, "scheme row parameter range is invalid")?;
-            self.budget.charge(types.len() + rows.len() + rows.iter().map(|row| row.lacks.len as usize).sum::<usize>())?;
-            self.scheme_scopes.insert(function, super::make_scope(self.store, types.to_vec(), rows.to_vec())?);
-        }
         let parameter = bounded(scheme.params, &self.store.scheme_params, "scheme parameter range is invalid")?.get(slot).ok_or_else(|| IrVerifyError::new("scheme parameter is out of bounds"))?;
-        let ty = super::decode_scheme_type(self.store, &self.scheme_scopes[&function], parameter.ty, &mut self.budget, 0)?;
+        let ty = super::decode_scheme_type(self.store, self.index.scheme_scopes(self.store)?.get(id)?, parameter.ty, &mut self.budget, 0)?;
         Ok(ty.closed_ground_type().map(Arc::new))
     }
 
@@ -3037,6 +3101,11 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn callee_error_flow(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<crate::sema::types::CalleeErrorFlow, IrVerifyError> {
+        if self.scheme_applications.contains(&(decoder.owner, instruction)) {
+            let may_error = super::ScopedEffectProof::new(self.store, self.index.scheme_scopes(self.store)?)
+                .application_may_error(function_index(decoder.owner)?, instruction, &mut self.budget)?;
+            return Ok(if may_error { crate::sema::types::CalleeErrorFlow::Immediate } else { crate::sema::types::CalleeErrorFlow::None });
+        }
         let effects = match decoder.expression_view(instruction)? {
             schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. } | schema::ExprView::SelfCall { .. } => {
                 let (function, _) = call_parts(decoder, instruction)?;
@@ -3627,7 +3696,7 @@ impl<'a> ProducerProof<'a> {
             .map_err(|_| IrVerifyError::new("native template instance disagrees with its checked contract"))
     }
 
-    fn verify_process_command_contract(&self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<(), IrVerifyError> {
+    fn verify_process_command_contract(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<(), IrVerifyError> {
         let op = super::super::RuntimeOp::ProcessCommandArgv;
         let result = FullDecoder::derive_registered_api_operation_return_type(op)?.ok_or_else(|| IrVerifyError::new("command constructor has no native result contract"))?;
         if !result.matches_expected(expected) { return Err(IrVerifyError::new("command result disagrees with its native contract")); }

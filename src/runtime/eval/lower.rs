@@ -3220,6 +3220,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(value)
     }
 
+    fn lower_scheme_capture_block(
+        &mut self, block: BlockId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<Vec<BuildStmtId>> {
+        self.lower_retry_block_with_context(block, slots, &mut (visited, lowered_types),
+            |lowerer, statement, slots, (visited, types), body| lowerer.lower_scheme_statement(statement,
+                slots, current_function, facts, visited, types, body),
+            |lowerer, statement, slots, (visited, types), body| lowerer.lower_scheme_tail_value(statement,
+                slots, current_function, facts, visited, types, body))
+    }
+
     fn lower_scheme_statement_block(
         &mut self, block: BlockId, slots: &mut SlotScope, current_function: Name,
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
@@ -3736,6 +3748,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let span = self.program.arena.expr(expression).span;
         let mut registered = None;
         let lowered = match self.program.arena.expr(expression).kind {
+            ArenaExprKind::Capture(block) => {
+                let body = self.lower_scheme_capture_block(block, slots, current_function, facts, visited, lowered_types)?;
+                push_build_row!(self, expr, BuildExprRow::Capture { body, span })
+            }
             ArenaExprKind::Ident(_) => {
                 let binding = self.expression_binding(expression)?;
                 let slot = slots.resolve_binding(binding)?;
@@ -4058,6 +4074,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if let Some(instantiation) = self.bodies.call_instantiations.get(&expression).cloned()
                         && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
                     { return self.block_scheme_lowering_expr(expression); }
+                    return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
+                let applications = &facts.scheme().callable().requirements().applications;
+                let mut selected = applications.iter().enumerate().filter(|(_, application)| application.span == span);
+                if let Some((ordinal, _)) = selected.next() {
+                    if selected.next().is_some() { return self.block_scheme_lowering_expr(expression); }
+                    let callee = self.lower_scheme_expression(callee, slots, current_function, facts, visited, lowered_types, body)?;
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let arguments = arguments.into_iter().map(|argument| Some(if argument.splice {
+                        super::LoweredCallArg::Splice(argument.lowered?)
+                    } else { super::LoweredCallArg::Single(argument.lowered?) })).collect::<Option<Vec<_>>>()?;
+                    let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args: arguments, span });
+                    if !self.scratch.borrow_mut().record_scheme_application_call(lowered, u32::try_from(ordinal).ok()?) {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 let plan = facts.registered_calls().get(&expression).cloned();

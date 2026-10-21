@@ -365,8 +365,27 @@ the actual call's effect arguments before joining contributions from another
 owner. Defaults belong to their declaring callable through the actual parameter
 expression spans. A semantic body comparison uses the same retained callable
 instance as its header comparison. Raw effect-term equality proves only equality
-within one owner scope. Indexed symbolic effect serialization remains unavailable
-until the physical store can retain and verify that scoped evidence.
+within one owner scope.
+
+Indexed schemes retain owned effect binders, expressions, predicates, and call
+arguments alongside their type and row substitutions. Preparation authenticates
+one scope per scheme and reuses it for physical effect and producer verification.
+Concrete projection distinguishes unknown contracts from unresolved expressions;
+scoped substitution and retained predicates prove symbolic permission checks.
+Capture removes only outward Error inside its actual lexical boundary.
+
+Prepared applications retain their actual callee, ordered argument domains,
+result, kind, effects, argument layout, and Proc return relationships. A selected
+application must match the actual callable contract. A forwarded application
+must match the caller-owned requirement under the same substitution, including
+its ordinal and all domains. Argument producers establish binder evidence first.
+An application can then establish result binders only after its callee and input
+binders are established; cyclic requirements cannot establish themselves.
+Fresh empty collection arguments receive a transient closed-domain obligation
+from that proof. The existing producer verifier checks the exact physical call
+operand, literal family, aliases, and writers before accepting the program.
+Capture bodies use ordinary lazy block lowering and independently verify actual
+success and error producers after frontend disposal.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.

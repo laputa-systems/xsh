@@ -212,50 +212,38 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<Vec<BuildStmtId>> {
-        if !self.program.arena.block(block).params.is_empty() {
-            return Some(Vec::new());
-        }
-        let transfers_resource = self
-            .bodies
-            .resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block))?;
+        self.lower_retry_block_with_context(block, slots, &mut (),
+            |lowerer, statement, slots, (), body| {
+                body.push(lowerer.lower_stmt_with_blocker_guard(statement, slots, current_function, item_slot)?);
+                Some(())
+            },
+            |lowerer, statement, slots, (), _| lowerer.lower_tail_stmt_as_expr(statement, slots, current_function, item_slot))
+    }
+
+    pub(super) fn lower_retry_block_with_context<C>(
+        &mut self, block: BlockId, slots: &mut SlotScope, context: &mut C,
+        mut lower_statement: impl FnMut(&mut Self, StmtId, &mut SlotScope, &mut C, &mut Vec<BuildStmtId>) -> Option<()>,
+        mut lower_tail: impl FnMut(&mut Self, StmtId, &mut SlotScope, &mut C, &mut Vec<BuildStmtId>) -> Option<BuildExprId>,
+    ) -> Option<Vec<BuildStmtId>> {
+        if !self.program.arena.block(block).params.is_empty() { return Some(Vec::new()); }
+        let transfers_resource = self.bodies.resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block))?;
         let saved = slots.enter();
         let result = (|| {
-            let statements = self.program.arena.block(block).statements;
-            let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-            let Some((&tail, prefix)) = ids.split_last() else {
-                return (!transfers_resource).then(Vec::new);
-            };
+            let ids = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
+            let Some((&tail, prefix)) = ids.split_last() else { return (!transfers_resource).then(Vec::new); };
             let mut lowered = Vec::with_capacity(ids.len());
-            for stmt in prefix {
-                lowered.push(self.lower_stmt_with_blocker_guard(
-                    *stmt,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?);
-            }
-            let tail_stmt = if self.bodies.statement_positions.get(&tail)
-                == Some(&crate::sema::check::StatementPosition::Statement)
-            {
-                if transfers_resource {
-                    return None;
-                }
-                self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
-            } else if let Some(value) =
-                self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)
-            {
-                let stmt = push_build_row!(self, stmt, BuildStmtRow::Value { value });
-                if transfers_resource {
-                    self.scratch.borrow_mut().mark_resource_transfer(stmt);
-                }
-                stmt
+            for &statement in prefix { lower_statement(self, statement, slots, context, &mut lowered)?; }
+            if self.bodies.statement_positions.get(&tail) == Some(&crate::sema::check::StatementPosition::Statement) {
+                if transfers_resource { return None; }
+                lower_statement(self, tail, slots, context, &mut lowered)?;
+            } else if let Some(value) = lower_tail(self, tail, slots, context, &mut lowered) {
+                let statement = push_build_row!(self, stmt, BuildStmtRow::Value { value });
+                if transfers_resource { self.scratch.borrow_mut().mark_resource_transfer(statement); }
+                lowered.push(statement);
             } else {
-                if transfers_resource {
-                    return None;
-                }
-                self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
-            };
-            lowered.push(tail_stmt);
+                if transfers_resource { return None; }
+                lower_statement(self, tail, slots, context, &mut lowered)?;
+            }
             Some(lowered)
         })();
         slots.exit(saved);

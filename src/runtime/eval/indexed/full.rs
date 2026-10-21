@@ -725,6 +725,16 @@ struct FullStore {
     scheme_params: Vec<schemes::FullSchemeParam>,
     scheme_validations: Vec<schemes::FullSchemeValidation>,
     scheme_effects: Vec<Effect>,
+    scheme_effect_parameters: Vec<schemes::FullEffectParameter>,
+    scheme_effect_terms: Vec<schemes::FullEffectTerm>,
+    scheme_effect_predicates: Vec<schemes::FullEffectPredicate>,
+    scheme_applications: Vec<schemes::FullSchemeApplication>,
+    scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
+    scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
+    call_application_bindings: Vec<schemes::FullApplicationBinding>,
+    call_application_slots: Vec<u32>,
+    scheme_application_calls: Vec<schemes::FullSchemeApplicationCall>,
+    call_effect_arguments: Vec<schemes::FullEffectArgument>,
     scheme_schema_expectations: Vec<schemes::FullSchemeSchemaExpectation>,
     scheme_schema_instances: Vec<schemes::FullSchemeSchemaInstance>,
     scheme_schema_arguments: Vec<TypeId>,
@@ -804,6 +814,16 @@ impl Default for FullStore {
             scheme_params: Vec::new(),
             scheme_validations: Vec::new(),
             scheme_effects: Vec::new(),
+            scheme_effect_parameters: Vec::new(),
+            scheme_effect_terms: Vec::new(),
+            scheme_effect_predicates: Vec::new(),
+            scheme_applications: Vec::new(),
+            scheme_application_arguments: Vec::new(),
+            scheme_proc_returns: Vec::new(),
+            call_application_bindings: Vec::new(),
+            call_application_slots: Vec::new(),
+            scheme_application_calls: Vec::new(),
+            call_effect_arguments: Vec::new(),
             scheme_schema_expectations: Vec::new(),
             scheme_schema_instances: Vec::new(),
             scheme_schema_arguments: Vec::new(),
@@ -1012,6 +1032,16 @@ impl FullStore {
             + self.scheme_params.capacity() * size_of::<schemes::FullSchemeParam>()
             + self.scheme_validations.capacity() * size_of::<schemes::FullSchemeValidation>()
             + self.scheme_effects.capacity() * size_of::<Effect>()
+            + self.scheme_effect_parameters.capacity() * size_of::<schemes::FullEffectParameter>()
+            + self.scheme_effect_terms.capacity() * size_of::<schemes::FullEffectTerm>()
+            + self.scheme_effect_predicates.capacity() * size_of::<schemes::FullEffectPredicate>()
+            + self.scheme_applications.capacity() * size_of::<schemes::FullSchemeApplication>()
+            + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
+            + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
+            + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
+            + self.call_application_slots.capacity() * size_of::<u32>()
+            + self.scheme_application_calls.capacity() * size_of::<schemes::FullSchemeApplicationCall>()
+            + self.call_effect_arguments.capacity() * size_of::<schemes::FullEffectArgument>()
             + self.scheme_schema_expectations.capacity()
                 * size_of::<schemes::FullSchemeSchemaExpectation>()
             + self.scheme_schema_instances.capacity()
@@ -1109,6 +1139,16 @@ impl FullStore {
         self.scheme_params.shrink_to_fit();
         self.scheme_validations.shrink_to_fit();
         self.scheme_effects.shrink_to_fit();
+        self.scheme_effect_parameters.shrink_to_fit();
+        self.scheme_effect_terms.shrink_to_fit();
+        self.scheme_effect_predicates.shrink_to_fit();
+        self.scheme_applications.shrink_to_fit();
+        self.scheme_application_arguments.shrink_to_fit();
+        self.scheme_proc_returns.shrink_to_fit();
+        self.call_application_bindings.shrink_to_fit();
+        self.call_application_slots.shrink_to_fit();
+        self.scheme_application_calls.shrink_to_fit();
+        self.call_effect_arguments.shrink_to_fit();
         self.scheme_schema_expectations.shrink_to_fit();
         self.scheme_schema_instances.shrink_to_fit();
         self.scheme_schema_arguments.shrink_to_fit();
@@ -2928,6 +2968,16 @@ struct FullCheckpoint {
     scheme_callable_monotypes: usize,
     scheme_callable_parameters: usize,
     scheme_effects: usize,
+    scheme_effect_parameters: usize,
+    scheme_effect_terms: usize,
+    scheme_effect_predicates: usize,
+    scheme_applications: usize,
+    scheme_application_arguments: usize,
+    scheme_proc_returns: usize,
+    call_application_bindings: usize,
+    call_application_slots: usize,
+    scheme_application_calls: usize,
+    call_effect_arguments: usize,
     scheme_schema_expectations: usize,
     scheme_schema_instances: usize,
     scheme_schema_arguments: usize,
@@ -4704,6 +4754,16 @@ impl FullBuilder {
             scheme_callable_monotypes: self.store.scheme_callable_monotypes.len(),
             scheme_callable_parameters: self.store.scheme_callable_parameters.len(),
             scheme_effects: self.store.scheme_effects.len(),
+            scheme_effect_parameters: self.store.scheme_effect_parameters.len(),
+            scheme_effect_terms: self.store.scheme_effect_terms.len(),
+            scheme_effect_predicates: self.store.scheme_effect_predicates.len(),
+            scheme_applications: self.store.scheme_applications.len(),
+            scheme_application_arguments: self.store.scheme_application_arguments.len(),
+            scheme_proc_returns: self.store.scheme_proc_returns.len(),
+            call_application_bindings: self.store.call_application_bindings.len(),
+            call_application_slots: self.store.call_application_slots.len(),
+            scheme_application_calls: self.store.scheme_application_calls.len(),
+            call_effect_arguments: self.store.call_effect_arguments.len(),
             scheme_schema_expectations: self.store.scheme_schema_expectations.len(),
             scheme_schema_instances: self.store.scheme_schema_instances.len(),
             scheme_schema_arguments: self.store.scheme_schema_arguments.len(),
@@ -4781,6 +4841,16 @@ impl FullBuilder {
         self.store.scheme_callable_monotypes.truncate(checkpoint.scheme_callable_monotypes);
         self.store.scheme_callable_parameters.truncate(checkpoint.scheme_callable_parameters);
         self.store.scheme_effects.truncate(checkpoint.scheme_effects);
+        self.store.scheme_effect_parameters.truncate(checkpoint.scheme_effect_parameters);
+        self.store.scheme_effect_terms.truncate(checkpoint.scheme_effect_terms);
+        self.store.scheme_effect_predicates.truncate(checkpoint.scheme_effect_predicates);
+        self.store.scheme_applications.truncate(checkpoint.scheme_applications);
+        self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
+        self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
+        self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
+        self.store.call_application_slots.truncate(checkpoint.call_application_slots);
+        self.store.scheme_application_calls.truncate(checkpoint.scheme_application_calls);
+        self.store.call_effect_arguments.truncate(checkpoint.call_effect_arguments);
         self.store.scheme_schema_expectations.truncate(checkpoint.scheme_schema_expectations);
         self.store.scheme_schema_instances.truncate(checkpoint.scheme_schema_instances);
         self.store.scheme_schema_arguments.truncate(checkpoint.scheme_schema_arguments);
@@ -8267,11 +8337,8 @@ impl<'a> FullDecoder<'a> {
                     .signature_has_error_effect(signature),
                 FullCallableContract::Scheme(scheme_id) => {
                     let scheme = self.store.scheme(scheme_id)?;
-                    let effects = scheme
-                        .effects
-                        .bounds(self.store.scheme_effects.len())
-                        .ok_or_else(|| IrVerifyError::new("scheme effect range is invalid"))?;
-                    Ok(self.store.scheme_effects[effects].contains(&Effect::Error))
+                    let effects = scheme.effects.concrete(self.store)?;
+                    Ok(effects.as_ref().is_none_or(|effects| effects.contains(&Effect::Error)))
                 }
             }
         };
@@ -16837,6 +16904,7 @@ impl FullVerifier {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
         }
         store.semantic.verify()?;
+        producer_index.scheme_scopes(store)?;
         for (key, schema) in &store.checked_pattern_variants {
             if key.owner.as_str().is_empty() || key.variant.as_str().is_empty() {
                 return Err(IrVerifyError::new(
@@ -17238,7 +17306,7 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
-            verify_effects::verify_owner(&decoder, index)?;
+            verify_effects::verify_owner(&decoder, index, producer_index.scheme_scopes(store)?)?;
             drop(decoder.return_analysis()?);
             producer_index.record(&decoder)?;
             decoder.producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
@@ -19155,6 +19223,9 @@ macro_rules! impl_build_id_codec {
                 let registered_call = if $checked_expr_type {
                     scratch.registered_calls.get(self.index()).cloned().flatten()
                 } else { None };
+                let application_call = if $checked_expr_type {
+                    scratch.scheme_application_calls.get(self.index()).copied().flatten()
+                } else { None };
                 let call_instantiation = if $checked_expr_type {
                     scratch.call_instantiations.get(self.index()).cloned().flatten()
                 } else {
@@ -19290,6 +19361,15 @@ macro_rules! impl_build_id_codec {
                         )
                     })?;
                     builder.record_checked_call_target(target, instruction)?;
+                }
+                if let Some(application) = application_call {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_application_instruction", None, 0, self.index()))?;
+                    if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::ExprDynamicCall {
+                        return Err(IrBuildError::format("scheme_application_owner", None, 0, instruction));
+                    }
+                    builder.store.scheme_application_calls.push(schemes::FullSchemeApplicationCall {
+                        instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_application_instruction", None, 0, instruction))?, application,
+                    });
                 }
                 match (call_instantiation, checked_call_result) {
                     (Some(instantiation), Some(result_type)) => {
@@ -23039,7 +23119,7 @@ assert apply(40) == 42
             signature.effects = crate::sema::types::CallableEffects::finite([crate::syntax::node::Effect::Fs]);
             let traced = scheme_fixture_root_function(&program, "traced");
             let FullCallableContract::Scheme(scheme) = program.store.functions[traced].contract else { panic!("generic caller") };
-            let effects = program.store.schemes[scheme.index()].effects.bounds(program.store.scheme_effects.len()).unwrap();
+            let effects = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
             let mut forged = program.clone();
             let mut semantic = SemanticPoolBuilder::default();
@@ -23047,6 +23127,51 @@ assert apply(40) == 42
             forged.store.functions[helper].contract = FullCallableContract::Ground(signature);
             forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
             assert!(FullVerifier::verify(&forged).is_err(), "executable io.flush_stdout still requires io after both declarations claim fs");
+        });
+    }
+
+    #[test]
+    fn prepared_applications_reject_forged_callback_result_and_effect_arguments() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-application-actual-callback.xsh", concat!(
+                "proc side(payload: Int) [env] -> Int { let _ = env.get(\"XSH_CALLBACK_PROOF\"); payload }\n",
+                "proc invoke(action, value) { let captured = try { action(value) }; {captured} }\n",
+                "proc number() [env, time] { invoke(side, 7) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "invoke");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("the callback invocation owns one scheme") };
+            let scheme = program.store.schemes[id.index()];
+            let applications = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap();
+            assert_eq!(applications.len(), 1);
+            let application = program.store.scheme_applications[applications.start];
+            let result = program.store.scheme_types[application.result.index()];
+            assert_eq!(result.tag, schema::FullSchemeTypeTag::Parameter);
+            let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+            let result_binder = program.store.scheme_type_parameters[parameters.start + result.first as usize].id;
+            assert_eq!(program.store.call_instantiations.len(), 1);
+            let instance = program.store.call_instantiations[0];
+            let types = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            let result_argument = types.clone().find(|index| program.store.call_type_arguments[*index].binder == result_binder).unwrap();
+            let result_type = program.store.call_type_arguments[result_argument].ty;
+            assert!(types.clone().all(|index| index == result_argument || program.store.call_type_arguments[index].ty != result_type));
+            assert!(program.store.scheme_body_facts.iter().all(|fact| fact.ty != result_type));
+            let mut wrong_result = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let text = semantic.intern_type(&mut wrong_result.store.semantic, &Type::Str).unwrap();
+            let mut node = program.store.scheme_types[result_type.index()];
+            assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+            node.first = text.raw();
+            wrong_result.store.scheme_types[result_type.index()] = node;
+            assert_eq!(FullVerifier::verify(&wrong_result).unwrap_err().message, "selected application disagrees with its callable contract");
+            let effects = instance.effect_arguments.bounds(program.store.call_effect_arguments.len()).unwrap();
+            assert_eq!(effects.len(), 1);
+            let expression = program.store.call_effect_arguments[effects.start].expression;
+            let direct = expression.direct.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[direct.clone()], &[Effect::Env]);
+            let mut wrong_effect = program.clone();
+            wrong_effect.store.scheme_effects[direct.start] = Effect::Time;
+            assert_eq!(FullVerifier::verify(&wrong_effect).unwrap_err().message, "selected application disagrees with its callable contract");
         });
     }
 
@@ -23075,16 +23200,16 @@ assert apply(40) == 42
             let FullCallableContract::Scheme(scheme_id) = program.store.functions[wrap].contract else { panic!("wrap scheme") };
             let scheme = program.store.schemes[scheme_id.index()];
             assert_eq!(scheme.callable_kind, crate::sema::types::CallableKind::Proc);
-            assert!(scheme.has_effects);
+            assert!(scheme.effects.known);
             let mut forged = program.clone();
-            forged.store.schemes[scheme_id.index()].has_effects = false;
+            forged.store.schemes[scheme_id.index()].effects.known = false;
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic function contract is invalid"));
             let mut forged = program.clone();
             forged.store.schemes[scheme_id.index()].callable_kind = crate::sema::types::CallableKind::Pure;
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic function contract is invalid"));
             let traced = scheme_fixture_root_function(&program, "traced");
             let FullCallableContract::Scheme(traced_scheme) = program.store.functions[traced].contract else { panic!("traced scheme") };
-            let effects = program.store.schemes[traced_scheme.index()].effects.bounds(program.store.scheme_effects.len()).unwrap();
+            let effects = program.store.schemes[traced_scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
             assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
             let mut forged = program.clone();
             forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
@@ -23190,8 +23315,8 @@ assert apply(40) == 42
                 let monotype = program.store.scheme_callable_monotypes.len();
                 program.store.scheme_callable_monotypes.push(schemes::FullSchemeCallableMonotype {
                     params: IrRange { start: params_start as u32, len: 1 }, return_type: child,
-                    return_schema: None, effects: IrRange::default(), kind: crate::sema::types::CallableKind::Pure,
-                    has_effects: false, reserved: [0; 2],
+                    return_schema: None, effects: schemes::FullEffectContract::default(), kind: crate::sema::types::CallableKind::Pure,
+                    reserved: [0; 3],
                 });
                 program.store.scheme_types[root.index()] = FullSchemeTypeNode {
                     first: monotype as u32, second: 0, children: IrRange::default(),
@@ -23216,8 +23341,8 @@ assert apply(40) == 42
             let mut bad_effects = program.clone();
             let effects_start = bad_effects.store.scheme_effects.len();
             bad_effects.store.scheme_effects.extend([Effect::Fs, Effect::Fs]);
-            bad_effects.store.scheme_callable_monotypes[0].effects = IrRange { start: effects_start as u32, len: 2 };
-            bad_effects.store.scheme_callable_monotypes[0].has_effects = true;
+            bad_effects.store.scheme_callable_monotypes[0].effects.direct = IrRange { start: effects_start as u32, len: 2 };
+            bad_effects.store.scheme_callable_monotypes[0].effects.known = true;
             assert!(FullVerifier::verify(&bad_effects).unwrap_err().message.contains("callable effects are duplicated"));
 
             let mut bad_contract = program.clone();

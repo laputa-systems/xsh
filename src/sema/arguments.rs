@@ -200,8 +200,25 @@ pub fn bind_static_arguments(
     )))
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ArgumentParameterLayout {
+    pub(crate) name: Name,
+    pub(crate) defaulted: bool,
+    pub(crate) rest: bool,
+}
+
 pub(crate) fn bind_argument_layout(
     params: &[CallableParamType],
+    args: impl ExactSizeIterator<Item = (StaticArgumentKind, Span)>,
+) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
+    let parameters = params.iter().map(|parameter| ArgumentParameterLayout {
+        name: parameter.name, defaulted: parameter.defaulted, rest: parameter.rest,
+    }).collect::<Vec<_>>();
+    bind_parameter_layout(&parameters, args)
+}
+
+pub(crate) fn bind_parameter_layout(
+    params: &[ArgumentParameterLayout],
     args: impl ExactSizeIterator<Item = (StaticArgumentKind, Span)>,
 ) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
     let mut named_slots = FxHashMap::default();

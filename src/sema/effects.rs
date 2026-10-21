@@ -119,6 +119,44 @@ pub(crate) enum EffectPredicate<V> {
     Excluded(EffectContract<V>, EffectSet),
 }
 
+impl<V: Ord> EffectPredicate<V> {
+    pub(crate) fn satisfaction(&self) -> Option<bool> {
+        match self {
+            Self::Equal(left, right) => {
+                if left == right { return Some(true); }
+                if matches!(left, EffectContract::Unknown) || matches!(right, EffectContract::Unknown) {
+                    return Some(false);
+                }
+                Some(left.closed()? == right.closed()?)
+            }
+            Self::Included(left, right) | Self::Covered(left, right) => {
+                if matches!(right, EffectContract::Unknown) { return Some(true); }
+                if matches!(left, EffectContract::Unknown) { return Some(false); }
+                if left == right { return Some(true); }
+                let (EffectContract::Known(left), EffectContract::Known(right)) = (left, right) else { unreachable!() };
+                let direct_covers = |required: &Effect| match self {
+                    Self::Included(_, _) => right.direct().iter().any(|permission| &permission == required),
+                    Self::Covered(_, _) => right.direct().iter().any(|permission| effect_covers(&permission, required)),
+                    _ => unreachable!(),
+                };
+                let covered = left.direct().iter().all(|required| direct_covers(&required)) && left.variables().all(|(variable, mask)| {
+                    let retained = right.variables.get(variable).copied().unwrap_or_default();
+                    mask.iter().all(|effect| direct_covers(&effect) || retained.iter().any(|candidate| candidate == effect))
+                });
+                if covered { Some(true) }
+                else if left.closed().is_some() && right.closed().is_some() { Some(false) }
+                else { None }
+            }
+            Self::Excluded(contract, excluded) => {
+                let EffectContract::Known(expression) = contract else { return Some(false) };
+                let prohibited = excluded.prohibited_requirements();
+                if !expression.direct().intersection(prohibited).is_empty() { return Some(false); }
+                expression.variables().all(|(_, mask)| mask.intersection(prohibited).is_empty()).then_some(true)
+            }
+        }
+    }
+}
+
 impl<V> EffectPredicate<V> {
     pub(crate) fn try_map_contracts<W, E>(
         &self,
@@ -149,6 +187,12 @@ pub(crate) fn effect_covers(permission: &Effect, required: &Effect) -> bool {
 pub(crate) struct EffectSet(u8);
 
 impl EffectSet {
+    pub(crate) fn bits(self) -> u8 { self.0 }
+
+    pub(crate) fn from_bits(bits: u8) -> Option<Self> {
+        (bits & !Self::all().0 == 0).then_some(Self(bits))
+    }
+
     pub(crate) fn new(effects: impl IntoIterator<Item = Effect>) -> Self {
         effects.into_iter().fold(Self::default(), |set, effect| {
             set.union(Self::singleton(effect))
@@ -342,6 +386,23 @@ mod tests {
     use super::*;
 
     type Contract = EffectContract<u32>;
+
+    #[test]
+    fn symbolic_effect_predicates_preserve_assignment_independent_coverage() {
+        let variable = Contract::variable(7);
+        let time = Contract::finite(EffectSet::singleton(Effect::Time));
+        let union = time.clone().union(variable.clone());
+        assert_eq!(EffectPredicate::Covered(time.clone(), union.clone()).satisfaction(), Some(true));
+        assert_eq!(EffectPredicate::Included(variable.clone().capture_error(), variable.clone()).satisfaction(), Some(true));
+        assert_eq!(EffectPredicate::Included(union, variable.clone()).satisfaction(), None);
+        assert_eq!(EffectPredicate::Covered(time, variable.clone()).satisfaction(), None);
+        let fs = EffectSet::singleton(Effect::Fs);
+        let io = EffectSet::singleton(Effect::Io);
+        assert_eq!(EffectPredicate::Covered(variable.clone().masked(fs), variable.clone().masked(io)).satisfaction(), None);
+        assert_eq!(EffectPredicate::Covered(variable.clone().masked(fs), Contract::finite(io)).satisfaction(), Some(true));
+        assert_eq!(EffectPredicate::Included(variable.masked(fs), Contract::finite(io)).satisfaction(), None);
+        assert_eq!(EffectPredicate::Covered(Contract::Unknown, Contract::finite(EffectSet::default())).satisfaction(), Some(false));
+    }
 
     #[test]
     fn symbolic_effect_capture_preserves_unknown_and_uncaptured_contributions() {

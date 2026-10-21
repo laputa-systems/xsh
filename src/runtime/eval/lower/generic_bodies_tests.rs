@@ -1421,3 +1421,21 @@ fn generic_captured_callable_results_remain_data() {
         assert_eq!((&*error.family, &*error.variant, &*error.message), ("CallbackError", "invalid", "stored"));
     }
 }
+
+#[test]
+fn prepared_applications_results_anchor_empty_collection_arguments() {
+    let source = "pure item() -> Int { 7 }\npure text_item() -> Str { \"value\" }\npure collect(action, rest, flag: Bool) { if flag { [action()] } else { rest } }\npure number(flag: Bool) -> List[Int] { collect(item, [], flag) }\npure text(flag: Bool) -> List[Str] { collect(text_item, [], flag) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            for present in [false, true] {
+                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(present)], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, Value::List(if present { vec![expected.clone()] } else { Vec::new() }));
+            }
+        }
+    }
+}

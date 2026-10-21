@@ -798,6 +798,7 @@ struct BuildScratch {
     /// expressions until instruction encoding.
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
     call_instantiations: Vec<Option<CallInstantiation>>,
+    scheme_application_calls: Vec<Option<u32>>,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
@@ -972,6 +973,7 @@ impl BuildScratch {
         self.checked_expr_types.push(None);
         self.checked_call_targets.push(None);
         self.call_instantiations.push(None);
+        self.scheme_application_calls.push(None);
         self.checked_call_result_types.push(None);
         self.registered_calls.push(None);
         id
@@ -992,6 +994,14 @@ impl BuildScratch {
                 *target = Some(checked);
                 true
             }
+        }
+    }
+
+    fn record_scheme_application_call(&mut self, id: BuildExprId, ordinal: u32) -> bool {
+        let Some(fact) = self.scheme_application_calls.get_mut(id.index()) else { return false; };
+        match fact {
+            Some(previous) => *previous == ordinal,
+            None => { *fact = Some(ordinal); true }
         }
     }
 

@@ -4,6 +4,7 @@ use super::*;
 pub(super) struct LexicalScope {
     frame: usize,
     loop_depth: usize,
+    error_boundary: Option<usize>,
 }
 
 struct LocalBinding {
@@ -19,6 +20,8 @@ struct LexicalFrame {
 
 pub(super) struct LexicalScopes {
     frames: Vec<LexicalFrame>,
+    error_returns: Vec<Arc<SchemeType>>,
+    function_return: Arc<SchemeType>,
 }
 
 impl LexicalScope {
@@ -71,7 +74,15 @@ fn branch_scope(scope: &LexicalScope, scopes: &mut LexicalScopes, budget: &mut S
     budget.charge(1)?;
     let frame = scopes.frames.len();
     scopes.frames.push(LexicalFrame { parent: Some(scope.frame), bindings: BTreeMap::new() });
-    Ok(LexicalScope { frame, loop_depth: scope.loop_depth })
+    Ok(LexicalScope { frame, loop_depth: scope.loop_depth, error_boundary: scope.error_boundary })
+}
+
+fn propagation_contract<'a>(scope: &LexicalScope, scopes: &'a LexicalScopes) -> &'a Arc<SchemeType> {
+    scope.error_boundary.map_or(&scopes.function_return, |index| &scopes.error_returns[index])
+}
+
+fn propagation_return<'a>(scope: &LexicalScope, scopes: &'a LexicalScopes) -> &'a SchemeType {
+    propagation_contract(scope, scopes)
 }
 
 fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
@@ -122,6 +133,14 @@ impl<'a> BodyTypeRef<'a> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::List(item)) => Some(Self::Scheme(item)),
             Self::Ground(Type::List(item)) => Some(Self::Ground(item)),
+            _ => None,
+        }
+    }
+
+    fn result_parts(self) -> Option<(Self, Self)> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::Result(ok, error)) => Some((Self::Scheme(ok), Self::Scheme(error))),
+            Self::Ground(Type::Result(ok, error)) => Some((Self::Ground(ok), Self::Ground(error))),
             _ => None,
         }
     }
@@ -243,8 +262,8 @@ fn comprehension_scope(
     types: &BTreeMap<usize, SchemeType>,
     mut qualifiers: super::super::decode::ListView<'_, crate::runtime::eval::LoweredCompQualifier>,
     scope: &LexicalScope, scopes: &mut LexicalScopes, slot_count: usize,
-    writers: &mut BTreeMap<usize, SchemeType>, expected_return: &SchemeType,
-    pending: &mut Vec<Obligation>, stream_iterations: &mut Vec<super::producers::StreamProducer>,
+    writers: &mut BTreeMap<usize, SchemeType>,
+    pending: &mut Vec<Obligation>, stream_iterations: &mut Vec<(super::producers::StreamProducer, Arc<SchemeType>)>,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(LexicalScope, Option<Validation>), IrVerifyError> {
     let count = qualifiers.len();
@@ -259,8 +278,8 @@ fn comprehension_scope(
                 let instruction = iter.raw() as usize;
                 let source = expression_type(types, instruction, budget)?;
                 if count == 1 { mapped_validation = BodyTypeRef::Scheme(&source).validation().filter(|validation| validation.survives_mapping()); }
-                let (item, stream_source) = iteration_item(&source, instruction, expected_return, budget)?;
-                if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push(source); }
+                let (item, stream_source) = iteration_item(&source, instruction, propagation_return(&current, scopes), budget)?;
+                if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, Arc::clone(propagation_contract(&current, scopes)))); }
                 pending.push(Obligation::Expression(instruction, current));
                 let bindings = target_bindings(target, &item, budget)?;
                 current = branch_scope(&current, scopes, budget)?;
@@ -369,17 +388,27 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
     Ok(result)
 }
 
+pub(super) struct BodyProof {
+    pub(super) expressions: BTreeSet<usize>,
+    pub(super) writers: BTreeMap<usize, SchemeType>,
+    pub(super) statements: BTreeSet<usize>,
+    pub(super) streams: Vec<(super::producers::StreamProducer, Arc<SchemeType>)>,
+    pub(super) captures: Vec<(usize, SchemeType)>,
+    pub(super) applications: BTreeSet<usize>,
+}
+
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
-    slots: BTreeMap<usize, SchemeType>, expected_return: &SchemeType, statements: Vec<usize>,
+    slots: BTreeMap<usize, SchemeType>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget,
-) -> Result<(BTreeSet<usize>, BTreeMap<usize, SchemeType>, BTreeSet<usize>, Vec<super::producers::StreamProducer>), IrVerifyError> {
+) -> Result<BodyProof, IrVerifyError> {
     let slot_count = decoder.slot_count as usize;
     for ty in slots.values() { budget.charge_scheme_clone(ty)?; }
     let mut writers = slots.clone();
-    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, ty)| (slot, LocalBinding { ty, mutable: false, initializer: None })).collect() }] };
-    let scope = LexicalScope { frame: 0, loop_depth: 0 };
+    budget.charge_scheme_clone(expected_return)?;
+    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, ty)| (slot, LocalBinding { ty, mutable: false, initializer: None })).collect() }], error_returns: Vec::new(), function_return: Arc::new(expected_return.clone()) };
+    let scope = LexicalScope { frame: 0, loop_depth: 0, error_boundary: None };
     let function = IrFunctionId::from_raw(decoder.owner).and_then(|owner| store.functions.get(owner.index())).ok_or_else(|| IrVerifyError::new("generic default has no function owner"))?;
     let parameter_count = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic default parameter range is invalid"))?.len();
     let mut default_bindings = BTreeMap::new();
@@ -389,12 +418,14 @@ pub(super) fn verify_body(
             default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: false, initializer: None });
         }
     }
-    let default_scope = LexicalScope { frame: scopes.frames.len(), loop_depth: 0 };
+    let default_scope = LexicalScope { frame: scopes.frames.len(), loop_depth: 0, error_boundary: None };
     scopes.frames.push(LexicalFrame { parent: None, bindings: default_bindings });
     let mut pending = vec![Obligation::Block { statements: statements.into(), position: 0, scope, value: None }];
     let mut visited = BTreeSet::new();
     let mut visited_statements = BTreeSet::new();
     let mut stream_iterations = Vec::new();
+    let mut captures = Vec::new();
+    let mut applications = BTreeSet::new();
     while let Some(obligation) = pending.pop() {
         budget.charge(1)?;
         match obligation {
@@ -405,6 +436,35 @@ pub(super) fn verify_body(
             Obligation::Expression(instruction, scope) => {
                 let claimed = expression_type(types, instruction, budget)?;
                 match decoder.expression_view(instruction)? {
+                    schema::ExprView::DynamicCall { .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        applications.insert(instruction);
+                        for child in applications::verify_site(store, decoder, instruction, scheme_scope, effect_scopes, scope.error_boundary.is_some(), types, budget)? {
+                            pending.push(Obligation::Expression(child, scope));
+                        }
+                    }
+                    schema::ExprView::Capture { body, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let (ok, error) = BodyTypeRef::Scheme(&claimed).result_parts()
+                            .ok_or_else(|| IrVerifyError::new("generic capture has no checked result contract"))?;
+                        let ok = ok.materialize(budget)?;
+                        let error = error.materialize(budget)?;
+                        budget.charge(1)?;
+                        captures.push((instruction, error));
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        let value = if statements.last().is_some_and(|statement| store.tags[*statement] == FullTag::StmtValue) { Some(ok) }
+                            else {
+                                if !body_type_matches(&SchemeType::Ground(Type::Unit), &ok, budget)? {
+                                    return Err(IrVerifyError::new("generic capture fallthrough disagrees with its success contract"));
+                                }
+                                None
+                            };
+                        let mut inner = branch_scope(&scope, &mut scopes, budget)?;
+                        inner.error_boundary = Some(scopes.error_returns.len());
+                        scopes.error_returns.push(Arc::new(claimed));
+                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
+                    }
                     schema::ExprView::ValueBlock { body, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
@@ -414,7 +474,7 @@ pub(super) fn verify_body(
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
-                        let (inner, mapped_validation) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, expected_return, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, mapped_validation) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
                         if let Some(validation) = BodyTypeRef::Scheme(&claimed).validation()
                             && Some(validation) != mapped_validation
                         { return Err(IrVerifyError::new("generic comprehension cannot establish its claimed validation")); }
@@ -429,7 +489,7 @@ pub(super) fn verify_body(
                         let domain = expected_key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map comprehension key domain is unresolved"))?;
                         if !domain.is_map_key() { return Err(IrVerifyError::new("generic map comprehension key domain is invalid")); }
                         let item = item.materialize(budget)?;
-                        let (inner, _) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, expected_return, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, _) = comprehension_scope(types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
                         if !body_type_matches(&expression_type(types, key.raw() as usize, budget)?, &expected_key, budget)? { return Err(IrVerifyError::new("generic comprehension key disagrees with its map domain")); }
                         if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &item, budget)? { return Err(IrVerifyError::new("generic comprehension value disagrees with its item domain")); }
                         pending.push(Obligation::Expression(value.raw() as usize, inner));
@@ -465,7 +525,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, &scope, &scopes, &mut children, &mut visited, registered, expected_return, budget)?;
+                        verify_body_expression(store, decoder, instruction, types, &scope, &scopes, &mut children, &mut visited, registered, propagation_return(&scope, &scopes), budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -594,8 +654,8 @@ pub(super) fn verify_body(
                     }
                     schema::StmtView::ForRecord { target, iter, body, .. } => {
                         let source = expression_type(types, iter.raw() as usize, budget)?;
-                        let (item, stream_source) = iteration_item(&source, iter.raw() as usize, expected_return, budget)?;
-                        if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push(source); }
+                        let (item, stream_source) = iteration_item(&source, iter.raw() as usize, propagation_return(&scope, &scopes), budget)?;
+                        if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, Arc::clone(propagation_contract(&scope, &scopes)))); }
                         let bindings = target_bindings(target, &item, budget)?;
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
                         inner.loop_depth += 1;
@@ -649,7 +709,7 @@ pub(super) fn verify_body(
             }
         }
     }
-    Ok((visited, writers, visited_statements, stream_iterations))
+    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications })
 }
 
 #[cfg(test)]
@@ -1845,7 +1905,7 @@ mod tests {
         let changed_decoder = decoder_for_function(&changed.store, owner).unwrap();
         let source = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(changed_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(2)))).unwrap();
         assert!(matches!(decoder.expression_view(source).unwrap(), schema::ExprView::Param(1)));
-        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
         let scope = scopes[scheme.index()].as_ref().unwrap();
         let mut budget = SchemeInstantiationBudget::new(&changed.store);
         for instruction in [value, source] {
@@ -2161,7 +2221,7 @@ mod tests {
         assert_eq!(changed.store.checked_call_targets.iter().find(|target| target.instruction as usize == call).unwrap().function.index(), failing);
         let effects = super::super::super::verify_effects::function_effects(&changed.store, failing).unwrap().unwrap();
         assert!(effects.contains(&crate::syntax::node::Effect::Error));
-        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
         let scope = scopes[scheme_id.index()].as_ref().unwrap();
         let scheme = program.store.schemes[scheme_id.index()];
         let mut budget = SchemeInstantiationBudget::new(&program.store);
@@ -2272,7 +2332,7 @@ mod tests {
                 node.first = wrong_node.first;
             }
         }
-        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
         let scope = scopes[scheme.index()].as_ref().unwrap();
         let mut budget = SchemeInstantiationBudget::new(&changed.store);
         let root_type = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == root).unwrap().ty;
