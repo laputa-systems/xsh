@@ -365,6 +365,12 @@ or checker output.
 installed XSH does not read a stdlib tree at runtime. The loader selects modules
 required by source use and sends them through ordinary checking and lowering.
 The registry can also bind an entry directly to a native runtime operation.
+Loaded modules link script-backed calls to the loader's prepared implementations.
+Verification resolves each external callee's reserved module identity and member
+against the registry; all matching bindings must agree on purity and effects
+before that contract can justify a finite caller's permissions.
+Reserved implementation declarations must satisfy that same contract before
+they can execute locally or be published to another prepared program.
 
 ## Invariants
 

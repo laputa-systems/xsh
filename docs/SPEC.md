@@ -4219,6 +4219,8 @@ The file-backed operations `bytes.resize`, `bytes.read_at`, `bytes.write_at`,
 `bytes.zero_at`, `bytes.copy`, and `bytes.copy_file` require `fs`. Operations
 on in-memory bytes require no host effect.
 
+On Linux, `unix.uptime_seconds` reads `/proc/uptime` and requires `fs`.
+
 These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
 `dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `set_ipv4_address`,

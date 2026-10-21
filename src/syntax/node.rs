@@ -76,6 +76,7 @@ impl Effect {
             "process" | "unix" | "linux" => match function {
                 "command_argv" | "argv_words" => &[],
                 "sample" if module == "linux" => &[Self::Fs],
+                "uptime_seconds" if module == "unix" && cfg!(target_os = "linux") => &[Self::Fs],
                 "socket" | "connect" | "bind" | "listen" | "accept" | "sendto"
                 | "recvfrom" | "dhcp_socket" | "dhcp_send" | "dhcp_recv"
                 | "dhcp_send_release" | "link_up" | "link_down" | "set_ipv4_address"

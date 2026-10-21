@@ -450,6 +450,17 @@ pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<Nativ
     native_effect_rule(native_static_operation_signatures(op))
 }
 
+pub(crate) fn script_implementation_effect_rule(module: &str, function: &str) -> Option<NativeEffectRule> {
+    let spec = api_spec();
+    let module_signatures = spec.module_entries().flat_map(|(_, module)| module.functions.iter())
+        .flat_map(|function| function.overloads.iter());
+    let method_signatures = spec.method_entries().flat_map(|(_, methods)| methods.iter())
+        .flat_map(|method| method.overloads.iter().map(|overload| &overload.sig));
+    native_effect_rule(module_signatures.chain(method_signatures).filter(|signature| {
+        signature.script_impl().is_some_and(|implementation| implementation.module == module && implementation.function == function)
+    }))
+}
+
 struct NativeMethodEffectRules {
     names: BTreeMap<&'static str, NativeEffectRule>,
     operand_dependent: BTreeSet<usize>,
