@@ -12,8 +12,8 @@ Current inference assembly `7f4dccc80` passes all 290 focused controls without
 failures or ignores. The combined group covers type, scheme, semantic-codec,
 Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
-native regression cases pass on the earlier `0c9d8d1f2` matching products;
-matching-product qualification of `7f4dccc80` is running. Master remains at
+native regression cases also pass on matching `7f4dccc80` verification products;
+source and product guards pass before and after the replay. Master remains at
 `d2453760a`.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
