@@ -475,6 +475,79 @@ proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
     }
 
     #[test]
+    fn paired_qualification_checks_generic_operators_at_independent_instances() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let new = "pure keep(value) { value == value }\n";
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+        for old in [
+            "pure keep(value: Int) -> Bool { value == value }\n",
+            "pure keep(value: Str) -> Bool { value == value }\n",
+        ] {
+            fs::write(original.join("main.xsh"), old).unwrap();
+            fs::write(candidate.join("main.xsh"), new).unwrap();
+            assert_eq!(qualify(&original, &original), Ok((1, 0)));
+            assert_eq!(qualify(&candidate, &candidate), Ok((1, 0)));
+            assert_eq!(qualify(&original, &candidate), Ok((1, 0)));
+        }
+    }
+
+    #[test]
+    fn paired_qualification_rejects_changed_folded_operations_under_containers() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let qualify = |old: &Path, new: &Path| {
+            let entries = [new.join("main.xsh").to_str().unwrap().to_owned()];
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &entries, &StageTimings::start())
+        };
+        let cases = [
+            (
+                "const values: List[Bool] = [1 == 1, 2 == 3]\npure keep(value: Int) -> Int { value }\n",
+                "const values: List[Bool] = [1 <= 1, 2 == 3]\npure keep(value: Int) -> Int { value }\n",
+                "operator",
+            ),
+            (
+                "type Snapshot = {checks: List[Bool]}\nconst snapshot: Snapshot = {checks: [1 == 1]}\npure keep(value: Int) -> Int { value }\n",
+                "type Snapshot = {checks: List[Bool]}\nconst snapshot: Snapshot = {checks: [1KiB == 1KiB]}\npure keep(value: Int) -> Int { value }\n",
+                "operand domain",
+            ),
+            (
+                "const snapshot = {values: [1s / 1s]}\npure keep(value: Int) -> Int { value }\n",
+                "const snapshot = {values: [1s / 1]}\npure keep(value: Int) -> Int { value }\n",
+                "operand domain and folded result type",
+            ),
+        ];
+        for (old, new, changed_fact) in cases {
+            fs::write(original.join("main.xsh"), old).unwrap();
+            fs::write(candidate.join("main.xsh"), new).unwrap();
+            assert_eq!(qualify(&original, &original), Ok((1, 0)), "original {changed_fact}");
+            assert_eq!(qualify(&candidate, &candidate), Ok((1, 0)), "candidate {changed_fact}");
+            let diagnostic = qualify(&original, &candidate).unwrap_err();
+            assert!(diagnostic.contains("checked body contract mismatch"), "{changed_fact}: {diagnostic}");
+            assert!(diagnostic.contains("main.xsh::<entry>"), "{changed_fact}: {diagnostic}");
+        }
+
+        fs::write(original.join("main.xsh"), cases[0].0).unwrap();
+        fs::write(candidate.join("main.xsh"), "const values: List[Bool] = [1 == true]\npure keep(value: Int) -> Int { value }\n").unwrap();
+        let invalid_candidate = qualify(&candidate, &candidate).unwrap_err();
+        assert!(!invalid_candidate.contains("checked body contract mismatch"), "{invalid_candidate}");
+        assert!(invalid_candidate.contains("err[check.const]"), "{invalid_candidate}");
+    }
+
+    #[test]
     fn public_cli_body_contracts_preserve_emitted_header_gates() {
         let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
         fs::create_dir_all(&scratch).unwrap();
