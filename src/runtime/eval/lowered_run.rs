@@ -6346,6 +6346,10 @@ impl Evaluator {
                 )?
             }
             callable; RuntimeOp::ModuleLoad if values.len() == 1 => return self.eval_lowered_module_load_values(values, span),
+            callable; RuntimeOp::NetValidateRootBundle if values.len() == 1 => {
+                let pem = lowered_bytes_arg(&values[0], "net.validate_root_bundle", span)?;
+                lowered_runtime_result(net_module::validate_root_bundle(pem, span).map(|()| Value::Unit), span)?
+            }
             callable; RuntimeOp::NetPool if values.len() <= 3 => return self.eval_lowered_net_pool_values(values, span),
             callable; RuntimeOp::NetClosePool if values.len() <= 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "default", "net.close_pool", span)?;

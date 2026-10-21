@@ -209,6 +209,7 @@ pub enum RuntimeOp {
     SetDiscard,
     SetToList,
     ModuleLoad,
+    NetValidateRootBundle,
     NetRequest,
     NetRequestMany,
     NetDownloadMany,

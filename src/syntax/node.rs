@@ -60,6 +60,7 @@ impl Effect {
                 "read_secret" => &[Self::Io],
                 _ => &[],
             },
+            "net" if function == "validate_root_bundle" => &[],
             "net" | "dns" => &[Self::Net],
             "env" => &[Self::Env],
             "error" => &[Self::Error],
