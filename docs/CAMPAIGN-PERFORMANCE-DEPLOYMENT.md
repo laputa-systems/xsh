@@ -1094,8 +1094,20 @@ pass; smoke reaches `ASTERINAS_PVH_BOOT_OK`. Kernel SHA-256 is
 The exact AWK shard passes in the real guest: one pass, zero failures and zero
 skips. Cleanup resolves and the qualified R13 seed remains unchanged. Evidence
 is under `laputa-world-acceptance/.work/tmp/asterinas-guest-test-20261019T093052Z-7314-d5856f7d`.
-Actual kernel-test execution and full source-aligned guest acceptance remain
-pending. These focused platform results do not qualify the combined compiler.
+Both clock arithmetic tests also pass in actual KVM kernel guests on unchanged
+kernel source `995610cd`. Run `osdk test` with each exact function name:
+`wall_clock_adds_scaled_elapsed_time_and_carries_nanoseconds` and
+`wall_clock_rejects_invalid_fields_and_arithmetic_overflow`, plus
+`--target-arch=x86_64 --boot-method=vmm-direct --features=pvh_boot`.
+Each guest reports one pass, zero failures and 224 filtered tests. Scratch-only
+manifest and QEMU overlays select `ostd`, two CPUs and 3 GiB guest memory;
+they omit unrelated filesystem fixtures. Kernel source and qualified products
+remain unchanged. The initial `wall_clock_` selector matches zero tests and
+receives no credit: the runner matches complete suffix path elements.
+Evidence remains under `laputa-world-acceptance/.work/tmp/asterinas-wall-clock-ktest/`;
+the owned container is removed and shared leases are released. Full
+source-aligned guest acceptance remains pending. These focused platform
+results do not qualify the combined compiler.
 
 ## Charter
 
