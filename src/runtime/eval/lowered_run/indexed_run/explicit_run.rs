@@ -4957,6 +4957,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             resolved.applications = caller.invocation_applications(instruction, resolved.index, &self.calls[index].applications)
                 .map_err(|error| indexed_error(error, span))?;
+        } else if resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
+            && matches!(&callee, LoweredValue::Pure(callable) | LoweredValue::Proc(callable) if callable.instance().is_none())
+        {
+            return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span));
         }
         let layout = self.calls[index].execution.program().application_layout(instruction, &self.calls[index].applications)
             .map_err(|error| indexed_error(error, span))?;
@@ -6552,6 +6556,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 &mut call.slots,
                 span,
             )?;
+            let value = if tag == FullTag::ExprParam {
+                super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?
+            } else { value };
             self.push_value(index, FrameValue::Value(value), next);
             return Ok(());
         }

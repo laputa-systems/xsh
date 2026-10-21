@@ -802,6 +802,35 @@ pub(super) fn indexed_function_ref_value(
     }
 }
 
+pub(super) fn materialize_indexed_callable(
+    evaluator: &Evaluator,
+    execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32,
+    value: LoweredValue,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    if !execution.program().has_invocation(instruction) { return Ok(value); }
+    let (function, kind) = indexed_callable_identity(&value, span)?;
+    let callable = match &value {
+        LoweredValue::Pure(callable) | LoweredValue::Proc(callable) => callable,
+        _ => unreachable!("callable identity requires a callable value"),
+    };
+    let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable lost its executable program owner").with_span(span))?;
+    if callable.instance().is_some_and(|instance| !Arc::ptr_eq(&instance.program, &program)) {
+        return Err(RuntimeError::new("indexed-ir", "callable materialization belongs to another program").with_span(span));
+    }
+    let target = program.function_view(function, kind).map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(span))?.index();
+    let applications = program.invocation_applications(instruction, target, invocation)
+        .map_err(|error| indexed_error(error, span))?;
+    let callable = crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
+        program, function, kind, applications,
+    }));
+    Ok(if kind == LoweredFunctionKind::Pure { LoweredValue::Pure(callable) } else { LoweredValue::Proc(callable) })
+}
+
 pub(super) fn indexed_path_from_value(
     value: LoweredValue,
     span: Span,
@@ -1121,23 +1150,7 @@ pub(super) fn indexed_frame_apply_value(
                     FunctionName::qualified(name)
                 }
             };
-            if !execution.program().has_invocation(instruction) {
-                return Ok(indexed_function_ref_value(function, pure));
-            }
-            let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
-                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable lost its executable program owner").with_span(call_span))?;
-            let key = function.as_name().map(LoweredFunctionKey::Name)
-                .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))
-                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable has no declaration identity").with_span(call_span))?;
-            let kind = if pure { LoweredFunctionKind::Pure } else { LoweredFunctionKind::Proc };
-            let target = program.function_view(key, kind).map_err(|error| indexed_error(error, call_span))?
-                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(call_span))?.index();
-            let applications = program.invocation_applications(instruction, target, invocation)
-                .map_err(|error| indexed_error(error, call_span))?;
-            let callable = crate::runtime::value::CallableValue::prepared(function, Arc::new(crate::runtime::eval::PreparedCallable {
-                program, function: key, kind, applications,
-            }));
-            Ok(if pure { LoweredValue::Pure(callable) } else { LoweredValue::Proc(callable) })
+            materialize_indexed_callable(evaluator, execution, invocation, instruction, indexed_function_ref_value(function, pure), call_span)
         }
         ExprView::PathFrom { span, .. } => {
             let value = values.next().expect("path constructor operand");

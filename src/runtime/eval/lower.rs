@@ -6518,7 +6518,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             producer
         } else { lowered };
-        if ty.contains_typed_callable() {
+        let materialized_callable = self.bodies.call_instantiations.contains_key(&id)
+            && matches!(self.program.arena.expr(id).kind, ArenaExprKind::Ident(_));
+        if ty.contains_typed_callable() && !materialized_callable {
             let parameter_slot = {
                 let scratch = self.scratch.borrow();
                 match scratch.expressions.get(lowered.index()) {

@@ -1007,7 +1007,11 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             return Err(IrVerifyError::new("generic captured-error request is duplicated"));
         }
     }
-    for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
+    for call in &store.checked_call_targets {
+        if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
+            proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize);
+        }
+    }
     for &step in &index.driver_outputs {
         proof.budget.charge(1)?;
         let driver = &store.driver_steps[step];
@@ -1074,6 +1078,13 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instantiation.instruction as usize)?;
         if super::super::driver_owner_index(owner).is_none() && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_)) { continue; }
         let decoder = proof.owner(owner)?;
+        if matches!(store.tags[instantiation.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam) {
+            let type_id = super::checked_expression_type_id(store, instantiation.instruction)
+                .ok_or_else(|| IrVerifyError::new("materialized callable has no checked producer type"))?;
+            let ty = proof.contract_type(type_id)?;
+            proof.expression(owner, instantiation.instruction as usize, ty, false);
+            continue;
+        }
         let (_, arguments) = call_parts(&decoder, instantiation.instruction as usize)?;
         for argument in arguments {
             let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
@@ -1978,7 +1989,7 @@ impl<'a> ProducerProof<'a> {
             }
             match decoder.expression_view(instruction)? {
                 schema::ExprView::FunctionRef { function, pure } if path.is_empty() => {
-                    let (target, _, selected_pure) = decoder.function_reference_target(function)?;
+                    let (target, _, selected_pure) = decoder.function_reference_contract(function)?;
                     if pure != selected_pure { return Err(IrVerifyError::new("ground callable producer kind disagrees with its function")); }
                     targets.insert(target.index());
                 }
@@ -2487,14 +2498,25 @@ impl<'a> ProducerProof<'a> {
             self.expression(owner, status.raw() as usize, Arc::new(Type::Int), false);
             return Ok(());
         }
+        if let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
+            && let Type::Callable(callable) = expected.as_ref()
+            && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+        {
+            decoder.function_reference_matches_callable(instruction, &expected)?;
+            self.slot(owner, instruction, slot, Arc::new(if callable.pure { Type::Pure } else { Type::Proc }))?;
+            return Ok(());
+        }
         if let schema::ExprView::FunctionRef { function, pure } = decoder.expression_view(instruction)?
             && let Type::Callable(callable) = expected.as_ref()
         {
-            let (target, signature, selected_pure) = decoder.function_reference_target(function)?;
-            if pure != selected_pure || pure != callable.pure
-                || !self.store.semantic.signature_fits_callable(signature, pure, callable)?
+            let (target, contract, selected_pure) = decoder.function_reference_contract(function)?;
+            let fits = match contract {
+                super::super::FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
+                super::super::FullCallableContract::Scheme(_) => { decoder.function_reference_matches_callable(instruction, &expected)?; true },
+            };
+            if pure != selected_pure || pure != callable.pure || !fits
             { return Err(IrVerifyError::new("ground callable producer disagrees with its executable signature")); }
-            self.function(target.index());
+            if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.function(target.index()); }
             return Ok(());
         }
         let actual = match declared {
@@ -2732,9 +2754,16 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Pure => {
-                let (target, _, target_pure) = decoder.function_reference_target(function)?;
+                let (target, _, target_pure) = decoder.function_reference_contract(function)?;
                 if !pure || !target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Pure {
                     return Err(IrVerifyError::new("erased pure callee has a non-pure executable target"));
+                }
+                Ok(())
+            }
+            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Proc => {
+                let (target, _, target_pure) = decoder.function_reference_contract(function)?;
+                if pure || target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Proc {
+                    return Err(IrVerifyError::new("erased proc callee has a non-proc executable target"));
                 }
                 Ok(())
             }

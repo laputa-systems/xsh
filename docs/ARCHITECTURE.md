@@ -413,6 +413,12 @@ equality compares that identity rather than treating invocation evidence as part
 of the source value. Prepared invocation context belongs to the callable's
 executable program and remains private. Extracting a declaration name provides no
 substitute for checking the actual target and its call-site substitution.
+Each contextual reference or immutable alias read retains its own checked
+substitution; materializing one use does not specialize the stored declaration
+for later clients. Materializations prove their actual producer and signature
+without counting as invocations. Only an authenticated Pure target projects its
+top-level invocation effects to empty; nested callable contracts retain their
+own effects, labels, schemas, defaults, and rest layout.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.

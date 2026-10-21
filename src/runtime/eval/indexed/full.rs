@@ -1247,6 +1247,11 @@ impl FullProgram {
         self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_ok()
     }
 
+    pub(in crate::runtime::eval) fn function_requires_invocation(&self, function: usize) -> Result<bool, IrVerifyError> {
+        let function = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("callable invocation target is out of bounds"))?;
+        Ok(matches!(function.contract, FullCallableContract::Scheme(_)))
+    }
+
     pub(in crate::runtime::eval) fn invocation_applications(
         &self, instruction: u32, target: usize, caller: &PreparedInvocationBindings,
     ) -> Result<PreparedInvocationBindings, IrVerifyError> {
@@ -6255,7 +6260,10 @@ impl<'a> FullDecoder<'a> {
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
         if let Some(proof) = &self.instruction_proof {
-            proof.borrow_mut().enter(index, tag);
+            let class = if tag == FullTag::ExprParam
+                && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
+            { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
+            proof.borrow_mut().enter(index, class);
         }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
@@ -9120,6 +9128,9 @@ impl<'a> FullDecoder<'a> {
         }
         match self.expression_view(instruction)? {
             schema::ExprView::Param(slot) => {
+                if matches!(expected, Type::Callable(_))
+                    && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+                { return self.function_reference_matches_callable(instruction, expected); }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
                     Ok(None) => None,
@@ -9150,6 +9161,9 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::FunctionRef { function, pure } => {
+                if matches!(self.function_reference_contract(function)?.1, FullCallableContract::Scheme(_)) {
+                    return self.function_reference_matches_callable(instruction, expected);
+                }
                 let (signature, target_pure) = self.function_reference_signature(function)?;
                 let Type::Callable(callable) = expected else {
                     return Err(IrVerifyError::new(
@@ -9466,30 +9480,45 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn checked_callable_reference_source(&self, instruction: usize) -> Result<usize, IrVerifyError> {
+        match self.expression_view(instruction)? {
+            schema::ExprView::FunctionRef { .. } => Ok(instruction),
+            schema::ExprView::Param(slot) => self.local_function_ref_initializer(slot)?
+                .ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source")),
+            _ => Err(IrVerifyError::new("materialized callable has no function reference producer")),
+        }
+    }
+
     fn function_reference_matches_callable(
         &self,
         instruction: usize,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(instruction)?
+        let source = self.checked_callable_reference_source(instruction)?;
+        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(source)?
         else {
             return Err(IrVerifyError::new(
                 "checked callable initializer is not a function reference",
             ));
         };
-        let (signature, target_pure) = self.function_reference_signature(function)?;
+        let (target, contract, target_pure) = self.function_reference_contract(function)?;
         let Type::Callable(callable) = expected else {
             return Err(IrVerifyError::new(
                 "checked function reference has a non-callable expected type",
             ));
         };
-        if target_pure != pure
-            || callable.pure != pure
-            || !self
-                .store
-                .semantic
-                .signature_fits_callable(signature, pure, callable)?
-        {
+        let fits = match contract {
+            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
+            FullCallableContract::Scheme(_) => {
+                let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("function reference instruction is invalid"))?;
+                if self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_err()
+                    || self.store.checked_call_targets.binary_search_by_key(&instruction, |fact| fact.instruction)
+                        .ok().is_none_or(|index| self.store.checked_call_targets[index].function != target)
+                { return Err(IrVerifyError::new("function reference has no checked scheme instance")); }
+                self.checked_expression_type(instruction as usize)?.as_ref().is_some_and(|actual| self.checked_type_fits(actual, expected))
+            }
+        };
+        if target_pure != pure || callable.pure != pure || !fits {
             return Err(IrVerifyError::new(
                 "checked function reference tail disagrees with its target signature",
             ));
@@ -10249,7 +10278,7 @@ impl<'a> FullDecoder<'a> {
         }
         match self.expression_view(instruction)? {
             schema::ExprView::FunctionRef { function, pure } => {
-                let (_, _, actual_pure) = self.function_reference_target(function)?;
+                let (_, _, actual_pure) = self.function_reference_contract(function)?;
                 if actual_pure != pure { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
                 Ok(Some(if pure { Type::Pure } else { Type::Proc }))
             }
@@ -10898,7 +10927,7 @@ impl<'a> FullDecoder<'a> {
                         _ => false,
                     }
                 });
-                let (signature, target_is_pure) = self.function_reference_signature(function)?;
+                let (_, contract, target_is_pure) = self.function_reference_contract(function)?;
                 let Type::Callable(checked_callable) = &ty else {
                     return Err(IrVerifyError::new(
                         "checked function reference has a non-callable fact",
@@ -10919,17 +10948,20 @@ impl<'a> FullDecoder<'a> {
                         "checked function reference identity disagrees with its producer: checked kind",
                     ));
                 }
-                if !self.store.semantic.signature_fits_callable(
-                    signature,
-                    pure,
-                    checked_callable,
-                )? {
+                let fits = match contract {
+                    FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, checked_callable)?,
+                    FullCallableContract::Scheme(_) => { self.function_reference_matches_callable(instruction, &ty)?; true },
+                };
+                if !fits {
                     return Err(IrVerifyError::new(
                         "checked function reference identity disagrees with its producer: checked signature",
                     ));
                 }
             }
             schema::ExprView::Param(slot) => {
+                if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() {
+                    return self.function_reference_matches_callable(instruction, &ty);
+                }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => actual,
                     Ok(None) => return self.local_function_ref_matches_type(slot, &ty),
@@ -11684,6 +11716,15 @@ impl<'a> FullDecoder<'a> {
                 }
                 FullTag::ExprSelfCall => IrFunctionId::from_raw(self.owner)
                     .ok_or_else(|| IrVerifyError::new("checked self call has no owner"))?,
+                FullTag::ExprFunctionRef => {
+                    let schema::ExprView::FunctionRef { function, .. } = self.expression_view(instruction)? else { unreachable!() };
+                    self.function_reference_contract(function)?.0
+                }
+                FullTag::ExprParam => {
+                    let source = self.checked_callable_reference_source(instruction)?;
+                    let schema::ExprView::FunctionRef { function, .. } = self.expression_view(source)? else { unreachable!() };
+                    self.function_reference_contract(function)?.0
+                }
                 _ => {
                     return Err(IrVerifyError::new(
                         "checker-selected function target is attached to a non-direct call",
@@ -17144,7 +17185,7 @@ impl FullVerifier {
                 || previous_checked_call_target.is_some_and(|previous| previous >= instruction)
                 || !matches!(
                     store.tags[instruction],
-                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall
+                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam
                 )
                 || fact.function.index() >= store.functions.len()
             {
@@ -19534,7 +19575,7 @@ macro_rules! impl_build_id_codec {
                         builder.record_call_instantiation(instruction, &instantiation)?;
                         builder.record_checked_call_result(instruction, &result_type)?;
                     }
-                    (Some(instantiation), None) if scheme_body_type.is_some() => {
+                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam)) => {
                         let instruction = instruction.ok_or_else(|| {
                             IrBuildError::format(
                                 "indexed_build_instruction",
@@ -23326,6 +23367,103 @@ assert apply(40) == 42
             let mut wrong_effect = program.clone();
             wrong_effect.store.scheme_effects[direct.start] = Effect::Time;
             assert_eq!(FullVerifier::verify(&wrong_effect).unwrap_err().message, "selected application disagrees with its callable contract");
+        });
+    }
+
+    #[test]
+    fn prepared_callable_references_authenticate_actual_target_and_layout() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-callable-reference.xsh", concat!(
+                "pure identity(payload) { payload }\n",
+                "pure other(different) { different }\n",
+                "pure apply(action, value) { action(value) }\n",
+                "pure number() -> Int { let _ = apply(other, 0); let direct = apply(identity, 7); let f = identity; apply(f, direct) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let identity = scheme_fixture_root_function(&program, "identity");
+            let other = scheme_fixture_root_function(&program, "other");
+            let reference_targets = program.store.checked_call_targets.iter().enumerate()
+                .filter(|(_, target)| target.function.index() == identity
+                    && matches!(program.store.tags[target.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam))
+                .map(|(index, target)| (index, *target)).collect::<Vec<_>>();
+            assert_eq!(reference_targets.len(), 2);
+            assert!(reference_targets.iter().any(|(_, target)| program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef));
+            assert!(reference_targets.iter().any(|(_, target)| program.store.tags[target.instruction as usize] == FullTag::ExprParam));
+            for (index, target) in reference_targets {
+                let instance = program.store.call_instantiations.binary_search_by_key(&target.instruction, |instance| instance.instruction).unwrap();
+                let mut wrong_target = program.clone();
+                wrong_target.store.checked_call_targets[index].function = IrFunctionId::new(other).unwrap();
+                let error = FullVerifier::verify(&wrong_target).unwrap_err();
+                assert_eq!(error.message, "function reference has no checked scheme instance");
+                let mut duplicate = program.clone();
+                duplicate.store.call_instantiations.insert(instance, program.store.call_instantiations[instance]);
+                assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("instantiations are not strictly ordered"));
+            }
+            let identity_parameters = program.store.functions[identity].params.bounds(program.store.params.len()).unwrap();
+            let other_parameters = program.store.functions[other].params.bounds(program.store.params.len()).unwrap();
+            assert_eq!(identity_parameters.len(), 1);
+            assert_eq!(other_parameters.len(), 1);
+            assert_ne!(program.store.params[identity_parameters.start].name, program.store.params[other_parameters.start].name);
+            let mut wrong_layout = program.clone();
+            wrong_layout.store.params[identity_parameters.start].name = program.store.params[other_parameters.start].name;
+            let error = FullVerifier::verify(&wrong_layout).unwrap_err();
+            assert!(error.message.contains("callable reference disagrees with its actual scheme instance"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn prepared_callable_references_preserve_kind_and_nested_effects() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-callable-nested-effects.xsh", concat!(
+                "proc first(payload: Int) [env] -> Int { let _ = env.get(\"XSH_NESTED_CALLBACK\"); payload }\n",
+                "pure ignore(payload) { 7 }\n",
+                "pure apply(action, value) { action(value) }\n",
+                "pure number() -> Int { apply(ignore, first) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let ignore = scheme_fixture_root_function(&program, "ignore");
+            let number = scheme_fixture_root_function(&program, "number");
+            let target = program.store.checked_call_targets.iter().find(|target| target.function.index() == ignore
+                && program.store.tags[target.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
+            let fact = program.store.checked_expr_types.iter().find(|fact| fact.instruction == target.instruction).unwrap();
+            let Type::Callable(callable) = program.store.semantic.to_type(fact.type_id).unwrap() else { panic!("materialized reference has a callable contract") };
+            assert!(callable.pure);
+            let Type::Callable(nested) = &callable.sig.params[0].ty else { panic!("the actual input is a nested callable") };
+            assert!(!nested.pure);
+            assert_eq!(nested.sig.effects, crate::sema::types::CallableEffects::finite([Effect::Env]));
+            let owner_range = program.store.function_instruction_range(number).unwrap();
+            let slot_range = program.store.functions[number].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            let coordinate_claim = |forged: &mut FullProgram, changed: Arc<crate::sema::types::TypedCallable>| {
+                let mut semantic = SemanticPoolBuilder::default();
+                let changed = semantic.intern_type(&mut forged.store.semantic, &Type::Callable(changed)).unwrap();
+                for own in &mut forged.store.checked_expr_types {
+                    if owner_range.contains(&(own.instruction as usize)) && own.type_id == fact.type_id { own.type_id = changed; }
+                }
+                for own in &mut forged.store.slot_type_facts[slot_range.clone()] {
+                    if *own == fact.type_id.raw() { *own = changed.raw(); }
+                }
+            };
+            let mut wrong_kind = program.clone();
+            let mut changed = callable.clone();
+            Arc::make_mut(&mut changed).pure = false;
+            coordinate_claim(&mut wrong_kind, changed);
+            let payload = program.store.data[target.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[payload.end - 1], 1);
+            wrong_kind.store.extra[payload.end - 1] = 0;
+            for own in &mut wrong_kind.store.checked_expr_types {
+                if own.instruction != target.instruction { continue; }
+                let FullCheckedExprPurpose::CheckedContract { function_ref: Some((_, pure)), .. } = &mut own.purpose else { panic!("the actual reference retains its checked identity") };
+                *pure = false;
+            }
+            let error = FullVerifier::verify(&wrong_kind).unwrap_err();
+            assert!(error.message.contains("function kind"), "{}", error.message);
+            let mut wrong_nested = program.clone();
+            let mut changed = callable;
+            let Type::Callable(nested) = &mut Arc::make_mut(&mut changed).sig.params[0].ty else { unreachable!() };
+            Arc::make_mut(nested).sig.effects = crate::sema::types::CallableEffects::finite([Effect::Time]);
+            coordinate_claim(&mut wrong_nested, changed);
+            let error = FullVerifier::verify(&wrong_nested).unwrap_err();
+            assert!(error.message.contains("callable reference disagrees with its actual scheme instance"), "{}", error.message);
         });
     }
 

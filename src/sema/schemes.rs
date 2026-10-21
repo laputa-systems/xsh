@@ -4,7 +4,6 @@ use super::callable_application::CallableApplication;
 use super::effects::{CheckedEffects, EffectContract, EffectPredicate};
 use crate::source::Span;
 use crate::symbol::Name;
-use crate::syntax::node::Effect;
 use crate::sema::validated::Validation;
 use crate::syntax::arena::{ExprId, StmtId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -205,7 +204,7 @@ impl TypeScheme {
         return_type: SchemeType,
         return_schema: Option<SchemaExpectation>,
         explicit_return: bool,
-        effects: Option<Vec<Effect>>,
+        effects: Option<Vec<crate::syntax::node::Effect>>,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
         let callable = Arc::new(CallableScheme::new(
