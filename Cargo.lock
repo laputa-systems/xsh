@@ -549,9 +549,9 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a81a6804502f0d07cb6100e77af409892b9b073618fb30b18bdc84db0c4c567"
+checksum = "bed965470cb076d20b8a29a2b2f2bd13c23b3d73cb31b01b00ba78e49ed85211"
 dependencies = [
  "async-io",
  "async-net",
@@ -571,18 +571,18 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client-normalize"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f400aed35a92cc06d2c3e16258885106d7843a61fa3b9ddec29f6de521753c0"
+checksum = "664f98965870e40bbe1b42c90bc4cc37ae6dd82ac1330688f9c8c5f799d0e0e4"
 dependencies = [
  "http",
 ]
 
 [[package]]
 name = "h12tiny-core"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3350fe13cdb079d1064de0d418c8dcaca2bda367f006d20081ccaf1ce692148"
+checksum = "65b14f686f9d467159c65130277ea21667d25a4fa912ff257c78de52fb886e24"
 dependencies = [
  "async-io",
  "futures-io",
@@ -778,9 +778,9 @@ dependencies = [
 
 [[package]]
 name = "laputa-h2-futures-lite"
-version = "0.4.19-beta.0"
+version = "0.4.20-beta.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c6b0944b1125dd04511c8c528b9356359e5b510faa9a66d64943458b178a1da"
+checksum = "2d26dcbb89718ab44652ef9cf634a7082c6700f4b060069de08cad304e7da0ef"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -798,9 +798,9 @@ dependencies = [
 
 [[package]]
 name = "laputa-hyper-futures-lite"
-version = "1.11.1-beta.0"
+version = "1.12.0-beta.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd07ee278896049a84d4310e71b09d3106333b5dc18b9f6f0a5905a5666e1e5"
+checksum = "cf2f825e7b83ea97d3c32efe96cd423c2dee61fd735224da9577cef59ad68bc7"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -1212,9 +1212,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -1562,9 +1562,9 @@ dependencies = [
 
 [[package]]
 name = "want"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
+checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
 dependencies = [
  "try-lock",
 ]
@@ -1629,18 +1629,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.7"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
