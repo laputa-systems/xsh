@@ -88,10 +88,23 @@ and twelve runtime controls, with zero failures, ignores or native skips.
 Matching verification products are 36,406,008 bytes for `xsh` and 44,412,944
 bytes for `xsht`. Source and products remain unchanged. The corpus candidate
 is still the 202-effect diagnostic probe; no historical removal or paired runtime
-credit follows. The full canonical boundary is next for this integration prefix.
+credit follows. The full canonical attempt stops at 206 root integration passes
+and 25 failures; downstream native stages do not run. Fifteen failures share
+incorrect Result-returning function-tail lowering. The remaining primary causes
+are compacted process defaults, a declaration tag, driver binding ownership,
+loaded standard-library effect contracts and a stale private-proc rejection.
+Four poisoned-lock failures follow the driver failure. Repair each cause through
+its exact controls before retrying the full boundary on a fresh source.
+The failed receipt remains in `full-inference-producers-qualified-r2`; owned
+cleanup resolves and no combined acceptance follows.
 The separate named-cause source checks successfully but fails preparation when
 its propagated Err is behind a named-argument Match carrier. Repair remains
 mandatory; no fabricated success type or broad verifier fallback is accepted.
+
+The superseded failed producer-qualification checkout is removed after preserving
+its complete scratch tree and checking clean ancestry, handles and registration.
+Thirty-five completed checkouts have now been retired. The active failed
+canonical checkout and all unfinished source remain retained.
 
 Previous focused source `50b9d543e` passes 684 merged controls with zero failures
 or ignores. Matching verification products build: `xsh` is 36,324,192 bytes
