@@ -8,13 +8,13 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `a3fd9a756` passes all 297 focused controls without
+Current inference assembly `28436de64` passes all 301 focused controls without
 failures or ignores. The combined group covers type, scheme, semantic-codec,
 Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
-products, with source and product guards intact. Matching `a3fd9a756` products
-build successfully. Master remains at `d2453760a`.
+products, with source and product guards intact. Matching `28436de64` products
+are rebuilding for the practical corpus gate. Master remains at `d2453760a`.
 
 The practical four-return paired gate on `a3fd9a756` passes the original-view
 checks for all 12 XSH roots and three Laputa roots. The wc behavior test passes.
@@ -28,6 +28,13 @@ strict. Repair `b2131ca90` restores the original branch expectation and passes
 all 23 focused controls, including both reproduced If and Match failures.
 The subsequent original-view source checks pass with this repair integrated.
 The failed paired run grants no additional annotation-removal or parity credit.
+Repair `30073af34` resolves the next failure at its checker origin: an empty
+field in one literal row no longer prevents a peer row from supplying its
+element type. Seven focused controls pass, including both execution routes
+and incompatible-item rejection. The combined 301 include these checker and
+cold-proof controls. The original conditional-list behavior remains covered.
+Its former mandatory-context assumption became false once the type was
+derivable. The context-forgery checks now use the reproduced record-loop case.
 
 The separate runtime callable migration passes its library type check, 27 cold
 and runtime controls, and three execution controls on both routes. The execution
@@ -36,7 +43,8 @@ lazy defaults and cleanup. Propagation consumer repair `dcca45911` resolves the
 existing handle before Result projection; its 15 controls pass and it is
 integrated. Generic-delegation controls pass for both runtime routes, late
 nominal errors, cleanup order and required Yield transfer facts. The cold
-item and effect mutations remain unqualified. Review also finds a propagation
+item and effect mutations also reject correctly after the valid base passes.
+Review finds a propagation
 boundary inferred from Stream return shape instead of actual declaration kind.
 The runtime owner is repairing that boundary while preserving local Result catches.
 The runtime candidate is not integrated or fully qualified; the original
@@ -68,6 +76,13 @@ The counter-getter build warning is fixed. Compiler-setting repair `4563d2c3f`
 lets the pinned compiler complete XSHT's recursive Send proof. The targeted
 verification-profile library check passes with compiler warnings denied.
 XSH solver and verifier budgets remain unchanged. No performance qualification follows.
+
+Single-body authority remains open. Local constraint collection checks a cloned
+body and retains constraints without the selected host-call facts needed by
+execution. Deferred host solving must publish those facts through canonical
+finalization before the second traversal can disappear. Total inference-work
+counters must qualify this requirement. Output-only body counts omit probe work.
+Proc return-shape probing needs separate treatment.
 
 Master includes the four foundation commits through `c44e47016` and the
 independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
