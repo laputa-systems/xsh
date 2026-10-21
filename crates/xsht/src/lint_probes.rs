@@ -1,5 +1,5 @@
 use super::{
-    ArenaExprKind, ArenaProgram, ArenaStmtKind, BTreeMap, Effect, ExprId, Linter, Severity, Span,
+    ArenaExprKind, ArenaProgram, ArenaStmtKind, BTreeMap, ExprId, Linter, Severity, Span,
     Type, list_splice_element_type_is_precise, shift_after_deletion,
 };
 #[cfg(test)]
@@ -14,6 +14,18 @@ pub(crate) struct LintProbeSnapshot {
 }
 
 pub(crate) struct LintProbeTransport;
+
+pub(super) fn standalone_sources(
+    source_id: xsh::frontend::source::SourceId,
+    source: &str,
+) -> xsh::frontend::source::SourceMap {
+    let mut sources = xsh::frontend::source::SourceMap::new();
+    for raw in 0..source_id.raw() {
+        sources.add_file(format!("lint-probe-placeholder-{raw}.xsh"), String::new());
+    }
+    sources.add_file("lint-probe.xsh", source.to_owned());
+    sources
+}
 
 impl LintProbeTransport {
     pub(crate) fn standalone(
@@ -33,7 +45,7 @@ impl LintProbeTransport {
         });
         LintProbeSnapshot {
             program: parsed.arena,
-            sources: None,
+            sources: Some(standalone_sources(source_id, source)),
             source_id,
             parse_diagnostics: parsed.diagnostics,
             checked,
@@ -104,6 +116,24 @@ pub(super) fn checked_source_effect_bodies(
         }
     }
     Some((source_id?, bodies))
+}
+
+pub(super) fn checked_effect_facts_cover_source(
+    checked: &xsh::frontend::check::CheckOutput,
+    source_id: xsh::frontend::source::SourceId,
+    expected_effect_bodies: &[Span],
+) -> bool {
+    let source_effect_facts = checked
+        .function_effect_facts
+        .iter()
+        .filter(|(id, _)| id.body.source_id == source_id)
+        .collect::<Vec<_>>();
+    source_effect_facts.len() == expected_effect_bodies.len()
+        && expected_effect_bodies.iter().all(|body| {
+            source_effect_facts
+                .iter()
+                .any(|(id, _)| id.body == *body)
+        })
 }
 
 pub(super) fn checked_local_annotation_facts_from_output(
@@ -178,6 +208,8 @@ fn original_offset(offset: usize, removed: &[(usize, usize)]) -> usize {
 
 pub(super) fn checked_return_removal_facts_from_output(
     checked: &xsh::frontend::check::CheckOutput,
+    program: &ArenaProgram,
+    sources: &xsh::frontend::source::SourceMap,
     source_id: xsh::frontend::source::SourceId,
     expected_effect_bodies: &[Span],
     removed: &[(usize, usize)],
@@ -197,21 +229,17 @@ pub(super) fn checked_return_removal_facts_from_output(
     {
         return None;
     }
-    let source_effect_facts = checked
-        .function_effect_facts
-        .iter()
-        .filter(|(id, _)| id.body.source_id == source_id)
-        .collect::<Vec<_>>();
-    if source_effect_facts.len() != expected_effect_bodies.len()
-        || expected_effect_bodies.iter().any(|body| {
-            !source_effect_facts
-                .iter()
-                .any(|(id, _)| id.body == *body)
-        })
-    {
+    if !checked_effect_facts_cover_source(checked, source_id, expected_effect_bodies) {
         return None;
     }
     let owner = xsh::frontend::symbols::SymbolOwner::current()?;
+    let body_contracts = checked_source_body_contracts(
+        checked,
+        program,
+        sources,
+        source_id,
+        expected_effect_bodies,
+    )?;
     owner.with_current(|| {
         Some(CheckedReturnRemovalFacts {
             expressions: source_facts(
@@ -238,34 +266,90 @@ pub(super) fn checked_return_removal_facts_from_output(
                 removed,
                 checked_return_type_shape,
             ),
-            effects: source_effect_facts
-                .into_iter()
-                .map(|(id, fact)| {
-                    let normalize = |effects: &Option<Vec<Effect>>| {
-                        effects.as_ref().map(|effects| {
-                            let mut effects = effects.clone();
-                            effects.sort_by_key(Effect::as_str);
-                            effects.dedup();
-                            effects
-                        })
-                    };
-                    ((
-                        original_offset(id.body.start(), removed),
-                        original_offset(id.body.end(), removed),
-                    ), normalize(&fact.effective))
-                })
-                .collect(),
+            body_contracts,
         })
     })
 }
 
-#[derive(Eq, PartialEq)]
 pub(super) struct CheckedReturnRemovalFacts {
     pub(super) expressions: Vec<(usize, usize, String)>,
     pub(super) statements: Vec<(usize, usize, xsh::frontend::check::StatementPosition)>,
     pub(super) returns: Vec<(usize, usize, String)>,
     pub(super) parameters: Vec<(usize, usize, String)>,
-    pub(super) effects: BTreeMap<(usize, usize), Option<Vec<Effect>>>,
+    pub(super) body_contracts: BTreeMap<(String, String), xsh::execution::evaluator::CheckedBodyContract>,
+}
+
+impl CheckedReturnRemovalFacts {
+    pub(super) fn preserved_by(&self, candidate: &Self) -> bool {
+        self.expressions == candidate.expressions
+            && self.statements == candidate.statements
+            && self.returns == candidate.returns
+            && self.parameters == candidate.parameters
+            && self.body_contracts.len() == candidate.body_contracts.len()
+            && self.body_contracts.iter().all(|(key, original)| {
+                candidate
+                    .body_contracts
+                    .get(key)
+                    .is_some_and(|candidate| original.preserved_by(candidate))
+            })
+    }
+}
+
+pub(super) fn checked_source_body_contracts(
+    checked: &xsh::frontend::check::CheckOutput,
+    program: &ArenaProgram,
+    sources: &xsh::frontend::source::SourceMap,
+    source_id: xsh::frontend::source::SourceId,
+    expected_effect_bodies: &[Span],
+) -> Option<BTreeMap<(String, String), xsh::execution::evaluator::CheckedBodyContract>> {
+    use xsh::execution::evaluator::checked_body_contracts;
+    use xsh::frontend::check::BodyContractOwner;
+
+    if !checked_effect_facts_cover_source(checked, source_id, expected_effect_bodies) {
+        return None;
+    }
+    let execution_checked = (!checked.embedded_bodies_checked).then(|| {
+        program.symbol_owner().with_current(|| {
+            xsh::frontend::check::Checker::check_arena_with_sources_and_options(
+                program,
+                sources,
+                source_id,
+                xsh::frontend::check::CheckOptions::for_execution(),
+            )
+        })
+    });
+    let checked = execution_checked.as_ref().unwrap_or(checked);
+    if !checked_effect_facts_cover_source(checked, source_id, expected_effect_bodies) {
+        return None;
+    }
+    let source_effect_facts = checked
+        .function_effect_facts
+        .iter()
+        .filter(|(id, _)| id.body.source_id == source_id)
+        .collect::<Vec<_>>();
+    let source_name = sources.get(source_id)?.name().to_owned();
+    let contracts = checked_body_contracts(checked.clone(), program, sources, source_id).ok()?;
+    program.symbol_owner().with_current(|| {
+        let mut effect_body_count = 0;
+        let mut source_contracts = BTreeMap::new();
+        for contract in contracts {
+            if contract.source_name() != source_name {
+                continue;
+            }
+            let name = match contract.owner() {
+                BodyContractOwner::Declaration(name) => name.as_str().to_string(),
+                BodyContractOwner::Entry => continue,
+            };
+            effect_body_count += usize::from(contract.effect_fact().is_some());
+            if source_contracts
+                .insert((source_name.clone(), name), contract)
+                .is_some()
+            {
+                return None;
+            }
+        }
+        (effect_body_count == source_effect_facts.len()).then_some(source_contracts)
+    })
 }
 
 // Original facts are independent of each deletion. Keep their source coordinates
@@ -338,15 +422,19 @@ pub(super) fn checked_return_type_shape(ty: &Type) -> String {
                                     )
                                 })
                                 .collect::<Vec<_>>();
+                            let effects = match sig.effects.concrete() {
+                                Ok(Some(effects)) => format!("known:{effects:?}"),
+                                Ok(None) => "unknown".to_owned(),
+                                Err(_) => "symbolic".to_owned(),
+                            };
                             format!(
-                                "{}:{optional}:{params:?}:{}:{:?}",
+                                "{}:{optional}:{params:?}:{}:{effects}",
                                 if matches!(export, ModuleExportType::Pure { .. }) {
                                     "pure"
                                 } else {
                                     "proc"
                                 },
-                                checked_return_type_shape(&sig.return_ty),
-                                sig.effects
+                                checked_return_type_shape(&sig.return_ty)
                             )
                         }
                         ModuleExportType::GenericCallable { kind, optional } => {
@@ -395,9 +483,23 @@ impl<'a> Linter<'a> {
         }
         let removed = removed.into_iter().collect::<Vec<_>>();
         if source == self.source && removed.is_empty() {
+            if let Some(checked) = self.checked_output.as_deref() {
+                if !checked_effect_facts_cover_source(
+                    checked,
+                    source_id,
+                    &self.effect_body_spans,
+                ) {
+                    return None;
+                }
+            }
+        }
+        if source == self.source && removed.is_empty() && self.return_proof.is_none() {
             let checked = self.checked_output.as_deref()?;
+            let sources = standalone_sources(source_id, source);
             return checked_return_removal_facts_from_output(
                 checked,
+                self.program,
+                &sources,
                 source_id,
                 &self.effect_body_spans,
                 &removed,
@@ -408,13 +510,13 @@ impl<'a> Linter<'a> {
             LintProbeTransport::loaded(
                 context,
                 source,
-                xsh::frontend::check::CheckOptions::default(),
+                xsh::frontend::check::CheckOptions::for_execution(),
             )?
         } else {
             LintProbeTransport::standalone(
                 source_id,
                 source,
-                xsh::frontend::check::CheckOptions::default(),
+                xsh::frontend::check::CheckOptions::for_execution(),
             )
         };
         if !snapshot.parse_diagnostics.is_empty() {
@@ -426,6 +528,7 @@ impl<'a> Linter<'a> {
             return None;
         }
         let checked = snapshot.checked.as_ref()?;
+        let sources = snapshot.sources.as_ref()?;
         let (source_id, effect_body_spans) = checked_source_effect_bodies(
             &snapshot.program,
             snapshot.program.arena.stmt_ids(snapshot.program.statements),
@@ -434,6 +537,8 @@ impl<'a> Linter<'a> {
         snapshot.program.symbol_owner().with_current(|| {
             checked_return_removal_facts_from_output(
                 checked,
+                &snapshot.program,
+                sources,
                 source_id,
                 &effect_body_spans,
                 &removed,
@@ -605,11 +710,107 @@ impl<'a> Linter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_return_removal_facts_from_output, checked_source_effect_bodies};
+    use super::{checked_return_removal_facts_from_output, checked_source_effect_bodies, standalone_sources};
+    use std::collections::BTreeMap;
     use xsh::diagnostic::Diagnostic;
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::{SourceId, Span};
     use xsh::frontend::syntax::parser::Parser;
+
+    fn checked_body_contracts(
+        source: &str,
+    ) -> BTreeMap<(String, String), xsh::execution::evaluator::CheckedBodyContract> {
+        let source_id = SourceId::new(0);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let sources = standalone_sources(source_id, source);
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            xsh::frontend::check::CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let (_, effect_bodies) = checked_source_effect_bodies(
+            &parsed.arena,
+            parsed.arena.statement_ids(),
+            source,
+        )
+        .expect("source declarations have effect facts");
+        let source_name = sources.get(source_id).unwrap().name();
+        let source_fact_count = checked
+            .function_effect_facts
+            .iter()
+            .filter(|(id, _)| id.body.source_id == source_id)
+            .count();
+        let checked_contracts = parsed.arena.symbol_owner().with_current(|| {
+            super::checked_source_body_contracts(
+                &checked,
+                &parsed.arena,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(
+            checked_contracts.is_some(),
+            "source={source_name} facts={source_fact_count} bodies={}",
+            effect_bodies.len()
+        );
+        checked_contracts.unwrap()
+    }
+
+    #[test]
+    fn checked_source_contracts_preserve_local_renaming_and_reject_contract_changes() {
+        let source = "proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc output(input: Int) [io] -> Int { print $input; input }\nproc combine(left, right, value) { let argument = value; let _ = try { left(argument) }; right(argument) }\nproc bounded() [env, io] -> Result[Int] { combine(fallible, output, 7) }\n";
+        let renamed = source
+            .replace("argument", "item");
+        let renamed_formal = source
+            .replace("combine(left, right, value)", "combine(first, right, value)")
+            .replace("left(argument)", "first(argument)");
+        let uncaptured = source
+            .replace("try { left(argument) }", "left(argument)")
+            .replace("[env, io] -> Result[Int]", "[env, error, io] -> Result[Int]");
+        let original = checked_body_contracts(source);
+        let renamed = checked_body_contracts(&renamed);
+        let renamed_formal = checked_body_contracts(&renamed_formal);
+        let uncaptured = checked_body_contracts(&uncaptured);
+        let key = ("lint-probe.xsh".to_owned(), "combine".to_owned());
+
+        assert!(original[&key].preserved_by(&renamed[&key]));
+        assert!(!original[&key].preserved_by(&renamed_formal[&key]));
+        assert!(!original[&key].preserved_by(&uncaptured[&key]));
+    }
+
+    #[test]
+    fn body_contract_probe_does_not_repopulate_missing_original_effect_facts() {
+        let source_id = SourceId::new(0);
+        let source = "proc stable() [fs] -> Int { 1 }\n";
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let sources = standalone_sources(source_id, source);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let (_, effect_bodies) = checked_source_effect_bodies(
+            &parsed.arena,
+            parsed.arena.statement_ids(),
+            source,
+        )
+        .expect("the source owns its statements");
+        assert_eq!(checked.function_effect_facts.len(), effect_bodies.len());
+        checked.function_effect_facts.clear();
+
+        let contracts = parsed.arena.symbol_owner().with_current(|| {
+            super::checked_source_body_contracts(
+                &checked,
+                &parsed.arena,
+                &sources,
+                source_id,
+                &effect_bodies,
+            )
+        });
+        assert!(contracts.is_none(), "incomplete original facts veto the proof");
+    }
 
     #[test]
     fn return_proof_keeps_the_clean_entire_bundle_requirement() {
@@ -629,10 +830,13 @@ mod tests {
             source,
         )
         .expect("the original source owns its statements");
+        let sources = standalone_sources(source_id, source);
 
         let facts = parsed.arena.symbol_owner().with_current(|| {
             checked_return_removal_facts_from_output(
                 &checked,
+                &parsed.arena,
+                &sources,
                 source_id,
                 &effect_bodies,
                 &[],
@@ -658,9 +862,12 @@ mod tests {
             source,
         )
         .expect("the original source owns its statements");
+        let sources = standalone_sources(source_id, source);
         let facts = parsed.arena.symbol_owner().with_current(|| {
             checked_return_removal_facts_from_output(
                 &checked,
+                &parsed.arena,
+                &sources,
                 source_id,
                 &effect_bodies,
                 &[],
@@ -684,9 +891,12 @@ mod tests {
             source,
         )
         .expect("the invalid source still owns its statements");
+        let sources = standalone_sources(source_id, source);
         let facts = parsed.arena.symbol_owner().with_current(|| {
             checked_return_removal_facts_from_output(
                 &checked,
+                &parsed.arena,
+                &sources,
                 source_id,
                 &effect_bodies,
                 &[],

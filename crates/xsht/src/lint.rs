@@ -194,6 +194,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::{BindingId, CheckBundleView, Type};
+#[cfg(test)]
+use xsh::frontend::check::CheckedEffects;
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -375,7 +377,7 @@ pub struct LintOptions {
     #[cfg(test)]
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     #[cfg(test)]
-    pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub callable_effects: FxHashMap<String, CheckedEffects>,
     #[cfg(test)]
     pub function_effect_facts: BTreeMap<
         xsh::frontend::check::EffectDeclarationId,
