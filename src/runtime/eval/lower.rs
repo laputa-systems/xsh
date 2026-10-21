@@ -6511,7 +6511,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .expr_types
             .get(&id)
             .filter(|ty| {
-                ty.contains_typed_callable() || with_error_source || checked_uint_literal
+                ty.contains_typed_callable() || matches!(ty, Type::Stream(_) | Type::Result(_, _) | Type::Optional(_)) && super::stream_return_item(ty).is_some() || with_error_source || checked_uint_literal
                     || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
             })
             .cloned()

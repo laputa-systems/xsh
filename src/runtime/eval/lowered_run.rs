@@ -75,6 +75,7 @@ mod module_test;
 mod module_text;
 mod module_unix;
 mod module_utils;
+pub(super) use module_utils::UtilsCacheKey;
 use module_linux::with_linux_call_rows;
 use module_unix::with_unix_call_rows;
 

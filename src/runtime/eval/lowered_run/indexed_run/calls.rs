@@ -47,7 +47,7 @@ pub(super) fn indexed_typed_callee_kind(
     }
 }
 
-pub(super) fn indexed_callable_identity(
+pub(in crate::runtime::eval) fn indexed_callable_identity(
     callee: &LoweredValue,
     span: Span,
 ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
@@ -289,8 +289,11 @@ impl Evaluator {
         let (function, kind) = execution
             .function_identity()
             .map_err(|error| indexed_error(error, call_span))?;
+        let contract = program.stream_function_contract(view.index(), &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default())
+            .map_err(|error| indexed_error(error, call_span))?;
         let state = self.start_script_producer(program, function, kind, view, slots.to_vec(), call_span)?;
         let mut stream = StreamValue::from_script(state);
+        stream.contract = Some(contract);
         self.register_returned_stream(&mut stream, call_span)?;
         Ok(LoweredValue::Stream(Box::new(stream)))
     }

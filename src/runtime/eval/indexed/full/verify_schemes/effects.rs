@@ -130,6 +130,31 @@ impl EffectCoverage {
 pub(super) fn decode_contract(
     store: &FullStore, scope: &SchemeScope, contract: FullEffectContract, budget: &mut SchemeInstantiationBudget,
 ) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+    map_contract(store, contract, budget, |ordinal, _| {
+        let parameter = scope.effects.parameters.get(ordinal)
+            .ok_or_else(|| IrVerifyError::new("scheme effect parameter is out of scope"))?;
+        Ok(EffectContract::variable(SchemeEffectParameterId(parameter.id)))
+    })
+}
+
+pub(super) fn instantiate_contract(
+    store: &FullStore, contract: FullEffectContract,
+    substitutions: &[EffectContract<SchemeEffectParameterId>], budget: &mut SchemeInstantiationBudget,
+) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+    map_contract(store, contract, budget, |ordinal, budget| {
+        let replacement = substitutions.get(ordinal)
+            .ok_or_else(|| IrVerifyError::new("generic call effect substitution is incomplete"))?;
+        if let EffectContract::Known(expression) = replacement {
+            budget.charge(expression.variables().count())?;
+        }
+        Ok(replacement.clone())
+    })
+}
+
+fn map_contract(
+    store: &FullStore, contract: FullEffectContract, budget: &mut SchemeInstantiationBudget,
+    mut replacement: impl FnMut(usize, &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError>,
+) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
     budget.charge(1)?;
     let direct = bounded(contract.direct, &store.scheme_effects, "scheme direct effect range is invalid")?;
     let terms = bounded(contract.terms, &store.scheme_effect_terms, "scheme effect term range is invalid")?;
@@ -146,15 +171,13 @@ pub(super) fn decode_contract(
     let mut previous = None;
     for term in terms {
         budget.charge(1)?;
-        let parameter = scope.effects.parameters.get(term.binder as usize)
-            .ok_or_else(|| IrVerifyError::new("scheme effect parameter is out of scope"))?;
         let mask = EffectSet::from_bits(term.mask).filter(|mask| !mask.is_empty())
             .ok_or_else(|| IrVerifyError::new("scheme effect term mask is invalid"))?;
         if term.reserved != [0; 3] || previous.is_some_and(|previous| previous >= term.binder) {
             return Err(IrVerifyError::new("scheme effect terms are not sorted unique"));
         }
         previous = Some(term.binder);
-        result = result.union(EffectContract::variable(SchemeEffectParameterId(parameter.id)).masked(mask));
+        result = result.union(replacement(term.binder as usize, budget)?.masked(mask));
     }
     Ok(result)
 }

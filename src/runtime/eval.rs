@@ -2047,6 +2047,59 @@ pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
     }
 }
 
+fn stream_return_item(mut ty: &Type) -> Option<&Type> {
+    loop {
+        match ty {
+            Type::Stream(item) => return Some(item),
+            Type::Result(ok, _) | Type::Optional(ok) => ty = ok,
+            _ => return None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PreparedStreamOrigin {
+    Function(usize),
+    Expression { owner: u32, instruction: u32 },
+}
+
+pub(super) struct PreparedStreamContract {
+    program: Arc<FullProgram>,
+    origin: PreparedStreamOrigin,
+    invocation: indexed::full::PreparedInvocationBindings,
+}
+
+impl std::fmt::Debug for PreparedStreamContract {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_tuple("PreparedStreamContract").field(&self.origin).finish()
+    }
+}
+
+impl PreparedStreamContract {
+    fn matches(&self, expected: &Type) -> Result<bool, indexed::IrVerifyError> {
+        let item = self.program.stream_origin_item_type(self.origin, &self.invocation)?;
+        Ok(!item.any_flows_to_concrete(expected) && item.matches_stored(expected))
+    }
+
+    fn attach(self: &Arc<Self>, value: &mut LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        match value {
+            LoweredValue::Stream(stream) => {
+                let expected = self.program.stream_origin_item_type(self.origin, &self.invocation)
+                    .map_err(|error| lowered_run::indexed_run::indexed_error(error, span))?;
+                if let Some(actual) = &stream.contract {
+                    if !actual.matches(&expected).map_err(|error| lowered_run::indexed_run::indexed_error(error, span))? {
+                        return Err(RuntimeError::new("indexed-ir", "stream factory return disagrees with its actual producer").with_span(span));
+                    }
+                } else { stream.contract = Some(Arc::clone(self)); }
+                Ok(())
+            }
+            LoweredValue::ResultOk(value) => self.attach(value, span),
+            LoweredValue::ResultErr(_) | LoweredValue::Null => Ok(()),
+            _ => Err(RuntimeError::new("indexed-ir", "stream factory did not return its checked stream envelope").with_span(span)),
+        }
+    }
+}
+
 pub(super) struct PreparedCallable {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
@@ -3044,7 +3097,7 @@ pub struct Evaluator {
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
-    utils_cache: FxHashMap<String, Value>,
+    utils_cache: FxHashMap<lowered_run::UtilsCacheKey, Value>,
     signal_hooks: FxHashMap<String, RegisteredSignalHook>,
     signal_handler_guards: Vec<SignalHandlerGuard>,
     active_process_groups: Vec<ActiveProcessGroup>,

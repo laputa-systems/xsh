@@ -466,6 +466,25 @@ without counting as invocations. Only an authenticated Pure target projects its
 top-level invocation effects to empty; nested callable contracts retain their
 own effects, labels, schemas, defaults, and rest layout.
 
+Prepared invocation bindings retain the complete closed type, row, and effect
+substitution using the same bounded decoder as cold verification. Opaque host
+calls validate supplied values against those instantiated parameter contracts;
+nested callable checks use the actual executable target and the canonical
+callable compatibility rule. Cache lookup follows this validation. Cache keys
+retain the executable program, target, normalized substitution, checked layouts,
+and argument encoding. The retained program prevents address reuse from merging
+unrelated executions, while equal substitutions share entries across call sites.
+These runtime-owned bindings do not add static frontend evidence nodes.
+
+Stream item evidence retains the owning program, actual script declaration or
+checked factory instruction, and the same closed invocation substitution. It
+survives storage, aggregates, and clones without pulling the producer. Ground
+script headers are checked against actual yields and delegated item producers
+through the existing producer proof. UInt item boundaries retain their runtime
+check at first pull; a positive signed literal alone cannot certify a UInt
+producer contract. Native factory facts must agree with the actual selected
+operation's solved result before they can supply stream item evidence.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 

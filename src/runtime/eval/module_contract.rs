@@ -157,12 +157,7 @@ fn export_mismatch(
     }
 }
 
-/// The first difference between an export's signature and its contract
-/// entry: parameter count, each parameter's rest flag and type, the checked
-/// effects (the same set as the entry's clause; an entry without a clause is
-/// unrestricted and accepts any effects, as in static checking), then the
-/// return type.
-fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<String> {
+pub(super) fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<String> {
     if found.params.len() != expected.params.len() {
         return Some(format!(
             "the contract declares {}, the export takes {}",
@@ -175,6 +170,12 @@ fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<S
         if found.rest != expected.rest {
             return Some(format!(
                 "parameter {position} is a rest parameter on one side only"
+            ));
+        }
+        if found.name != expected.name {
+            return Some(format!(
+                "parameter {position} is named `{}`, expected `{}`",
+                found.name, expected.name
             ));
         }
         if !found.ty.matches_expected(&expected.ty) {
