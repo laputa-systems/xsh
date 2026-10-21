@@ -1700,6 +1700,27 @@ impl FullProgram {
                 ));
             }
         }
+        let mut step_mutability = Vec::with_capacity(self.store.driver_steps.len());
+        for step in 0..self.store.driver_steps.len() {
+            let view = self.driver_step_view_absolute(step)?;
+            let execution = view.execution()?;
+            let mutable = match view.decode_payload(&execution, view.payload()?)? {
+                schema::DriverPayloadView::Let { mutable, .. }
+                | schema::DriverPayloadView::LetRecord { mutable, .. } => mutable,
+                _ => false,
+            };
+            step_mutability.push(mutable);
+        }
+        let binding_mutability = identity_writers.iter().map(|writer| {
+            writer.map_or(false, |(_, step, _)| step_mutability[step])
+        }).collect::<Vec<_>>();
+        for capture in &self.store.captures {
+            let mutable = binding_mutability.get(capture.binding_identity as usize)
+                .ok_or_else(|| IrVerifyError::new("capture binding mutability identity is invalid"))?;
+            if *mutable != (capture.slot_and_flags & (1 << 31) != 0) {
+                return Err(IrVerifyError::new("capture mutability differs from its defining storage"));
+            }
+        }
         for step in &self.store.driver_steps {
             let slots = step
                 .slots
@@ -1714,6 +1735,11 @@ impl FullProgram {
                     .binding_identities
                     .get(slot.binding_identity as usize)
                     .ok_or_else(|| IrVerifyError::new("driver slot binding identity is invalid"))?;
+                if binding_mutability[slot.binding_identity as usize]
+                    != (slot.flags & DRIVER_SLOT_MUTABLE != 0)
+                {
+                    return Err(IrVerifyError::new("driver slot mutability differs from its defining storage"));
+                }
                 if identity.flags & 1 == 0
                     && identity_writers
                         .get(slot.binding_identity as usize)
@@ -1855,6 +1881,7 @@ impl FullProgram {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
+            borrowed_instruction_parents: None,
             instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                 instruction_range.clone(),
             ))),
@@ -5393,6 +5420,7 @@ impl<'p> FullExecution<'p> {
             owner: self.owner,
             instruction_range: self.instruction_range.clone(),
             instruction_states: None,
+            borrowed_instruction_parents: None,
             instruction_proof: None,
             block_states: None,
             slot_count: self.slot_count,
@@ -5697,12 +5725,34 @@ enum CheckedValueBlockResult {
     DoesNotComplete,
 }
 
+struct InstructionParentContext<'a> {
+    owner: u32,
+    range: std::ops::Range<usize>,
+    parents: &'a [Option<usize>],
+    children: &'a [u32],
+    siblings: &'a [u32],
+}
+
+impl InstructionParentContext<'_> {
+    fn parent_of(&self, owner: u32, range: &std::ops::Range<usize>, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        if self.owner != owner || self.range != *range || self.parents.len() != range.len() || self.children.len() != range.len() || self.siblings.len() != range.len() || !range.contains(&instruction) {
+            return Err(IrVerifyError::new("instruction parent context disagrees with its owner range"));
+        }
+        let parent = self.parents[instruction - range.start];
+        if parent.is_some_and(|parent| !range.contains(&parent)) {
+            return Err(IrVerifyError::new("instruction parent context escapes its owner range"));
+        }
+        Ok(parent)
+    }
+}
+
 pub(in crate::runtime::eval) struct FullDecoder<'a> {
     store: &'a FullStore,
     owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: Option<RefCell<Vec<u8>>>,
     instruction_proof: Option<RefCell<in_place::InstructionProof>>,
+    borrowed_instruction_parents: Option<InstructionParentContext<'a>>,
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
@@ -5828,89 +5878,66 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn pattern_capture_slots(&self, pattern: usize) -> Result<BTreeSet<usize>, IrVerifyError> {
+        self.pattern_capture_slots_with_charge(pattern, &mut |_| Ok(()))
+    }
+
+    fn pattern_capture_slots_with_charge(
+        &self,
+        pattern: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<BTreeSet<usize>, IrVerifyError> {
         let mut slots = BTreeSet::new();
-        let mut pending = vec![pattern];
+        self.visit_pattern_capture_slots(pattern, charge, &mut |slot| {
+            if !slots.insert(slot) { return Err(IrVerifyError::new("pattern writes the same capture slot twice")); }
+            Ok(false)
+        })?;
+        Ok(slots)
+    }
+
+    fn visit_pattern_capture_slots(
+        &self,
+        pattern: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        visit: &mut dyn FnMut(usize) -> Result<bool, IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
+        let mut pending = vec![pattern as u32];
         while let Some(pattern) = pending.pop() {
-            let tag = *self
-                .store
-                .patterns
-                .get(pattern)
-                .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-            let mut payload = FullCursor::new(
-                self.store
-                    .payload(self.store.pattern_data[pattern].range())?,
-            );
-            let mut captures = Vec::new();
-            match tag {
-                FullPatternTag::Bind => captures.push(usize::decode(self, &mut payload)?),
-                FullPatternTag::Alias => {
-                    pending.push(payload.raw()? as usize);
-                    captures.push(usize::decode(self, &mut payload)?);
+            charge(1)?;
+            match self.checked_pattern_view(pattern)? {
+                schema::PatternView::Bind { slot } => { charge(1)?; if visit(slot)? { return Ok(true); } },
+                schema::PatternView::Alias { pattern, slot } => {
+                    charge(1)?; if visit(slot)? { return Ok(true); }
+                    charge(1)?;
+                    pending.push(pattern.raw());
                 }
-                FullPatternTag::Type => {
-                    Type::decode(self, &mut payload)?;
-                    captures.extend(Option::<usize>::decode(self, &mut payload)?);
+                schema::PatternView::Type { slot, .. } | schema::PatternView::ResultOk { slot, .. } | schema::PatternView::ResultErr { slot, .. } => {
+                    if let Some(slot) = slot { charge(1)?; if visit(slot)? { return Ok(true); } }
                 }
-                FullPatternTag::ResultOk | FullPatternTag::ResultErr => {
-                    captures.extend(Option::<usize>::decode(self, &mut payload)?)
-                }
-                FullPatternTag::ResultTest => {
-                    bool::decode(self, &mut payload)?;
-                    pending.push(payload.raw()? as usize);
-                }
-                FullPatternTag::Tag => {
-                    // Enum payloads retain both the declaring type and variant names.
-                    Name::decode(self, &mut payload)?;
-                    Name::decode(self, &mut payload)?;
-                    captures.extend(
-                        BuildPatternIdSlots::decode(self, &mut payload)?
-                            .into_iter()
-                            .flatten(),
-                    );
-                }
-                FullPatternTag::List
-                | FullPatternTag::TagTest
-                | FullPatternTag::Alternation
-                | FullPatternTag::Text => {
-                    if tag == FullPatternTag::TagTest {
-                        Name::decode(self, &mut payload)?;
-                        Name::decode(self, &mut payload)?;
-                    }
-                    let mut children = self.pattern_list_cursor(&mut payload)?;
-                    let count = children.raw()? as usize;
-                    for index in 0..count {
-                        let child = children.raw()? as usize;
-                        if tag != FullPatternTag::Alternation || index == 0 {
-                            pending.push(child);
-                        }
-                    }
-                    if tag == FullPatternTag::List && bool::decode(self, &mut payload)? {
-                        pending.push(payload.raw()? as usize);
+                schema::PatternView::Tag { slots: mut captures, .. } => {
+                    for slot in &mut captures {
+                        charge(1)?;
+                        if let Some(slot) = slot? { charge(1)?; if visit(slot)? { return Ok(true); } }
                     }
                 }
-                FullPatternTag::RecordTest | FullPatternTag::ErrorTest => {
-                    if tag == FullPatternTag::ErrorTest {
-                        Name::decode(self, &mut payload)?;
-                        Name::decode(self, &mut payload)?;
-                    }
-                    let mut children = self.pattern_list_cursor(&mut payload)?;
-                    let count = children.raw()? as usize;
-                    for _ in 0..count {
-                        Name::decode(self, &mut children)?;
-                        pending.push(children.raw()? as usize);
-                    }
+                schema::PatternView::ResultTest { inner, .. } => { charge(1)?; pending.push(inner.raw()); }
+                schema::PatternView::Alternation { mut patterns } => {
+                    if let Some(pattern) = patterns.next().transpose()? { charge(1)?; pending.push(pattern.raw()); }
+                }
+                schema::PatternView::List { mut elements, rest } => {
+                    for pattern in &mut elements { charge(1)?; pending.push(pattern?.raw()); }
+                    if let Some(rest) = rest { charge(1)?; pending.push(rest.raw()); }
+                }
+                schema::PatternView::TagTest { mut fields, .. } | schema::PatternView::Text { holes: mut fields, .. } => {
+                    for pattern in &mut fields { charge(1)?; pending.push(pattern?.raw()); }
+                }
+                schema::PatternView::RecordTest { mut fields } | schema::PatternView::ErrorTest { mut fields, .. } => {
+                    for field in &mut fields { charge(1)?; pending.push(field?.1.raw()); }
                 }
                 _ => {}
             }
-            for slot in captures {
-                if !slots.insert(slot) {
-                    return Err(IrVerifyError::new(
-                        "pattern writes the same capture slot twice",
-                    ));
-                }
-            }
         }
-        Ok(slots)
+        Ok(false)
     }
 
     #[inline(always)]
@@ -6163,9 +6190,9 @@ impl<'a> FullDecoder<'a> {
             };
             let receiver = self.checked_field_receiver_type(callee);
             if let Some(receiver) = receiver? {
-            let binding = self.checked_binding_path(base.raw() as usize)?;
+            let binding = self.checked_binding_path(base.raw() as usize, &mut |_| Ok(()))?;
             let declared_receiver = if let Some(binding) = &binding {
-                self.checked_binding_path_type(callee, binding)?
+                self.checked_binding_path_type(callee, binding, &mut |_| Ok(()))?
             } else {
                 None
             };
@@ -6228,8 +6255,8 @@ impl<'a> FullDecoder<'a> {
             .tags
             .get(instruction)
             .ok_or_else(|| IrVerifyError::new("typed callee expression is out of bounds"))?;
-        if let Some(binding) = self.checked_binding_path(instruction)?
-            && let Some(type_id) = self.checked_binding_path_type_id(instruction, &binding)?
+        if let Some(binding) = self.checked_binding_path(instruction, &mut |_| Ok(()))?
+            && let Some(type_id) = self.checked_binding_path_type_id(instruction, &binding, &mut |_| Ok(()))?
         {
             return Ok(type_id);
         }
@@ -6663,6 +6690,7 @@ impl<'a> FullDecoder<'a> {
             owner,
             instruction_range,
             instruction_states: None,
+            borrowed_instruction_parents: None,
             instruction_proof: None,
             block_states: None,
             slot_count: step.slot_count,
@@ -7370,20 +7398,46 @@ impl<'a> FullDecoder<'a> {
 
     fn comp_target_written_slots(
         &self,
-        target: decode::CompTargetView<'a>,
+        target: decode::CompTargetView<'_>,
         written_slots: &mut Vec<usize>,
     ) -> Result<(), IrVerifyError> {
+        self.comp_target_written_slots_with_charge(target, written_slots, &mut |_| Ok(()))
+    }
+
+    fn comp_target_written_slots_with_charge(
+        &self,
+        target: decode::CompTargetView<'_>,
+        written_slots: &mut Vec<usize>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<(), IrVerifyError> {
+        self.visit_comp_target_written_slots(target, charge, &mut |slot| { written_slots.push(slot); Ok(false) })?;
+        Ok(())
+    }
+
+    fn visit_comp_target_written_slots(
+        &self,
+        target: decode::CompTargetView<'_>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        visit: &mut dyn FnMut(usize) -> Result<bool, IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         match target {
-            decode::CompTargetView::Discard => {}
-            decode::CompTargetView::Slot(slot) => written_slots.push(slot),
-            decode::CompTargetView::Record { mut fields } => {
-                for field in &mut fields {
-                    let (_, target, _) = field?;
-                    self.comp_target_written_slots(target, written_slots)?;
+            decode::CompTargetView::Discard => return Ok(false),
+            decode::CompTargetView::Slot(slot) => { charge(1)?; return visit(slot); }
+            decode::CompTargetView::Record { .. } => {}
+        }
+        charge(1)?;
+        let mut pending = vec![target];
+        while let Some(target) = pending.pop() {
+            charge(1)?;
+            match target {
+                decode::CompTargetView::Discard => {}
+                decode::CompTargetView::Slot(slot) => { charge(1)?; if visit(slot)? { return Ok(true); } }
+                decode::CompTargetView::Record { mut fields } => {
+                    for field in &mut fields { charge(1)?; pending.push(field?.1); }
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     fn statement_written_slots(
@@ -7397,20 +7451,43 @@ impl<'a> FullDecoder<'a> {
         ),
         IrVerifyError,
     > {
+        self.statement_written_slots_with_charge(instruction, &mut |_| Ok(()))
+    }
+
+    fn statement_written_slots_with_charge(
+        &self,
+        instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<(Vec<usize>, Option<(usize, usize)>, Option<(usize, LocalImmutableLetWriter)>), IrVerifyError> {
         let mut written_slots = Vec::new();
+        let (_, initializer, scalar_writer) = self.visit_statement_written_slots(instruction, charge, &mut |slot| {
+            written_slots.push(slot);
+            Ok(false)
+        })?;
+        written_slots.sort_unstable();
+        written_slots.dedup();
+        Ok((written_slots, initializer, scalar_writer))
+    }
+
+    fn visit_statement_written_slots(
+        &self,
+        instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        visit: &mut dyn FnMut(usize) -> Result<bool, IrVerifyError>,
+    ) -> Result<(bool, Option<(usize, usize)>, Option<(usize, LocalImmutableLetWriter)>), IrVerifyError> {
         let mut initializer = None;
         let mut scalar_writer = None;
         match self.statement_view(instruction)? {
             schema::StmtView::Let { slot, value, .. } => {
-                written_slots.push(slot);
+                charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 initializer = Some((slot, value.raw() as usize));
             }
             schema::StmtView::LetInt { slot, .. } => {
-                written_slots.push(slot);
+                charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 scalar_writer = Some((slot, LocalImmutableLetWriter::Int));
             }
             schema::StmtView::LetBool { slot, .. } => {
-                written_slots.push(slot);
+                charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 scalar_writer = Some((slot, LocalImmutableLetWriter::Bool));
             }
             schema::StmtView::Assign { slot, .. }
@@ -7421,14 +7498,14 @@ impl<'a> FullDecoder<'a> {
             | schema::StmtView::AssignPath { slot, .. }
             | schema::StmtView::DefaultParameter { slot, .. }
             | schema::StmtView::For { slot, .. }
-            | schema::StmtView::ForStrLines { slot, .. } => written_slots.push(slot),
+            | schema::StmtView::ForStrLines { slot, .. } => { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } },
             schema::StmtView::Guard {
                 target,
                 else_param_slot,
                 ..
             } => {
-                self.comp_target_written_slots(target, &mut written_slots)?;
-                written_slots.extend(else_param_slot);
+                if self.visit_comp_target_written_slots(target, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
+                if let Some(slot) = else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
             }
             schema::StmtView::With {
                 mut bindings,
@@ -7437,49 +7514,55 @@ impl<'a> FullDecoder<'a> {
                 ..
             } => {
                 for binding in &mut bindings {
-                    written_slots.push(binding?.0);
+                    charge(1)?;
+                    if visit(binding?.0)? { return Ok((true, initializer, scalar_writer)); }
                 }
-                written_slots.extend(else_param_slot);
+                if let Some(slot) = else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
                 for capture in &mut captures {
-                    written_slots.push(capture?);
+                    charge(1)?;
+                    if visit(capture?)? { return Ok((true, initializer, scalar_writer)); }
                 }
             }
             schema::StmtView::PatternIf { mut branches, .. } => {
                 for branch in &mut branches {
+                    charge(1)?;
                     let (_, _, captures) = branch?;
                     for capture in captures {
-                        written_slots.push(capture?);
+                        charge(1)?;
+                        if visit(capture?)? { return Ok((true, initializer, scalar_writer)); }
                     }
                 }
             }
             schema::StmtView::PatternWhile { mut captures, .. } => {
                 for capture in &mut captures {
-                    written_slots.push(capture?);
+                    charge(1)?;
+                    if visit(capture?)? { return Ok((true, initializer, scalar_writer)); }
                 }
             }
             schema::StmtView::Match { mut arms, .. } => {
                 for arm in &mut arms {
+                    charge(1)?;
                     let (pattern, _, _) = arm?;
-                    written_slots.extend(self.pattern_capture_slots(pattern.raw() as usize)?);
+                    if self.visit_pattern_capture_slots(pattern.raw() as usize, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
                 }
             }
             schema::StmtView::ForRecord { target, .. }
             | schema::StmtView::LetRecord { target, .. } => {
-                self.comp_target_written_slots(target, &mut written_slots)?;
+                if self.visit_comp_target_written_slots(target, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
             }
             schema::StmtView::ScanLines { line_slot, mut checks, .. } => {
-                written_slots.push(line_slot);
-                for check in &mut checks { written_slots.push(check?.counter_slot); }
+                charge(1)?; if visit(line_slot)? { return Ok((true, initializer, scalar_writer)); }
+                for check in &mut checks { charge(1)?; if visit(check?.counter_slot)? { return Ok((true, initializer, scalar_writer)); } }
             }
-            schema::StmtView::ScanBytes { config } => written_slots.extend([
-                config.block_depth_slot, config.code_seen_slot, config.comment_seen_slot,
-                config.in_string_slot, config.string_delim_slot, config.escaped_slot,
-            ]),
+            schema::StmtView::ScanBytes { config } => {
+                for slot in [config.block_depth_slot, config.code_seen_slot, config.comment_seen_slot,
+                    config.in_string_slot, config.string_delim_slot, config.escaped_slot] {
+                    charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
+                }
+            },
             _ => {}
         }
-        written_slots.sort_unstable();
-        written_slots.dedup();
-        Ok((written_slots, initializer, scalar_writer))
+        Ok((false, initializer, scalar_writer))
     }
 
     fn verify_driver_module_slots(
@@ -7742,6 +7825,7 @@ impl<'a> FullDecoder<'a> {
             owner: driver_owner(writer_step_index)
                 .map_err(|_| IrVerifyError::new("module child owner is invalid"))?,
             instruction_states: None,
+            borrowed_instruction_parents: None,
             instruction_proof: None,
             instruction_range,
             block_states: None,
@@ -8217,7 +8301,18 @@ impl<'a> FullDecoder<'a> {
         })
     }
 
+    fn has_instruction_parent_proof(&self) -> Result<bool, IrVerifyError> {
+        if self.instruction_proof.is_some() && self.borrowed_instruction_parents.is_some() {
+            return Err(IrVerifyError::new("instruction parent context has competing authorities"));
+        }
+        Ok(self.instruction_proof.is_some() || self.borrowed_instruction_parents.is_some())
+    }
+
     fn instruction_parent_of(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        self.has_instruction_parent_proof()?;
+        if let Some(parents) = &self.borrowed_instruction_parents {
+            return parents.parent_of(self.owner, &self.instruction_range, instruction);
+        }
         let proof = self
             .instruction_proof
             .as_ref()
@@ -8921,12 +9016,10 @@ impl<'a> FullDecoder<'a> {
                         "checked value wrapper disagrees with its checked result type",
                     ));
                 }
-                let source = self.derive_checked_expression_type(value.raw() as usize)?;
                 if check.schema.is_none()
-                    && let Some(Type::Optional(payload)) = source
-                    && payload.as_ref() == expected
+                    && let Some(source) = self.checked_value_optional_source(instruction, value.raw() as usize, expected)?
                 {
-                    return self.checked_expression_matches_type(value.raw() as usize, &Type::Optional(payload));
+                    return self.checked_expression_matches_type(value.raw() as usize, &source);
                 }
                 self.checked_expression_matches_type(value.raw() as usize, expected)
             }
@@ -10557,12 +10650,8 @@ impl<'a> FullDecoder<'a> {
                 if fact.function_ref().is_some() || fact.with_error_source()
                     || check.schema.is_some() || check.ty.materialize()? != ty
                 { return Err(IrVerifyError::new("checked optional payload carries unrelated contract evidence")); }
-                let source = self.derive_checked_expression_type(value.raw() as usize)?;
-                let Some(Type::Optional(payload)) = source else {
-                    return Err(IrVerifyError::new("checked callable payload has no optional source contract"));
-                };
-                if payload.as_ref() != &ty { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
-                require_child(value.raw() as usize, &Type::Optional(payload))?;
+                let source = self.checked_value_optional_source(instruction, value.raw() as usize, &ty)?;
+                require_child(value.raw() as usize, source.as_ref().unwrap_or(&ty))?;
             }
 
             schema::ExprView::PreparedConstant(value) => {
@@ -10659,7 +10748,7 @@ impl<'a> FullDecoder<'a> {
                         instruction,
                         instruction,
                         payload,
-                    )? {
+                     &mut |_| Ok(()))? {
                         return Ok(());
                     }
                     return Err(IrVerifyError::new(
@@ -10679,8 +10768,8 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::Field { .. } => {
-                let matches = if let Some(binding) = self.checked_binding_path(instruction)? {
-                    let Some(declared) = self.checked_binding_path_type(instruction, &binding)?
+                let matches = if let Some(binding) = self.checked_binding_path(instruction, &mut |_| Ok(()))? {
+                    let Some(declared) = self.checked_binding_path_type(instruction, &binding, &mut |_| Ok(()))?
                     else {
                         return Err(IrVerifyError::new(
                             "checked field fact disagrees with its structural receiver",
@@ -11636,11 +11725,15 @@ impl<'a> FullDecoder<'a> {
     fn checked_binding_path(
         &self,
         mut instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        charge(1)?;
         let mut fields = Vec::new();
         loop {
+        charge(1)?;
             match self.expression_view(instruction)? {
                 schema::ExprView::Param(slot) => {
+                    charge(fields.len())?;
                     fields.reverse();
                     return Ok(Some((slot, fields)));
                 }
@@ -11653,14 +11746,14 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    /// Resolve declared path types, unwrapping optional prefixes only after a
-    /// branch proof so a narrowed expression fact cannot justify itself.
     fn checked_binding_path_type(
         &self,
         use_site: usize,
         binding: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<Type>, IrVerifyError> {
-        self.checked_binding_path_type_id(use_site, binding)?
+        charge(1)?;
+        self.checked_binding_path_type_id(use_site, binding, charge)?
             .map(|type_id| self.store.semantic.to_type(type_id))
             .transpose()
     }
@@ -11669,19 +11762,25 @@ impl<'a> FullDecoder<'a> {
         &self,
         use_site: usize,
         binding: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<TypeId>, IrVerifyError> {
+        charge(1)?;
         let Some(mut type_id) = self.checked_slot_type(binding.0)? else {
             return Ok(None);
         };
         let mut prefix = Vec::new();
         for field in &binding.1 {
+        charge(1)?;
             while let Some(payload_id) = self.store.semantic.optional_payload_type(type_id)? {
+        charge(1)?;
                 let payload = self.store.semantic.to_type(payload_id)?;
+                charge(prefix.len())?;
                 let prefix_binding = (binding.0, prefix.clone());
                 if !self.checked_binding_path_is_narrowed(
                     use_site,
                     &prefix_binding,
                     &payload,
+                    charge,
                 )? {
                     return Ok(None);
                 }
@@ -11710,7 +11809,9 @@ impl<'a> FullDecoder<'a> {
     fn checked_statement_blocks(
         &self,
         instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Vec<Vec<usize>>, IrVerifyError> {
+        charge(1)?;
         let mut blocks = Vec::new();
         match self.store.tags[instruction] {
             FullTag::StmtGuard => {
@@ -11718,6 +11819,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("guard statement tag and generated view disagree")
                 };
+                charge(else_body.len())?;
                 blocks.push(self.checked_statement_ids(else_body)?);
             }
             FullTag::StmtWith => {
@@ -11727,7 +11829,9 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("with statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
+                charge(else_body.len())?;
                 blocks.push(self.checked_statement_ids(else_body)?);
             }
             FullTag::StmtIf => {
@@ -11739,10 +11843,13 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
+        charge(1)?;
                     let (_, body) = branch?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
                 if let Some(body) = else_body {
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11755,10 +11862,13 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("boolean if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
+        charge(1)?;
                     let (_, body) = branch?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
                 if let Some(body) = else_body {
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11766,6 +11876,7 @@ impl<'a> FullDecoder<'a> {
                 let schema::StmtView::While { body, .. } = self.statement_view(instruction)? else {
                     unreachable!("while statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtWhileBool => {
@@ -11774,6 +11885,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("boolean while statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtPatternIf => {
@@ -11786,10 +11898,13 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("pattern-if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
+        charge(1)?;
                     let (_, body, _) = branch?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
                 if let Some(body) = else_body {
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11799,12 +11914,14 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("pattern-while statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtFor => {
                 let schema::StmtView::For { body, .. } = self.statement_view(instruction)? else {
                     unreachable!("for statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtForRecord => {
@@ -11813,6 +11930,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("record-for statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtForStrLines => {
@@ -11821,6 +11939,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("line-for statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtMatch => {
@@ -11830,7 +11949,9 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("match statement tag and generated view disagree")
                 };
                 for arm in &mut arms {
+        charge(1)?;
                     let (_, _, body) = arm?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11844,10 +11965,13 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("string-match statement tag and generated view disagree")
                 };
                 for arm in &mut arms {
+        charge(1)?;
                     let (_, body) = arm?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
                 if let Some(body) = fallback {
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11861,10 +11985,13 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("tag-match statement tag and generated view disagree")
                 };
                 for arm in &mut arms {
+        charge(1)?;
                     let (_, body) = arm?;
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
                 if let Some(body) = fallback {
+                    charge(body.len())?;
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
@@ -11872,18 +11999,21 @@ impl<'a> FullDecoder<'a> {
                 let schema::StmtView::Cd { body, .. } = self.statement_view(instruction)? else {
                     unreachable!("cd statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtEnv => {
                 let schema::StmtView::Env { body, .. } = self.statement_view(instruction)? else {
                     unreachable!("environment statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::StmtLoop => {
                 let schema::StmtView::Loop { body } = self.statement_view(instruction)? else {
                     unreachable!("loop statement tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprCapture => {
@@ -11891,6 +12021,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("capture expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprValueBlock => {
@@ -11899,6 +12030,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("value-block expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprErrorContext => {
@@ -11907,6 +12039,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("error-context expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprContextScope => {
@@ -11915,12 +12048,14 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("context-scope expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprLoop => {
                 let schema::ExprView::Loop { body, .. } = self.expression_view(instruction)? else {
                     unreachable!("loop expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             FullTag::ExprRetry => {
@@ -11928,6 +12063,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("retry expression tag and generated view disagree")
                 };
+                charge(body.len())?;
                 blocks.push(self.checked_statement_ids(body)?);
             }
             _ => {}
@@ -11939,14 +12075,25 @@ impl<'a> FullDecoder<'a> {
         &self,
         roots: &[usize],
         before: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<Vec<usize>>, IrVerifyError> {
+        charge(1)?;
+        let mut ancestors = BTreeSet::new();
+        let mut at = before;
+        loop {
+            charge(1)?;
+            if !ancestors.insert(at) {
+                return Err(IrVerifyError::new("checked optional field receiver has a cyclic guard path"));
+            }
+            let Some(parent) = self.instruction_parent_of(at)? else { break };
+            at = parent;
+        }
         let mut selected = None;
         for (index, root) in roots.iter().copied().enumerate() {
-            if self.checked_instruction_is_in_roots(before, &[root])? {
+            charge(1)?;
+            if ancestors.contains(&root) {
                 if selected.is_some() {
-                    return Err(IrVerifyError::new(
-                        "checked optional field receiver belongs to multiple block children",
-                    ));
+                    return Err(IrVerifyError::new("checked optional field receiver belongs to multiple block children"));
                 }
                 selected = Some(index);
             }
@@ -11954,21 +12101,124 @@ impl<'a> FullDecoder<'a> {
         let Some(selected) = selected else {
             return Ok(None);
         };
+        charge(selected)?;
         Ok(Some(roots[..selected].to_vec()))
+    }
+
+    fn checked_slot_is_shared_mutable(
+        &self,
+        slot: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
+        if let Some(step) = driver_owner_index(self.owner) {
+            let row = self.store.driver_steps.get(step).ok_or_else(|| IrVerifyError::new("guard storage driver owner is invalid"))?;
+            let slots = row.slots.bounds(self.store.driver_slots.len()).ok_or_else(|| IrVerifyError::new("guard storage driver range is invalid"))?;
+            for binding in &self.store.driver_slots[slots] {
+                charge(1)?;
+                if binding.slot as usize == slot { return Ok(binding.flags & DRIVER_SLOT_MUTABLE != 0); }
+            }
+            return Ok(false);
+        }
+        let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("guard capture owner is invalid"))?;
+        let function = self.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("guard capture owner is out of bounds"))?;
+        let captures = function.captures.bounds(self.store.captures.len()).ok_or_else(|| IrVerifyError::new("guard capture range is invalid"))?;
+        for capture in &self.store.captures[captures] {
+            charge(1)?;
+            if (capture.slot_and_flags & !(1 << 31)) as usize == slot { return Ok(capture.slot_and_flags & (1 << 31) != 0); }
+        }
+        Ok(false)
+    }
+
+    fn checked_instruction_may_call_shared_writer(
+        &self,
+        instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let tag = self.store.tags[instruction];
+        let function = match tag {
+            FullTag::ExprCall | FullTag::ExprDirectPureCall => {
+                charge(1)?;
+                let (schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) = self.expression_view(instruction)? else { unreachable!() };
+                Some(function.id.index())
+            }
+            FullTag::ExprSelfCall => {
+                charge(1)?;
+                Some(IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("guard self-call owner is invalid"))?.index())
+            }
+            FullTag::ExprTypedCall => {
+                charge(1)?;
+                let schema::ExprView::TypedCall { signature, pure, .. } = self.expression_view(instruction)? else { unreachable!() };
+                return Ok(!pure || !self.store.semantic.typed_callable_is_pure(signature.id)?);
+            }
+            FullTag::ExprModuleCall => {
+                charge(1)?;
+                let schema::ExprView::ModuleCall { op, .. } = self.expression_view(instruction)? else { unreachable!() };
+                return Ok(!matches!(crate::modules::signature::native_static_operation_effect_rule(op), Some(crate::modules::signature::NativeEffectRule::Uniform { pure: true, .. })));
+            }
+            FullTag::ExprMethod => {
+                charge(1)?;
+                let schema::ExprView::Method { name, .. } = self.expression_view(instruction)? else { unreachable!() };
+                return Ok(!matches!(crate::modules::signature::native_method_effect_rule(name), Some(crate::modules::signature::NativeEffectRule::Uniform { pure: true, .. })));
+            }
+            FullTag::ExprDynamicCall | FullTag::ExprExternalCall => { charge(1)?; return Ok(true); }
+            _ => None,
+        };
+        let Some(function) = function else { return Ok(false) };
+        self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("guard call target is out of bounds"))?;
+        let metadata = self.store.function_metadata.get(function).ok_or_else(|| IrVerifyError::new("guard call kind is missing"))?;
+        Ok(metadata.callable_kind != crate::sema::types::CallableKind::Pure)
     }
 
     fn checked_prefix_roots_preserve_binding_path(
         &self,
         roots: &[usize],
         target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         if roots.is_empty() {
             return Ok(true);
         }
+        let shared_mutable = self.checked_slot_is_shared_mutable(target.0, charge)?;
+        if let Some(context) = &self.borrowed_instruction_parents {
+            context.parent_of(self.owner, &self.instruction_range, roots[0])?;
+            charge(roots.len())?;
+            let mut pending = roots.to_vec();
+            let mut visited = BTreeSet::new();
+            while let Some(instruction) = pending.pop() {
+                charge(1)?;
+                context.parent_of(self.owner, &self.instruction_range, instruction)?;
+                if !visited.insert(instruction) { continue; }
+                if (self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                    && self.checked_statement_writes_binding_path(instruction, target, charge)?)
+                    || (shared_mutable && self.checked_instruction_may_call_shared_writer(instruction, charge)?)
+                { return Ok(false); }
+                let mut child = context.children[instruction - context.range.start];
+                let mut siblings = 0;
+                while child != IR_NONE {
+                    charge(1)?;
+                    let child_instruction = child as usize;
+                    if context.parent_of(self.owner, &self.instruction_range, child_instruction)? != Some(instruction) {
+                        return Err(IrVerifyError::new("instruction child context disagrees with its parent"));
+                    }
+                    siblings += 1;
+                    if siblings > context.range.len() {
+                        return Err(IrVerifyError::new("instruction child context has a cyclic sibling path"));
+                    }
+                    pending.push(child_instruction);
+                    child = context.siblings[child_instruction - context.range.start];
+                }
+            }
+            return Ok(true);
+        }
         for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
-                && self.checked_instruction_is_in_roots(instruction, roots)?
-                && self.checked_statement_writes_binding_path(instruction, target)?
+        charge(1)?;
+            if (self.store.tags[instruction].kind() == schema::InstructionKind::Stmt || shared_mutable)
+                && self.checked_instruction_is_in_roots(instruction, roots, charge)?
+                && ((self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                    && self.checked_statement_writes_binding_path(instruction, target, charge)?)
+                    || (shared_mutable && self.checked_instruction_may_call_shared_writer(instruction, charge)?))
             {
                 return Ok(false);
             }
@@ -11976,29 +12226,23 @@ impl<'a> FullDecoder<'a> {
         Ok(true)
     }
 
-    /// A fact from an earlier short-circuit operand remains usable only when
-    /// every statement nested in the later operand preserves the same path.
     fn checked_expression_preserves_binding_path(
         &self,
         expression: usize,
         target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
-                && self.checked_instruction_is_in_roots(instruction, &[expression])?
-                && self.checked_statement_writes_binding_path(instruction, target)?
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        charge(1)?;
+        self.checked_prefix_roots_preserve_binding_path(&[expression], target, charge)
     }
 
     fn checked_short_circuit_path_for_child(
         &self,
         parent: usize,
         child: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, bool, bool, usize)>, IrVerifyError> {
+        charge(1)?;
         let tag = self.store.tags[parent];
         if matches!(tag, FullTag::BoolAnd | FullTag::BoolOr) {
             let payload = FullPayload {
@@ -12046,9 +12290,13 @@ impl<'a> FullDecoder<'a> {
         &self,
         parent: usize,
         child: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(Vec<(usize, bool, bool)>, Vec<usize>)>, IrVerifyError> {
+        charge(1)?;
+        let charge = RefCell::new(charge);
         self.checked_branch_conditions_for_child_with(parent, child,
-            |instruction, roots| self.checked_instruction_is_in_roots(instruction, roots), |_| Ok(()))
+            |instruction, roots| self.checked_instruction_is_in_roots(instruction, roots, &mut **charge.borrow_mut()),
+            |amount| (**charge.borrow_mut())(amount))
     }
 
     fn checked_branch_conditions_for_child_with(
@@ -12069,7 +12317,7 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
-                    charge(1)?;
+        charge(1)?;
                     let (condition, body) = branch?;
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
@@ -12096,7 +12344,7 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("boolean if statement tag and generated view disagree")
                 };
                 for branch in &mut branches {
-                    charge(1)?;
+        charge(1)?;
                     let (condition, body) = branch?;
                     charge(body.len().saturating_mul(2))?;
                     let body = self.checked_statement_ids(body)?;
@@ -12124,7 +12372,7 @@ impl<'a> FullDecoder<'a> {
                     unreachable!("if expression tag and generated view disagree")
                 };
                 for branch in &mut branches {
-                    charge(1)?;
+        charge(1)?;
                     let (condition, value) = branch?;
                     let value = value.raw() as usize;
                     if in_roots(child, &[value])? {
@@ -12171,8 +12419,6 @@ impl<'a> FullDecoder<'a> {
         Ok(None)
     }
 
-    /// A short-circuit outcome proves non-null only when every path to that
-    /// outcome carries the fact; facts from operands evaluated on one path combine.
     fn checked_condition_pair_proves_nonnull(
         &self,
         use_site: usize,
@@ -12183,8 +12429,15 @@ impl<'a> FullDecoder<'a> {
         is_boolean: bool,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        let proves = |condition, outcome| {
+        charge(1)?;
+        let preserves_after_left = if is_boolean {
+            true
+        } else {
+            self.checked_expression_preserves_binding_path(right, target, charge)?
+        };
+        let mut proves = |condition, outcome| {
             self.checked_condition_proves_nonnull(
                 condition,
                 outcome,
@@ -12192,12 +12445,8 @@ impl<'a> FullDecoder<'a> {
                 use_site,
                 target,
                 expected_payload,
+                charge,
             )
-        };
-        let preserves_after_left = if is_boolean {
-            true
-        } else {
-            self.checked_expression_preserves_binding_path(right, target)?
         };
         if is_and {
             if when_true {
@@ -12242,7 +12491,7 @@ impl<'a> FullDecoder<'a> {
             return Ok(compared == slot && (op == BinaryOp::Ne) == when_true);
         }
         loop {
-            charge(1)?;
+        charge(1)?;
             let tag = *self.store.tags.get(condition).ok_or_else(|| IrVerifyError::new("optional narrowing condition is out of bounds"))?;
             let payload = FullPayload { store: self.store, cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?) };
             match schema::BoolView::decode_from_decoder(self, tag, payload)? {
@@ -12264,7 +12513,9 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         if is_boolean {
             let tag = *self.store.tags.get(condition).ok_or_else(|| {
                 IrVerifyError::new("optional narrowing condition is out of bounds")
@@ -12281,6 +12532,7 @@ impl<'a> FullDecoder<'a> {
                     use_site,
                     target,
                     expected_payload,
+                    charge,
                 ),
                 schema::BoolView::And(left, right) => self
                     .checked_condition_pair_proves_nonnull(
@@ -12292,6 +12544,7 @@ impl<'a> FullDecoder<'a> {
                         true,
                         target,
                         expected_payload,
+                        charge,
                     ),
                 schema::BoolView::Or(left, right) => self
                     .checked_condition_pair_proves_nonnull(
@@ -12303,6 +12556,7 @@ impl<'a> FullDecoder<'a> {
                         true,
                         target,
                         expected_payload,
+                        charge,
                     ),
                 schema::BoolView::LiteralCompareSlot { op, slot, value }
                     if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
@@ -12351,10 +12605,11 @@ impl<'a> FullDecoder<'a> {
                 } else {
                     return Ok(false);
                 };
-                if self.checked_binding_path(subject)?.as_ref() != Some(target) {
+                charge(target.1.len())?;
+                if self.checked_binding_path(subject, charge)?.as_ref() != Some(target) {
                     return Ok(false);
                 }
-                let Some(subject_type) = self.checked_binding_path_type(use_site, target)? else {
+                let Some(subject_type) = self.checked_binding_path_type(use_site, target, charge)? else {
                     return Ok(false);
                 };
                 let Type::Optional(payload) = subject_type.into_unvalidated() else {
@@ -12372,6 +12627,7 @@ impl<'a> FullDecoder<'a> {
                 false,
                 target,
                 expected_payload,
+                charge,
             ),
             _ => Ok(false),
         }
@@ -12380,10 +12636,22 @@ impl<'a> FullDecoder<'a> {
     fn checked_declared_type_matches_narrowed_fact(
         &self,
         instruction: usize,
-        mut binding: (usize, Vec<Name>),
+        binding: (usize, Vec<Name>),
         declared: &Type,
         checked: &Type,
     ) -> Result<bool, IrVerifyError> {
+        self.checked_declared_type_matches_narrowed_fact_with(instruction, binding, declared, checked, &mut |_| Ok(()))
+    }
+
+    fn checked_declared_type_matches_narrowed_fact_with(
+        &self,
+        instruction: usize,
+        mut binding: (usize, Vec<Name>),
+        declared: &Type,
+        checked: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         if declared == checked {
             return Ok(true);
         }
@@ -12396,11 +12664,13 @@ impl<'a> FullDecoder<'a> {
                         return Ok(false);
                     };
                     binding.1.push(*field);
-                    let matches = self.checked_declared_type_matches_narrowed_fact(
+                    charge(binding.1.len())?;
+                    let matches = self.checked_declared_type_matches_narrowed_fact_with(
                         instruction,
                         binding.clone(),
                         declared_field,
                         checked_field,
+                        charge,
                     )?;
                     binding.1.pop();
                     if !matches {
@@ -12410,18 +12680,34 @@ impl<'a> FullDecoder<'a> {
                 Ok(true)
             }
             (Type::Optional(payload), checked) => {
-                if !self.checked_binding_path_is_narrowed(instruction, &binding, payload)? {
+                if !self.checked_binding_path_is_narrowed(instruction, &binding, payload, charge)? {
                     return Ok(false);
                 }
-                self.checked_declared_type_matches_narrowed_fact(
+                self.checked_declared_type_matches_narrowed_fact_with(
                     instruction,
                     binding,
                     payload,
                     checked,
+                    charge,
                 )
             }
             _ => Ok(false),
         }
+    }
+
+    fn checked_value_optional_source(&self, instruction: usize, source: usize, checked: &Type) -> Result<Option<Type>, IrVerifyError> {
+        let binding = self.checked_binding_path(source, &mut |_| Ok(()))?;
+        let actual = match self.derive_checked_expression_type(source)? {
+            Some(actual) => Some(actual),
+            None => match &binding { Some(binding) => self.checked_binding_path_type(instruction, binding, &mut |_| Ok(()))?, None => None },
+        };
+        let Some(Type::Optional(payload)) = actual else { return Ok(None) };
+        if payload.as_ref() != checked { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
+        let Some(binding) = binding else { return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof")) };
+        if !self.checked_binding_path_is_narrowed(instruction, &binding, &payload, &mut |_| Ok(()))? {
+            return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof"));
+        }
+        Ok(Some(Type::Optional(payload)))
     }
 
     fn checked_optional_receiver_is_narrowed(
@@ -12429,14 +12715,16 @@ impl<'a> FullDecoder<'a> {
         field_instruction: usize,
         receiver_instruction: usize,
         expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        if self.instruction_proof.is_none() {
+        charge(1)?;
+        if !self.has_instruction_parent_proof()? {
             return Ok(false);
         }
-        let Some(target) = self.checked_binding_path(receiver_instruction)? else {
+        let Some(target) = self.checked_binding_path(receiver_instruction, charge)? else {
             return Ok(false);
         };
-        self.checked_binding_path_is_narrowed(field_instruction, &target, expected_payload)
+        self.checked_binding_path_is_narrowed(field_instruction, &target, expected_payload, charge)
     }
 
     fn checked_binding_path_is_narrowed(
@@ -12444,16 +12732,19 @@ impl<'a> FullDecoder<'a> {
         field_instruction: usize,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        if self.instruction_proof.is_none() {
+        charge(1)?;
+        if !self.has_instruction_parent_proof()? {
             return Ok(false);
         }
         let mut child = field_instruction;
         for _ in 0..=self.instruction_range.len() {
+        charge(1)?;
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Ok(false);
             };
-            let short_circuit = self.checked_short_circuit_path_for_child(parent, child)?;
+            let short_circuit = self.checked_short_circuit_path_for_child(parent, child, charge)?;
             if let Some((left, when_true, is_boolean, right)) = short_circuit
                 && self.checked_condition_proves_nonnull(
                     left,
@@ -12462,18 +12753,21 @@ impl<'a> FullDecoder<'a> {
                     field_instruction,
                     target,
                     expected_payload,
+                    charge,
                 )?
-                && self.checked_expression_preserves_binding_path(right, target)?
+                && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
             {
                 return Ok(true);
             }
             if let Some((conditions, body_roots)) =
-                self.checked_branch_conditions_for_child(parent, child)?
+                self.checked_branch_conditions_for_child(parent, child, charge)?
             {
                 for (condition, when_true, is_boolean) in conditions {
+        charge(1)?;
                     if !self.checked_parent_path_crosses_repeatable_loop(
                         field_instruction,
                         parent,
+                        charge,
                     )? && self.checked_condition_proves_nonnull(
                         condition,
                         when_true,
@@ -12481,11 +12775,13 @@ impl<'a> FullDecoder<'a> {
                         field_instruction,
                         target,
                         expected_payload,
+                        charge,
                     )? && self.checked_branch_preserves_binding_path(
                         parent,
                         &body_roots,
                         field_instruction,
                         target,
+                        charge,
                     )? {
                         return Ok(true);
                     }
@@ -12502,11 +12798,15 @@ impl<'a> FullDecoder<'a> {
         &self,
         instruction: usize,
         roots: &[usize],
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         let mut current = instruction;
         for _ in 0..=self.instruction_range.len() {
-            if roots.contains(&current) {
-                return Ok(true);
+        charge(1)?;
+            for &root in roots {
+        charge(1)?;
+                if root == current { return Ok(true); }
             }
             let Some(parent) = self.instruction_parent_of(current)? else {
                 return Ok(false);
@@ -12522,75 +12822,72 @@ impl<'a> FullDecoder<'a> {
         &self,
         instruction: usize,
         target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        if !self
-            .statement_written_slots(instruction)?
-            .0
-            .contains(&target.0)
-        {
-            return Ok(false);
-        }
-        let paths_overlap = |write: &[Name]| {
-            target.1.starts_with(write) || write.starts_with(&target.1)
-        };
+        charge(1)?;
+        let (writes_root, _, _) = self.visit_statement_written_slots(instruction, charge, &mut |slot| Ok(slot == target.0))?;
+        if !writes_root { return Ok(false); }
         match self.statement_view(instruction)? {
             schema::StmtView::AssignField { field, .. }
             | schema::StmtView::AssignFieldInt { field, .. } => {
-                Ok(paths_overlap(&[Name::intern(field)]))
+        charge(1)?;
+                Ok(target.1.first().is_none_or(|expected| *expected == Name::intern(field)))
             }
             schema::StmtView::AssignPath { mut path, .. } => {
-                let mut fields = Vec::new();
+                let mut depth = 0;
                 for step in &mut path {
+        charge(1)?;
                     match step? {
                         decode::AssignStepView::Field(field) => {
-                            if target
-                                .1
-                                .get(fields.len())
-                                .is_some_and(|expected| expected != &field)
-                            {
-                                return Ok(false);
-                            }
-                            if fields.len() == target.1.len() {
-                                return Ok(true);
-                            }
-                            fields.push(field);
+                            if target.1.get(depth).is_some_and(|expected| expected != &field) { return Ok(false); }
+                            if depth == target.1.len() { return Ok(true); }
+                            depth += 1;
                         }
                         decode::AssignStepView::Index(_) => return Ok(true),
                     }
                 }
-                Ok(paths_overlap(&fields))
+                Ok(true)
             }
             _ => Ok(true),
         }
     }
 
-    /// Parent IDs establish ancestry; ordered block lists establish which writes
-    /// execute first, while selected blocks exclude mutually exclusive arms.
     fn checked_branch_preserves_binding_path(
         &self,
         branch_parent: usize,
         body_roots: &[usize],
         before: usize,
         target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        let Some(mut prefix_roots) = self.checked_block_prefix_roots(body_roots, before)? else {
+        charge(1)?;
+        let Some(mut prefix_roots) = self.checked_block_prefix_roots(body_roots, before, charge)? else {
             return Ok(false);
         };
 
         let mut child = before;
         for _ in 0..=self.instruction_range.len() {
+        charge(1)?;
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Err(IrVerifyError::new(
                     "checked optional field receiver is outside its guard path",
                 ));
             };
             if parent == branch_parent {
-                return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target);
+                return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target, charge);
             }
-            for roots in self.checked_statement_blocks(parent)? {
+            if let Some((conditions, _)) = self.checked_branch_conditions_for_child(parent, child, charge)? {
+                for (condition, _, _) in conditions {
+                    charge(1)?;
+                    if !self.checked_expression_preserves_binding_path(condition, target, charge)? { return Ok(false); }
+                }
+            }
+            for roots in self.checked_statement_blocks(parent, charge)? {
+        charge(1)?;
                 if !roots.is_empty()
-                    && let Some(prefix) = self.checked_block_prefix_roots(&roots, before)?
+                    && let Some(prefix) = self.checked_block_prefix_roots(&roots, before, charge)?
                 {
+                    charge(prefix.len())?;
                     prefix_roots.extend(prefix);
                 }
             }
@@ -12605,7 +12902,9 @@ impl<'a> FullDecoder<'a> {
         &self,
         loop_instruction: usize,
         child: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         let tag = self.store.tags[loop_instruction];
         let source = match tag {
             FullTag::StmtFor => {
@@ -12665,16 +12964,18 @@ impl<'a> FullDecoder<'a> {
             | FullTag::ExprRetry => return Ok(true),
             _ => return Ok(false),
         };
-        Ok(!self.checked_instruction_is_in_roots(child, &[source])?)
+        Ok(!self.checked_instruction_is_in_roots(child, &[source], charge)?)
     }
 
-    /// An enclosing guard cannot prove a value survives a loop backedge.
     fn checked_parent_path_crosses_repeatable_loop(
         &self,
         mut child: usize,
         ancestor: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        charge(1)?;
         for _ in 0..=self.instruction_range.len() {
+        charge(1)?;
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Err(IrVerifyError::new(
                     "checked optional field receiver is outside its guard path",
@@ -12683,7 +12984,7 @@ impl<'a> FullDecoder<'a> {
             if parent == ancestor {
                 return Ok(false);
             }
-            if self.checked_child_is_in_repeatable_loop_body(parent, child)? {
+            if self.checked_child_is_in_repeatable_loop_body(parent, child, charge)? {
                 return Ok(true);
             }
             child = parent;
@@ -12705,7 +13006,7 @@ impl<'a> FullDecoder<'a> {
             .ok_or_else(|| IrVerifyError::new("checked field receiver has no source type"))?;
         let receiver = match receiver.into_unvalidated() {
             Type::Optional(inner)
-                if self.checked_optional_receiver_is_narrowed(instruction, base, &inner)? =>
+                if self.checked_optional_receiver_is_narrowed(instruction, base, &inner, &mut |_| Ok(()))? =>
             {
                 inner.into_unvalidated()
             }
@@ -16873,6 +17174,7 @@ impl FullVerifier {
                 owner,
                 instruction_range: instructions.clone(),
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
+                borrowed_instruction_parents: None,
                 instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                     instructions.clone(),
                 ))),
@@ -19326,6 +19628,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         owner: 0,
         instruction_range: 0..store.tags.len(),
         instruction_states: None,
+        borrowed_instruction_parents: None,
         instruction_proof: None,
         block_states: None,
         slot_count: 1,
@@ -29594,12 +29897,17 @@ assert results == [4]
             .payload(program.store.data[field].range())
             .expect("field payload is valid");
         let mut receiver = *field_payload.first().expect("field has a receiver") as usize;
-        while program.store.tags[receiver] == FullTag::ExprField {
-            let payload = program
-                .store
-                .payload(program.store.data[receiver].range())
-                .expect("nested field payload is valid");
-            receiver = *payload.first().expect("nested field has a base") as usize;
+        loop {
+            let decoder = function_view_decoder(&program.store, scheme_fixture_root_function(program, function));
+            match decoder.expression_view(receiver).expect("typed receiver view is valid") {
+                schema::ExprView::Field { base, .. } => receiver = base.raw() as usize,
+                schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => {
+                    let ty = check.ty.materialize().expect("typed receiver contract is valid");
+                    decoder.checked_expression_matches_type(value.raw() as usize, &Type::Optional(Box::new(ty))).expect("typed receiver carrier has its original optional source");
+                    receiver = value.raw() as usize;
+                }
+                _ => break,
+            }
         }
         assert_eq!(program.store.tags[receiver], FullTag::ExprParam);
         let payload = program
@@ -29702,6 +30010,7 @@ assert results == [4]
             owner,
             instruction_range: instruction_range.clone(),
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
+            borrowed_instruction_parents: None,
             instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
                 instruction_range,
             ))),
@@ -33216,6 +33525,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                borrowed_instruction_parents: None,
                 instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
@@ -33280,6 +33590,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                borrowed_instruction_parents: None,
                 instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
@@ -38099,6 +38410,299 @@ pure values_in_loop(value: Values?) -> List[Int] {
     }
 
     #[test]
+    fn instruction_parent_context_rejects_owner_range_and_parent_substitution() {
+        let parents = [None, Some(10)];
+        let context = InstructionParentContext { owner: 7, range: 10..12, parents: &parents, children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        assert_eq!(context.parent_of(7, &(10..12), 11).unwrap(), Some(10));
+        assert!(context.parent_of(8, &(10..12), 11).is_err());
+        assert!(context.parent_of(7, &(9..12), 11).is_err());
+        assert!(context.parent_of(7, &(10..12), 12).is_err());
+        let truncated = InstructionParentContext { owner: 7, range: 10..12, parents: &parents[..1], children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        assert!(truncated.parent_of(7, &(10..12), 11).is_err());
+        let escaping = [None, Some(9)];
+        let escaped = InstructionParentContext { owner: 7, range: 10..12, parents: &escaping, children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        assert!(escaped.parent_of(7, &(10..12), 11).is_err());
+    }
+
+    #[test]
+    fn checked_comprehensions_authenticate_discarded_iterables_filters_and_values() {
+        let program = Arc::new(fixture("checked-comprehension-operands.xsh", r#"pure make(values: List[Int], wrong: Bool, number: Int, flag: Bool) -> Result[List[UInt]] {
+  let _ = wrong
+  let result: List[UInt] = [number for _ in values if flag]
+  Ok(result)
+}
+let expected: List[UInt] = [7, 7]
+assert make([1, 2], true, 7, true)? == expected
+assert make([1, 2], true, 7, false)?.len() == 0
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "make");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let comprehension = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check, value, .. }) if check.schema.is_none()
+                && check.ty.materialize().unwrap() == Type::List(Box::new(Type::UInt))
+                && program.store.tags[value.raw() as usize] == FullTag::ExprListComp => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::ListComp { mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+        let super::decode::CompQualifierView::For { target: super::decode::CompTargetView::Discard, iter, .. } = qualifiers.next().unwrap().unwrap() else { panic!("discarded binder") };
+        let super::decode::CompQualifierView::If { condition, .. } = qualifiers.next().unwrap().unwrap() else { panic!("filter") };
+        let number = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        for (target, source) in [(iter.raw() as usize, wrong), (number, wrong), (condition.raw() as usize, number)] {
+            assert!(matches!(decoder.expression_view(target).unwrap(), schema::ExprView::Param(_)));
+            let mut malformed = (*program).clone();
+            malformed.store.data[target] = program.store.data[source];
+            let error = FullVerifier::verify(&malformed).expect_err(&format!("mutated comprehension operand {target}"));
+            assert!(error.message.contains("contract") || error.message.contains("item type") || error.message.contains("control role"), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_a_captured_setter_before_read() {
+        let program = Arc::new(fixture("captured-setter-guard-order.xsh", r#"type Holder = {callback: pure(n: Int) -> Int}
+pure double(n: Int) -> Int { n * 2 }
+pure noop() -> Unit {}
+let initial: Holder = {callback: double}
+var shared: Holder? = initial
+proc clear_shared() [] -> Unit { shared = null }
+proc apply(n: Int) [] -> Int {
+  if shared != null {
+    let _ = noop()
+    let result = shared.callback(n)
+    let _ = clear_shared()
+    result
+  } else { 0 }
+}
+proc copied(n: Int) [] -> Int {
+  let local = shared
+  if local != null {
+    let _ = clear_shared()
+    local.callback(n)
+  } else { 0 }
+}
+assert apply(3) == 6
+assert shared == null
+shared = initial
+assert copied(4) == 8
+assert shared == null
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "apply");
+        let clear = scheme_fixture_root_function(&program, "clear_shared");
+        let captures = |function: usize| program.store.functions[function].captures.bounds(program.store.captures.len()).unwrap();
+        let apply_capture = program.store.captures[captures(owner)].iter().find(|capture| capture.slot_and_flags & (1 << 31) != 0).unwrap();
+        assert!(program.store.captures[captures(clear)].iter().any(|capture| capture.slot_and_flags & (1 << 31) != 0 && capture.binding_identity == apply_capture.binding_identity));
+        let decoder = function_view_decoder(&program.store, owner);
+        let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Call { function, .. }) if function.id.index() == clear)).unwrap();
+        let body = first_if_body_block(&program, "apply");
+        let setter = block_statement_containing_instruction(&program, body, call);
+        let read = function_instruction_indices(&program, "apply", FullTag::ExprTypedCall)[0];
+        let read = block_statement_containing_instruction(&program, body, read);
+        let mut malformed = (*program).clone();
+        let statements = block_statement_range(&malformed, body);
+        let statements = &mut malformed.store.extra[statements];
+        let setter_position = statements.iter().position(|&statement| statement as usize == setter).unwrap();
+        let read_position = statements.iter().position(|&statement| statement as usize == read).unwrap();
+        assert!(read_position < setter_position);
+        statements.swap(read_position, setter_position);
+        assert_eq!(statements[read_position] as usize, setter);
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+        let reader_capture = captures(owner).find(|&index| malformed.store.captures[index].binding_identity == apply_capture.binding_identity).unwrap();
+        malformed.store.captures[reader_capture].slot_and_flags &= !(1 << 31);
+        assert!(malformed.store.captures[captures(clear)].iter().any(|capture| capture.binding_identity == apply_capture.binding_identity && capture.slot_and_flags & (1 << 31) != 0));
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type"), "{error:?}");
+    }
+
+    #[test]
+    fn checked_unsigned_lists_preserve_runtime_validation_and_argument_order() {
+        let program = Arc::new(fixture("checked-unsigned-list-arguments.xsh", r#"pure copy(value: Int, keys: List[UInt]) -> Map[UInt, Int] { {key: value for key in keys} }
+pure copy_text(value: Str, keys: List[UInt]) -> Map[UInt, Str] { {key: value for key in keys} }
+pure number() -> Map[UInt, Int] { copy(7, [1, 2]) }
+pure text() -> Map[UInt, Str] { copy_text("value", [1, 2]) }
+pure typed(keys: List[UInt]) -> Map[UInt, Int] { copy(7, keys) }
+var order = 0
+proc mark(value: Int) [] -> Int { order = order * 10 + value; value }
+pure count(keys: List[UInt], final: Int) -> Int { keys.len() + final }
+assert number().len() == 2
+assert text().len() == 2
+let keys: List[UInt] = [1, 2]
+assert typed(keys).len() == 2
+assert count([mark(1), mark(2)], mark(3)) == 5
+assert order == 123
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let failed = Arc::new(fixture("checked-unsigned-list-negative-argument.xsh", r#"pure count(keys: List[UInt]) -> Int { keys.len() }
+proc negative() [] -> Int { -1 }
+let failed = count([negative()])
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*failed.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&failed));
+            let error = (0..failed.driver_step_count().unwrap()).find_map(|step| evaluator.eval_indexed_driver_step(step, Span::new(failed.store.source_id, 0, 0)).unwrap().err()).unwrap();
+            assert_eq!(error.kind, "type-error");
+            assert!(error.message.contains("UInt constraint"), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn checked_empty_sets_authenticate_fresh_receivers_and_selected_methods() {
+        let program = Arc::new(fixture("checked-empty-set-producers.xsh", r#"pure make(wrong: Bool, stored: List[Any]) -> Result[Set[Str]] {
+  let _ = wrong
+  let _ = stored
+  let _ = "is_empty"
+  let nested: List[List[Str]] = [[]]
+  let _ = nested
+  let neighbor: Set[Str] = {"member",}
+  let _ = neighbor
+  let empty: Set[Str] = set.empty()
+  if wrong { Ok(empty) } else { Ok(neighbor) }
+}
+assert make(true, [true])?.len() == 0
+assert make(false, [true])?.len() == 1
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "make");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (method, receiver) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Method { receiver, name: "to_set", .. })
+                if matches!(decoder.expression_view(receiver.raw() as usize), Ok(schema::ExprView::List(values)) if values.len() == 0) => Some((instruction, receiver.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let outer = range.clone().find(|&instruction| {
+            let Ok(schema::ExprView::List(mut values)) = decoder.expression_view(instruction) else { return false };
+            values.len() == 1 && matches!(decoder.expression_view(values.next().unwrap().unwrap().raw() as usize), Ok(schema::ExprView::List(inner)) if inner.len() == 0)
+        }).unwrap();
+        let mut malformed = (*program).clone();
+        malformed.store.data.swap(receiver, outer);
+        let changed = function_view_decoder(&malformed.store, owner);
+        let schema::ExprView::List(mut values) = changed.expression_view(receiver).unwrap() else { unreachable!() };
+        assert_eq!(values.len(), 1);
+        let inner = values.next().unwrap().unwrap().raw() as usize;
+        assert!(matches!(changed.expression_view(inner).unwrap(), schema::ExprView::List(values) if values.len() == 0));
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("ground list producer has no item contract") || error.message.contains("checked value input disagrees"), "{error:?}");
+        let member = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str(value)) if value == "member")).unwrap();
+        let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let stored = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        for (target, source) in [(member, wrong)] {
+            let mut malformed = (*program).clone();
+            malformed.store.tags[target] = FullTag::ExprParam;
+            malformed.store.data[target] = program.store.data[source];
+            let error = FullVerifier::verify(&malformed).expect_err(&format!("mutated target {target} from source {source}"));
+            assert!(error.message.contains("checked value input disagrees") || error.message.contains("ground producer value disagrees"), "{error:?}");
+        }
+        let discard = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::LetRecord { source, target: super::decode::CompTargetView::Discard, .. }) if source.raw() as usize == stored)).unwrap();
+        let mut malformed = (*program).clone();
+        let method_receiver = malformed.store.data[method].range().start as usize;
+        let discarded_value = malformed.store.data[discard].range().start as usize;
+        assert_eq!(malformed.store.extra[method_receiver], receiver as u32);
+        assert_eq!(malformed.store.extra[discarded_value], stored as u32);
+        malformed.store.extra.swap(method_receiver, discarded_value);
+        let changed = function_view_decoder(&malformed.store, owner);
+        assert!(matches!(changed.expression_view(method).unwrap(), schema::ExprView::Method { receiver, .. } if receiver.raw() as usize == stored));
+        assert!(matches!(changed.statement_view(discard).unwrap(), schema::StmtView::LetRecord { source, target: super::decode::CompTargetView::Discard, .. } if source.raw() as usize == receiver));
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("checked value input disagrees") || error.message.contains("ground producer value disagrees"), "{error:?}");
+        let selector = (1..=program.store.strings.len()).find(|&index| program.store.string(index as u32).unwrap() == "is_empty").unwrap() as u32;
+        let mut malformed = (*program).clone();
+        let name = malformed.store.data[method].range().start as usize + 1;
+        assert_eq!(malformed.store.string(malformed.store.extra[name]).unwrap(), "to_set");
+        malformed.store.extra[name] = selector;
+        assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(method).unwrap(), schema::ExprView::Method { name: "is_empty", .. }));
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("checked value input has no producer contract") || error.message.contains("checked value input disagrees"), "{error:?}");
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_a_nested_condition_write() {
+        let program = fixture("optional-field-nested-condition-write.xsh", r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply(holder: Holder?, n: Int, flag: Bool) -> Int {
+  var current = holder
+  var alternate: Holder? = null
+  if current != null {
+    if if flag { alternate = null; true } else { true } {
+      current.callback(n)
+    } else { 0 }
+  } else { 0 }
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let protected = typed_call_receiver_slot(&program, "apply");
+        let assignment = function_instruction_indices(&program, "apply", FullTag::StmtAssign).into_iter().next().unwrap();
+        let mut malformed = program.clone();
+        let payload = malformed.store.data[assignment].range();
+        assert_ne!(malformed.store.extra[payload.start as usize] as usize, protected);
+        malformed.store.extra[payload.start as usize] = protected as u32;
+        let owner = scheme_fixture_root_function(&malformed, "apply");
+        let decoder = function_view_decoder(&malformed.store, owner);
+        assert!(matches!(decoder.statement_view(assignment).unwrap(), schema::StmtView::Assign { slot, .. } if slot == protected));
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+    }
+
+    #[test]
+    fn typed_callable_optional_field_guard_prefixes_keep_bounded_work() {
+        run_with_large_stack(|| {
+            for locals in [4, 8, 16, 32] {
+                let declarations = (0..locals).map(|index| format!("let spare_{index} = {index}; ")).collect::<String>();
+                let source = format!("type Leaf = {{value: Int}}\ntype Branch = {{child: Leaf?}}\npure value(branch: Branch) -> Result[Int] {{ if branch.child != null {{ {declarations} Ok(branch.child.value) }} else {{ Ok(0) }} }}\nlet branch: Branch = {{child: {{value: 7}}}}\nassert value(branch)? == 7\nassert value({{child: null}})? == 0\n");
+                let program = Arc::new(fixture("optional-field-prefix-work.xsh", &source));
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+                let owner = scheme_fixture_root_function(&program, "value");
+                let decoder = function_view_decoder(&program.store, owner);
+                let comparison = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Ne, .. }))).unwrap();
+                let op = program.store.extra[program.store.data[comparison].range().start as usize] as usize;
+                let mut wrong_guard = (*program).clone();
+                wrong_guard.store.binary_ops[op] = BinaryOp::Eq;
+                let error = FullVerifier::verify(&wrong_guard).unwrap_err();
+                assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+            }
+        });
+    }
+
+    #[test]
     fn typed_callable_optional_field_rejects_a_flipped_null_guard() {
         let program = fixture(
             "typed-callable-optional-record-flipped-guard.xsh",
@@ -38560,6 +39164,25 @@ pure apply_or_write(holder: Holder?, n: Int, flag: Bool) -> Int {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn typed_callable_optional_field_allows_read_before_a_later_short_circuit_write() {
+        let program = fixture(
+            "typed-callable-optional-record-rhs-prefix.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply(holder: Holder?, n: Int) -> Bool {
+  var current = holder
+  current != null and {
+    let _ = current.callback(n)
+    current = null
+    true
+  }
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
     }
 
     #[test]

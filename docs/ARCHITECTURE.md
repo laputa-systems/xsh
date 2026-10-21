@@ -242,7 +242,13 @@ field and element proof; their raw shape cannot establish a validated domain.
 Direct slot/null comparisons establish an immutable pattern read in an active
 `if` branch or `while` body, or after a matching `if` branch that cannot complete,
 only when the exact regional binding has no writers. Null exclusion preserves
-the payload's unsigned and validated domains.
+the payload's unsigned and validated domains. Typed optional carriers use the
+exact read site's active branch, short-circuit prefix, and preceding terminating
+branch while retaining the original broad storage contract and every writer
+proof. Prefix checks include nested condition writes and calls that can mutate
+shared captured storage. Immediate shared reads, pure calls, and independent local
+copies retain their checked behavior. Capture mutability must agree with the
+binding's canonical defining driver payload.
 Every destructuring source and guard envelope is proved, including targets that
 bind no values. Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
@@ -257,12 +263,21 @@ wrappers before applying runtime validation. Matching record fields can defer
 nonnominal predicates to that gate without changing stored collection variance.
 Typed callable signatures and nominal payloads retain independent producer proof.
 The exact optional-payload carrier preserves the original optional producer for
-those incomplete runtime checks. Generic shared-state restrictions remain separate.
+those incomplete runtime checks. Matching fresh collection and comprehension
+inputs retain all element, spread, iterable, filter, and body proofs under the
+actual checked gate. A fresh list receiver can obtain a set element contract only
+when the selected registered method returns exactly the gate's set contract.
+Stored collection contracts and nominal validation remain independent.
+Generic shared-state restrictions remain separate.
 
 The producer census collects pattern and pipeline instructions during its
 mandatory instruction scan. Later scope registration visits those candidates
-under the same work bound. Selected native arguments can carry an owned,
-single-use declared-type fact into their existing proof obligation. The fact
+under the same work bound. Guard queries borrow the exact owner census and visit
+only relevant ordered prefix subtrees. Pattern and target write membership streams
+through the same borrowed visitors as write collection, charging before allocation
+and stopping once an overlapping writer is established. Selected native arguments,
+record entries, and match subjects can carry an owned, single-use declared-type
+fact into their existing proof obligation. The fact
 must match the exact owner and instruction. Contextual hints cannot supply it,
 and consuming the fact retains all child, shape, storage, and effect proofs.
 
