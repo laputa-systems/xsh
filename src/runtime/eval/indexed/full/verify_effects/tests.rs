@@ -184,6 +184,107 @@ fn prepared_uptime_implementation_requires_filesystem_permission() {
 
 
 #[test]
+fn process_handle_cancel_preserves_compacted_named_defaults() {
+    let mut program = fixture(r#"
+proc close(handle: ProcessHandle) [process] -> Result[Unit] {
+    handle.cancel(kill_after: 0ms)
+}
+proc signal(handle: ProcessHandle) [process] -> Result[Unit] {
+    handle.cancel(signal: "TERM")
+}
+proc both(handle: ProcessHandle) [process] -> Result[Unit] {
+    handle.cancel(signal: "TERM", kill_after: 0ms)
+}
+proc defaults(handle: ProcessHandle) [process] -> Result[Unit] {
+    handle.cancel()
+}
+pure wrong() -> Bool { true }
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    let owner = function(&program, "close");
+    let decoder = function_view_decoder(&program.store, owner);
+    let method = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprMethod).unwrap();
+    let schema::ExprView::Method { mut args, .. } = decoder.expression_view(method).unwrap() else { panic!("method") };
+    assert_eq!(args.len(), 1);
+    let argument = args.next().unwrap().unwrap().raw() as usize;
+    assert!(program.store.function_instruction_range(owner).unwrap().contains(&argument));
+    let durations = program.store.function_instruction_range(owner).unwrap().filter(|&instruction|
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Duration(_)
+            | schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Duration(_), _))))).collect::<Vec<_>>();
+    assert_eq!(durations.len(), 1);
+    let duration = durations[0];
+    let boolean = program.store.function_instruction_range(function(&program, "wrong")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    let mut invalid = program.clone();
+    invalid.store.tags[duration] = FullTag::ExprBool;
+    invalid.store.data[duration] = program.store.data[boolean];
+    let error = FullVerifier::verify(&invalid).unwrap_err();
+    assert!(error.message.contains("ground method arguments do not match a registered contract"), "{error:?}");
+}
+
+#[test]
+fn process_port_rows_preserve_pipeline_predicate_categories() {
+    let actual = fixture(r#"
+type PortProcess = {
+    pid: Int, parent_pid: Int, command: Str, argv: Str, argv0: Str,
+    user: Str, uid: Int, protocol: Str, local_address: Str,
+    local_port: Int, local: Str, remote_address: Str, remote_port: Int,
+    remote: Str, state: Str, fd: Int, inode: Int,
+}
+let rows: List[PortProcess] = process.port(1)? |> where .pid == 1
+let count = rows |> count()
+if count == 0 {
+    print false
+} else {
+    let row = rows[0]
+    print ${row.pid == 1}
+}
+"#);
+    assert!(actual.store.tags.contains(&FullTag::BoolLiteralCompareSlot));
+    let mut program = fixture(r#"
+proc flag() [] -> Bool { true }
+let count: Int = if flag() { 7 } else { 8 }
+let alternate: Int = 9
+if count == 7 {
+    assert true
+} else {
+    assert false
+}
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let integer = (0..program.store.driver_steps.len()).flat_map(|step| program.store.driver_instruction_range(step).unwrap()).find_map(|instruction| {
+        if program.store.tags[instruction].kind() != schema::InstructionKind::Expr { return None; }
+        let decoder = driver_projection_decoder(&program, instruction);
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7)
+            | schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Int(7), _))))
+            .then_some(instruction)
+    }).unwrap();
+    let boolean = program.store.function_instruction_range(function(&program, "flag")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    let mut wrong_writer = program.clone();
+    wrong_writer.store.tags[integer] = FullTag::ExprBool;
+    wrong_writer.store.data[integer] = program.store.data[boolean];
+    let error = FullVerifier::verify(&wrong_writer).unwrap_err();
+    assert!(error.message.contains("producer") || error.message.contains("annotation"), "{error:?}");
+    let predicate = program.store.tags.iter().position(|tag| *tag == FullTag::BoolLiteralCompareSlot).unwrap();
+    let decoder = driver_projection_decoder(&program, predicate);
+    let step = program.store.driver_steps[driver_owner_index(decoder.owner).unwrap()];
+    let read = step.slots.bounds(program.store.driver_slots.len()).unwrap()
+        .find(|&index| program.store.string(program.store.driver_slots[index].name).unwrap() == "count").unwrap();
+    let alternate = program.store.binding_identities.iter().position(|identity|
+        program.store.string(identity.name).unwrap() == "alternate").unwrap();
+    let mut wrong_owner = program.clone();
+    assert_ne!(wrong_owner.store.driver_slots[read].binding_identity, alternate as u32);
+    wrong_owner.store.driver_slots[read].binding_identity = alternate as u32;
+    let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+    assert!(error.message.contains("identity") || error.message.contains("identities"), "{error:?}");
+}
+
+#[test]
 fn checked_field_reads_preserve_terminating_guards() {
     let program = fixture(r#"
 type Index = {value: Int?}
