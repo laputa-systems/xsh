@@ -486,7 +486,7 @@ pub(in crate::runtime::eval) enum CallableAssignmentPathStep {
 
 #[derive(Clone, Copy)]
 struct FunctionSignatureTarget {
-    signature: SignatureId,
+    contract: FullCallableContract,
     function: IrFunctionId,
 }
 
@@ -618,13 +618,12 @@ impl FunctionSignatureIndex {
             } else {
                 &mut entry.proc
             };
-            *lookup = match (function.contract, *lookup) {
-                (FullCallableContract::Ground(signature), FunctionSignatureLookup::Missing) => {
-                    FunctionSignatureLookup::Unique(FunctionSignatureTarget { signature, function: IrFunctionId::new(index).map_err(|_| IrVerifyError::new("function signature target id is invalid"))? })
+            *lookup = match *lookup {
+                FunctionSignatureLookup::Missing => {
+                    FunctionSignatureLookup::Unique(FunctionSignatureTarget { contract: function.contract, function: IrFunctionId::new(index).map_err(|_| IrVerifyError::new("function signature target id is invalid"))? })
                 }
-                (_, FunctionSignatureLookup::Missing)
-                | (_, FunctionSignatureLookup::Unique(_))
-                | (_, FunctionSignatureLookup::Ambiguous) => FunctionSignatureLookup::Ambiguous,
+                FunctionSignatureLookup::Unique(_)
+                | FunctionSignatureLookup::Ambiguous => FunctionSignatureLookup::Ambiguous,
             };
         }
         Ok(Self { functions })
@@ -641,7 +640,10 @@ impl FunctionSignatureIndex {
             .get(&(Some(owner), name))
             .map(|signatures| if pure { &signatures.pure } else { &signatures.proc });
         match lookup {
-            Some(FunctionSignatureLookup::Unique(target)) => Ok(target.signature),
+            Some(FunctionSignatureLookup::Unique(target)) => match target.contract {
+                FullCallableContract::Ground(signature) => Ok(signature),
+                FullCallableContract::Scheme(_) => Err(IrVerifyError::new("registered module function target requires a checked scheme instance")),
+            },
             Some(FunctionSignatureLookup::Ambiguous) => Err(IrVerifyError::new(
                 "registered module function target is ambiguous",
             )),
@@ -734,6 +736,7 @@ struct FullStore {
     call_application_bindings: Vec<schemes::FullApplicationBinding>,
     call_application_slots: Vec<u32>,
     scheme_application_calls: Vec<schemes::FullSchemeApplicationCall>,
+    scheme_application_returns: Vec<schemes::FullSchemeApplicationReturn>,
     call_effect_arguments: Vec<schemes::FullEffectArgument>,
     scheme_schema_expectations: Vec<schemes::FullSchemeSchemaExpectation>,
     scheme_schema_instances: Vec<schemes::FullSchemeSchemaInstance>,
@@ -823,6 +826,7 @@ impl Default for FullStore {
             call_application_bindings: Vec::new(),
             call_application_slots: Vec::new(),
             scheme_application_calls: Vec::new(),
+            scheme_application_returns: Vec::new(),
             call_effect_arguments: Vec::new(),
             scheme_schema_expectations: Vec::new(),
             scheme_schema_instances: Vec::new(),
@@ -1041,6 +1045,7 @@ impl FullStore {
             + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
             + self.call_application_slots.capacity() * size_of::<u32>()
             + self.scheme_application_calls.capacity() * size_of::<schemes::FullSchemeApplicationCall>()
+            + self.scheme_application_returns.capacity() * size_of::<schemes::FullSchemeApplicationReturn>()
             + self.call_effect_arguments.capacity() * size_of::<schemes::FullEffectArgument>()
             + self.scheme_schema_expectations.capacity()
                 * size_of::<schemes::FullSchemeSchemaExpectation>()
@@ -1148,6 +1153,7 @@ impl FullStore {
         self.call_application_bindings.shrink_to_fit();
         self.call_application_slots.shrink_to_fit();
         self.scheme_application_calls.shrink_to_fit();
+        self.scheme_application_returns.shrink_to_fit();
         self.call_effect_arguments.shrink_to_fit();
         self.scheme_schema_expectations.shrink_to_fit();
         self.scheme_schema_instances.shrink_to_fit();
@@ -1208,13 +1214,20 @@ pub(in crate::runtime::eval) struct FullProgram {
         std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedTypeConstructor { Result, Other }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
+
 #[derive(Clone, Debug, Default)]
-pub(in crate::runtime::eval) struct PreparedApplicationBindings {
+pub(in crate::runtime::eval) struct PreparedInvocationBindings {
+    types: Arc<[PreparedTypeConstructor]>,
     layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
 }
 
-impl PreparedApplicationBindings {
-    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() }
+impl PreparedInvocationBindings {
+    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() && self.types.is_empty() }
 }
 
 #[derive(Clone, Copy)]
@@ -1230,13 +1243,30 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
+    pub(in crate::runtime::eval) fn has_invocation(&self, instruction: u32) -> bool {
+        self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_ok()
+    }
+
     pub(in crate::runtime::eval) fn invocation_applications(
-        &self, instruction: u32, caller: &PreparedApplicationBindings,
-    ) -> Result<PreparedApplicationBindings, IrVerifyError> {
+        &self, instruction: u32, target: usize, caller: &PreparedInvocationBindings,
+    ) -> Result<PreparedInvocationBindings, IrVerifyError> {
         let Ok(index) = self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction) else {
-            return Ok(PreparedApplicationBindings::default());
+            return Ok(PreparedInvocationBindings::default());
         };
         let instance = self.store.call_instantiations[index];
+        let FullCallableContract::Scheme(id) = self.store.functions.get(target)
+            .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
+        else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
+        let parameters = self.store.scheme(id)?.type_parameters.bounds(self.store.scheme_type_parameters.len())
+            .ok_or_else(|| IrVerifyError::new("invocation type parameter range is invalid"))?;
+        let arguments = instance.type_arguments.bounds(self.store.call_type_arguments.len())
+            .ok_or_else(|| IrVerifyError::new("invocation type argument range is invalid"))?;
+        let arguments = self.store.call_type_arguments[arguments].iter().map(|argument| (argument.binder, argument.ty)).collect::<BTreeMap<_, _>>();
+        let mut types = Vec::with_capacity(parameters.len());
+        for parameter in &self.store.scheme_type_parameters[parameters] {
+            let ty = *arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
+            types.push(self.invocation_type_constructor(ty, caller)?);
+        }
         let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
         let mut layouts = Vec::with_capacity(range.len());
@@ -1257,11 +1287,47 @@ impl FullProgram {
             };
             layouts.push(layout);
         }
-        Ok(PreparedApplicationBindings { layouts: layouts.into() })
+        Ok(PreparedInvocationBindings { types: types.into(), layouts: layouts.into() })
+    }
+
+    fn invocation_type_constructor(&self, ty: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedTypeConstructor, IrVerifyError> {
+        let node = self.store.scheme_types.get(ty.index()).ok_or_else(|| IrVerifyError::new("invocation type is out of bounds"))?;
+        match node.tag {
+            schema::FullSchemeTypeTag::Ground => {
+                let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation ground type is invalid"))?;
+                Ok(if self.store.semantic.type_tag(id)? == super::semantic::TypeTag::Result { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
+            }
+            schema::FullSchemeTypeTag::Parameter => invocation.types.get(node.first as usize).copied()
+                .ok_or_else(|| IrVerifyError::new("invocation type parameter has no actual binding")),
+            schema::FullSchemeTypeTag::Result => Ok(PreparedTypeConstructor::Result),
+            _ => Ok(PreparedTypeConstructor::Other),
+        }
+    }
+
+    pub(in crate::runtime::eval) fn invocation_returns_result(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
+        let FullCallableContract::Scheme(id) = self.store.functions.get(function)
+            .ok_or_else(|| IrVerifyError::new("invocation return owner is out of bounds"))?.contract
+        else { return Err(IrVerifyError::new("erased invocation return has no scheme")); };
+        Ok(self.invocation_type_constructor(self.store.scheme(id)?.return_type, invocation)? == PreparedTypeConstructor::Result)
+    }
+
+    pub(in crate::runtime::eval) fn application_return(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<PreparedProcReturn>, IrVerifyError> {
+        let Ok(index) = self.store.scheme_application_returns.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
+        let site = self.store.scheme_application_returns[index];
+        let FullCallableContract::Scheme(id) = self.store.functions[site.function.index()].contract
+            else { return Err(IrVerifyError::new("application return has no generic owner")); };
+        let applications = self.store.scheme(id)?.applications.bounds(self.store.scheme_applications.len())
+            .ok_or_else(|| IrVerifyError::new("application return range is invalid"))?;
+        let application = self.store.scheme_applications[applications].get(site.application as usize)
+            .ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
+        Ok(Some(match self.invocation_type_constructor(application.result, invocation)? {
+            PreparedTypeConstructor::Result => PreparedProcReturn::Preserve,
+            PreparedTypeConstructor::Other => PreparedProcReturn::Wrap,
+        }))
     }
 
     pub(in crate::runtime::eval) fn application_layout(
-        &self, instruction: u32, invocation: &PreparedApplicationBindings,
+        &self, instruction: u32, invocation: &PreparedInvocationBindings,
     ) -> Result<Option<Arc<crate::sema::arguments::StaticArgumentBinding>>, IrVerifyError> {
         let Ok(index) = self.store.scheme_application_calls.binary_search_by_key(&instruction, |site| site.instruction) else { return Ok(None); };
         let ordinal = self.store.scheme_application_calls[index].application;
@@ -3025,6 +3091,7 @@ struct FullCheckpoint {
     call_application_bindings: usize,
     call_application_slots: usize,
     scheme_application_calls: usize,
+    scheme_application_returns: usize,
     call_effect_arguments: usize,
     scheme_schema_expectations: usize,
     scheme_schema_instances: usize,
@@ -4811,6 +4878,7 @@ impl FullBuilder {
             call_application_bindings: self.store.call_application_bindings.len(),
             call_application_slots: self.store.call_application_slots.len(),
             scheme_application_calls: self.store.scheme_application_calls.len(),
+            scheme_application_returns: self.store.scheme_application_returns.len(),
             call_effect_arguments: self.store.call_effect_arguments.len(),
             scheme_schema_expectations: self.store.scheme_schema_expectations.len(),
             scheme_schema_instances: self.store.scheme_schema_instances.len(),
@@ -4898,6 +4966,7 @@ impl FullBuilder {
         self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
         self.store.call_application_slots.truncate(checkpoint.call_application_slots);
         self.store.scheme_application_calls.truncate(checkpoint.scheme_application_calls);
+        self.store.scheme_application_returns.truncate(checkpoint.scheme_application_returns);
         self.store.call_effect_arguments.truncate(checkpoint.call_effect_arguments);
         self.store.scheme_schema_expectations.truncate(checkpoint.scheme_schema_expectations);
         self.store.scheme_schema_instances.truncate(checkpoint.scheme_schema_instances);
@@ -8534,10 +8603,10 @@ impl<'a> FullDecoder<'a> {
         Ok(sources)
     }
 
-    fn function_reference_target(
+    fn function_reference_contract(
         &self,
         function: decode::FunctionNameView,
-    ) -> Result<(IrFunctionId, SignatureId, bool), IrVerifyError> {
+    ) -> Result<(IrFunctionId, FullCallableContract, bool), IrVerifyError> {
         let (name, namespace) = match function {
             decode::FunctionNameView::Name(name) => (name, None),
             decode::FunctionNameView::Qualified(name) => (name.member, Some(name.namespace)),
@@ -8550,10 +8619,10 @@ impl<'a> FullDecoder<'a> {
         let result = match lookup {
             Some(signatures) => match (&signatures.pure, &signatures.proc) {
                 (FunctionSignatureLookup::Unique(target), FunctionSignatureLookup::Missing) => {
-                    Some((target.function, target.signature, true))
+                    Some((target.function, target.contract, true))
                 }
                 (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Unique(target)) => {
-                    Some((target.function, target.signature, false))
+                    Some((target.function, target.contract, false))
                 }
                 (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Missing) => None,
                 _ => {
@@ -8573,6 +8642,17 @@ impl<'a> FullDecoder<'a> {
                 "function reference `{target}` has no checked signature"
             ))
         })
+    }
+
+    fn function_reference_target(
+        &self,
+        function: decode::FunctionNameView,
+    ) -> Result<(IrFunctionId, SignatureId, bool), IrVerifyError> {
+        let (target, contract, pure) = self.function_reference_contract(function)?;
+        let FullCallableContract::Ground(signature) = contract else {
+            return Err(IrVerifyError::new("function reference requires a checked scheme instance"));
+        };
+        Ok((target, signature, pure))
     }
 
     fn function_reference_signature(
@@ -19280,6 +19360,9 @@ macro_rules! impl_build_id_codec {
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
+                let application_return = if $resource_transfer {
+                    scratch.scheme_application_returns.get(&self.index()).copied()
+                } else { None };
                 let call_instantiation = if $checked_expr_type {
                     scratch.call_instantiations.get(self.index()).cloned().flatten()
                 } else {
@@ -19318,6 +19401,7 @@ macro_rules! impl_build_id_codec {
                 };
                 let needs_instruction = checked_expr_type.is_some()
                     || transfers_resource
+                    || application_return.is_some()
                     || checked_call_target.is_some()
                     || call_instantiation.is_some()
                     || checked_call_result.is_some()
@@ -19423,6 +19507,18 @@ macro_rules! impl_build_id_codec {
                     }
                     builder.store.scheme_application_calls.push(schemes::FullSchemeApplicationCall {
                         instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_application_instruction", None, 0, instruction))?, application,
+                    });
+                }
+                if let Some(site) = application_return {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_return_instruction", None, 0, self.index()))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw)
+                        .ok_or_else(|| IrBuildError::format("scheme_return_owner", None, 0, instruction))?;
+                    if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::StmtReturn {
+                        return Err(IrBuildError::format("scheme_return_owner", None, 0, instruction));
+                    }
+                    builder.store.scheme_application_returns.push(schemes::FullSchemeApplicationReturn {
+                        instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("scheme_return_instruction", None, 0, instruction))?,
+                        function, application: site.application, envelope: site.envelope,
                     });
                 }
                 match (call_instantiation, checked_call_result) {
@@ -23230,6 +23326,74 @@ assert apply(40) == 42
             let mut wrong_effect = program.clone();
             wrong_effect.store.scheme_effects[direct.start] = Effect::Time;
             assert_eq!(FullVerifier::verify(&wrong_effect).unwrap_err().message, "selected application disagrees with its callable contract");
+        });
+    }
+
+    #[test]
+    fn prepared_application_returns_authenticate_actual_producers_and_sites() {
+        run_with_large_stack(|| {
+            let program = fixture("prepared-application-returns.xsh", concat!(
+                "pure first(payload: Int) -> Int { payload }\n",
+                "pure second(payload: Int) -> Int { payload + 1 }\n",
+                "proc relay(first, second, value, flag: Bool) { if flag { return first(value) }; second(value) }\n",
+                "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "relay");
+            let sites = program.store.scheme_application_returns.iter().enumerate()
+                .filter(|(_, site)| site.function.index() == owner).map(|(index, site)| (index, *site)).collect::<Vec<_>>();
+            assert_eq!(sites.len(), 2);
+            let (first, first_site) = sites[0];
+            let (_, second_site) = sites[1];
+            assert_ne!(first_site.application, second_site.application);
+            let mut swapped = program.clone();
+            swapped.store.scheme_application_returns[first].application = second_site.application;
+            swapped.store.scheme_application_returns[first].envelope = second_site.envelope;
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert!(error.message.contains("application return disagrees with its actual producer or envelope"), "{}", error.message);
+            let mut missing = program.clone();
+            missing.store.scheme_application_returns.remove(first);
+            let error = FullVerifier::verify(&missing).unwrap_err();
+            assert!(error.message.contains("generic body return does not match its scheme return"), "{}", error.message);
+            let mut duplicate = program.clone();
+            duplicate.store.scheme_application_returns.insert(first, first_site);
+            assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("scheme application returns are unordered"));
+            let mut foreign = program.clone();
+            foreign.store.scheme_application_returns[first].function = IrFunctionId::new(scheme_fixture_root_function(&program, "number")).unwrap();
+            assert!(FullVerifier::verify(&foreign).unwrap_err().message.contains("scheme application return belongs to another owner"));
+            let mut envelope = program.clone();
+            envelope.store.scheme_application_returns[first].envelope = u32::MAX;
+            assert!(FullVerifier::verify(&envelope).unwrap_err().message.contains("scheme return envelope ordinal is out of scope"));
+
+            let branches = fixture("prepared-application-return-branches.xsh", concat!(
+                "pure first(payload: Int) -> Int { payload }\n",
+                "pure second(payload: Int) -> Int { payload + 1 }\n",
+                "proc relay(first, second, value, flag: Bool) { if flag { first(value) } else { second(value) } }\n",
+                "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+            ));
+            FullVerifier::verify(&branches).unwrap();
+            let owner = scheme_fixture_root_function(&branches, "relay");
+            let (site_index, site) = branches.store.scheme_application_returns.iter().enumerate()
+                .find(|(_, site)| site.function.index() == owner).map(|(index, site)| (index, *site)).unwrap();
+            let FullCallableContract::Scheme(id) = branches.store.functions[owner].contract else { unreachable!() };
+            let range = branches.store.schemes[id.index()].applications.bounds(branches.store.scheme_applications.len()).unwrap();
+            assert_eq!(range.len(), 2);
+            assert_eq!(site.application, 0);
+            let other = branches.store.scheme_applications[range.start + 1];
+            assert_eq!(other.proc_returns.len, 1);
+            let mut nonminimum = branches.clone();
+            nonminimum.store.scheme_application_returns[site_index].application = 1;
+            nonminimum.store.scheme_application_returns[site_index].envelope = 0;
+            let error = FullVerifier::verify(&nonminimum).unwrap_err();
+            assert!(error.message.contains("application return disagrees with its actual producer or envelope"), "{}", error.message);
+            let mut wrong_branch_envelope = branches.clone();
+            let envelope = other.proc_returns.bounds(branches.store.scheme_proc_returns.len()).unwrap().start;
+            let claimed = wrong_branch_envelope.store.scheme_proc_returns[envelope].result;
+            assert_eq!(branches.store.scheme_types[claimed.index()].tag, schema::FullSchemeTypeTag::Parameter);
+            assert_eq!(branches.store.scheme_types[other.result.index()].tag, schema::FullSchemeTypeTag::Parameter);
+            wrong_branch_envelope.store.scheme_types[claimed.index()] = branches.store.scheme_types[other.result.index()];
+            let error = FullVerifier::verify(&wrong_branch_envelope).unwrap_err();
+            assert!(error.message.contains("application return producer has no matching proc envelope"), "{}", error.message);
         });
     }
 

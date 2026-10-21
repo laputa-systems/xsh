@@ -10,6 +10,12 @@ use crate::syntax::arena::{
     PatternId, StmtId,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct CheckedProcReturnSite {
+    pub(super) application: crate::sema::constraints::CallableApplicationReference,
+    pub(super) envelope: u32,
+}
+
 #[derive(Clone)]
 pub(super) struct InferredReturn {
     pub(super) ty: Type,
@@ -760,6 +766,7 @@ impl Checker {
         candidates: Vec<InferredReturn>,
         propagated: &[(Type, Span)],
     ) -> Type {
+        self.proc_return_sites.remove(&owner);
         let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).map(|pending| pending.solver_level());
         let errors = propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>();
         if !candidates.iter().any(|candidate| candidate.origin.return_applications().iter().any(Option::is_some)) {
@@ -774,7 +781,9 @@ impl Checker {
         }
         let mut inferred = None;
         for candidate in candidates {
-            for application in candidate.origin.return_applications() {
+            let applications = candidate.origin.return_applications();
+            let retain_applications = !applications.contains(&None);
+            for application in applications {
                 let ty = if let Some(reference) = application {
                     let Some(level) = level else {
                         self.error(owner.body, "proc application return has no declaration inference scope", DiagnosticCode::CheckLocalInference);
@@ -787,7 +796,13 @@ impl Checker {
                     match self.type_constraints.referenced_callable_application(reference)
                         .and_then(|id| self.type_constraints.defer_proc_application_return(id, &errors, candidate.span, level))
                     {
-                        Ok(ty) => ty,
+                        Ok(ty) => {
+                            if retain_applications {
+                                let envelope = self.type_constraints.proc_return_envelope(reference, candidate.span).expect("the checked application return owns its envelope");
+                                self.proc_return_sites.entry(owner).or_default().entry(candidate.span).or_default().push(CheckedProcReturnSite { application: reference, envelope });
+                            }
+                            ty
+                        }
                         Err(error) => {
                             self.error(candidate.span, &format!("proc return application requirement failed: {error:?}"), DiagnosticCode::CheckLocalInference);
                             return Type::Invalid;

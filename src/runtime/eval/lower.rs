@@ -3093,14 +3093,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let mut tail_types = BTreeMap::new();
         let mut value = self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
-        value = self.lift_scheme_return_value(value, facts, &mut lowered_types)?;
+        let return_span = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Return(_)) {
+            self.program.arena.stmt(tail).span
+        } else { self.program.arena.span(block_data.span) };
+        let return_site = facts.proc_return_site(return_span);
+        if return_site.is_none() { value = self.lift_scheme_return_value(value, facts, &mut lowered_types)?; }
         let tail_type = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::TailBareIdent(_)) {
             lowered_types.get(&value).cloned()
         } else { None };
         if visited.len() != facts.expression_types().len()
-            || !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type()))
+            || return_site.is_none() && !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type()))
         { return self.block_scheme_lowering(block); }
         let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value });
+        if let Some(site) = return_site { self.scratch.borrow_mut().scheme_application_returns.insert(returned.index(), site); }
         if self.bodies.resource_transfer(ResourceTransferSite::BlockValue(block))? {
             self.scratch.borrow_mut().mark_resource_transfer(returned);
         }
@@ -3319,7 +3324,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ArenaStmtKind::Continue => BuildStmtRow::Continue,
                 ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => {
                     let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
-                    BuildStmtRow::Return { value: self.lift_scheme_return_value(value, facts, lowered_types)? }
+                    BuildStmtRow::Return { value: if facts.proc_return_site(node.span).is_some() { value } else { self.lift_scheme_return_value(value, facts, lowered_types)? } }
                 },
                 ArenaStmtKind::If { branches, else_block } => {
                     let mut lowered = Vec::new();
@@ -3368,6 +3373,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => return None,
             };
             let lowered = push_build_row!(self, stmt, row);
+            if matches!(node.kind, ArenaStmtKind::Return(_))
+                && let Some(site) = facts.proc_return_site(node.span)
+            { self.scratch.borrow_mut().scheme_application_returns.insert(lowered.index(), site); }
             let site = match node.kind {
                 ArenaStmtKind::Assign { .. } => Some(ResourceTransferSite::Assignment(statement)),
                 ArenaStmtKind::Return(_) => Some(ResourceTransferSite::Return(statement)),

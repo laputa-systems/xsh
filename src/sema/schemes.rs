@@ -2,6 +2,7 @@ use super::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
 use super::types::{ModuleExportType, Type};
 use super::callable_application::CallableApplication;
 use super::effects::{CheckedEffects, EffectContract, EffectPredicate};
+use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::node::Effect;
 use crate::sema::validated::Validation;
@@ -152,6 +153,12 @@ impl RegisteredCallPlan {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SchemeProcReturnSite {
+    pub(crate) application: u32,
+    pub(crate) envelope: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SchemeBodyFacts {
     scheme: Arc<TypeScheme>,
@@ -159,6 +166,7 @@ pub(crate) struct SchemeBodyFacts {
     tail_types: BTreeMap<StmtId, SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>,
     read_bindings: BTreeSet<super::check::BindingId>,
+    proc_return_sites: BTreeMap<Span, SchemeProcReturnSite>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -811,8 +819,25 @@ impl SchemeBodyFacts {
             tail_types,
             registered_calls: BTreeMap::new(),
             read_bindings: BTreeSet::new(),
+            proc_return_sites: BTreeMap::new(),
         })
     }
+
+    pub(crate) fn with_proc_return_sites(mut self, sites: BTreeMap<Span, SchemeProcReturnSite>) -> Result<Self, SchemeBuildError> {
+        for site in sites.values() {
+            let application = self.scheme.callable().requirements().applications.get(site.application as usize)
+                .ok_or(SchemeBuildError::UnresolvedCallableApplication)?;
+            let envelope = application.proc_returns.get(site.envelope as usize)
+                .ok_or(SchemeBuildError::UnresolvedCallableApplication)?;
+            if self.scheme.kind() != crate::sema::types::CallableKind::Proc || envelope.result != *self.scheme.return_type() {
+                return Err(SchemeBuildError::UnresolvedCallableApplication);
+            }
+        }
+        self.proc_return_sites = sites;
+        Ok(self)
+    }
+
+    pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
 
     pub(crate) fn with_registered_calls(mut self, calls: BTreeMap<ExprId, Arc<RegisteredCallPlan>>) -> Self {
         self.registered_calls = calls;
@@ -856,6 +881,7 @@ impl SchemeBodyFacts {
                     .sum::<usize>(),
             )
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
+            .saturating_add(self.proc_return_sites.len() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())

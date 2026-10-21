@@ -397,6 +397,23 @@ Declaration-derived callable signatures retain defaults and rest metadata; typed
 call verification checks their layout and every argument against both the callable
 contract and its actual target writers.
 
+Proc application returns retain their actual owner, return instruction,
+application ordinal, and return-envelope ordinal. The body verifier traces the
+actual immutable producers and all completing branch values before accepting
+that descriptor. Shared branches must prove the same raw result and normalized
+return contract; their representative is the minimum actual application ordinal.
+Invocation bindings project the result's outer constructor from the same checked
+type substitution to select wrapping or preservation. The executor does not
+inspect the returned payload to select an envelope, and formal values keep their
+ordinary data wrapping.
+
+The public Rust `Value::Pure` and `Value::Proc` variants carry an opaque
+`CallableValue`. Its declaration identity remains available through `identity()`;
+equality compares that identity rather than treating invocation evidence as part
+of the source value. Prepared invocation context belongs to the callable's
+executable program and remains private. Extracting a declaration name provides no
+substitute for checking the actual target and its call-site substitution.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 

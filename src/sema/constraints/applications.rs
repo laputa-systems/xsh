@@ -598,6 +598,22 @@ impl TypeConstraints {
         self.applications.source_sites.get(&(owner, span)).copied().map(|id| self.callable_application_reference(id)).transpose()
     }
 
+    pub(crate) fn proc_return_envelope(&self, reference: CallableApplicationReference, span: crate::source::Span) -> Result<u32, CallableApplicationError> {
+        let id = self.referenced_callable_application(reference)?;
+        let entry = &self.applications.entries[&id];
+        let index = entry.application.proc_returns.iter().position(|envelope| envelope.span == span)
+            .ok_or(ConstraintResolutionError::ForeignVariable)?;
+        u32::try_from(index).map_err(|_| ConstraintResolutionError::TypeDepth.into())
+    }
+
+    pub(crate) fn generalized_application_ordinal(&self, reference: CallableApplicationReference, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, CallableApplicationError> {
+        if reference.scope != scope.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let id = self.referenced_callable_application(reference)?;
+        if let Some(ordinal) = scope.applications.get(&id) { return Ok(Some(*ordinal)); }
+        if self.applications.entries[&id].binding.is_some() { return Ok(None); }
+        Err(ConstraintResolutionError::ForeignVariable.into())
+    }
+
     pub(crate) fn has_deferred_proc_returns(&self, owner: EffectDeclarationId) -> bool {
         self.applications.scopes.get(&CallableApplicationScope::Declaration(owner)).into_iter().flatten()
             .any(|id| !self.applications.entries[id].application.proc_returns.is_empty())

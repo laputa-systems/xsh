@@ -4000,6 +4000,14 @@ bodies leave undetermined needs an annotation.
   types (`check.required-return`). Empty collections, error-only bodies, and
   dynamic shapes cannot be inferred (`check.infer-return`).
 
+A quantified proc that returns its formal value `T` treats that value as data:
+instantiating `T` with a `Result` preserves the inner value inside the proc's
+outer `Ok`. Returning an actual callable application instead follows that
+application's checked result envelope, including through immutable aliases and
+agreeing conditional branches. Each invocation retains this distinction; merely
+unifying a formal value's type with an application's result does not make the
+formal value an application result.
+
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.

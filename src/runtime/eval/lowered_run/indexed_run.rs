@@ -796,9 +796,9 @@ pub(super) fn indexed_function_ref_value(
     pure: bool,
 ) -> LoweredValue {
     if pure {
-        LoweredValue::Pure(function)
+        LoweredValue::Pure(function.into())
     } else {
-        LoweredValue::Proc(function)
+        LoweredValue::Proc(function.into())
     }
 }
 
@@ -969,6 +969,7 @@ fn indexed_frame_apply_host_value(
 pub(super) fn indexed_frame_apply_value(
     evaluator: &mut Evaluator,
     execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
     instruction: u32,
     values: Vec<FrameApplyValue>,
     call_span: Span,
@@ -1120,7 +1121,23 @@ pub(super) fn indexed_frame_apply_value(
                     FunctionName::qualified(name)
                 }
             };
-            Ok(indexed_function_ref_value(function, pure))
+            if !execution.program().has_invocation(instruction) {
+                return Ok(indexed_function_ref_value(function, pure));
+            }
+            let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
+                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable lost its executable program owner").with_span(call_span))?;
+            let key = function.as_name().map(LoweredFunctionKey::Name)
+                .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))
+                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable has no declaration identity").with_span(call_span))?;
+            let kind = if pure { LoweredFunctionKind::Pure } else { LoweredFunctionKind::Proc };
+            let target = program.function_view(key, kind).map_err(|error| indexed_error(error, call_span))?
+                .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(call_span))?.index();
+            let applications = program.invocation_applications(instruction, target, invocation)
+                .map_err(|error| indexed_error(error, call_span))?;
+            let callable = crate::runtime::value::CallableValue::prepared(function, Arc::new(crate::runtime::eval::PreparedCallable {
+                program, function: key, kind, applications,
+            }));
+            Ok(if pure { LoweredValue::Pure(callable) } else { LoweredValue::Proc(callable) })
         }
         ExprView::PathFrom { span, .. } => {
             let value = values.next().expect("path constructor operand");

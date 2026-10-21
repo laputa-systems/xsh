@@ -60,8 +60,94 @@ impl LexicalScope {
 
 enum Obligation {
     Expression(usize, LexicalScope),
+    ApplicationReturn { instruction: usize, value: usize, site: super::super::schemes::FullSchemeApplicationReturn },
     Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, bindings: Vec<(usize, SchemeType, bool, Option<usize>)> },
     Block { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType> },
+}
+
+fn application_return_origin(
+    store: &FullStore, decoder: &FullDecoder<'_>, instruction: usize,
+    expression_scopes: &BTreeMap<usize, LexicalScope>, scopes: &LexicalScopes,
+    types: &BTreeMap<usize, SchemeType>, scheme_scope: &SchemeScope, expected_return: &SchemeType,
+    memo: &mut BTreeMap<usize, Option<u32>>, budget: &mut SchemeInstantiationBudget,
+) -> Result<Option<u32>, IrVerifyError> {
+    enum Visit { Enter(usize), Finish(usize, Vec<usize>) }
+    let mut pending = vec![Visit::Enter(instruction)];
+    while let Some(visit) = pending.pop() {
+        budget.charge(1)?;
+        let instruction = match visit {
+            Visit::Finish(instruction, children) => {
+                let mut minimum = None;
+                let mut all_applications = !children.is_empty();
+                let actual = types.get(&instruction).ok_or_else(|| IrVerifyError::new("application origin has no checked producer type"))?;
+                for child in children {
+                    budget.charge(1)?;
+                    let child_type = types.get(&child).ok_or_else(|| IrVerifyError::new("application origin child has no checked producer type"))?;
+                    if !body_types_equal(actual, child_type) { return Err(IrVerifyError::new("application return branches disagree on their raw result type")); }
+                    match memo[&child] {
+                        Some(ordinal) => minimum = Some(minimum.map_or(ordinal, |previous: u32| previous.min(ordinal))),
+                        None => all_applications = false,
+                    }
+                }
+                memo.insert(instruction, if all_applications { minimum } else { None });
+                continue;
+            }
+            Visit::Enter(instruction) => instruction,
+        };
+        if memo.contains_key(&instruction) { continue; }
+        let mut children = Vec::new();
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                let scope = expression_scopes.get(&instruction).ok_or_else(|| IrVerifyError::new("application return has no authenticated lexical scope"))?;
+                let binding = scope.binding(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("application return reads an unbound slot"))?;
+                if binding.mutable { return Err(IrVerifyError::new("application return reads mutable storage")); }
+                if let Some((source, _)) = binding.initializer { budget.charge(1)?; children.push(source); }
+            }
+            schema::ExprView::DynamicCall { .. } => {
+                let site = store.scheme_application_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction)
+                    .map_err(|_| IrVerifyError::new("application return producer has no checked application"))?;
+                let ordinal = store.scheme_application_calls[site].application;
+                let function = &store.functions[IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("application return owner is invalid"))?.index()];
+                let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
+                let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
+                    .get(ordinal as usize).ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
+                let actual = types.get(&instruction).ok_or_else(|| IrVerifyError::new("application return has no actual result type"))?;
+                let result = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
+                if !body_types_equal(actual, &result) { return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope")); }
+                let mut matched = false;
+                for envelope in bounded(application.proc_returns, &store.scheme_proc_returns, "application return envelope range is invalid")? {
+                    budget.charge(1)?;
+                    let result = decode_scheme_type(store, scheme_scope, envelope.result, budget, 0)?;
+                    matched |= body_types_equal(&result, expected_return);
+                }
+                if !matched { return Err(IrVerifyError::new("application return producer has no matching proc envelope")); }
+                memo.insert(instruction, Some(ordinal));
+                continue;
+            }
+            schema::ExprView::IfExpr { branches, else_value, .. } => {
+                for branch in branches { budget.charge(1)?; children.push(branch?.1.raw() as usize); }
+                budget.charge(1)?;
+                children.push(else_value.raw() as usize);
+            }
+            schema::ExprView::MatchExpr { arms, .. } => {
+                for arm in arms { budget.charge(1)?; children.push(arm?.2.raw() as usize); }
+            }
+            schema::ExprView::ValueBlock { body, .. } => {
+                let mut tail = None;
+                for statement in body { budget.charge(1)?; tail = Some(statement?.raw() as usize); }
+                if let Some(tail) = tail && let schema::StmtView::Value { value } = decoder.statement_view(tail)? {
+                    budget.charge(1)?;
+                    children.push(value.raw() as usize);
+                }
+            }
+            _ => {}
+        }
+        if children.is_empty() { memo.insert(instruction, None); continue; }
+        budget.charge(children.len())?;
+        pending.push(Visit::Finish(instruction, children.clone()));
+        for child in children { pending.push(Visit::Enter(child)); }
+    }
+    Ok(memo[&instruction])
 }
 
 fn expression_type(types: &BTreeMap<usize, SchemeType>, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
@@ -426,6 +512,9 @@ pub(super) fn verify_body(
     let mut stream_iterations = Vec::new();
     let mut captures = Vec::new();
     let mut applications = BTreeSet::new();
+    let mut application_returns = BTreeSet::new();
+    let mut expression_scopes = BTreeMap::new();
+    let mut return_origins = BTreeMap::new();
     while let Some(obligation) = pending.pop() {
         budget.charge(1)?;
         match obligation {
@@ -433,7 +522,15 @@ pub(super) fn verify_body(
                 for (slot, ty, mutable, initializer) in bindings { declare(&scope, &mut scopes, slot, ty, mutable, initializer.map(|initializer| (initializer, scope)), budget)?; }
                 pending.push(Obligation::Block { statements, position, scope, value });
             }
+            Obligation::ApplicationReturn { instruction, value, site } => {
+                if application_return_origin(store, decoder, value, &expression_scopes, &scopes, types, scheme_scope, expected_return, &mut return_origins, budget)? != Some(site.application) {
+                    return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope"));
+                }
+                if !application_returns.insert(instruction) { return Err(IrVerifyError::new("application return is duplicated")); }
+            }
             Obligation::Expression(instruction, scope) => {
+                budget.charge(1)?;
+                expression_scopes.insert(instruction, scope);
                 let claimed = expression_type(types, instruction, budget)?;
                 match decoder.expression_view(instruction)? {
                     schema::ExprView::DynamicCall { .. } => {
@@ -620,8 +717,28 @@ pub(super) fn verify_body(
                     schema::StmtView::Expr { value, .. } => expressions.push(value.raw() as usize),
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
-                        if !actual.matches_body_return(expected_return) { return Err(IrVerifyError::new("generic body return does not match its scheme return")); }
-                        if tails.remove(&instruction).is_some_and(|tail| !tail.matches_body_return(expected_return)) { return Err(IrVerifyError::new("generic tail disagrees with its scheme return")); }
+                        let returned_site = store.scheme_application_returns.binary_search_by_key(&(instruction as u32), |site| site.instruction).ok()
+                            .map(|index| store.scheme_application_returns[index]);
+                        if let Some(site) = returned_site {
+                            budget.charge(1)?;
+                            if site.function.raw() != decoder.owner {
+                                return Err(IrVerifyError::new("application return has a wrong or duplicate owner"));
+                            }
+                            let FullCallableContract::Scheme(id) = function.contract else { unreachable!() };
+                            let application = bounded(store.scheme(id)?.applications, &store.scheme_applications, "scheme application range is invalid")?
+                                .get(site.application as usize).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
+                            let envelope = bounded(application.proc_returns, &store.scheme_proc_returns, "scheme return envelope range is invalid")?
+                                .get(site.envelope as usize).ok_or_else(|| IrVerifyError::new("scheme return envelope ordinal is out of scope"))?;
+                            let source = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
+                            let output = decode_scheme_type(store, scheme_scope, envelope.result, budget, 0)?;
+                            if !body_types_equal(&source, &actual) || !body_types_equal(&output, expected_return)
+                            { return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope")); }
+                            if tails.remove(&instruction).is_some_and(|tail| !body_types_equal(&tail, &actual)) { return Err(IrVerifyError::new("application return tail disagrees with its actual producer")); }
+                            nested.push(Obligation::ApplicationReturn { instruction, value: returned.raw() as usize, site });
+                        } else {
+                            if !actual.matches_body_return(expected_return) { return Err(IrVerifyError::new("generic body return does not match its scheme return")); }
+                            if tails.remove(&instruction).is_some_and(|tail| !tail.matches_body_return(expected_return)) { return Err(IrVerifyError::new("generic tail disagrees with its scheme return")); }
+                        }
                         expressions.push(returned.raw() as usize);
                     }
                     schema::StmtView::Value { value: returned } => {
@@ -708,6 +825,13 @@ pub(super) fn verify_body(
                 for instruction in expressions { pending.push(Obligation::Expression(instruction, scope)); }
             }
         }
+    }
+    let owner_range = store.function_instruction_range(IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("application return owner is invalid"))?.index())?;
+    let first_return = store.scheme_application_returns.partition_point(|site| (site.instruction as usize) < owner_range.start);
+    let end_return = store.scheme_application_returns.partition_point(|site| (site.instruction as usize) < owner_range.end);
+    budget.charge(end_return - first_return)?;
+    if store.scheme_application_returns[first_return..end_return].iter().any(|site| !application_returns.contains(&(site.instruction as usize))) {
+        return Err(IrVerifyError::new("scheme application return has no actual body instruction"));
     }
     Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications })
 }

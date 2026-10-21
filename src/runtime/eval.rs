@@ -19,7 +19,7 @@ use crate::runtime::signal::{
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
-    FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
+    CallableValue, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{BindingId, CheckBundleView, Checker, CompactDeclOutput};
@@ -799,6 +799,7 @@ struct BuildScratch {
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
     call_instantiations: Vec<Option<CallInstantiation>>,
     scheme_application_calls: Vec<Option<u32>>,
+    scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     checked_call_result_types: Vec<Option<Type>>,
     registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
@@ -2046,6 +2047,13 @@ pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
     }
 }
 
+pub(super) struct PreparedCallable {
+    program: Arc<FullProgram>,
+    function: LoweredFunctionKey,
+    kind: LoweredFunctionKind,
+    applications: indexed::full::PreparedInvocationBindings,
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -2071,8 +2079,8 @@ enum LoweredValue {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
-    Pure(FunctionName),
-    Proc(FunctionName),
+    Pure(CallableValue),
+    Proc(CallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the

@@ -7770,7 +7770,7 @@ impl Evaluator {
                 });
                 let value = if let Some(alias) = alias {
                     let original = match value {
-                        Value::Pure(function) | Value::Proc(function) => *function,
+                        Value::Pure(function) | Value::Proc(function) => function.identity(),
                         _ => {
                             return Err(RuntimeError::new(
                                 "module-load",
@@ -7806,9 +7806,9 @@ impl Evaluator {
                         },
                     );
                     if alias.pure {
-                        Value::Pure(function)
+                        Value::Pure(function.into())
                     } else {
-                        Value::Proc(function)
+                        Value::Proc(function.into())
                     }
                 } else {
                     value.clone()
@@ -7822,9 +7822,9 @@ impl Evaluator {
                 name,
             ));
             let value = if pure {
-                Value::Pure(function)
+                Value::Pure(function.into())
             } else {
-                Value::Proc(function)
+                Value::Proc(function.into())
             };
             record_fields.push((name, value));
         }
@@ -8314,8 +8314,8 @@ impl Evaluator {
         }
         if name == "call"
             && let Some((function, pure)) = match &receiver {
-                LoweredValue::Pure(function) => Some((*function, true)),
-                LoweredValue::Proc(function) => Some((*function, false)),
+                LoweredValue::Pure(function) => Some((function.identity(), true)),
+                LoweredValue::Proc(function) => Some((function.identity(), false)),
                 _ => None,
             }
         {
@@ -8694,7 +8694,7 @@ mod checked_storage_tests {
             name: Arc::from("Service"),
         };
         let value = LoweredValue::Module(Arc::new(BTreeMap::from([
-            (Arc::from("item"), LoweredValue::Pure(function)),
+            (Arc::from("item"), LoweredValue::Pure(function.into())),
         ])));
         let mut evaluator = Evaluator::new(Vec::new());
         Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { pure: true, sig: signature(Type::Int) });

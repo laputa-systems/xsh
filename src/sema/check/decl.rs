@@ -543,6 +543,18 @@ impl Checker {
             )
             .ok()?,
         );
+        let mut proc_return_sites = BTreeMap::new();
+        if matches!(scheme.return_type(), super::super::schemes::SchemeType::Parameter(_)) {
+            for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
+                let mut representative = None;
+                for site in sites {
+                    let application = self.type_constraints.generalized_application_ordinal(site.application, pending.generalized_scope()?).ok()??;
+                    let candidate = super::super::schemes::SchemeProcReturnSite { application, envelope: site.envelope };
+                    if representative.is_none_or(|previous: super::super::schemes::SchemeProcReturnSite| previous.application > application) { representative = Some(candidate); }
+                }
+                proc_return_sites.insert(span, representative?);
+            }
+        }
         let scheme_body_facts = if !callable.is_quantified()
         {
             None
@@ -551,7 +563,7 @@ impl Checker {
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ) {
+            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

@@ -207,6 +207,15 @@ pub(super) enum FullApplicationBinding {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
+pub(super) struct FullSchemeApplicationReturn {
+    pub(super) instruction: u32,
+    pub(super) function: super::IrFunctionId,
+    pub(super) application: u32,
+    pub(super) envelope: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
 pub(super) struct FullSchemeTypeParameter {
     pub(super) id: u32,
     pub(super) binder: u32,

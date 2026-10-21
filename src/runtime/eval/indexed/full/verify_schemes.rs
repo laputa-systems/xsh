@@ -666,6 +666,23 @@ fn verify_scheme_tables(
             return Err(IrVerifyError::new("scheme application call ordinal is out of scope"));
         }
     }
+    let mut previous_return = None;
+    for site in &store.scheme_application_returns {
+        if previous_return.is_some_and(|previous| previous >= site.instruction)
+            || store.tags.get(site.instruction as usize) != Some(&FullTag::StmtReturn)
+        { return Err(IrVerifyError::new("scheme application returns are unordered or have an invalid instruction")); }
+        previous_return = Some(site.instruction);
+        let function = store.functions.get(site.function.index()).ok_or_else(|| IrVerifyError::new("scheme application return owner is out of bounds"))?;
+        if !store.function_instruction_range(site.function.index())?.contains(&(site.instruction as usize)) {
+            return Err(IrVerifyError::new("scheme application return belongs to another owner"));
+        }
+        let FullCallableContract::Scheme(id) = function.contract else { return Err(IrVerifyError::new("scheme application return has no generic owner")) };
+        let scheme = store.scheme(id)?;
+        if scheme.callable_kind != crate::sema::types::CallableKind::Proc { return Err(IrVerifyError::new("scheme application return owner is not a proc")); }
+        let application = bounded(scheme.applications, &store.scheme_applications, "scheme application range is invalid")?
+            .get(site.application as usize).ok_or_else(|| IrVerifyError::new("scheme return application ordinal is out of scope"))?;
+        if site.envelope >= application.proc_returns.len { return Err(IrVerifyError::new("scheme return envelope ordinal is out of scope")); }
+    }
     for callable in &store.scheme_callable_monotypes {
         for parameter in bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")? {
             if let Some(schema) = parameter.schema {
@@ -4013,6 +4030,7 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(store.scheme_effect_predicates.len())
         .saturating_add(store.scheme_applications.len())
         .saturating_add(store.scheme_application_calls.len())
+        .saturating_add(store.scheme_application_returns.len())
         .saturating_add(store.scheme_application_arguments.len())
         .saturating_add(store.scheme_proc_returns.len())
         .saturating_add(store.call_application_bindings.len())
