@@ -337,9 +337,12 @@ counted statements, with finished ownership, valid ranges, and unique positions.
 Other owners retain the full flow traversal. Writer census lookup reuses a completed inherited binding
 for an owner-local block and slot only after checking region overrides and earlier
 local declarations at the actual writer. Read and presence queries retain their
-lexical lookup. A charged structural index jumps only to an ancestor statement
-or region-binding root. Exact slot overrides and ordered declaration lookup
-still establish visibility. This evidence contains no type or refinement.
+lexical lookup. The owned operand walk retains each instruction's enclosing
+statement, and the charged census copies that metadata beside its parent links.
+Owners without expression-region bindings can skip expression-only ancestry.
+Owners with region bindings retain the physical parent walk. Exact slot overrides
+and ordered declaration lookup still establish visibility. This evidence contains
+no type or refinement.
 Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation

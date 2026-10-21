@@ -57,7 +57,7 @@ struct ProducerOwner {
     writers: BTreeMap<ProducerBinding, Vec<usize>>,
     storage_bindings: BTreeMap<ProducerBinding, StorageBinding>,
     parents: Vec<Option<usize>>,
-    binding_anchors: Vec<usize>,
+    statements: Vec<Option<usize>>,
     statement_positions: BTreeMap<usize, (usize, usize)>,
     block_declarations: BTreeMap<(usize, usize), Vec<(usize, ProducerBinding)>>,
     lexical_slots: BTreeMap<usize, LexicalSlotIdentity>,
@@ -94,7 +94,7 @@ pub(in crate::runtime::eval::indexed::full) struct ProducerPrefixContext<'a> {
 impl ProducerPrefixContext<'_> {
     pub(in crate::runtime::eval::indexed::full) fn instruction_forest(&self) -> super::super::InstructionParentContext<'_> {
         super::super::InstructionParentContext { owner: self.owner, range: self.evidence.range.clone(),
-            parents: &self.evidence.parents, children: &self.evidence.children, siblings: &self.evidence.siblings }
+            parents: &self.evidence.parents, statements: &self.evidence.statements, children: &self.evidence.children, siblings: &self.evidence.siblings }
     }
 
     pub(in crate::runtime::eval::indexed::full) fn snapshot_condition_initializer(&self, decoder: &FullDecoder<'_>,
@@ -463,11 +463,13 @@ impl ProducerOwner {
             let mut root = at;
             loop {
                 self.work.borrow_mut().charge(1)?;
-                let local = root.checked_sub(self.range.start).filter(|&local| local < self.range.len())
-                    .ok_or_else(|| IrVerifyError::new("producer lexical query belongs to another owner"))?;
-                root = *self.binding_anchors.get(local).ok_or_else(|| IrVerifyError::new("producer lexical anchors are incomplete"))?;
-                if root == usize::MAX { break 'resolve self.header_binding(store, owner, slot)?; }
-                if !self.range.contains(&root) { return Err(IrVerifyError::new("producer lexical anchor belongs to another owner")); }
+                if self.region_bindings.is_empty() {
+                    let local = root.checked_sub(self.range.start).filter(|&local| local < self.range.len())
+                        .ok_or_else(|| IrVerifyError::new("producer lexical query belongs to another owner"))?;
+                    let Some(statement) = self.statements[local] else { break 'resolve self.header_binding(store, owner, slot)? };
+                    if !self.statement_positions.contains_key(&statement) { return Err(IrVerifyError::new("producer lexical anchor is not an owned statement")); }
+                    root = statement;
+                }
                 #[cfg(test)] { let (queries, parents, comparisons) = self.binding_work.get(); self.binding_work.set((queries, parents + 1, comparisons)); }
                 if let Some(binding) = self.region_bindings.get(&(root, slot)) { break 'resolve Some(*binding); }
                 if let Some((block, position)) = self.statement_positions.get(&root) {
@@ -643,7 +645,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], binding_anchors: Vec::new(), statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -669,6 +671,7 @@ impl GroundProducerIndex {
                 slot_reads.push((instruction, slot));
             }
             owner.parents[instruction - range.start] = decoder.instruction_parent_of(instruction)?;
+            owner.statements[instruction - range.start] = decoder.instruction_statement_of(instruction)?;
             if let Some(parent) = owner.parents[instruction - range.start] {
                 let parent = parent.checked_sub(range.start).filter(|index| *index < range.len()).ok_or_else(|| IrVerifyError::new("ground producer parent belongs to another owner"))?;
                 owner.siblings[instruction - range.start] = owner.children[parent];
@@ -886,34 +889,6 @@ impl GroundProducerIndex {
                 if !matches!(*identity, LexicalSlotIdentity::Unique(previous) if previous == binding) { *identity = LexicalSlotIdentity::Reused; }
             }).or_insert(LexicalSlotIdentity::Unique(binding));
         }
-        if !owner.lexical_slots.is_empty() {
-            work.borrow_mut().charge(range.len())?;
-            owner.binding_anchors = vec![usize::MAX; range.len()];
-            let mut pending = Vec::with_capacity(range.len());
-            pending.extend(roots.iter().map(|&instruction| (instruction, usize::MAX)));
-            let mut queued = pending.len();
-            let mut visited = 0;
-            while let Some((instruction, inherited)) = pending.pop() {
-                visited += 1;
-                if visited > range.len() { return Err(IrVerifyError::new("producer lexical anchor graph is cyclic")); }
-                let local = instruction.checked_sub(range.start).filter(|&local| local < range.len())
-                    .ok_or_else(|| IrVerifyError::new("producer lexical anchor belongs to another owner"))?;
-                let anchor = if owner.statement_positions.contains_key(&instruction)
-                    || owner.region_bindings.range((instruction, 0)..=(instruction, usize::MAX)).next().is_some()
-                { instruction } else { inherited };
-                owner.binding_anchors[local] = anchor;
-                let mut child = owner.children[local];
-                while child != IR_NONE {
-                    let local = (child as usize).checked_sub(range.start).filter(|&local| local < range.len())
-                        .ok_or_else(|| IrVerifyError::new("producer lexical anchor child belongs to another owner"))?;
-                    queued += 1;
-                    if queued > range.len() { return Err(IrVerifyError::new("producer lexical anchor graph repeats a child")); }
-                    pending.push((child as usize, anchor));
-                    child = owner.siblings[local];
-                }
-            }
-            if visited != range.len() { return Err(IrVerifyError::new("producer lexical anchor graph is incomplete")); }
-        }
         if super::super::driver_owner_index(decoder.owner).is_none() {
             let function = decoder.store.functions[function_index(decoder.owner)?];
             let mut header_end = function.params.len as usize;
@@ -1127,7 +1102,7 @@ impl GroundProducerIndex {
                 size_of::<(u32, ProducerOwner)>()
                     + owner.storage_bindings.len() * size_of::<(ProducerBinding, StorageBinding)>()
                     + owner.children.capacity() * size_of::<u32>() + owner.siblings.capacity() * size_of::<u32>()
-                    + owner.parents.capacity() * size_of::<Option<usize>>() + owner.binding_anchors.capacity() * size_of::<usize>() + owner.returns.capacity() * size_of::<usize>()
+                    + owner.parents.capacity() * size_of::<Option<usize>>() + owner.statements.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
                     + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
                     + owner.snapshot_predicates.borrow().iter().map(|(_, paths)| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
@@ -1479,7 +1454,7 @@ impl<'a> ProducerProof<'a> {
         if decoder.owner != owner || decoder.instruction_range != parent_owner.range || parent_owner.parents.len() != parent_owner.range.len() {
             return Err(IrVerifyError::new("producer parent context disagrees with its owner census"));
         }
-        decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: parent_owner.range.clone(), parents: &parent_owner.parents, children: &parent_owner.children, siblings: &parent_owner.siblings });
+        decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: parent_owner.range.clone(), parents: &parent_owner.parents, statements: &parent_owner.statements, children: &parent_owner.children, siblings: &parent_owner.siblings });
         decoder.producer_prefix = self.index.prefix_context(owner, &decoder.instruction_range)?;
         decoder.producer_demand = self.index.demand;
         decoder.function_signature_index.clone_from(&self.index.function_signatures);

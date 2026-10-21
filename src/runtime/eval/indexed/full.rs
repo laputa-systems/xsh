@@ -5745,13 +5745,14 @@ struct InstructionParentContext<'a> {
     owner: u32,
     range: std::ops::Range<usize>,
     parents: &'a [Option<usize>],
+    statements: &'a [Option<usize>],
     children: &'a [u32],
     siblings: &'a [u32],
 }
 
 impl InstructionParentContext<'_> {
     fn parent_of(&self, owner: u32, range: &std::ops::Range<usize>, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
-        if self.owner != owner || self.range != *range || self.parents.len() != range.len() || self.children.len() != range.len() || self.siblings.len() != range.len() || !range.contains(&instruction) {
+        if self.owner != owner || self.range != *range || self.parents.len() != range.len() || self.statements.len() != range.len() || self.children.len() != range.len() || self.siblings.len() != range.len() || !range.contains(&instruction) {
             return Err(IrVerifyError::new("instruction parent context disagrees with its owner range"));
         }
         let parent = self.parents[instruction - range.start];
@@ -5759,6 +5760,15 @@ impl InstructionParentContext<'_> {
             return Err(IrVerifyError::new("instruction parent context escapes its owner range"));
         }
         Ok(parent)
+    }
+
+    fn statement_of(&self, owner: u32, range: &std::ops::Range<usize>, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        self.parent_of(owner, range, instruction)?;
+        let statement = self.statements[instruction - range.start];
+        if statement.is_some_and(|statement| !range.contains(&statement)) {
+            return Err(IrVerifyError::new("instruction statement context escapes its owner range"));
+        }
+        Ok(statement)
     }
 }
 
@@ -8338,6 +8348,22 @@ impl<'a> FullDecoder<'a> {
             .as_ref()
             .ok_or_else(|| IrVerifyError::new("full IR instruction parent proof is missing"))?;
         Ok(proof.borrow().parent_of(instruction))
+    }
+
+    fn instruction_statement_of(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        self.has_instruction_parent_proof()?;
+        if !self.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("instruction statement query belongs to another owner")); }
+        let statement = if let Some(parents) = &self.borrowed_instruction_parents {
+            parents.statement_of(self.owner, &self.instruction_range, instruction)?
+        } else {
+            let proof = self.instruction_proof.as_ref().ok_or_else(|| IrVerifyError::new("full IR instruction parent proof is missing"))?.borrow();
+            if !proof.complete() { return Err(IrVerifyError::new("instruction statement proof is incomplete")); }
+            proof.statement_of(instruction)
+        };
+        if statement.is_some_and(|statement| self.store.tags.get(statement).is_none_or(|tag| tag.kind() != schema::InstructionKind::Stmt)) {
+            return Err(IrVerifyError::new("instruction statement context has another instruction category"));
+        }
+        Ok(statement)
     }
 
     fn return_analysis(&self) -> Result<std::cell::Ref<'_, IndexedReturnAnalysis>, IrVerifyError> {
@@ -38901,16 +38927,21 @@ pure values_in_loop(value: Values?) -> List[Int] {
     #[test]
     fn instruction_parent_context_rejects_owner_range_and_parent_substitution() {
         let parents = [None, Some(10)];
-        let context = InstructionParentContext { owner: 7, range: 10..12, parents: &parents, children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        let context = InstructionParentContext { owner: 7, range: 10..12, parents: &parents, statements: &[Some(10); 2], children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
         assert_eq!(context.parent_of(7, &(10..12), 11).unwrap(), Some(10));
+        assert_eq!(context.statement_of(7, &(10..12), 11).unwrap(), Some(10));
         assert!(context.parent_of(8, &(10..12), 11).is_err());
         assert!(context.parent_of(7, &(9..12), 11).is_err());
         assert!(context.parent_of(7, &(10..12), 12).is_err());
-        let truncated = InstructionParentContext { owner: 7, range: 10..12, parents: &parents[..1], children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        let truncated = InstructionParentContext { owner: 7, range: 10..12, parents: &parents[..1], statements: &[Some(10); 2], children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
         assert!(truncated.parent_of(7, &(10..12), 11).is_err());
         let escaping = [None, Some(9)];
-        let escaped = InstructionParentContext { owner: 7, range: 10..12, parents: &escaping, children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
+        let escaped = InstructionParentContext { owner: 7, range: 10..12, parents: &escaping, statements: &[Some(10); 2], children: &[11, IR_NONE], siblings: &[IR_NONE; 2] };
         assert!(escaped.parent_of(7, &(10..12), 11).is_err());
+        let truncated_statements = InstructionParentContext { range: 10..12, statements: &[Some(10)], ..context };
+        assert!(truncated_statements.statement_of(7, &(10..12), 11).is_err());
+        let escaped_statement = InstructionParentContext { range: 10..12, statements: &[Some(10), Some(9)], ..context };
+        assert!(escaped_statement.statement_of(7, &(10..12), 11).is_err());
     }
 
     #[test]
