@@ -1354,8 +1354,13 @@ never changes the declaration or another call's instance.
 
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
-including writes in branches and loops. An unannotated mutable local initialized
-to `set.empty()` follows the same rule for its element type. Resolve these
+including writes in branches and loops. Fresh empty lists nested in a local
+record or list initializer follow the same rule. Each surviving empty list has
+one element type across all writers. An empty field replaced by a later record
+spread contributes no unresolved type. Explicit `Any` domains and heterogeneous
+list literals keep their declared or inferred domains. Parameter defaults and
+signal hook bodies use the same local inference rules. An unannotated mutable
+local initialized to `set.empty()` follows the same rule for its element type. Resolve these
 types before a concrete operation uses them; otherwise add an annotation. A
 `var` initialized to `null` becomes `T?` once a non-null assignment determines
 `T`; `let x = null` stays `Null`. If all non-null contributions to that `var`
