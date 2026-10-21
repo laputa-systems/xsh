@@ -9441,15 +9441,18 @@ impl<'a> FullDecoder<'a> {
                             pending.push(Task::Value(value, Arc::new(ty.clone()), evidence.field(*name)));
                         }
                     }
-                    (V::RecordVec(values), Type::Record(fields)) => {
+                    (V::Record(_), Type::ErasedRecord) => {}
+                    (V::RecordVec(values), Type::Record(_) | Type::ErasedRecord) => {
                         let mut unique = BTreeSet::new();
                         for (field, _) in values.iter() {
                             charge(1)?;
                             if !unique.insert(*field) { return Err(IrVerifyError::new("prepared producer record repeats a field")); }
                         }
-                        for (name, ty) in fields.iter() {
-                            let value = values.iter().find(|(field, _)| field == name).map(|(_, value)| value).ok_or_else(|| IrVerifyError::new("prepared producer record omits a required field"))?;
-                            pending.push(Task::Value(value, Arc::new(ty.clone()), evidence.field(*name)));
+                        if let Type::Record(fields) = expected {
+                            for (name, ty) in fields.iter() {
+                                let value = values.iter().find(|(field, _)| field == name).map(|(_, value)| value).ok_or_else(|| IrVerifyError::new("prepared producer record omits a required field"))?;
+                                pending.push(Task::Value(value, Arc::new(ty.clone()), evidence.field(*name)));
+                            }
                         }
                     }
                     (V::Map(values), Type::Map(key, item)) => {
@@ -12361,6 +12364,42 @@ impl<'a> FullDecoder<'a> {
                     }
                 }
             }
+            FullTag::StmtPatternIf => {
+                let schema::StmtView::PatternIf { mut branches, else_body, .. } = self.statement_view(parent)? else { unreachable!() };
+                for branch in &mut branches {
+                    charge(1)?;
+                    let (condition, body, _) = branch?;
+                    if condition.raw() as usize == child { return Ok(Some((prior_false, vec![child]))); }
+                    charge(body.len().saturating_mul(2))?;
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) {
+                        prior_false.push((condition.raw() as usize, true, false));
+                        return Ok(Some((prior_false, body)));
+                    }
+                    prior_false.push((condition.raw() as usize, false, false));
+                }
+                if let Some(body) = else_body {
+                    charge(body.len().saturating_mul(2))?;
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) { return Ok(Some((prior_false, body))); }
+                }
+            }
+            FullTag::ExprPatternIf => {
+                let schema::ExprView::PatternIf { mut branches, else_value, .. } = self.expression_view(parent)? else { unreachable!() };
+                for branch in &mut branches {
+                    charge(1)?;
+                    let (condition, value, _) = branch?;
+                    if in_roots(child, &[condition.raw() as usize])? { return Ok(Some((prior_false, vec![condition.raw() as usize]))); }
+                    let value = value.raw() as usize;
+                    if in_roots(child, &[value])? {
+                        prior_false.push((condition.raw() as usize, true, false));
+                        return Ok(Some((prior_false, vec![value])));
+                    }
+                    prior_false.push((condition.raw() as usize, false, false));
+                }
+                let value = else_value.raw() as usize;
+                if in_roots(child, &[value])? { return Ok(Some((prior_false, vec![value]))); }
+            }
             FullTag::StmtIfBool => {
                 let schema::StmtView::IfBool {
                     mut branches,
@@ -12836,6 +12875,20 @@ impl<'a> FullDecoder<'a> {
         expected_payload: &Type,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        self.checked_binding_path_is_narrowed_at_parent_with_preservation(field_instruction, parent, child, target, expected_payload,
+            &mut |parent, roots, charge| self.checked_branch_preserves_binding_path(parent, roots, field_instruction, target, charge), charge)
+    }
+
+    fn checked_binding_path_is_narrowed_at_parent_with_preservation(
+        &self,
+        field_instruction: usize,
+        parent: usize,
+        child: usize,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+        preserves: &mut dyn FnMut(usize, &[usize], &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
         let tag = self.store.tags[parent];
         let short_circuit = if matches!(tag, FullTag::BoolAnd | FullTag::BoolOr | FullTag::ExprBinary) {
             self.checked_short_circuit_path_for_child(parent, child, charge)?
@@ -12850,11 +12903,11 @@ impl<'a> FullDecoder<'a> {
                 expected_payload,
                 charge,
             )?
-            && self.checked_branch_preserves_binding_path(parent, &[right], field_instruction, target, charge)?
+            && preserves(parent, &[right], charge)?
         {
             return Ok(true);
         }
-        let branch = if matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool | FullTag::ExprIf | FullTag::StmtWhile | FullTag::StmtWhileBool) {
+        let branch = if matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool | FullTag::ExprIf | FullTag::StmtPatternIf | FullTag::ExprPatternIf | FullTag::StmtWhile | FullTag::StmtWhileBool) {
             self.checked_branch_conditions_for_child(parent, child, charge)?
         } else { None };
         if let Some((conditions, body_roots)) = branch {
@@ -12872,13 +12925,7 @@ impl<'a> FullDecoder<'a> {
                     target,
                     expected_payload,
                     charge,
-                )? && self.checked_branch_preserves_binding_path(
-                    parent,
-                    &body_roots,
-                    field_instruction,
-                    target,
-                    charge,
-                )? {
+                )? && preserves(parent, &body_roots, charge)? {
                     return Ok(true);
                 }
             }

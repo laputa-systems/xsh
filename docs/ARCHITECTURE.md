@@ -276,6 +276,10 @@ Prefix checks include nested condition writes and calls that can mutate
 shared captured storage. Immediate shared reads, pure calls, and independent local
 copies retain their checked behavior. Capture mutability must agree with the
 binding's canonical defining driver payload.
+Immutable record destructuring copies prove each field's presence at the source
+read before retaining its payload type. Later source writes do not change the copy.
+Snapshot reads retain condition and loop evidence while omitting mutation scans
+only when the binding has no shared storage or applicable writers.
 Every destructuring source and guard envelope is proved, including targets that
 bind no values. Fresh list and map arguments receive context only from selected
 call parameters or physical checked-record fields. Their binding carriers retain
@@ -333,8 +337,10 @@ counted statements, with finished ownership, valid ranges, and unique positions.
 Other owners retain the full flow traversal. Writer census lookup reuses a completed inherited binding
 for an owner-local block and slot only after checking region overrides and earlier
 local declarations at the actual writer. Read and presence queries retain their
-uncached lexical lookup. This evidence contains no type or
-refinement. Guard queries borrow the exact owner census and visit
+lexical lookup. A charged structural index jumps only to an ancestor statement
+or region-binding root. Exact slot overrides and ordered declaration lookup
+still establish visibility. This evidence contains no type or refinement.
+Guard queries borrow the exact owner census and visit
 only relevant ordered prefix subtrees. Pattern and target write membership streams
 through the same borrowed visitors as write collection, charging before allocation
 and stopping once an overlapping writer is established. Selected native arguments,
@@ -342,6 +348,9 @@ record entries, and match subjects can carry an owned, single-use declared-type
 fact into their existing proof obligation. The fact
 must match the exact owner and instruction. Contextual hints cannot supply it,
 and consuming the fact retains all child, shape, storage, and effect proofs.
+Actual parameter derivation can retain its resolved binding in the same fact.
+Consumption checks the physical slot before reusing that binding for the original
+all-writer proof. Checked-type facts cannot supply this binding witness.
 
 Quantified proc effects must be finite and include each selected callee's
 checked effect contract. `FullVerifier` derives ground owner requirements from

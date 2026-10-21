@@ -2676,3 +2676,293 @@ fn producer_context_native_constructor_preparation_stays_within_work_bound() {
         FullVerifier::verify(&program).unwrap();
     });
 }
+
+#[test]
+fn result_unit_binding_tails_keep_single_success_projection() {
+    let program = fixture(r#"
+error CopyFailure = Failed(message: Str)
+proc attributes(fail: Bool) [] {
+    if fail { return Err(CopyFailure.Failed("failed")) }
+}
+proc forwarded(fail: Bool) [] {
+    let applied = attributes(fail)
+    if let Err(failure) = applied { return Err(failure) }
+    applied
+}
+assert forwarded(false) is Ok(_)
+assert forwarded(true) is Err(_)
+"#);
+    execute_both(&program);
+}
+
+#[test]
+fn context_scope_return_preserves_result_envelope() {
+    let program = fixture(r#"
+pure boolean() -> Bool { true }
+proc scoped() [env] -> Result[Unit] {
+    env ({XSH_SCOPE_RETURN: "inner"}) { return }
+}
+assert scoped() is Ok(_)
+"#);
+    let owner = function(&program, "scoped");
+    let mut range = program.store.function_instruction_range(owner).unwrap();
+    let scope = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprContextScope).unwrap();
+    let mut wrong_scope = program.clone();
+    wrong_scope.store.extra[program.store.data[scope].range().start as usize] = 2;
+    assert!(FullVerifier::verify(&wrong_scope).is_err());
+    let unit = range.find(|&instruction| program.store.tags[instruction] == FullTag::ExprUnit).unwrap();
+    let boolean = program.store.function_instruction_range(function(&program, "boolean")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    let mut wrong_body = program.clone();
+    wrong_body.store.tags[unit] = FullTag::ExprBool;
+    wrong_body.store.data[unit] = program.store.data[boolean];
+    wrong_body.store.checked_expr_types.retain(|fact| fact.is_contract());
+    assert!(FullVerifier::verify(&wrong_body).is_err());
+    assert!(FullVerifier::verify(&without_effect(&program, owner, Effect::Env)).is_err());
+    let program = Arc::new(program);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        evaluator.force_frames = force_frames;
+        let original = evaluator.env.snapshot_clone();
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+        }
+        assert_eq!(evaluator.env.snapshot_clone(), original);
+    }
+}
+
+#[test]
+fn list_add_proves_contextual_operands() {
+    let mut program = fixture(r#"
+type Row = {value: Int}
+pure boolean() -> Bool { true }
+pure joined(first: Bool) -> List[Row] {
+    (if first { [] } else { [{value: 7}] }) + []
+}
+pure copied(values: List[Row], spare: List[Bool]) -> List[Row] { values + [] }
+var order = 0
+proc left() [] -> List[Int] { order = order * 10 + 1; [1] }
+proc right() [] -> List[Int] { order = order * 10 + 2; [2] }
+proc in_order() [] -> List[Int] { left() + right() }
+assert joined(true).len() == 0
+assert joined(false)[0].value == 7
+assert copied([{value: 8}], [true])[0].value == 8
+assert in_order() == [1, 2]
+assert order == 12
+"#);
+    program.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "joined");
+    let mut range = program.store.function_instruction_range(owner).unwrap();
+    let add = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBinary).unwrap();
+    let op = program.store.extra[program.store.data[add].range().start as usize] as usize;
+    assert_eq!(program.store.binary_ops[op], BinaryOp::Add);
+    let mut wrong_op = program.clone();
+    wrong_op.store.binary_ops[op] = BinaryOp::Sub;
+    assert!(FullVerifier::verify(&wrong_op).is_err());
+    let member = range.find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+    let boolean = program.store.function_instruction_range(function(&program, "boolean")).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+    let mut wrong_member = program.clone();
+    wrong_member.store.tags[member] = FullTag::ExprBool;
+    wrong_member.store.data[member] = program.store.data[boolean];
+    assert!(FullVerifier::verify(&wrong_member).is_err());
+    let owner = function(&program, "copied");
+    let decoder = function_view_decoder(&program.store, owner);
+    let read = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+    let mut wrong_stored = program.clone();
+    wrong_stored.store.extra[program.store.data[read].range().start as usize] = 1;
+    assert!(matches!(function_view_decoder(&wrong_stored.store, owner).expression_view(read), Ok(schema::ExprView::Param(1))));
+    assert!(FullVerifier::verify(&wrong_stored).is_err());
+}
+
+#[test]
+fn optional_reads_in_later_conditions_keep_false_guard_evidence() {
+    for expression in [false, true] {
+        let body = "if value == null { 0 } else if value == -1 { 2 } else if let Err(failure) = deliver(value) { 3 } else { 1 }";
+        let body = if expression { format!("let answer = {body}\nanswer") } else { body.to_owned() };
+        let mut program = fixture(&format!(r#"
+pure deliver(value: Int) -> Result[Unit] {{ Ok() }}
+pure selected(value: Int?, spare: Int?) -> Int {{ {body} }}
+assert selected(null, null) == 0
+assert selected(7, null) == 1
+assert selected(-1, null) == 2
+"#));
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "selected");
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        assert!(range.clone().any(|instruction| matches!(program.store.tags[instruction], FullTag::StmtPatternIf | FullTag::ExprPatternIf)));
+        let guard = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction),
+            Ok(schema::ExprView::Binary { op: BinaryOp::Eq, right, .. }) if program.store.tags[right.raw() as usize] == FullTag::ExprNull)).unwrap();
+        let mut wrong_guard = program.clone();
+        let op = program.store.extra[program.store.data[guard].range().start as usize] as usize;
+        wrong_guard.store.binary_ops[op] = BinaryOp::Ne;
+        assert!(FullVerifier::verify(&wrong_guard).is_err());
+        let input = range.find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check, value, .. }) if check.ty.materialize().unwrap() == Type::Int => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(input), Ok(schema::ExprView::Param(0))));
+        let mut wrong_binding = program.clone();
+        wrong_binding.store.extra[program.store.data[input].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
+    }
+}
+
+#[test]
+fn prepared_erased_records_preserve_record_kind() {
+    let program = fixture(r#"
+type Row = {name: Str}
+const value = {name: "one"}
+pure preserved() -> Row { value }
+assert preserved().name == "one"
+"#);
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let constant = program.store.prepared_constants.iter().find(|constant| matches!(constant.0, LoweredValue::Record(_))).unwrap();
+    let decoder = function_view_decoder(&program.store, function(&program, "preserved"));
+    let verify = |value: &PreparedConstantValue<TypeId>, expected: &Type| {
+        let mut budget = verify_schemes::SchemeInstantiationBudget::for_prepared_constants(&program.store, 0);
+        decoder.verify_prepared_constant_type(value, expected, &mut |amount| budget.charge(amount))
+    };
+    verify(constant, &Type::ErasedRecord).unwrap();
+    let mut wrong_kind = constant.clone();
+    wrong_kind.0 = LoweredValue::Bool(false);
+    assert!(verify(&wrong_kind, &Type::ErasedRecord).is_err());
+    let _symbols = program.symbol_owner().enter();
+    let LoweredValue::Record(fields) = &constant.0 else { unreachable!() };
+    let entries = fields.iter().map(|(name, value)| (Name::intern(name), value.clone())).collect::<Vec<_>>();
+    let mut vector = constant.clone();
+    vector.0 = LoweredValue::RecordVec(Arc::new(entries.clone()));
+    verify(&vector, &Type::ErasedRecord).unwrap();
+    let mut duplicate = entries;
+    duplicate.push(duplicate[0].clone());
+    vector.0 = LoweredValue::RecordVec(Arc::new(duplicate));
+    assert!(verify(&vector, &Type::ErasedRecord).unwrap_err().message.contains("repeats a field"));
+    let mut wrong_field = constant.clone();
+    let LoweredValue::Record(fields) = &mut wrong_field.0 else { unreachable!() };
+    Arc::make_mut(fields).insert(Arc::from("name"), LoweredValue::Bool(false));
+    let typed = Type::Record(Arc::new(BTreeMap::from([(Name::intern("name"), Type::Str)])));
+    assert!(verify(&wrong_field, &typed).is_err());
+}
+
+#[test]
+fn immutable_optional_field_copies_preserve_guarded_method_receivers() {
+    let program = fixture(r#"
+type Battery = {power: Int?, current: Int?, voltage: Int?}
+pure watts(sample: Battery, wrong: Bool) -> Float? {
+    if sample.power != null {
+        let microwatts = sample.power
+        return null when microwatts < 0
+        microwatts.float() / 1000000.0
+    } else if sample.current != null and sample.voltage != null {
+        let {current, voltage, ..} = sample
+        return null when current == 0 or voltage <= 0
+        (if current < 0 { -current } else { current }).float() * voltage.float() / 1000000000000.0
+    } else { null }
+}
+assert watts(Battery(power: 1000000, current: null, voltage: null), false) == 1.0
+assert watts(Battery(power: null, current: null, voltage: null), false) == null
+assert watts(Battery(power: -1, current: null, voltage: null), false) == null
+assert watts(Battery(power: null, current: 1000000, voltage: 1000000), false) == 1.0
+"#);
+    execute_both(&program);
+    let owner = function(&program, "watts");
+    let decoder = function_view_decoder(&program.store, owner);
+    let _symbols = program.symbol_owner().enter();
+    let guard = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. })
+            if program.store.tags[right.raw() as usize] == FullTag::ExprNull
+                && matches!(decoder.expression_view(left.raw() as usize), Ok(schema::ExprView::Field { name, .. }) if name == Name::intern("current")))
+    }).unwrap();
+    let mut wrong_guard = program.clone();
+    wrong_guard.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&wrong_guard).unwrap();
+    let op = wrong_guard.store.extra[wrong_guard.store.data[guard].range().start as usize] as usize;
+    wrong_guard.store.binary_ops[op] = BinaryOp::Eq;
+    assert!(FullVerifier::verify(&wrong_guard).is_err());
+    let mut copied_slots = Vec::new();
+    for instruction in program.store.function_instruction_range(owner).unwrap() {
+        if let Ok(schema::StmtView::LetRecord { target, .. }) = decoder.statement_view(instruction) {
+            decoder.comp_target_written_slots(target, &mut copied_slots).unwrap();
+        }
+    }
+    let receiver = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+        Ok(schema::ExprView::Method { name: "float", receiver, .. }) => match decoder.expression_view(receiver.raw() as usize) {
+            Ok(schema::ExprView::Param(slot)) if copied_slots.contains(&slot) => Some(receiver.raw() as usize),
+            _ => None,
+        },
+        _ => None,
+    }).unwrap();
+    let mut wrong_slot = program.clone();
+    wrong_slot.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&wrong_slot).unwrap();
+    wrong_slot.store.extra[wrong_slot.store.data[receiver].range().start as usize] = 1;
+    assert!(matches!(function_view_decoder(&wrong_slot.store, owner).expression_view(receiver), Ok(schema::ExprView::Param(1))));
+    assert!(FullVerifier::verify(&wrong_slot).is_err());
+}
+
+#[test]
+fn guarded_record_copies_preserve_capture_order() {
+    let program = fixture(r#"
+type Sample = {value: Int?}
+var shared: Sample = Sample(7)
+proc clear() [] -> Int { shared = Sample(null); 0 }
+proc copied() [] -> Float {
+    if shared.value != null {
+        let {value, ..} = shared
+        let cleared = clear()
+        value.float() + cleared.float()
+    } else { 0.0 }
+}
+assert copied() == 7.0
+assert shared.value == null
+"#);
+    execute_both(&program);
+    let owner = function(&program, "copied");
+    let setter = function(&program, "clear");
+    let decoder = function_view_decoder(&program.store, owner);
+    let declaration = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::StmtLetRecord).unwrap();
+    let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction|
+        matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Call { function, .. }) if function.id.index() == setter)).unwrap();
+    let statement = program.store.function_instruction_range(owner).unwrap().find(|&instruction|
+        matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Expr { value, .. } | schema::StmtView::Let { value, .. }) if value.raw() as usize == call)).unwrap();
+    let words = program.store.blocks.iter().find_map(|block| {
+        let words = block.instructions.bounds(program.store.extra.len())?;
+        let values = &program.store.extra[words.clone()];
+        (values[1..].contains(&(declaration as u32)) && values[1..].contains(&(statement as u32))).then_some(words)
+    }).unwrap();
+    let first = words.start + 1 + program.store.extra[words.clone()][1..].iter().position(|&value| value == declaration as u32).unwrap();
+    let second = words.start + 1 + program.store.extra[words][1..].iter().position(|&value| value == statement as u32).unwrap();
+    assert!(first < second);
+    let mut wrong_order = program.clone();
+    wrong_order.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&wrong_order).unwrap();
+    wrong_order.store.extra.swap(first, second);
+    assert!(FullVerifier::verify(&wrong_order).is_err());
+}
+
+#[test]
+fn guarded_record_copy_reads_keep_bounded_proof_work() {
+    for count in [16, 32, 64, 128] {
+        let values = std::iter::repeat_n("value.float()", count).collect::<Vec<_>>().join(", ");
+        let program = fixture(&format!(r#"
+type Sample = {{value: Int?}}
+pure copied(sample: Sample) -> List[Float] {{
+    if sample.value != null {{ let {{value, ..}} = sample; [{values}] }} else {{ [] }}
+}}
+let result = copied(Sample(7))
+assert result.len() == {count}
+assert result[0] == 7.0
+assert result[{last}] == 7.0
+"#, last = count - 1));
+        execute_both(&program);
+    }
+}
