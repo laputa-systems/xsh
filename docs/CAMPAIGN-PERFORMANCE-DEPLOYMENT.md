@@ -8,18 +8,21 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `e94bd925f` passes 213 of 214 focused controls with
-no ignores. The retained Stream-function alias positive is the sole failure.
-The combined run includes the Range, constructor, shorthand, Proc completion,
-counter and mutable-callable controls. Master remains at `d2453760a`.
+Current inference assembly `0c9d8d1f2` passes all 270 focused controls and all
+27 unchanged native regression cases on matching verification products.
+Neither run has failures or ignores. The combined group covers type, scheme,
+semantic-codec, Range, constructor, shorthand, Proc completion, counter and
+mutable-callable controls. Master remains at `d2453760a`.
 
-Matching verification products on earlier assembly `a57c98136` pass both expr
-cases and all eight btop cases in the original 27-case replay. Five cp cases
-newly fail authored Proc propagation during checking. Repair `8e1eeeff1` passes
-sixteen focused controls and is included in the current combined run.
-Matching products and the unchanged native replay remain required for that
-repair. Stream-kind transport, explicit recursive return expressions, corpus
+The callable-kind foundation changes the internal Rust type API while preserving
+authored Pure and Proc syntax. It passes 68 isolated controls and the non-test
+XSH and XSHT library check. Runtime Stream carriers and dispatch still reject
+unsupported paths explicitly. New runtime probes expose the remaining Stream
+transport and captured-write limitations. These are mandatory open work.
+Explicit recursive return expressions also remain unqualified. Corpus
 classification and the inherited full acceptance gates remain open.
+The counter-getter build warning is fixed. XSHT still reports the known
+Send-proof recursion-depth warning. No performance qualification follows.
 
 Master includes the four foundation commits through `c44e47016` and the
 independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
