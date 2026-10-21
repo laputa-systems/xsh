@@ -125,6 +125,19 @@ Self and mutual recursion still fail at the explicit-return inference boundary.
 The mutual source case has not reached its effect-map check. Cold execution and
 effect-scheme acceptance remain unfinished.
 
+Unqualified prerequisite `7a03e30fb` passes 26 of 28 selected controls.
+Forwarded applications retain caller-owned obligations and actual returned
+layouts. Ground calls still require selected argument evidence. Independent
+source review finds no defect in that mapping. Cold verification must also
+reject an in-range ordinal pointing to the wrong caller obligation.
+
+The XSHT migration passes four of six focused controls: finite, unknown and
+symbolic effect permissions, plus an existing capture autofix. Its generic
+body-contract control exposes unfinished Capture lowering. An existing inferred
+return autofix also loses one safe fix and remains under diagnosis. Body-proof
+inputs require execution facts and matching source context. No tooling or cold
+acceptance follows from these results.
+
 The isolated producer repair now passes the actual frozen `cut` source and
 its portable counter, self-slice and field-guard controls. Independently
 anchored storage types retain all writer obligations. Six focused order and
@@ -139,6 +152,12 @@ narrowed return values lifted into `Result`. The return-lifting control passes
 after repair. The other two relationships remain under repair. The actual
 AWK, developer module and system-report checks must pass before merged corpus
 qualification. These isolated results earn no interface or removal credit.
+
+Later isolated checks complete every producer proof in system-report and the
+developer module, then exceed the unchanged final work budget. Exact repeated
+query counts do not justify a cache. The producer lane measures unrelated guard
+ancestry work before pruning it through the same predicate and binding proofs.
+AWK remains under repair. None of these modules has final corpus acceptance.
 
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
