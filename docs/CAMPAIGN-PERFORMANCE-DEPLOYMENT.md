@@ -15,6 +15,11 @@ for the warning repair. The effect repair reproduces and fixes an external
 unknown-summary panic. Its private graph solver can omit a selected set of
 clauses without changing ordinary solving or authored contracts. All 12 merged
 effect and importer controls pass. No corpus clauses are removed.
+Independent diagnostic repair `62e65d2dc` also lands on master after its exact
+pinned regression passes. Spanless indexed-build errors identify the failing
+entry source; explicit error spans remain intact. This ports campaign repair
+`80fea2f8d` without the unfinished compiler changes. The isolated checkout is
+clean and its owned build has finished.
 No fresh full Rust, native, or performance gate accompanies these merges.
 Later inference commits remain on the campaign branch: even the focused-green
 `8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
