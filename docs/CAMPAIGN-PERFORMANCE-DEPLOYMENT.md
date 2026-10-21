@@ -108,10 +108,20 @@ still fail. Outer bound effect publication, latent application causality and
 symbolic cold execution remain unfinished. This checkpoint stays outside the
 integration branch and earns no F2 acceptance.
 
-Three smaller producer regressions reproduce the remaining corpus classes:
-guarded optional fields, guarded mutable optional records, and mutable Bytes
-self-slices. All three fail before the repair. The producer lane owns the fix;
-independent review checks guard preservation and every storage writer.
+The isolated producer repair now passes the actual frozen `cut` source and
+its portable counter, self-slice and field-guard controls. Independently
+anchored storage types retain all writer obligations. Six focused order and
+guard controls pass, including rejected mutations of Binary, List, Fmt, Tag,
+later conditions and completing branches. These results include two reproduced
+evaluation-order defects repaired during review. Final classification review,
+statement-level controls and work-budget qualification remain required.
+
+Three further portable regressions reproduce the advanced corpus failures:
+nullable conditional storage, immutable Boolean aliases of field guards, and
+narrowed return values lifted into `Result`. The return-lifting control passes
+after repair. The other two relationships remain under repair. The actual
+AWK, developer module and system-report checks must pass before merged corpus
+qualification. These isolated results earn no interface or removal credit.
 
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
