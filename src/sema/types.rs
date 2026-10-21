@@ -143,19 +143,55 @@ pub enum Type {
 }
 
 pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
-    if next.matches_expected(current) {
-        return Some(current.clone());
+    let refined_current = refine_list_literal_unknowns(current, next, 0)?;
+    let refined_next = refine_list_literal_unknowns(next, current, 0)?;
+    if refined_next.matches_expected(refined_current.as_ref()) {
+        return Some(refined_current.into_owned());
     }
-    if current.matches_expected(next) {
-        return Some(next.clone());
+    if refined_current.matches_expected(refined_next.as_ref()) {
+        return Some(refined_next.into_owned());
     }
     if matches!(
-        (current, next),
+        (refined_current.as_ref(), refined_next.as_ref()),
         (Type::Str, Type::Path) | (Type::Path, Type::Str)
     ) {
         return Some(Type::Any);
     }
     None
+}
+
+fn refine_list_literal_unknowns<'a>(source: &'a Type, peer: &Type, depth: usize) -> Option<std::borrow::Cow<'a, Type>> {
+    use std::borrow::Cow;
+    if depth > super::constraints::MAX_TYPE_DEPTH { return None; }
+    let refined = match (source, peer) {
+        (Type::Unknown, peer) if !peer.is_recovery() => peer.clone(),
+        (Type::List(item), Type::List(peer)) => {
+            match refine_list_literal_unknowns(item, peer, depth + 1)? {
+                Cow::Borrowed(_) => return Some(Cow::Borrowed(source)),
+                Cow::Owned(item) => Type::List(Box::new(item)),
+            }
+        }
+        (Type::Map(key, value), Type::Map(peer_key, peer_value)) => {
+            let key = refine_list_literal_unknowns(key, peer_key, depth + 1)?;
+            let value = refine_list_literal_unknowns(value, peer_value, depth + 1)?;
+            if matches!((&key, &value), (Cow::Borrowed(_), Cow::Borrowed(_))) { return Some(Cow::Borrowed(source)); }
+            Type::Map(Box::new(key.into_owned()), Box::new(value.into_owned()))
+        }
+        (Type::Record(fields), Type::Record(peer)) if fields.keys().eq(peer.keys()) => {
+            let mut refined = None;
+            for (name, ty) in fields.iter() {
+                if let Cow::Owned(ty) = refine_list_literal_unknowns(ty, &peer[name], depth + 1)? {
+                    refined.get_or_insert_with(|| fields.as_ref().clone()).insert(*name, ty);
+                }
+            }
+            match refined {
+                Some(fields) => Type::Record(Arc::new(fields)),
+                None => return Some(Cow::Borrowed(source)),
+            }
+        }
+        _ => return Some(Cow::Borrowed(source)),
+    };
+    Some(Cow::Owned(refined))
 }
 
 /// The contract of a callable value. `sig.effects` bounds invocation effects.

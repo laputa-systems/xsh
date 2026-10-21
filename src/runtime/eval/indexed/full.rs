@@ -33933,6 +33933,19 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_producer_contexts_close_conditional_collection_inputs() {
         run_with_large_stack(|| {
             let source = "pure helper(flag: Bool) -> List[Int] { let values = if flag { [7] } else { [] }; values.push(9) }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
+            let derivable = Arc::new(fixture("generic-ground-derivable-input.xsh", source));
+            FullVerifier::verify(&derivable).unwrap();
+            {
+                let _symbols = derivable.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*derivable.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&derivable));
+                    evaluator.force_frames = force_frames;
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
+                    assert_eq!(result, Value::Int(2));
+                }
+            }
+            let source = "pure helper(flag: Bool) -> List[Int] { collect { for case in [{args: []}, {args: [\"-z\"]}] { yield case.args.len() } } }\npure read(row) -> Int { let ignored = row.anchor; helper(true).len() }\n";
             let program = Arc::new(fixture("generic-ground-context-input.xsh", source));
             FullVerifier::verify(&program).unwrap();
             assert!(program.store.checked_expr_types.iter().any(|fact| matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_))), "an underivable collection receiver needs an independently closed context");
@@ -33971,7 +33984,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             eprintln!("producer context row bytes: {}; reserved capacity delta: {row_bytes}", size_of::<FullCheckedExprType>());
             let mut unused = (*program).clone();
             let original = unused.store.checked_expr_types[context];
-            let literal = unused.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            let literal = unused.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
             unused.store.checked_expr_types.push(FullCheckedExprType { instruction: literal as u32, ..original });
             unused.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
             assert!(FullVerifier::verify(&unused).is_err());
