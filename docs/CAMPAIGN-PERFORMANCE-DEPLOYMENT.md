@@ -48,6 +48,11 @@ Practical XSH original and reduced still fail identically: `awk` now reaches a
 missing loop-item contract instead of the prior nullable read failure, and
 `sort` retains its map-subject failure. Interface and runtime parity remain
 unrun, with no annotation-removal credit.
+Faithful isolated reducers for frozen sites 3476, 7427, 2285 and 6338 pass both
+annotated and erased checks with this pair. The first two previously failed
+when erased. The mutable-record reducer includes its original import closure;
+earlier missing-module fixture attempts supply no compiler evidence. These
+admission results do not qualify the original files or earn removal credit.
 
 Source `f53eb38d1` passes the earlier combined targeted boundary and construction
 neighbors: 468 passed, zero failed and zero ignored. Generic bodies prepare
