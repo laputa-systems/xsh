@@ -21,7 +21,18 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Source `054fc7a3a` passes the combined 489-test targeted boundary after local
+Source `26d87d2bc` is integrated with reviewed generic operator contracts and
+a shared comparison-chain representation containing each real operand once.
+Ordinary depth-8/depth-12 preparation emits 60/88 rows, versus 3,574/57,334
+before repair; generic preparation emits 190/282 and stays within unchanged
+work limits. These are deterministic row counts, not timing measurements.
+The focused operator and completion controls pass. The expanded merged boundary
+has 527 passes and six failures, all in the existing typed-callable optional
+field controls. Running those controls on `054fc7a3a` reproduces the same six
+failures. Guard, loop-backedge, writer and block-order proof repairs remain
+mandatory; this is not a fully qualified compiler baseline.
+
+Source `054fc7a3a` passes the earlier combined 489-test targeted boundary after local
 integration. Quantified bodies elaborate shorthand fields through resolved
 binding identities and static record updates through the existing checked
 paths. Both indexed routes preserve shadowing, immutable captures, base-before-
