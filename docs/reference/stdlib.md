@@ -66,6 +66,12 @@ Bounded compression of files or standard streams.
 - `compression.gzip_name(source: Path) -> Result[Path?, Error]` — Reads a gzip header filename.
 - `compression.transform(source: Path? = default, destination: Path? = default, format: Str = default, decode: Bool = default, level: Int = default, test: Bool = default, metadata: Bool = default, overwrite: Bool = default, pass_through: Bool = default) -> Result[Unit, Error]` — Compresses or decompresses a byte stream.
 
+### `crypto`
+
+Ed25519 signature verification.
+
+- `crypto.ed25519_verify(message: Bytes, public_key: Bytes, signature: Bytes) -> Result[Bool, Error]` — Verifies a detached RFC 8032 Ed25519 signature.
+
 ### `cpu`
 
 CPU capability queries.

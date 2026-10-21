@@ -5454,6 +5454,16 @@ signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 
 Contracts worth knowing without consulting the reference:
 
+- `crypto.ed25519_verify(message, public_key, signature)` verifies a detached
+  PureEd25519 signature under RFC 8032. It passes the exact `Bytes` message to
+  the verifier without UTF-8 decoding or prehashing. Public keys must be 32
+  bytes and signatures 64 bytes. A valid-length invalid signature returns
+  `Ok(false)`; malformed lengths, invalid public-key encodings, and provider
+  failures return structured `Err` values with kinds
+  `crypto-ed25519-public-key-length`,
+  `crypto-ed25519-signature-length`, `crypto-ed25519-public-key`, or
+  `crypto-ed25519-provider`. The operation is pure and has no filesystem or
+  network effects.
 - `net.request`, `net.download` and `net.upload` follow up to `redirects`
   redirects (default 3). `redirect_limit: "return"` makes a redirect they will
   not follow the result instead of a `NetError.Redirect` failure, so a caller

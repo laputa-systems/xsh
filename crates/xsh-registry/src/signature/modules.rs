@@ -50,6 +50,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: compression_module(),
             },
             ModuleEntry {
+                name: "crypto",
+                sig: crypto_module(),
+            },
+            ModuleEntry {
                 name: "cpu",
                 sig: cpu_module(),
             },
@@ -1078,6 +1082,22 @@ fn compression_module() -> ModuleSig {
         ("transform", sig(vec![default_param("source", Type::Optional(Box::new(Type::Path))), default_param("destination", Type::Optional(Box::new(Type::Path))), default_param("format", Type::Str), default_param("decode", Type::Bool), default_param("level", Type::Int), default_param("test", Type::Bool), default_param("metadata", Type::Bool), default_param("overwrite", Type::Bool), default_param("pass_through", Type::Bool)], result(Type::Unit), false, RuntimeOp::CompressionTransform)),
         ("gzip_name", sig(vec![param("source", Type::Path)], result(Type::Optional(Box::new(Type::Path))), false, RuntimeOp::CompressionGzipName)),
     ])
+}
+
+fn crypto_module() -> ModuleSig {
+    module_sig(vec![(
+        "ed25519_verify",
+        sig(
+            vec![
+                param("message", Type::Bytes),
+                param("public_key", Type::Bytes),
+                param("signature", Type::Bytes),
+            ],
+            result(Type::Bool),
+            true,
+            RuntimeOp::CryptoEd25519Verify,
+        ),
+    )])
 }
 
 fn shlex_module() -> ModuleSig {
