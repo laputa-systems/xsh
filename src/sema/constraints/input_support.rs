@@ -44,7 +44,7 @@ impl TypeConstraints {
                 { continue; }
                 let application = &entry.application;
                 let callee = self.resolve(&application.callee)?;
-                if !matches!(callee.unvalidated(), Type::Inference(_) | Type::Callable(_))
+                if !matches!(callee.unvalidated(), Type::Inference(_))
                     || !self.unresolved_input_variables(std::slice::from_ref(&callee))?.is_subset(&supported)
                 { continue; }
                 visited.insert(id);
@@ -163,6 +163,40 @@ mod tests {
         application(&mut constraints, peer, formal.clone(), unrelated.clone());
         assert!(!constraints.unresolved_local_holes_are_input_bound(declaration, &component, std::slice::from_ref(&unrelated), std::slice::from_ref(&formal)).unwrap());
         assert!(constraints.unresolved_local_holes_are_input_bound(declaration, &BTreeSet::from([declaration, peer]), &[unrelated], &[formal]).unwrap());
+    }
+
+    #[test]
+    fn local_input_support_does_not_invent_argument_relationships_erased_by_actual_any() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for generic_return in [false, true] {
+                let mut constraints = TypeConstraints::default();
+                let declaration = owner(0);
+                let component = BTreeSet::from([declaration]);
+                let returned = if generic_return { constraints.fresh_at_level(declaration.body, 1) } else { Type::Int };
+                let formals = if generic_return { vec![returned.clone()] } else { Vec::new() };
+                let hole = constraints.fresh_at_level(declaration.body, 1);
+                let actual = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                    pure: true,
+                    sig: crate::sema::types::CallableType {
+                        params: vec![crate::sema::types::CallableParamType {
+                            name: crate::symbol::Name::intern("value"), ty: Type::Any, defaulted: false, rest: false,
+                        }],
+                        return_ty: Box::new(returned.clone()), effects: crate::sema::types::CallableEffects::finite([]),
+                    },
+                }));
+                constraints.register_callable_application(CallableApplicationScope::Declaration(declaration), CallableApplication {
+                    callee: actual, result: returned,
+                    arguments: Arc::from([crate::sema::callable_application::CallableApplicationArgument {
+                        kind: crate::sema::arguments::StaticArgumentKind::Positional,
+                        ty: Type::List(Box::new(hole.clone())), span: declaration.body,
+                    }]),
+                    effects: EffectContract::finite(crate::sema::effects::EffectSet::default()),
+                    proc_returns: Arc::from([]), kind: CallableKindRequirement::Pure, span: declaration.body,
+                }).unwrap();
+                constraints.solve_callable_applications().unwrap();
+                assert!(!constraints.unresolved_local_holes_are_input_bound(declaration, &component, &[hole], &formals).unwrap());
+            }
+        });
     }
 
     #[test]

@@ -203,16 +203,13 @@ impl StreamOrigins {
         for (path, origin) in &self.0 {
             let origin = match origin {
                 StreamOrigin::OriginalApplication { reference, projection } => {
-                    eprintln!("normalize original owner={owner:?} reference={reference:?} pending={} callable={} scope={}", pending.is_some(), pending.is_some_and(|pending| pending.generalized().is_some()), pending.is_some_and(|pending| pending.generalized_scope().is_some()));
                     let pending = pending.ok_or(StreamOriginBoundaryError)?;
                     let translated = constraints.generalized_application_ordinal(*reference, owner, pending.generalized().ok_or(StreamOriginBoundaryError)?, pending.generalized_scope().ok_or(StreamOriginBoundaryError)?);
-                    eprintln!("normalize translation owner={owner:?} reference={reference:?} result={translated:?}");
                     let ordinal = translated.map_err(|_| StreamOriginBoundaryError)?.ok_or(StreamOriginBoundaryError)?;
                     StreamOrigin::BinderApplication { owner, ordinal, projection: projection.clone() }
                 }
                 StreamOrigin::BinderApplication { owner: actual_owner, ordinal, .. } => {
                     if *actual_owner != owner || pending.and_then(|pending| pending.generalized()).and_then(|callable| callable.requirements().applications.get(*ordinal as usize)).is_none() {
-                        eprintln!("normalize binder rejected owner={owner:?} actual_owner={actual_owner:?} ordinal={ordinal} pending={} callable={}", pending.is_some(), pending.is_some_and(|pending| pending.generalized().is_some()));
                         return Err(StreamOriginBoundaryError);
                     }
                     origin.clone()

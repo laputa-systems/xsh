@@ -1124,6 +1124,13 @@ impl PendingFunctionSig {
         }
     }
 
+    pub(super) fn generalized_empty_constructors(&self) -> Option<&BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) | PendingCallable::Rejected => None,
+            PendingCallable::Generalized(callable) => Some(&callable.empty_constructors),
+        }
+    }
+
     pub(super) fn generalized_tail_types(
         &self,
     ) -> Option<&BTreeMap<StmtId, super::schemes::SchemeType>> {
@@ -1152,6 +1159,7 @@ impl PendingFunctionSig {
         callable: Arc<super::schemes::CallableScheme>,
         generalization_scope: super::constraints::CallableGeneralizationScope,
         body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+        empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
         tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
         registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
         read_bindings: std::collections::BTreeSet<BindingId>,
@@ -1164,6 +1172,7 @@ impl PendingFunctionSig {
             callable,
             generalization_scope,
             body_types,
+            empty_constructors,
             tail_types,
             registered_calls,
             read_bindings,
@@ -1176,6 +1185,7 @@ struct GeneralizedCallable {
     callable: Arc<super::schemes::CallableScheme>,
     generalization_scope: super::constraints::CallableGeneralizationScope,
     body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+    empty_constructors: BTreeMap<ExprId, super::schemes::NonmaterialEmptyConstructor>,
     tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
     registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<BindingId>,

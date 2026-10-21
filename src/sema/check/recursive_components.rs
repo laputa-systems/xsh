@@ -327,32 +327,10 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let program = Arc::new(parsed.arena);
             program.symbol_owner().with_current(|| {
-                let view = super::super::CheckBundleView::for_root(&program, program.statements, None, Some(SourceId::new(0)));
-                let statements = program.statement_ids().collect::<Vec<_>>();
-                let mut checker = Checker::new(CheckOptions::default());
-                checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&program));
-                checker.effect_graph = super::super::infer_effects::EffectGraph::declarations_for_root(&view);
-                checker.authoritative_effect_graph = true;
-                checker.record_effects = true;
-                checker.collecting_effects = true;
-                checker.defer_effect_diagnostics = true;
-                checker.collect_definitions_arena(&program, Arc::clone(&program), source, statements.iter().copied());
-                checker.infer_local_pure_returns(&view, source, &statements);
-                for &statement in &statements { checker.check_stmt_arena(&program, source, statement); }
-                assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
-                assert_eq!(checker.call_instantiations.len(), 2);
-                checker.bind_effect_graph().unwrap();
-                checker.effect_summaries = checker.effect_graph.solve_with_external(&BTreeMap::new()).unwrap();
-                checker.collecting_effects = false;
-                checker.record_effects = false;
-                checker.resolve_checked_types();
-                checker.validate_deferred_effects();
+                let output = Checker::check_arena_with_options(&program, source, CheckOptions::default());
                 if forbidden {
-                    assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", checker.diagnostics);
-                } else { assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics); }
-                let facts = checker.effect_graph.facts(&checker.effect_summaries);
-                checker.finalize_function_declarations(&program, &facts);
-                let output = checker.into_output();
+                    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", output.diagnostics);
+                } else { assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics); }
                 let peers = output.checked_declarations.functions.values().filter(|declaration| matches!(declaration.name.as_str().as_ref(), "left" | "right")).collect::<Vec<_>>();
                 assert_eq!(peers.len(), 2);
                 if forbidden {
