@@ -196,18 +196,24 @@ Recursive command checkpoint `f017423e9` passes nine focused controls and is
 integrated through `6d6e2e4b3`. These cover checked command classes, argument
 authority, original Stream inference cells, callback instances and atomic
 failure. Its combined replay passes 120 of 124 controls with no ignores.
-Three original Proc callback tests and the counter's real-program fixture fail
-result-envelope or origin-publication checks. These remain compiler blockers.
+The later constructor-phase repair clears two original Proc callback failures.
+Checkpoint `c6565bad5`, integrated through `bdf3f43f0`, also prepares omitted-return
+Procs with authored parameters through the existing authoritative body path.
+Its seven-control replay passes six, including the real-program counter fixture
+and both original cold application checks. Mutual Proc completion remains open.
 The inherited collecting probe also remains separate work from the authoritative
 body check. Stream aliases, terminal commands and native-order checks remain open.
 
-Constructor checkpoint `21b4c1660` passes all 37 focused checks with no ignores,
-including disposal, effect order and physical overwrite proofs. Its packed
-body fact occupies sixteen bytes. The paired-body regression then finds that
-fully annotated functions prepare constructor evidence after raw type resolution.
-The candidate fix uses the existing declaration schedule for authored interfaces
-too. That fix, paired-body comparison and coherent prerequisite integration remain
-unqualified. Explicit `List[Any]` and genuinely heterogeneous literals stay dynamic.
+Constructor checkpoint `3342bf3a9` passes all 43 focused checks with no ignores,
+including disposal, effect order, physical overwrite proofs and paired bodies.
+Its packed body fact occupies sixteen bytes. Authored interfaces now use the
+existing declaration schedule before raw type resolution. Capture-order and
+atomic-publication controls pass. Integration `13c7d119f` preserves the command
+and producer proofs. Explicit `List[Any]` and heterogeneous literals stay dynamic.
+The subsequent combined group passes 192 of 197 controls with no ignores.
+Three failures expose the ordinary Proc preparation gap repaired by `c6565bad5`.
+Mutual Proc completion and the retained Stream-alias positive also fail.
+The combined group has not been replayed after the Proc repair.
 The native witnesses integrated at `6397a90cf` both reproduce real failures.
 Prepared-constant repair `85d6f607a` is now integrated through `6fd59da4b`.
 Its 89-test checker/runtime group and four imported-read/nominal controls pass.
@@ -231,8 +237,11 @@ failures are eight btop cases and two expr cases. Follow-up `ee22c3cc8` passes a
 78 verifier controls and is integrated through `586d4bf0c`. Its actual btop
 preparation passes after fresh-record, empty-set and immutable-loop guard fixes.
 An earlier complete-Optional allowance failed seven unchanged corruption tests
-and was withdrawn. Matching products and the original native replay remain
-pending. The expr spread proofs remain open.
+and was withdrawn. Matching verification products build on `ee22c3cc8`.
+The original 27 native failures now yield 25 passes and two expr failures,
+with no ignores. All eight btop cases pass. On the coherent constructor source,
+expr preparation instead stops earlier at an unproved Range Stream contract.
+The Range repair and subsequent expr replay remain unqualified.
 Test adapter repair `bc7e8fffe` preserves the concrete effect assertions after
 the checked-effect representation change. All five affected integration tests pass.
 These isolated results do not qualify the combined regression boundary.
@@ -243,8 +252,10 @@ counts retained generic body evidence, including proc-return sites, without
 inventing output types. All fifteen focused counter controls pass on its merged
 source. Stream and signal-hook body entries now pass their regression alongside
 all sixteen focused counter controls. The accounting prefix is integrated through
-`9bd8fe67d`. The combined real-program evidence test currently stops at the
-Proc origin-publication failure above, so performance qualification remains open.
+`9bd8fe67d`. Repair `6da02f160` counts each constructor role as evidence without
+inventing an output type. Its actual constructor fixture passes in the combined
+197-control run. The later Proc repair also passes the real-program evidence
+fixture. Performance qualification remains open.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
@@ -252,7 +263,10 @@ Thirty-nine completed checkouts have now been retired. R3 removal partially
 fails on generated-file permissions after Git unregisters it. Its orphaned
 directory is preserved intact under the retired-qualification archive.
 R4's ignored artifacts are also preserved before ordinary removal succeeds.
-Both original paths and registrations are absent. The active failed
+Both original paths and registrations are absent. The completed constant-assembly
+checkout is also removed after confirming clean integration and no consumers.
+Its scratch data and ignored artifacts remain in the retired-lane directory.
+The active failed
 canonical checkout and all unfinished source remain retained.
 
 Previous focused source `50b9d543e` passes 684 merged controls with zero failures
