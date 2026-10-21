@@ -70,7 +70,19 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
-Current focused source `50b9d543e` passes 684 merged controls with zero failures
+Reviewed producer repair `512779e63` is integrated at `3e11fe729`.
+Its final focused boundary passes all 63 controls, with independent approval
+and unchanged work limits. Nineteen new portable tests cover the repaired
+relationships. Review reproduced a wrong-family direct error transfer accepted
+by the verifier; mandatory physical propagation proofs now reject it at the
+nearest applicable function boundary while preserving local captures.
+The census assertion now counts physical statements independently and compares
+complete writer and return sets with the old traversal. Its old exact count
+described the removed expression walk. Fresh qualification of the merged source
+is running with an expected 703 controls, matching products, eight corpus checks
+and twelve runtime controls. No merged acceptance follows before those finish.
+
+Previous focused source `50b9d543e` passes 684 merged controls with zero failures
 or ignores. Matching verification products build: `xsh` is 36,324,192 bytes
 and `xsht` is 44,329,432 bytes. All twelve runner, resource, constructor and
 comprehension selectors pass, each selecting one test with zero skips and
@@ -139,14 +151,23 @@ constructor identity. The original private-return autofix again proposes both
 expected fixes on this source. Generic Capture still fails during indexed
 preparation, so this checkpoint earns no F2 or cold-execution acceptance.
 
-The isolated seven-file XSHT migration passes eleven focused controls on that
-checkpoint, with zero failures or ignores and independent review approval.
+The isolated seven-file XSHT migration at `9470db0ca` passes eleven focused
+controls on that checkpoint, with zero failures or ignores and independent
+review approval.
 Finite, unknown and symbolic permissions remain distinct. Original effect-fact
 coverage is required before any reload, and annotation removal requires a
 successful canonical body proof. Three regressions reproduce and fix the
 previous fail-open caller paths. The generic Capture body-contract fixture
 remains known red because of the compiler prerequisite above; full tooling
 acceptance remains open.
+
+Isolated Result-pattern prerequisite `42af589d2` passes eight focused controls
+and independent review. Built-in Ok/Err patterns constrain unresolved subjects
+at their original solver level with transactional ownership. Enum shadowing
+and incompatible callback results retain their checks. An ordinary typed-input
+reference establishes the canonical inferred Error join; the new narrower
+expectation was corrected without changing that policy. Cold execution and
+recursive component inference remain unfinished.
 
 The isolated producer repair now passes the actual frozen `cut` source and
 its portable counter, self-slice and field-guard controls. Independently
