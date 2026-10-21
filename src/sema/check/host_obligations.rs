@@ -86,7 +86,6 @@ impl HostObligation {
             let arguments_match =
                 crate::sema::arguments::bind_static_arguments(&params, &self.arguments).is_ok();
             let candidate_matches = if arguments_match {
-                #[cfg(test)]
                 constraints.record_host_candidate_trial();
                 constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, false))?
             } else {
@@ -104,7 +103,6 @@ impl HostObligation {
             let candidate_matches = if competing_domains.contains(&candidate.receiver) {
                 true
             } else {
-                #[cfg(test)]
                 constraints.record_host_candidate_trial();
                 constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, true))?
             };
@@ -205,7 +203,6 @@ impl Checker {
                     if let Some(dependents) = watchers.remove(&dependency) {
                         for dependent in dependents {
                             if pending[dependent].is_some() && queued.insert(dependent) {
-                                #[cfg(test)]
                                 self.type_constraints.record_host_obligation_requeue();
                                 queue.push_back(dependent);
                             }

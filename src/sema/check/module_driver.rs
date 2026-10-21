@@ -654,6 +654,7 @@ mod tests {
     use crate::sema::check::CheckOptions;
     use crate::sema::check::decl::USER_MODULE_CHECKS;
     use crate::sema::constraints::{ConstraintType, TypeConstraints};
+    use crate::sema::inference_work;
     use crate::sema::schemes::{SchemeRowTail, SchemeType, TypeScheme};
     use crate::sema::types::Type;
     use crate::source::Span;
@@ -864,11 +865,13 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let program = &parsed.arena;
             program.symbol_owner().with_current(|| {
-                let output = Checker::check_arena_with_options(
-                    program,
-                    &source,
-                    CheckOptions::for_execution(),
-                );
+                let (work, output) = inference_work::collect(|| {
+                    Checker::check_arena_with_options(
+                        program,
+                        &source,
+                        CheckOptions::for_execution(),
+                    )
+                });
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
                 let body_entries = output.function_body_check_entries;
                 let call_facts = output.call_instantiations.len();
@@ -879,6 +882,7 @@ mod tests {
                     &source,
                 );
                 (
+                    work,
                     body_entries,
                     call_facts,
                     lowered.functions,
@@ -887,12 +891,18 @@ mod tests {
             })
         };
 
-        let (one_body_checks, one_call_facts, one_functions, one_constructed) = check(1);
-        let (many_body_checks, many_call_facts, many_functions, many_constructed) = check(8);
+        let (one_work, one_body_checks, one_call_facts, one_functions, one_constructed) = check(1);
+        let (many_work, many_body_checks, many_call_facts, many_functions, many_constructed) =
+            check(8);
         assert_eq!(one_call_facts, 1);
         assert_eq!(many_call_facts, 8);
         assert_eq!(one_body_checks, many_body_checks);
         assert_eq!(one_body_checks, 2);
+        assert_eq!(
+            one_work.function_body_check_entries,
+            many_work.function_body_check_entries
+        );
+        assert!(many_work.scheme_instantiations > one_work.scheme_instantiations);
         assert_eq!(one_functions, 2);
         assert_eq!(many_functions, one_functions);
         assert_eq!(one_constructed, 2);
@@ -1394,6 +1404,27 @@ mod tests {
         assert_eq!(*tail, SchemeRowTail::Parameter(row_binder.id));
         assert_eq!(name_of.return_type(), &SchemeType::Parameter(*type_binder));
         assert!(row_binder.lacks.contains(&name_field));
+    }
+
+    #[test]
+    fn inference_work_counts_imported_module_body_checks() {
+        let workspace = typing_workspace(&[
+            "use shared\npure exercise() -> Int { shared.identity(42) }\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source) = workspace.roots[0];
+        let (work, output) = inference_work::collect(|| {
+            session.check(root, source, CheckOptions::default())
+        });
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert!(output.function_body_check_entries > 1);
+        assert!(work.function_body_check_entries >= output.function_body_check_entries as u64);
+        assert!(work.fresh_variables > 0);
     }
 
     #[test]

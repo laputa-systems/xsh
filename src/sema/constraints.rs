@@ -179,8 +179,8 @@ enum ResolutionAccess<'a> {
     Journal(&'a mut Vec<ConstraintChange>),
 }
 
-#[derive(Debug, Default)]
-struct ConstraintCounters {
+#[derive(Debug)]
+pub(crate) struct ConstraintCounters {
     fresh_variables: AtomicU64,
     generated_constraints: AtomicU64,
     representative_hops: AtomicU64,
@@ -191,12 +191,138 @@ struct ConstraintCounters {
     scheme_instantiations: AtomicU64,
     successful_generic_call_resolutions: AtomicU64,
     worklist_wakeups: AtomicU64,
-    #[cfg(test)]
     host_candidate_trials: AtomicU64,
-    #[cfg(test)]
     host_obligation_requeues: AtomicU64,
     rollbacks: AtomicU64,
     rollback_changes: AtomicU64,
+    level_adjustments: AtomicU64,
+    effect_edge_visits: AtomicU64,
+    candidate_tests: AtomicU64,
+    function_body_check_entries: AtomicU64,
+    record_extended_work: bool,
+}
+
+impl Default for ConstraintCounters {
+    fn default() -> Self {
+        Self {
+            fresh_variables: AtomicU64::new(0),
+            generated_constraints: AtomicU64::new(0),
+            representative_hops: AtomicU64::new(0),
+            compression_writes: AtomicU64::new(0),
+            unifications: AtomicU64::new(0),
+            occurs_visits: AtomicU64::new(0),
+            row_field_visits: AtomicU64::new(0),
+            scheme_instantiations: AtomicU64::new(0),
+            successful_generic_call_resolutions: AtomicU64::new(0),
+            worklist_wakeups: AtomicU64::new(0),
+            host_candidate_trials: AtomicU64::new(0),
+            host_obligation_requeues: AtomicU64::new(0),
+            rollbacks: AtomicU64::new(0),
+            rollback_changes: AtomicU64::new(0),
+            level_adjustments: AtomicU64::new(0),
+            effect_edge_visits: AtomicU64::new(0),
+            candidate_tests: AtomicU64::new(0),
+            function_body_check_entries: AtomicU64::new(0),
+            record_extended_work: cfg!(test),
+        }
+    }
+}
+
+impl ConstraintCounters {
+    pub(crate) fn for_measurement() -> Self {
+        Self {
+            record_extended_work: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn metrics(&self) -> ConstraintMetrics {
+        ConstraintMetrics {
+            fresh_variables: self.fresh_variables.load(Ordering::Relaxed),
+            generated_constraints: self.generated_constraints.load(Ordering::Relaxed),
+            representative_hops: self.representative_hops.load(Ordering::Relaxed),
+            compression_writes: self.compression_writes.load(Ordering::Relaxed),
+            unifications: self.unifications.load(Ordering::Relaxed),
+            occurs_visits: self.occurs_visits.load(Ordering::Relaxed),
+            row_field_visits: self.row_field_visits.load(Ordering::Relaxed),
+            scheme_instantiations: self.scheme_instantiations.load(Ordering::Relaxed),
+            successful_generic_call_resolutions: self
+                .successful_generic_call_resolutions
+                .load(Ordering::Relaxed),
+            worklist_wakeups: self.worklist_wakeups.load(Ordering::Relaxed),
+            host_candidate_trials: self.host_candidate_trials.load(Ordering::Relaxed),
+            host_obligation_requeues: self.host_obligation_requeues.load(Ordering::Relaxed),
+            rollbacks: self.rollbacks.load(Ordering::Relaxed),
+            rollback_changes: self.rollback_changes.load(Ordering::Relaxed),
+            level_adjustments: self.level_adjustments.load(Ordering::Relaxed),
+            effect_edge_visits: self.effect_edge_visits.load(Ordering::Relaxed),
+            candidate_tests: self.candidate_tests.load(Ordering::Relaxed),
+            function_body_check_entries: self
+                .function_body_check_entries
+                .load(Ordering::Relaxed),
+        }
+    }
+
+    fn record_level_adjustment(&self) {
+        if self.record_extended_work {
+            self.level_adjustments.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn record_candidate_test(&self) {
+        if self.record_extended_work {
+            self.candidate_tests.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_effect_edge_visit(&self) {
+        if self.record_extended_work {
+            self.effect_edge_visits.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_effect_constraint(&self) {
+        if self.record_extended_work {
+            self.generated_constraints.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_effect_variable(&self) {
+        if self.record_extended_work {
+            self.fresh_variables.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_effect_worklist_wakeup(&self) {
+        if self.record_extended_work {
+            self.worklist_wakeups.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_application_worklist_wakeup(&self) {
+        if self.record_extended_work {
+            self.worklist_wakeups.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_function_body_check_entry(&self) {
+        if self.record_extended_work {
+            self.function_body_check_entries
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_host_candidate_trial(&self) {
+        if self.record_extended_work {
+            self.host_candidate_trials.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_host_obligation_requeue(&self) {
+        if self.record_extended_work {
+            self.host_obligation_requeues.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 impl Clone for ConstraintCounters {
@@ -222,21 +348,25 @@ impl Clone for ConstraintCounters {
                 self.successful_generic_call_resolutions.load(Ordering::Relaxed),
             ),
             worklist_wakeups: AtomicU64::new(self.worklist_wakeups.load(Ordering::Relaxed)),
-            #[cfg(test)]
             host_candidate_trials: AtomicU64::new(
                 self.host_candidate_trials.load(Ordering::Relaxed),
             ),
-            #[cfg(test)]
             host_obligation_requeues: AtomicU64::new(
                 self.host_obligation_requeues.load(Ordering::Relaxed),
             ),
             rollbacks: AtomicU64::new(self.rollbacks.load(Ordering::Relaxed)),
             rollback_changes: AtomicU64::new(self.rollback_changes.load(Ordering::Relaxed)),
+            level_adjustments: AtomicU64::new(self.level_adjustments.load(Ordering::Relaxed)),
+            effect_edge_visits: AtomicU64::new(self.effect_edge_visits.load(Ordering::Relaxed)),
+            candidate_tests: AtomicU64::new(self.candidate_tests.load(Ordering::Relaxed)),
+            function_body_check_entries: AtomicU64::new(
+                self.function_body_check_entries.load(Ordering::Relaxed),
+            ),
+            record_extended_work: self.record_extended_work,
         }
     }
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ConstraintMetrics {
     pub(crate) fresh_variables: u64,
@@ -253,6 +383,10 @@ pub(crate) struct ConstraintMetrics {
     pub(crate) host_obligation_requeues: u64,
     pub(crate) rollbacks: u64,
     pub(crate) rollback_changes: u64,
+    pub(crate) level_adjustments: u64,
+    pub(crate) effect_edge_visits: u64,
+    pub(crate) candidate_tests: u64,
+    pub(crate) function_body_check_entries: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -317,17 +451,65 @@ impl Clone for Variable {
     }
 }
 
+#[derive(Debug)]
+enum ConstraintCounterStorage {
+    Local(ConstraintCounters),
+    Shared(Arc<ConstraintCounters>),
+}
+
+impl ConstraintCounterStorage {
+    fn for_current_work_scope() -> Self {
+        crate::sema::inference_work::current_counters().map_or_else(
+            || Self::Local(ConstraintCounters::default()),
+            Self::Shared,
+        )
+    }
+}
+
+impl Clone for ConstraintCounterStorage {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Local(counters) => Self::Local(counters.clone()),
+            Self::Shared(counters) => Self::Shared(Arc::clone(counters)),
+        }
+    }
+}
+
+impl std::ops::Deref for ConstraintCounterStorage {
+    type Target = ConstraintCounters;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Local(counters) => counters,
+            Self::Shared(counters) => counters,
+        }
+    }
+}
+
 /// One local or declaration inference problem. Cloned probes share existing
 /// variable identities, while new variables in either probe remain distinct.
 /// Substitutions and provenance belong to this value, never a global cache.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TypeConstraints {
     variables: FxHashMap<TypeVariableId, Variable>,
     rows: FxHashMap<RowVariableId, RowVariable>,
     effects: effect_constraints::EffectConstraints,
     applications: application_constraints::CallableApplications,
-    counters: ConstraintCounters,
+    counters: ConstraintCounterStorage,
     trial_changes: Option<Vec<ConstraintChange>>,
+}
+
+impl Default for TypeConstraints {
+    fn default() -> Self {
+        Self {
+            variables: FxHashMap::default(),
+            rows: FxHashMap::default(),
+            effects: effect_constraints::EffectConstraints::default(),
+            applications: application_constraints::CallableApplications::default(),
+            counters: ConstraintCounterStorage::for_current_work_scope(),
+            trial_changes: None,
+        }
+    }
 }
 
 impl Clone for TypeConstraints {
@@ -387,6 +569,7 @@ impl TypeConstraints {
         operation: impl FnOnce(&mut Self) -> Result<(), ConstraintConflict>,
     ) -> Result<bool, ConstraintResolutionError> {
         assert!(self.trial_changes.is_none(), "constraint trials cannot nest");
+        self.counters.record_candidate_test();
         self.trial_changes = Some(Vec::new());
         let guard = ConstraintTrial(self);
         match operation(&mut *guard.0) {
@@ -448,7 +631,8 @@ impl TypeConstraints {
         };
         match result {
             Ok(()) => {
-                self.applications.enqueue_changes(0, &mut changes);
+                self.applications
+                    .enqueue_changes(0, &mut changes, &self.counters);
                 self.retain_trial_changes(changes);
                 Ok(())
             }
@@ -519,44 +703,20 @@ impl TypeConstraints {
         id
     }
 
-    #[cfg(test)]
     pub(crate) fn metrics(&self) -> ConstraintMetrics {
-        ConstraintMetrics {
-            fresh_variables: self.counters.fresh_variables.load(Ordering::Relaxed),
-            generated_constraints: self.counters.generated_constraints.load(Ordering::Relaxed),
-            representative_hops: self.counters.representative_hops.load(Ordering::Relaxed),
-            compression_writes: self.counters.compression_writes.load(Ordering::Relaxed),
-            unifications: self.counters.unifications.load(Ordering::Relaxed),
-            occurs_visits: self.counters.occurs_visits.load(Ordering::Relaxed),
-            row_field_visits: self.counters.row_field_visits.load(Ordering::Relaxed),
-            scheme_instantiations: self.counters.scheme_instantiations.load(Ordering::Relaxed),
-            successful_generic_call_resolutions: self
-                .counters
-                .successful_generic_call_resolutions
-                .load(Ordering::Relaxed),
-            worklist_wakeups: self.counters.worklist_wakeups.load(Ordering::Relaxed),
-            host_candidate_trials: self.counters.host_candidate_trials.load(Ordering::Relaxed),
-            host_obligation_requeues: self
-                .counters
-                .host_obligation_requeues
-                .load(Ordering::Relaxed),
-            rollbacks: self.counters.rollbacks.load(Ordering::Relaxed),
-            rollback_changes: self.counters.rollback_changes.load(Ordering::Relaxed),
-        }
+        self.counters.metrics()
     }
 
-    #[cfg(test)]
     pub(crate) fn record_host_candidate_trial(&self) {
-        self.counters
-            .host_candidate_trials
-            .fetch_add(1, Ordering::Relaxed);
+        self.counters.record_host_candidate_trial();
     }
 
-    #[cfg(test)]
     pub(crate) fn record_host_obligation_requeue(&self) {
-        self.counters
-            .host_obligation_requeues
-            .fetch_add(1, Ordering::Relaxed);
+        self.counters.record_host_obligation_requeue();
+    }
+
+    pub(crate) fn record_function_body_check_entry(&self) {
+        self.counters.record_function_body_check_entry();
     }
 
     #[cfg(test)]
@@ -2229,6 +2389,9 @@ impl TypeConstraints {
         self.rows.insert(child, RowVariable::Parent(AtomicU64::new(root.0)));
         self.record_row(root, changes);
         let level = left_level.min(right_level);
+        if (if attach_left { right_level } else { left_level }) > level {
+            self.counters.record_level_adjustment();
+        }
         {
             let Some(RowVariable::Representative(root_value)) = self.rows.get_mut(&root) else {
                 unreachable!("row union root remains a representative");
@@ -2356,6 +2519,7 @@ impl TypeConstraints {
                             else {
                                 unreachable!("representative lookup returns a root");
                             };
+                            self.counters.record_level_adjustment();
                             variable.level = level;
                             match binding {
                                 Some(Binding::Type { ty, .. }) => {
@@ -2394,7 +2558,7 @@ impl TypeConstraints {
                                         .push(LevelNode::Type(ty.clone(), depth + 1)),
                                     ModuleExportType::Pure { sig, .. }
                                     | ModuleExportType::Proc { sig, .. } => {
-                                        self.effects.lower_levels(sig.effects.contract(), level, changes)?;
+                                        self.effects.lower_levels(sig.effects.contract(), level, changes, &self.counters)?;
                                         pending.push(LevelNode::Type(
                                             (*sig.return_ty).clone(),
                                             depth + 1,
@@ -2413,7 +2577,7 @@ impl TypeConstraints {
                             }));
                         }
                         Type::Callable(callable) => {
-                            self.effects.lower_levels(callable.sig.effects.contract(), level, changes)?;
+                            self.effects.lower_levels(callable.sig.effects.contract(), level, changes, &self.counters)?;
                             pending.push(LevelNode::Type(
                                 (*callable.sig.return_ty).clone(),
                                 depth + 1,
@@ -2453,6 +2617,7 @@ impl TypeConstraints {
                     else {
                         unreachable!("row representative lookup returns a root");
                     };
+                    self.counters.record_level_adjustment();
                     variable.level = level;
                     if let Some(binding) = binding {
                         pending.extend(binding.shape.fields.into_values().map(|ty| {
@@ -3872,6 +4037,9 @@ impl TypeConstraints {
             .insert(child, Variable::Parent(AtomicU64::new(root.0)));
         self.record(root, changes);
         let level = left_level.min(right_level);
+        if (if attach_left { right_level } else { left_level }) > level {
+            self.counters.record_level_adjustment();
+        }
         {
             let Some(Variable::Representative(root_value)) = self.variables.get_mut(&root) else {
                 unreachable!("union root remains a representative");
@@ -6228,5 +6396,26 @@ mod tests {
         assert_eq!(constraints.constrain_result_pattern_subject(&Type::Int, span(5)).unwrap(), Type::Int);
         let mut foreign = TypeConstraints::default();
         assert!(foreign.constrain_result_pattern_subject(&subject, span(6)).is_err());
+    }
+
+    #[test]
+    fn measured_clone_probe_counts_failed_work_once() {
+        let (metrics, failed) = crate::sema::inference_work::collect(|| {
+            let mut constraints = TypeConstraints::default();
+            let anchor = constraints.fresh(span(1));
+            let mut probe = constraints.clone();
+            probe.trial(|candidate| {
+                let transient = candidate.fresh(span(2));
+                candidate.constrain(&transient, &anchor, span(3))?;
+                candidate.constrain(&transient, &Type::Int, span(4))?;
+                candidate.constrain(&transient, &Type::Str, span(5))
+            })
+        });
+
+        assert_eq!(failed, Ok(false));
+        assert_eq!(metrics.fresh_variables, 2);
+        assert_eq!(metrics.candidate_tests, 1);
+        assert_eq!(metrics.rollbacks, 2);
+        assert!(metrics.rollback_changes > 0);
     }
 }

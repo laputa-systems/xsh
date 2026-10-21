@@ -4632,6 +4632,7 @@ impl Checker {
             .function_body_check_entries
             .checked_add(1)
             .expect("function body check entry count overflowed");
+        self.type_constraints.record_function_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
         self.collect_function_local_constraints(arena, source, def, pure);
         let enclosing_boundary = self.enter_callable_boundary();
