@@ -155,11 +155,19 @@ checks and the focused CA recipe test pass. XSH master includes Ed25519 host
 verification at `21ce1ed25`, with one registry and two native controls passing.
 XSH distrust-policy enforcement and trust-generation invalidation are integrated
 through `be7009bb7`. Fifteen Rust controls, two native controls and validation
-of the unchanged curl bundle pass. Laputa signed-release checkpoint `4c5f991`
-passes seven focused controls. Review blocks integration because staging accepts
-existing overlays and fixed temporary paths can delete unrelated generations.
-Exclusive staging ownership and preservation regressions remain required.
-The production signing public key is not provisioned.
+of the unchanged curl bundle pass. Laputa local master now includes signed
+trust-release composition and staging repairs through `f7da5b523`.
+Two pre-fix regressions reproduce deletion of caller-owned overlays and
+temporary paths. The repairs use exclusively owned private temporary
+roots and atomic no-replace publication. Initial privacy follows the existing
+mode-at-creation host primitives and independent source review.
+The final five-file check passes under both umask `000` and `002`.
+All six trust-release and fourteen root-composition tests pass under each
+mask, including preservation, publication permissions and one-winner composition.
+No forced publication-race test is claimed. The fast-forwarded master is clean
+and exactly matches the reviewed source. Nothing is pushed or installed.
+The production signing public key remains unprovisioned; authenticated update
+deployment still requires an explicitly provisioned key.
 These security changes do not supply inference or deployment acceptance credit.
 
 Isolated compiler checkpoint `dc21c8501` passes thirteen runtime-layout controls
@@ -179,7 +187,11 @@ remain required before performance use.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
-Thirty-seven completed checkouts have now been retired. The active failed
+Thirty-nine completed checkouts have now been retired. R3 removal partially
+fails on generated-file permissions after Git unregisters it. Its orphaned
+directory is preserved intact under the retired-qualification archive.
+R4's ignored artifacts are also preserved before ordinary removal succeeds.
+Both original paths and registrations are absent. The active failed
 canonical checkout and all unfinished source remain retained.
 
 Previous focused source `50b9d543e` passes 684 merged controls with zero failures
