@@ -1,3 +1,4 @@
+use crate::sema::callable_application::{inferred_proc_return_envelope, join_error_types};
 use super::{
     AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
     Type,
@@ -469,6 +470,9 @@ impl Checker {
                                 ArenaExprOrRun::Expr(expression) => self.stream_expr_origin(program, expression),
                                 ArenaExprOrRun::Run(_) => super::stream_origins::StreamOrigins::unproven(&ty),
                             };
+                            let alias = if matches!(kind, ArenaStmtKind::Let { ty: None, .. } | ArenaStmtKind::Const { ty: None, .. }) {
+                                match initializer { ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(program, expression), _ => None }
+                            } else { None };
                             self.define_binding_target_arena(
                                 program,
                                 target,
@@ -477,6 +481,9 @@ impl Checker {
                                 decl.span,
                                 &origin,
                             );
+                            if let Some(alias) = alias
+                                && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
+                            { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }
                             self.annotation_facts.truncate(before);
                         }
                     }
@@ -728,17 +735,7 @@ impl Checker {
                     self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                     Type::Invalid
                 }
-                // Every `?` in the body propagates through the inferred error
-                // type, so it joins with the errors of `Err(..)` completions.
-                Type::Result(ok, err) => Type::Result(
-                    ok,
-                    Box::new(
-                        propagated
-                            .iter()
-                            .fold(*err, |joined, (ty, _)| join_error_types(&joined, ty)),
-                    ),
-                ),
-                ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
+                ty => inferred_proc_return_envelope(ty, &propagated.iter().map(|(error, _)| error.clone()).collect::<Vec<_>>()),
             }
         };
         self.function_return_types.insert(body_span, ty.clone());
@@ -868,22 +865,6 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     }
 }
 
-// Failures from different completions join to their narrowest common error:
-// variants of one family join to the family, anything else to `Error`.
-fn join_error_types(left: &Type, right: &Type) -> Type {
-    match (left, right) {
-        _ if left == right => left.clone(),
-        (Type::Unknown, other) | (other, Type::Unknown) => other.clone(),
-        (Type::ErrorVariant { family, .. }, Type::ErrorVariant { family: other, .. })
-        | (Type::ErrorVariant { family, .. }, Type::ErrorFamily(other))
-        | (Type::ErrorFamily(family), Type::ErrorVariant { family: other, .. })
-            if family == other =>
-        {
-            Type::ErrorFamily(*family)
-        }
-        _ => Type::Error,
-    }
-}
 
 fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<Vec<usize>>, FxHashSet<usize>) {
     let mut visited = vec![false; edges.len()];

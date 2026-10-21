@@ -836,8 +836,13 @@ impl TypeConstraints {
             let result = self.instantiate_scheme_type(&application.result, &type_arguments, &row_arguments, level, origin, 0)?;
             let effects = application.effects.substitute(|id| effect_arguments.get(id).copied()
                 .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter)))?;
+            let proc_returns = application.proc_returns.iter().map(|envelope| Ok(super::callable_application::ProcReturnEnvelope {
+                result: self.instantiate_scheme_type(&envelope.result, &type_arguments, &row_arguments, level, origin, 0)?,
+                propagated_errors: envelope.propagated_errors.iter().map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, level, origin, 0)).collect::<Result<Vec<_>, _>>()?.into(),
+                span: envelope.span,
+            })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
             applications.push(self.register_callable_application(scope, super::callable_application::CallableApplication {
-                callee, arguments: arguments.into(), result, effects, kind: application.kind, span: application.span,
+                callee, arguments: arguments.into(), result, effects, proc_returns: proc_returns.into(), kind: application.kind, span: application.span,
             }).map_err(SchemeOperationError::Application)?);
         }
         for predicate in &callable.requirements().effect_predicates {

@@ -339,6 +339,7 @@ impl CallableScheme {
             for ty in std::iter::once(&application.callee)
                 .chain(application.arguments.iter().map(|argument| &argument.ty))
                 .chain(std::iter::once(&application.result))
+                .chain(application.proc_returns.iter().flat_map(|envelope| std::iter::once(&envelope.result).chain(envelope.propagated_errors.iter())))
             {
                 ty.validate(&type_ids, &row_ids, &mut used_types, &mut used_rows, &mut row_requirements)?;
             }
@@ -467,9 +468,12 @@ impl CallableRequirements {
         for application in &self.applications {
             bytes = bytes.saturating_add(application.effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
             bytes = bytes.saturating_add(std::mem::size_of_val(application.arguments.as_ref()));
+            bytes = bytes.saturating_add(std::mem::size_of_val(application.proc_returns.as_ref()));
+            bytes = bytes.saturating_add(application.proc_returns.iter().map(|envelope| std::mem::size_of_val(envelope.propagated_errors.as_ref())).sum::<usize>());
             for ty in std::iter::once(&application.callee)
                 .chain(application.arguments.iter().map(|argument| &argument.ty))
                 .chain(std::iter::once(&application.result))
+                .chain(application.proc_returns.iter().flat_map(|envelope| std::iter::once(&envelope.result).chain(envelope.propagated_errors.iter())))
             {
                 bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>()));
             }
@@ -482,6 +486,10 @@ impl CallableRequirements {
         for application in &mut mapped.applications {
             application.callee.map_ground_types(map);
             application.result.map_ground_types(map);
+            for envelope in Arc::make_mut(&mut application.proc_returns) {
+                envelope.result.map_ground_types(map);
+                for error in Arc::make_mut(&mut envelope.propagated_errors) { error.map_ground_types(map); }
+            }
             for argument in Arc::make_mut(&mut application.arguments) {
                 argument.ty.map_ground_types(map);
             }
@@ -1259,6 +1267,7 @@ mod tests {
                 applications: vec![CallableApplication {
                     callee: SchemeType::Parameter(f),
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: SchemeType::Parameter(value), span }].into(),
+                    proc_returns: Arc::from([]),
                     result: SchemeType::Parameter(discarded), effects: EffectContract::variable(effect),
                     kind: CallableKindRequirement::Immediate, span,
                 }],
@@ -1304,6 +1313,7 @@ mod tests {
                     callee: SchemeType::Parameter(f),
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("payload")),
                         ty: SchemeType::Record { fields: BTreeMap::from([(field, SchemeType::Ground(Type::Int))]), tail: SchemeRowTail::Parameter(row) }, span }].into(),
+                    proc_returns: Arc::from([]),
                     result: SchemeType::Ground(Type::Unit), effects: EffectContract::finite(EffectSet::default()), kind: CallableKindRequirement::Pure, span,
                 }],
                 ..CallableRequirements::default()

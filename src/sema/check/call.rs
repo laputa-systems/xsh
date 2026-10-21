@@ -335,6 +335,7 @@ impl Checker {
                 checked_argument,
             );
         }
+        if let Some(result) = self.check_inferred_local_callable_call(arena, source, callee, args, span, checked_argument) { return result; }
         if args
             .iter()
             .any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }))
@@ -822,12 +823,12 @@ impl Checker {
             };
         }
 
-        // Any other callee is an expression; it is callable only when its
-        // value has a callable type.
         let diagnostics_before = self.diagnostics.len();
-        if let Type::Callable(callable) = self.check_expr_arena(arena, source, callee, None) {
-            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+        let callee_type = self.check_expr_arena(arena, source, callee, None);
+        if let Type::Callable(callable) = &callee_type {
+            return self.check_typed_callable_call(arena, source, callee, args, callable, span);
         }
+        if let Some(result) = self.check_inferred_callable_application(arena, source, &callee_type, args, span, checked_argument) { return result; }
         self.diagnostics.truncate(diagnostics_before);
         self.record_effect_contract(&None, "unresolved call target");
         self.error(

@@ -336,6 +336,11 @@ scope. Instantiation allocates one type, row, and effect substitution and retain
 the selected argument layouts. Declaration-owned requirements remain distinct
 from nongeneralizing invocations. Nested committed transactions and speculative
 trials share the same journal, including fresh scope ownership and panic rollback.
+Direct source applications retain one declaration-and-expression identity across
+constraint probes. Instantiated requirements remain separate activations.
+A deferred Proc return envelope refers to an explicit application identity and
+uses the existing ground Result/error join policy; type-cell equality alone
+cannot establish application-result provenance.
 
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.

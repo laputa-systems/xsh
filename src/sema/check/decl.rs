@@ -243,7 +243,7 @@ impl Checker {
                         .copied()
                 })
                 .collect::<super::FxHashSet<_>>();
-            let checked_calls = generalized_body_types.keys().filter_map(|&expression| {
+            let mut checked_calls = generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
@@ -266,6 +266,9 @@ impl Checker {
                     });
                 (pure || finite_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
+            checked_calls.extend(generalized.requirements.applications.iter()
+                .filter(|application| application.kind == crate::sema::callable_application::CallableKindRequirement::Pure)
+                .map(|application| application.span));
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }

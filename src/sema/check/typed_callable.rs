@@ -1,19 +1,3 @@
-//! Typed callables: `proc(PARAMS) [EFFECTS] -> T` and `pure(PARAMS) -> T`.
-//!
-//! A typed callable is the dynamic handle of its kind at run time. What makes
-//! it typed is decided here, in two places and nowhere else:
-//!
-//! - A value gets the type only from a function the checker can name (a
-//!   declaration, a module export, or a signature-keeping alias) whose
-//!   signature fits, or from another value of a fitting callable type.
-//! - A call through the type is checked against the type's signature, charges
-//!   the type's effect bound to the caller, and is published as a fact that
-//!   lowering consumes.
-//!
-//! The effect bound is an upper bound on every function that can reach the
-//! type. A type written without a clause has the unrestricted bound, which is
-//! charged as unknown effects and never as none.
-
 use super::{CallableAlias, Checker, FunctionParamSig, FunctionSig, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::TypedCallable;
@@ -34,10 +18,6 @@ fn expected_typed_callable(expected: Option<&Type>) -> Option<Arc<TypedCallable>
 }
 
 impl Checker {
-    /// Gives a function named where a callable type is expected that type,
-    /// when its signature fits. `actual` is the type the expression has on
-    /// its own. A dynamic handle with no signature the checker can name is
-    /// rejected: nothing vouches for what it accepts or does.
     pub(super) fn name_typed_callable(
         &mut self,
         arena: &ArenaProgram,
@@ -49,11 +29,124 @@ impl Checker {
             return actual;
         }
         let Some(target) = expected_typed_callable(expected) else {
+            if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
+                return self.materialize_callable_argument(arena, id, actual);
+            }
             return actual;
         };
         let span = arena.arena.expr(id).span;
         let named = self.resolve_callable_alias_target(arena, id);
         self.fit_named_callable(named, &actual, target, span)
+    }
+
+    fn materialize_callable_argument(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
+        let Some(named) = self.resolve_callable_alias_target(arena, id) else { return actual; };
+        let span = arena.arena.expr(id).span;
+        let contract = self.function_call_contract(&named.signature, span);
+        if let Some(instance) = contract.instantiation.clone() { self.record_pending_call_instantiation(span, instance); }
+        let callable = Type::Callable(Arc::new(TypedCallable {
+            pure: named.pure,
+            sig: super::CallableType {
+                params: contract.params.into_iter().map(|parameter| super::CallableParamType {
+                    name: parameter.name, ty: parameter.ty, defaulted: parameter.defaulted, rest: parameter.rest,
+                }).collect(),
+                return_ty: Box::new(contract.return_ty),
+                effects: crate::sema::types::CallableEffects::from_clause(contract.effects),
+            },
+        }));
+        self.record_selected_function_value(span, &named.signature);
+        self.record_expr_type(span, callable.clone());
+        callable
+    }
+
+    pub(super) fn check_inferred_local_callable_call(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        args: &[ArenaCallArg],
+        span: Span,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+    ) -> Option<Type> {
+        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(_)) { return None; }
+        let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, callee) else { return None; };
+        let ty = binding.ty.clone();
+        if !matches!(self.type_constraints.resolve(&ty), Ok(Type::Inference(_))) { return None; }
+        let ty = self.check_expr_arena(arena, source, callee, None);
+        self.check_inferred_callable_application(arena, source, &ty, args, span, checked_argument)
+    }
+
+    pub(super) fn check_inferred_callable_application(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: &Type,
+        args: &[ArenaCallArg],
+        span: Span,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+    ) -> Option<Type> {
+        use crate::sema::arguments::{ArgumentValueSource, StaticArgumentKind};
+        use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument, CallableKindRequirement};
+        use crate::sema::constraints::CallableApplicationScope;
+        use crate::sema::effects::{EffectContract, EffectSet};
+        if !matches!(self.type_constraints.resolve(callee), Ok(Type::Inference(_))) { return None; }
+        let arguments = if let Some(argument) = checked_argument {
+            assert!(args.is_empty(), "a checked argument replaces source arguments");
+            vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: argument.ty.clone(), span: argument.span }]
+        } else {
+            let mut checked = std::collections::BTreeMap::new();
+            for argument in args {
+                let value = match argument.kind {
+                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }
+                    | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
+                };
+                let mut ty = self.check_expr_arena(arena, source, value, None);
+                if matches!(ty, Type::Pure | Type::Proc) { ty = self.materialize_callable_argument(arena, value, ty); }
+                checked.insert(value, ty);
+            }
+            match crate::sema::arguments::expand_named_arguments(arena, args, |value| Some(checked.get(&value).expect("every application source argument is checked").clone())) {
+                Ok(arguments) => arguments.into_iter().map(|argument| CallableApplicationArgument {
+                    kind: match (argument.name, argument.value) {
+                        (Some(name), _) => StaticArgumentKind::Named(name),
+                        (None, ArgumentValueSource::PositionalSplice(_)) => StaticArgumentKind::Splice,
+                        _ => StaticArgumentKind::Positional,
+                    }, ty: argument.ty, span: argument.span,
+                }).collect(),
+                Err(error) => {
+                    self.error(error.span, &error.message, DiagnosticCode::CheckCallSplice);
+                    return Some(Type::Invalid);
+                }
+            }
+        };
+        let (scope, level) = match self.stream_origin_owner {
+            Some(owner) => {
+                let Some(declaration) = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)) else {
+                    self.error(span, "callable application has no declaration inference scope", DiagnosticCode::CheckLocalInference);
+                    return Some(Type::Invalid);
+                };
+                (CallableApplicationScope::Declaration(owner), declaration.solver_level())
+            }
+            None => (CallableApplicationScope::Invocation, 0),
+        };
+        let previous = self.type_constraints.source_callable_application(scope, span).cloned();
+        let result = previous.as_ref().map(|application| application.result.clone()).unwrap_or_else(|| self.type_constraints.fresh_at_level(span, level));
+        let effects = previous.as_ref().map(|application| application.effects.clone()).unwrap_or_else(|| {
+            if self.boundary.in_pure { EffectContract::finite(EffectSet::default()) }
+            else { EffectContract::variable(self.type_constraints.fresh_effect_at_level(span, level)) }
+        });
+        let application = CallableApplication {
+            callee: callee.clone(), arguments: arguments.into(), result: result.clone(), effects,
+            proc_returns: previous.map(|application| application.proc_returns).unwrap_or_else(|| Arc::from([])), kind: if self.boundary.in_pure { CallableKindRequirement::Pure } else { CallableKindRequirement::Immediate }, span,
+        };
+        if let Err(error) = self.type_constraints.register_source_callable_application(scope, application) {
+            self.error(span, &format!("callable application requirement failed: {error:?}"), DiagnosticCode::CheckCallableMismatch);
+            return Some(Type::Invalid);
+        }
+        if !self.boundary.in_pure {
+            self.record_effect_contract(&None, "inferred callable application");
+            self.invalidate_mutable_narrowings();
+        }
+        Some(result)
     }
 
     pub(super) fn tail_typed_callable(
@@ -341,6 +434,23 @@ mod inferred_callable_tests {
         let checked = Checker::check_arena(&parsed.arena, source);
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn inferred_callable_application_source_identity_survives_constraint_probes() {
+        let source = "pure apply(action, value) { action(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+        let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "apply").unwrap();
+        let scheme = declaration.scheme.as_ref().unwrap();
+        let [application] = scheme.callable().requirements().applications.as_slice() else { panic!("one checked application source owns one requirement") };
+        assert!(matches!(scheme.params()[0].ty, crate::sema::schemes::SchemeType::Parameter(_)));
+        assert_eq!(application.callee, scheme.params()[0].ty);
+        assert_eq!(application.arguments[0].ty, scheme.params()[1].ty);
+        assert_eq!(application.result, *scheme.return_type());
+        assert_eq!(application.arguments[0].kind, crate::sema::arguments::StaticArgumentKind::Positional);
     }
 
     #[test]
