@@ -43,6 +43,10 @@ Seven superseded assignment, comprehension, context, iteration, operator,
 paired-comparison and repaired qualification checkouts are also removed.
 Their raw qualification logs remain under
 `.work/tmp/full-inference-retired-qualification/`; their commits remain available.
+Five completed body, compiler, contract-comparison and driver-projection
+checkouts are also removed after clean ancestry and ownership checks.
+Their complete scratch trees remain under
+`.work/tmp/full-inference-retired-lanes/`. Their branches remain available.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
