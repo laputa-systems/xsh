@@ -156,6 +156,58 @@ mod tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn generic_command_words_require_available_checked_bindings() {
+        let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let program = &parsed.arena;
+            let output = Checker::check_arena_with_options(program, source, CheckOptions::for_execution());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            let declaration = output.checked_declarations.functions.values().next().unwrap();
+            assert!(declaration.scheme.as_ref().unwrap().callable().is_quantified());
+            let facts = declaration.scheme_body_facts.as_ref().unwrap();
+            let body = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
+                crate::syntax::arena::ArenaStmtKind::ProcDef(definition) => Some(program.arena.function_def(definition).body),
+                _ => None,
+            }).unwrap();
+            let bindings = &output.resolved_bindings;
+            let parameters = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "payload").then_some(id)).collect::<super::super::FxHashSet<_>>();
+            let captures = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "directory").then_some(id)).collect::<super::super::FxHashSet<_>>();
+            let commands = bindings.value_sites.iter().map(|(&site, &binding)| (site, binding)).collect::<BTreeMap<_, _>>();
+            let calls = output.module_commands.keys().copied().collect::<super::super::FxHashSet<_>>();
+            let accepts = |captures| super::super::scheme_body::supports_generalized_body(
+                program, &output.prepared_constants, &commands, body, bindings, &parameters, captures,
+                facts.tail_types(), &output.statement_positions, &calls, facts.registered_calls(), facts.expression_types(),
+                facts.empty_constructors(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
+            );
+            assert!(accepts(&captures));
+            assert!(!accepts(&super::super::FxHashSet::default()));
+        });
+    }
+
+    #[test]
+    fn generic_effectful_bodies_keep_checked_command_classes() {
+        for command in [
+            "print \"checked\"", "eprint \"checked\"",
+            "env XSH_GENERIC_COMMAND=inside { print \"checked\" }",
+            "cd p\".\" { print \"checked\" }",
+            "fs.fsync p\".\" ?", "run true",
+        ] {
+            let source = format!("proc sample(payload) {{ {command}; return payload }}\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{command}: {:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+                assert!(checked.diagnostics.is_empty(), "{command}: {:?}", checked.diagnostics);
+                let declaration = checked.checked_declarations.functions.values().next().unwrap();
+                assert!(declaration.scheme.as_ref().is_some_and(|scheme| scheme.callable().is_quantified()), "{command}");
+                assert_eq!(checked.call_instantiations.len(), 2, "{command}");
+            });
+        }
+    }
+
+    #[test]
     fn omitted_stream_interfaces_share_original_cells_and_publish_once() {
         for recursive in [false, true] {
             let source = if recursive {
@@ -263,9 +315,17 @@ mod tests {
 
     #[test]
     fn omitted_stream_interfaces_reject_incompatible_yields_and_effect_bounds() {
+        let source = "stream values(value) [] { print \"creation effect\"; yield value }\nlet integer: Stream[Int] = values(7)\nlet text: Stream[Str] = values(\"word\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.checked_declarations.functions.len(), 1);
+        assert_eq!(checked.call_instantiations.len(), 2);
+        assert!(checked.checked_declarations.functions.values().all(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| scheme.callable().is_quantified() && scheme.effects().concrete().unwrap() == Some(Vec::new()))));
         for (source, code) in [
             ("stream values(flag: Bool) { if flag { yield 7 } else { yield \"word\" } }", DiagnosticCode::CheckTypeMismatch),
-            ("stream values(value) [] { print \"creation effect\"; yield value }", DiagnosticCode::CheckEffectViolation),
+            ("stream values(value) [] { run true; yield value }", DiagnosticCode::CheckEffectViolation),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

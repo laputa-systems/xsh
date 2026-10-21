@@ -228,7 +228,55 @@ impl SchemeProducerRequests {
     fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() }
 }
 
-enum ProcessWordRole {
+pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
+    let mut signatures = crate::modules::signature::native_static_operation_signatures(super::super::RuntimeOp::ProcessCommandArgv);
+    let first = signatures.next().ok_or_else(|| IrVerifyError::new("process command has no canonical option contracts"))?;
+    let position = match first.params.iter().position(|parameter| parameter.name == name) {
+        Some(position) => { budget.charge(position + 1)?; position }
+        None => {
+            budget.charge(first.params.len())?;
+            return Err(IrVerifyError::new("process option has no canonical parameter"));
+        }
+    };
+    let mut selected: Option<&Type> = None;
+    for signature in std::iter::once(first).chain(signatures) {
+        budget.charge(1)?;
+        let parameter = signature.params.get(position).filter(|parameter| parameter.name == name)
+            .ok_or_else(|| IrVerifyError::new("process option changes position across canonical contracts"))?;
+        if let Some(actual) = actual {
+            budget.charge_clone(actual)?;
+            if !actual.matches_expected(&parameter.ty) { continue; }
+        }
+        if selected.is_some_and(|previous| previous != &parameter.ty) {
+            return Err(IrVerifyError::new("process option has ambiguous canonical contracts"));
+        }
+        selected = Some(&parameter.ty);
+    }
+    let selected = selected.ok_or_else(|| IrVerifyError::new("process option disagrees with its canonical contract"))?;
+    budget.charge_clone(selected)?;
+    Ok(Arc::new(selected.clone()))
+}
+
+pub(super) fn process_word_type(ty: &Type, spliced: bool, optional_splice: bool, role: ProcessWordRole) -> Result<bool, IrVerifyError> {
+    use crate::syntax::node::RedirectionKind as R;
+    let bytes_input = matches!(role, ProcessWordRole::Redirection(R::StdinRead)) && !spliced && ty.unvalidated() == &Type::Bytes;
+    let fits = match role {
+        ProcessWordRole::Argument => match ty.unvalidated() {
+        Type::List(item) if spliced || optional_splice => item.can_be_argv_item(),
+        _ => !spliced && ty.can_be_argv_item(),
+        },
+        ProcessWordRole::Environment => !spliced && (ty.can_be_env_value()
+        || (optional_splice && matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()))),
+        ProcessWordRole::Redirection(kind) => !spliced && (bytes_input || match kind {
+        R::StdinDup | R::StdoutDup => matches!(ty.unvalidated(), Type::Int | Type::Str),
+        _ => matches!(ty.unvalidated(), Type::Path | Type::Str),
+        }),
+    };
+    if !fits { return Err(IrVerifyError::new("process word disagrees with its physical conversion role")); }
+    Ok(bytes_input)
+}
+
+pub(super) enum ProcessWordRole {
     Argument,
     Environment,
     Redirection(crate::syntax::node::RedirectionKind),
@@ -4339,37 +4387,11 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn process_option_contract(&mut self, name: &str, actual: Option<&Type>) -> Result<Arc<Type>, IrVerifyError> {
-        let mut signatures = crate::modules::signature::native_static_operation_signatures(super::super::RuntimeOp::ProcessCommandArgv);
-        let first = signatures.next().ok_or_else(|| IrVerifyError::new("process command has no canonical option contracts"))?;
-        let position = match first.params.iter().position(|parameter| parameter.name == name) {
-            Some(position) => { self.budget.charge(position + 1)?; position }
-            None => {
-                self.budget.charge(first.params.len())?;
-                return Err(IrVerifyError::new("process option has no canonical parameter"));
-            }
-        };
-        let mut selected: Option<&Type> = None;
-        for signature in std::iter::once(first).chain(signatures) {
-            self.budget.charge(1)?;
-            let parameter = signature.params.get(position).filter(|parameter| parameter.name == name)
-                .ok_or_else(|| IrVerifyError::new("process option changes position across canonical contracts"))?;
-            if let Some(actual) = actual {
-                self.budget.charge_clone(actual)?;
-                if !actual.matches_expected(&parameter.ty) { continue; }
-            }
-            if selected.is_some_and(|previous| previous != &parameter.ty) {
-                return Err(IrVerifyError::new("process option has ambiguous canonical contracts"));
-            }
-            selected = Some(&parameter.ty);
-        }
-        let selected = selected.ok_or_else(|| IrVerifyError::new("process option disagrees with its canonical contract"))?;
-        self.budget.charge_clone(selected)?;
-        Ok(Arc::new(selected.clone()))
+        process_option_contract(name, actual, &mut self.budget)
     }
 
     fn verify_process_word(&mut self, decoder: &FullDecoder<'a>, argument: super::super::decode::RunArgView<'_>, role: ProcessWordRole) -> Result<bool, IrVerifyError> {
         use super::super::decode::RunArgKindView as A;
-        use crate::syntax::node::RedirectionKind as R;
         self.budget.charge(1)?;
         let (value, spliced, optional_splice) = match argument.kind {
             A::Single(value) => (value.raw() as usize, false, false),
@@ -4383,20 +4405,7 @@ impl<'a> ProducerProof<'a> {
         };
         self.budget.charge_clone(&ty)?;
         ensure_substitution_type(&ty)?;
-        let bytes_input = matches!(role, ProcessWordRole::Redirection(R::StdinRead)) && !spliced && ty.unvalidated() == &Type::Bytes;
-        let fits = match role {
-            ProcessWordRole::Argument => match ty.unvalidated() {
-                Type::List(item) if spliced || optional_splice => item.can_be_argv_item(),
-                _ => !spliced && ty.can_be_argv_item(),
-            },
-            ProcessWordRole::Environment => !spliced && (ty.can_be_env_value()
-                || (optional_splice && matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()))),
-            ProcessWordRole::Redirection(kind) => !spliced && (bytes_input || match kind {
-                R::StdinDup | R::StdoutDup => matches!(ty.unvalidated(), Type::Int | Type::Str),
-                _ => matches!(ty.unvalidated(), Type::Path | Type::Str),
-            }),
-        };
-        if !fits { return Err(IrVerifyError::new("process word disagrees with its physical conversion role")); }
+        let bytes_input = process_word_type(&ty, spliced, optional_splice, role)?;
         self.expression(decoder.owner, value, ty, false);
         Ok(bytes_input)
     }

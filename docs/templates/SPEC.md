@@ -3436,6 +3436,10 @@ parameter may be passed as a flag, mapping kebab case to snake case
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
+Generic procs and stream producers retain the selected command operation,
+argument conversions, and effects. Their command arguments execute in the same
+positions and scopes as in annotated bodies.
+
 A statement that begins with an identifier or `.name` chain followed by `|>`
 or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an
 expression, not a command.

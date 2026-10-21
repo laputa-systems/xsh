@@ -3,6 +3,7 @@ mod body;
 mod effects;
 mod applications;
 mod references;
+mod commands;
 pub(super) use effects::ScopedEffectProof;
 pub(super) use producers::ProducerContexts;
 pub(super) use producers::{GroundProducerIndex, ProducerPrefixContext};
@@ -1617,14 +1618,47 @@ fn verify_body_expression(
             registered_coverage.insert(instruction as u32);
             ty.clone()
         }
+        schema::ExprView::RunCapture(run) => {
+            commands::operands(run.operands, &mut child, budget)?;
+            SchemeType::Ground(Type::run_capture_output(run.kind, run.assert_success).ok_or_else(|| IrVerifyError::new("generic process capture has no output contract"))?)
+        }
+        schema::ExprView::RunPipeline { segments, propagate, .. } => {
+            let mut head = None;
+            for segment in segments {
+                budget.charge(1)?;
+                let segment = segment?;
+                head.get_or_insert(segment.kind);
+                commands::operands(segment.operands, &mut child, budget)?;
+            }
+            let head = head.ok_or_else(|| IrVerifyError::new("generic process pipeline has no head"))?;
+            SchemeType::Ground(Type::run_pipeline_output(head, propagate).ok_or_else(|| IrVerifyError::new("generic process pipeline has no output contract"))?)
+        }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
             let mut arguments = Vec::new();
             for argument in args { arguments.push(argument?.map(|argument| child(argument, budget)).transpose()?); }
-            let plan = store.registered_calls.get(&(instruction as u32)).ok_or_else(|| IrVerifyError::new("generic module call has no selected registry plan"))?;
-            let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
-            if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
-            registered_coverage.insert(instruction as u32);
-            ty.clone()
+            if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan.map(Arc::as_ref) {
+                let supplied = arguments.iter().map(Option::is_some).collect::<Vec<_>>();
+                call_plan.expect("the command plan was matched").verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
+                budget.charge(arguments.len() + plan.word_conversions.len() + plan.flag_slots.len())?;
+                for (slot, actual) in arguments.iter().enumerate() {
+                    let Some(actual) = actual else { continue; };
+                    let expected = &plan.signature.params[slot].ty;
+                    let conversion = plan.word_conversions.iter().any(|conversion| conversion.slot == slot);
+                    let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic module command argument has no closed conversion contract"))?;
+                    if !(actual.matches_expected(expected) || conversion && actual.unvalidated() == &Type::Str) { return Err(IrVerifyError::new("generic module command argument disagrees with its selected conversion")); }
+                    if plan.flag_slots.contains(&slot) && actual != Type::Bool { return Err(IrVerifyError::new("generic module command flag has no Boolean producer")); }
+                }
+                SchemeType::Ground(plan.signature.return_ty.clone())
+            } else if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
+                let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
+                if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
+                registered_coverage.insert(instruction as u32);
+                ty.clone()
+            } else if call_plan.is_none() {
+                SchemeType::Ground(commands::native_call(op, &arguments, budget)?)
+            } else {
+                return Err(IrVerifyError::new("generic module call has no selected registry plan"));
+            }
         }
         _ => return Err(IrVerifyError::new("generic body contains an unsupported executable expression")),
     };

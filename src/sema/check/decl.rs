@@ -34,6 +34,7 @@ fn collect_body_type_facts(
     prepared: &crate::sema::constants::PreparedConstants,
     bindings: &super::ResolvedBindings,
     selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+    command_sites: &BTreeMap<(Span, Name), super::BindingId>,
     defaults: &[ExprId],
 ) -> (
     BTreeMap<ExprId, Type>,
@@ -130,6 +131,14 @@ fn collect_body_type_facts(
             }
         }
     }
+    for &(statement, usage) in &statements {
+        if usage != BodyFactUse::Executable || !matches!(arena.stmt(statement).kind, ArenaStmtKind::Command(_)) { continue; }
+        let span = arena.stmt(statement).span;
+        let start = (Span::at(span.source_id, span.start()), Name::UNKNOWN);
+        let end = (Span::at(span.source_id, span.end()), Name::UNKNOWN);
+        reads.extend(command_sites.range(start..end).filter_map(|(&(site, _), &binding)| (site.end() <= span.end()).then_some(binding)));
+        expression_spans.insert(span);
+    }
     let local_statements = statements.into_iter().filter_map(|(statement, usage)| (usage == BodyFactUse::Executable).then_some(statement)).collect();
     (types, tail_types, expression_spans, reads, local_statements)
 }
@@ -182,7 +191,7 @@ impl Checker {
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-            let (_, _, _, reads, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &defaults);
+            let (_, _, _, reads, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
             captures.extend(reads);
         }
         let types = captures.into_iter().filter_map(|id| {
@@ -232,7 +241,7 @@ impl Checker {
         );
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &defaults);
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
         let mut empty_constructors = BTreeMap::new();
         for (&expression, &kind) in self.nonmaterial_empty_constructors() {
             if !expression_spans.contains(&program.arena.expr(expression).span) { continue; }
@@ -357,6 +366,16 @@ impl Checker {
             }).collect::<super::FxHashSet<_>>();
             checked_calls.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
+            if matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream) {
+                checked_calls.extend(local_statements.iter().filter_map(|&statement| {
+                    let node = program.arena.stmt(statement);
+                    let ArenaStmtKind::Command(command) = node.kind else { return None; };
+                    match program.arena.command_stmt(command).command {
+                        crate::syntax::arena::ArenaCommand::Proc { .. } if !self.module_commands.contains_key(&node.span) => None,
+                        _ => Some(node.span),
+                    }
+                }));
+            }
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }
@@ -367,6 +386,7 @@ impl Checker {
             if !super::scheme_body::supports_generalized_body(
                 program,
                 &self.prepared_constants,
+                &self.resolved_command_sites,
                 def.body,
                 &self.resolved_bindings,
                 &parameter_bindings,
@@ -380,7 +400,7 @@ impl Checker {
                 &self.result_constructors,
                 if pending.kind() == crate::sema::types::CallableKind::Stream { super::scheme_body::BodyCompletion::Producer } else { super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
-                program, &self.prepared_constants, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
+                program, &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,
                 &generalized_body_types, &empty_constructors, &self.result_constructors, value,
             )) {
@@ -2536,11 +2556,11 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &[]);
+        let (types, _, spans, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), &[]);
+        let (unselected_types, _, _, unselected_reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
@@ -2559,7 +2579,7 @@ mod imported_pure_tests {
             let _symbols = program.symbol_owner().enter();
             assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &[]);
+            let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {
