@@ -87,6 +87,100 @@ assert order == 132
     assert!(error.message.contains("requires effect error"), "{error:?}");
 }
 
+fn external_stdlib_fixture(source: &str) -> FullProgram {
+    let name = "external-stdlib-effects.xsh";
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(
+        name, crate::loader::entry_source_from_text(name, source.to_string()), Vec::new(),
+        crate::loader::StdlibLinkage::LinkToPrepared,
+    );
+    let source_id = sources.files().first().unwrap().id();
+    let file = crate::loader::CompactFileUnit::new(name, source_id, parsed);
+    assert!(file.parse_diagnostics().is_empty(), "{:?}", file.parse_diagnostics());
+    let declarations = Checker::check_compact_declarations(file.program(), &sources, source_id);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let graph = crate::loader::CompactModuleGraph::from_file_unit(&file, &declarations);
+    FullBuilder::build_compact_external_stdlib(file.program(), &declarations, &graph, source, Arc::new(sources), source_id).unwrap()
+}
+
+#[test]
+fn external_stdlib_calls_authenticate_actual_callee_effects() {
+    on_large_stack(|| {
+        let program = external_stdlib_fixture("pure style() -> Str { tui.bold() }\nproc verify(file: Path) [fs] -> Result[Unit] { return hash.verify_file(file, sha256: \"00\") }\nproc shadow() [env] -> Result[Str] { return env.get(\"XSH_TEST_CALLEE\") }\nproc plain() [error] -> Unit { assert false }\n");
+        FullVerifier::verify(&program).unwrap();
+        let denied = without_effect(&program, function(&program, "verify"), Effect::Fs);
+        let error = FullVerifier::verify(&denied).unwrap_err();
+        assert!(error.message.contains("requires effect fs"), "{error:?}");
+        let mut local_shadow = program.clone();
+        let shadow = function(&program, "shadow");
+        let mut add_string = |text: &str| {
+            let id = u32::try_from(local_shadow.store.strings.len() + 1).unwrap();
+            let start = u32::try_from(local_shadow.store.string_bytes.len()).unwrap();
+            local_shadow.store.string_bytes.extend_from_slice(text.as_bytes());
+            local_shadow.store.strings.push(IrRange::new(start, u32::try_from(text.len()).unwrap()));
+            id
+        };
+        let namespace = add_string("<xsh-stdlib:tui>");
+        let member = add_string("bold");
+        local_shadow.store.functions[shadow].name = member;
+        local_shadow.store.function_metadata[shadow].owner = namespace;
+        let error = FullVerifier::verify(&local_shadow).unwrap_err();
+        assert!(error.message.contains("script implementation kind differs"), "{error:?}");
+        let mut finite_shadow = program.clone();
+        let start = u32::try_from(finite_shadow.store.string_bytes.len()).unwrap();
+        finite_shadow.store.string_bytes.extend_from_slice(b"<xsh-stdlib:hash>verify_file");
+        let namespace = u32::try_from(finite_shadow.store.strings.len() + 1).unwrap();
+        finite_shadow.store.strings.push(IrRange::new(start, 17));
+        let member = u32::try_from(finite_shadow.store.strings.len() + 1).unwrap();
+        finite_shadow.store.strings.push(IrRange::new(start + 17, 11));
+        finite_shadow.store.functions[shadow].name = member;
+        finite_shadow.store.function_metadata[shadow].owner = namespace;
+        let error = FullVerifier::verify(&finite_shadow).unwrap_err();
+        assert!(error.message.contains("script implementation effects exceed"), "{error:?}");
+        let mut plain_shadow = finite_shadow.clone();
+        plain_shadow.store.functions[shadow] = program.store.functions[shadow].clone();
+        plain_shadow.store.function_metadata[shadow] = program.store.function_metadata[shadow];
+        let plain = function(&program, "plain");
+        plain_shadow.store.functions[plain].name = member;
+        plain_shadow.store.function_metadata[plain].owner = namespace;
+        let error = FullVerifier::verify(&plain_shadow).unwrap_err();
+        assert!(error.message.contains("script implementation effects exceed"), "{error:?}");
+        program.symbol_owner().with_current(|| {
+            let owner = function(&program, "style");
+            let call = program.store.function_instruction_range(owner).unwrap()
+                .find(|instruction| program.store.tags[*instruction] == FullTag::ExprExternalCall).unwrap();
+            let words = program.store.data[call].range().bounds(program.store.extra.len()).unwrap();
+            for (namespace, member) in [
+                ("<xsh-stdlib:hash>", "verify_file"),
+                ("<xsh-stdlib:tui>", "missing"),
+                ("user-module", "bold"),
+            ] {
+                let mut forged = program.clone();
+                forged.store.extra[words.start] = Name::intern(namespace).symbol().raw();
+                forged.store.extra[words.start + 1] = Name::intern(member).symbol().raw();
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("pure executable body contains an impure operation"), "{error:?}");
+            }
+        });
+    });
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn prepared_uptime_implementation_requires_filesystem_permission() {
+    on_large_stack(|| {
+        let program = fixture("proc uptime() [fs] -> Result[Int] { return unix.uptime_seconds() }\n");
+        FullVerifier::verify(&program).unwrap();
+        let denied = without_effect(&program, function(&program, "uptime"), Effect::Fs);
+        let error = FullVerifier::verify(&denied).unwrap_err();
+        assert!(error.message.contains("requires effect fs"), "{error:?}");
+        let source = "proc uptime() [process] -> Result[Int] { return unix.uptime_seconds() }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+    });
+}
+
 
 
 #[test]
