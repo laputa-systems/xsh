@@ -156,6 +156,82 @@ mod tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn proc_stream_callback_relay_keeps_result_envelopes_at_independent_types() {
+        let source = concat!(
+            "stream values(value) [] { yield value }\n",
+            "proc relay(action, value) [] { action(value) }\n",
+            "let create = values\n",
+            "let integers: Result[Stream[Int]] = relay(create, 7)\n",
+            "let words: Result[Stream[Str]] = relay(create, \"row\")\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for expected in [Type::Int, Type::Str] {
+            assert!(checked.expr_types.values().any(|ty| ty == &Type::Result(Box::new(Type::Stream(Box::new(expected.clone()))), Box::new(Type::Error))));
+        }
+        let scheme = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "relay").unwrap().scheme.as_ref().unwrap();
+        let applications = &scheme.callable().requirements().applications;
+        assert_eq!(applications.len(), 1);
+        assert_eq!(applications[0].proc_returns.len(), 1);
+        assert_eq!(scheme.return_type(), &applications[0].proc_returns[0].result);
+    }
+
+    #[test]
+    fn proc_stream_callback_relay_result_can_be_propagated_at_independent_types() {
+        let source = concat!(
+            "stream values(value) [] { yield value }\n",
+            "proc relay(action, value) [] { action(value) }\n",
+            "proc exercise() [error] { let create = values; let integers = relay(create, 7)?; let words = relay(create, \"row\")? }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn proc_stream_callback_relay_result_can_be_captured_at_independent_types() {
+        let source = concat!(
+            "stream values(value) [] { yield value }\n",
+            "proc relay(action, value) [] { action(value) }\n",
+            "proc exercise() [] { let create = values; let integers: Result[Stream[Int]] = try { relay(create, 7)? }; let words: Result[Stream[Str]] = try { relay(create, \"row\")? } }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn proc_callback_envelope_propagation_accepts_pure_and_proc_results() {
+        let source = concat!(
+            "pure number(value: Int) -> Int { value }\n",
+            "proc outcome(value: Int) [] -> Result[Int] { Ok(value) }\n",
+            "proc relay(action, value) [] { action(value) }\n",
+            "proc exercise() [error] { let scalar: Int = relay(number, 7)?; let result: Int = relay(outcome, 8)? }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn propagation_still_rejects_actual_non_result_values() {
+        for source in [
+            "proc exercise() [error] { let invalid = 7? }\n",
+            "stream values(value) [] { yield value }\nproc exercise() [error] { let invalid = values(7)? }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTryResult)), "{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
     fn generic_command_words_require_available_checked_bindings() {
         let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

@@ -44,6 +44,23 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 
 impl Checker {
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
+        let resolved;
+        let ty = if ty.contains_inference() {
+            resolved = match self.type_constraints.resolve(ty) {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    let message = match error {
+                        crate::sema::constraints::ConstraintResolutionError::ForeignVariable =>
+                            "propagated type belongs to another inference problem",
+                        crate::sema::constraints::ConstraintResolutionError::TypeDepth =>
+                            "propagated type exceeds the supported nesting depth",
+                    };
+                    self.error(span, message, DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            };
+            &resolved
+        } else { ty };
         if self.boundary.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
