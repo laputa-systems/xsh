@@ -8,12 +8,17 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Master now includes the four foundation commits through `c44e47016`.
-A fresh isolated replay passes all 46 canonical-launcher tests. The earlier
-pinned warning-denied check passed for the warning repair. No fresh full Rust,
-native, or performance gate accompanies this merge. Later inference commits
-remain on the campaign branch: even the focused-green `8f80bc2f5` checkpoint
-still fails existing XSH corpus preparation and is not ready for master.
+Master includes the four foundation commits through `c44e47016` and the
+independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
+all 46 canonical-launcher tests. The earlier pinned warning-denied check passed
+for the warning repair. The effect repair reproduces and fixes an external
+unknown-summary panic. Its private graph solver can omit a selected set of
+clauses without changing ordinary solving or authored contracts. All 12 merged
+effect and importer controls pass. No corpus clauses are removed.
+No fresh full Rust, native, or performance gate accompanies these merges.
+Later inference commits remain on the campaign branch: even the focused-green
+`8f80bc2f5` checkpoint still fails existing XSH corpus preparation and is not
+ready for master.
 
 Eleven completed lane worktrees are removed after confirming campaign
 integration, clean tracked files, and no open handles. Their generated Cargo
