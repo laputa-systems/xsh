@@ -938,6 +938,11 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
 
 fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
     let body = &declarations.bodies;
+    let scheme_body_nodes = declarations.scheme_bodies.values().try_fold(0usize, |total, facts| {
+        [facts.expression_types().len(), facts.tail_types().len(), facts.registered_calls().len(),
+            facts.read_bindings().len(), facts.proc_return_site_count()]
+            .into_iter().try_fold(total, usize::checked_add)
+    }).expect("scheme body evidence node count overflowed");
     let call_nodes = body
         .call_instantiations
         .values()
@@ -999,6 +1004,7 @@ fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
         body.resource_scopes.len(),
         body.resource_transfers.len(),
         body.text_patterns.len(),
+        scheme_body_nodes,
         call_nodes,
     ]
     .into_iter()
@@ -1853,6 +1859,38 @@ mod tests {
         assert_eq!(field_names.len(), 20);
         assert_eq!(fields.len(), 20);
         assert_eq!(fields, expected);
+    }
+
+    #[test]
+    fn inference_work_counts_body_evidence_without_inventing_output_types() {
+        let source = concat!(
+            "pure first(payload: Int) -> Int { payload }\n",
+            "pure second(payload: Int) -> Int { payload + 1 }\n",
+            "proc relay(first, second, value, flag: Bool) { if flag { return first(value) }; second(value) }\n",
+            "proc number(flag: Bool) [] { relay(first, second, 7, flag) }\n",
+        );
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let mut declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        let sites = declarations.scheme_bodies.values().map(|facts| facts.proc_return_site_count()).sum::<usize>();
+        assert_eq!(sites, 2);
+        let original_types = measure_output_type_nodes(&declarations);
+        let original_evidence = super::measure_evidence_nodes(&declarations);
+        for facts in declarations.scheme_bodies.values_mut() {
+            *facts = facts.clone().with_proc_return_sites(BTreeMap::new()).unwrap();
+        }
+        assert_eq!(measure_output_type_nodes(&declarations), original_types);
+        assert_eq!(original_evidence - super::measure_evidence_nodes(&declarations), sites);
+        let remaining = declarations.scheme_bodies.values().map(|facts| {
+            facts.expression_types().len() + facts.tail_types().len()
+                + facts.registered_calls().len() + facts.read_bindings().len()
+        }).sum::<usize>();
+        assert!(remaining > 0);
+        let body_evidence = super::measure_evidence_nodes(&declarations);
+        declarations.scheme_bodies.clear();
+        assert_eq!(body_evidence - super::measure_evidence_nodes(&declarations), remaining);
     }
 
     #[test]
