@@ -1,4 +1,4 @@
-use super::{BTreeMap, CheckBundleView, Effect, Name, Span};
+use super::{BTreeMap, CheckBundleView, Effect, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use std::collections::BTreeSet;
 use crate::sema::effects::{CheckedEffectScope, CheckedEffects, EffectContract, EffectExpr, EffectSet};
@@ -789,6 +789,7 @@ pub(super) enum DeferredEffectKind {
     Invocation {
         effects: super::InvocationEffects,
         instance: Option<super::PendingCallInstantiation>,
+        stream_item: Option<Type>,
         unknown_chain: Vec<String>,
         name: String,
     },
@@ -808,6 +809,43 @@ pub(super) struct DeferredEffectCheck {
 }
 
 impl Checker {
+    pub(super) fn defer_recursive_stream_error_flow(&mut self, effects: &super::InvocationEffects, return_ty: &Type, span: Span) -> bool {
+        let super::InvocationEffects::Pending(target) = effects else { return false; };
+        let Type::Stream(item) = return_ty.unvalidated() else { return false; };
+        if !self.defer_effect_diagnostics { return false; }
+        let Some(&(caller, callee)) = self.provisional_function_calls.get(&span) else { return false; };
+        if Some(caller) != self.stream_origin_owner || callee.effect_declaration() != *target { return false; }
+        let Some(check) = self.deferred_effect_checks.iter_mut().rev().find(|check| {
+            check.span == span && check.owner == Some(caller)
+                && matches!(&check.kind, DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), .. } if *owner == *target)
+        }) else { return false; };
+        let DeferredEffectKind::Invocation { stream_item, .. } = &mut check.kind else { unreachable!() };
+        assert!(stream_item.replace(item.as_ref().clone()).is_none(), "a recursive stream call records error flow once");
+        true
+    }
+
+    pub(super) fn prepare_recursive_stream_error_flows(
+        &self,
+        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>,
+        instances: &BTreeMap<Span, super::PendingCallInstantiation>,
+    ) -> Result<BTreeSet<Span>, (Span, SchemeOperationError)> {
+        let mut latent = BTreeSet::new();
+        if self.collecting_effects { return Ok(latent); }
+        for check in &self.deferred_effect_checks {
+            if !check.owner.is_some_and(|owner| members.contains_key(&owner)) { continue; }
+            let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(target), stream_item: Some(item), .. } = &check.kind else { continue; };
+            if !members.contains_key(target) { continue; }
+            let invalid = || (check.span, SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
+            let &(caller, callee) = self.provisional_function_calls.get(&check.span).ok_or_else(invalid)?;
+            if check.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
+            let instance = instances.get(&check.span).ok_or_else(invalid)?;
+            let effects = self.resolve_invocation_effects(super::InvocationEffects::Pending(*target), Some(instance)).map_err(|error| (check.span, error))?;
+            let flow = self.invocation_error_flow(&effects, &Type::Stream(Box::new(item.clone()))).map_err(|error| (check.span, error.into()))?;
+            if matches!(flow, crate::sema::types::CalleeErrorFlow::Latent) { latent.insert(check.span); }
+        }
+        Ok(latent)
+    }
+
     pub(super) fn publish_recursive_invocation_instances(
         &mut self,
         instances: &BTreeMap<Span, super::PendingCallInstantiation>,
@@ -887,7 +925,7 @@ impl Checker {
         if !self.defer_effect_diagnostics { return; }
         self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
             effects: super::InvocationEffects::Checked(crate::sema::types::CallableEffects::from_clause(contract)),
-            instance: None, unknown_chain, name: name.to_owned(),
+            instance: None, stream_item: None, unknown_chain, name: name.to_owned(),
         });
     }
 
@@ -958,7 +996,7 @@ impl Checker {
         self.constrain_callable_effects(effects, name, span);
         if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
             self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: super::InvocationEffects::Checked(effects.clone()), instance: None,
+                effects: super::InvocationEffects::Checked(effects.clone()), instance: None, stream_item: None,
                 unknown_chain: Vec::new(), name: name.to_owned(),
             });
         }
@@ -978,7 +1016,7 @@ impl Checker {
         if let super::InvocationEffects::Checked(effects) = &contract.effects { self.constrain_callable_effects(effects, name, span); }
         if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
             self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: contract.effects.clone(), instance: contract.instantiation.clone(),
+                effects: contract.effects.clone(), instance: contract.instantiation.clone(), stream_item: None,
                 unknown_chain: contract.effect_declaration.and_then(|owner| self.effect_summaries.get(&owner)).map_or_else(Vec::new, |summary| summary.unknown_chain.clone()),
                 name: name.to_owned(),
             });
@@ -1035,9 +1073,12 @@ impl Checker {
                     );
                     self.check_effect_not_excluded(&effect, check.span, &subject);
                 }
-                DeferredEffectKind::Invocation { effects, instance, unknown_chain, name } => {
+                DeferredEffectKind::Invocation { effects, instance, stream_item, unknown_chain, name } => {
                     match self.resolve_invocation_effects(effects, instance.as_ref()) {
                         Ok(effects) => {
+                            if let Some(item) = stream_item {
+                                self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &Type::Stream(Box::new(item)), check.span);
+                            }
                             self.validate_callable_effects(&effects, &name, check.span);
                             if matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some() {
                                 self.error(check.span, &format!("proc `{name}` has an unknown effect summary: {}", unknown_chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);

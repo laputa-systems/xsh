@@ -114,6 +114,11 @@ impl StreamOriginSummaries {
         self.declarations.append(&mut other.declarations);
         self.loops.append(&mut other.loops);
     }
+
+    pub(super) fn reject_declarations(&mut self, rejected: &BTreeSet<EffectDeclarationId>) {
+        self.declarations.retain(|owner, _| !rejected.contains(owner));
+        self.loops.retain(|identity, _| identity.owner.is_none_or(|owner| !rejected.contains(&owner)));
+    }
 }
 
 impl ProjectionDomain {
@@ -409,6 +414,48 @@ impl StreamOrigins {
 mod tests {
     use super::{StreamOrigins, StreamProjection};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn rejected_declarations_remove_only_their_stream_facts() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let body = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
+            let owners = ["first", "second"].map(|name| super::EffectDeclarationId { namespace: Some(crate::symbol::Name::intern(name)), body });
+            let domain = super::ProjectionDomain::from_type(&super::Type::Stream(Box::new(super::Type::Int))).unwrap();
+            let mut summaries = super::StreamOriginSummaries::new();
+            for owner in owners {
+                let returned = StreamOrigins::formal(owner, 0);
+                assert_eq!(returned.validate(owner, &domain, &[domain.clone()]).unwrap(), returned);
+                summaries.declarations.insert(owner, super::StreamReturnSummary {
+                    returned, defaults: BTreeMap::new(), output: domain.clone(), parameters: vec![domain.clone()],
+                });
+            }
+            for owner in [Some(owners[0]), Some(owners[1]), None] {
+                summaries.loops.insert(super::StreamLoopId {
+                    owner, namespace: None, block: crate::syntax::arena::BlockId::from_index(0), body,
+                }, BTreeMap::from([(super::super::BindingId::args(), StreamOrigins::error())]));
+            }
+            let original = summaries.clone();
+            summaries.reject_declarations(&Default::default());
+            assert_eq!(summaries, original);
+            summaries.reject_declarations(&[owners[0]].into_iter().collect());
+            assert_eq!(summaries.declarations.len(), 1);
+            assert_eq!(summaries.declarations[&owners[1]], original.declarations[&owners[1]]);
+            assert_eq!(summaries.loops.len(), 2);
+            for (identity, header) in &summaries.loops {
+                assert_ne!(identity.owner, Some(owners[0]));
+                assert_eq!(header, &original.loops[identity]);
+            }
+            let retained = summaries.clone();
+            summaries.reject_declarations(&[owners[0]].into_iter().collect());
+            assert_eq!(summaries, retained);
+            summaries.reject_declarations(&[owners[1]].into_iter().collect());
+            assert!(summaries.declarations.is_empty());
+            assert_eq!(summaries.loops.len(), 1);
+            let (identity, header) = summaries.loops.first_key_value().unwrap();
+            assert_eq!(identity.owner, None);
+            assert_eq!(header, &original.loops[identity]);
+        });
+    }
 
     #[test]
     fn missing_projected_actual_remains_unknown() {

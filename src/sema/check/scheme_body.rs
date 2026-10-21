@@ -3,7 +3,7 @@ use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
 #[derive(Clone, Copy)]
-pub(super) enum BodyCompletion { Function, Value, Statement }
+pub(super) enum BodyCompletion { Function, Value, Statement, Producer }
 
 pub(super) fn matches_empty_constructor(
     program: &ArenaProgram,
@@ -32,12 +32,13 @@ pub(super) fn supports_generalized_body(
     completion: BodyCompletion,
 ) -> bool {
     use crate::syntax::arena::ArenaExprOrRun;
+    let nested_completion = if matches!(completion, BodyCompletion::Producer) { BodyCompletion::Producer } else { BodyCompletion::Statement };
     let block = program.arena.block(body);
     if !program.arena.block_params(block.params).is_empty() { return false; }
     let statements = program.arena.stmt_ids(block.statements).collect::<Vec<_>>();
-    let Some((&tail, prefix)) = statements.split_last() else { return matches!(completion, BodyCompletion::Statement) };
+    let Some((&tail, prefix)) = statements.split_last() else { return matches!(completion, BodyCompletion::Statement | BodyCompletion::Producer) };
     let mut available = parameters.clone();
-    let prefix = if matches!(completion, BodyCompletion::Statement) { statements.as_slice() } else { prefix };
+    let prefix = if matches!(completion, BodyCompletion::Statement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
     for &statement in prefix {
         let node = program.arena.stmt(statement);
         match node.kind {
@@ -67,8 +68,18 @@ pub(super) fn supports_generalized_body(
             }
             ArenaStmtKind::Expr(expression) => {
                 let supported = if let ArenaExprKind::ValueBlock(block) = program.arena.expr(expression).kind {
-                    supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)
+                    supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion)
                 } else { is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, expression) };
+                if !supported { return false; }
+            }
+            ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) | ArenaStmtKind::YieldDelegate(value) if matches!(completion, BodyCompletion::Producer) => {
+                if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, value) { return false; }
+            }
+            ArenaStmtKind::Return(None) if matches!(completion, BodyCompletion::Producer) => {}
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), _) if matches!(completion, BodyCompletion::Producer) => {
+                let supported = if let ArenaExprKind::ValueBlock(block) = program.arena.expr(value).kind {
+                    supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)
+                } else { is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, value) };
                 if !supported { return false; }
             }
             ArenaStmtKind::Break { value } => {
@@ -80,36 +91,36 @@ pub(super) fn supports_generalized_body(
             ArenaStmtKind::If { branches, else_block } => {
                 if !program.arena.if_branches(branches).iter().all(|branch| {
                     is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, branch.condition)
-                        && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)
-                }) || else_block.is_some_and(|block| !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)) { return false; }
+                        && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion)
+                }) || else_block.is_some_and(|block| !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion)) { return false; }
             }
             ArenaStmtKind::Match { value, arms } => {
                 if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, value)
                     || !program.arena.match_arms(arms).iter().all(|arm| {
                         let available = pattern_bindings(program, bindings, &available, arm.pattern);
                         arm.guard.is_none_or(|guard| is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, guard))
-                            && supports_generalized_body(program, arm.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)
+                            && supports_generalized_body(program, arm.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion)
                     }) { return false; }
             }
             ArenaStmtKind::For { target, iter, block } => {
                 if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, iter) { return false; }
                 let mut inner = available.clone();
                 if !declare_target_bindings(program, bindings, target, &mut inner)
-                    || !supports_generalized_body(program, block, bindings, &inner, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement)
+                    || !supports_generalized_body(program, block, bindings, &inner, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion)
                 { return false; }
             }
             ArenaStmtKind::Loop { block } => {
-                if !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement) { return false; }
+                if !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion) { return false; }
             }
             ArenaStmtKind::While { condition, block } => {
                 if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, condition)
-                    || !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, BodyCompletion::Statement) { return false; }
+                    || !supports_generalized_body(program, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, empty_constructors, result_constructors, nested_completion) { return false; }
             }
             ArenaStmtKind::Continue => {}
             _ => return false,
         }
     }
-    if matches!(completion, BodyCompletion::Statement) { return true; }
+    if matches!(completion, BodyCompletion::Statement | BodyCompletion::Producer) { return true; }
     let tail_statement = program.arena.stmt(tail);
     if positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
         match tail_statement.kind {

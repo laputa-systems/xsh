@@ -349,7 +349,7 @@ impl Checker {
                     || self.qualified_pures.values()
                         .any(|signature| signature.definition_target() == Some(*target)
                             && signature.scheme().kind() == crate::sema::types::CallableKind::Pure);
-                let checked_proc = pending.kind() == crate::sema::types::CallableKind::Proc
+                let checked_proc = matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
                     && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
@@ -375,7 +375,7 @@ impl Checker {
                 &generalized_body_types,
                 &empty_constructors,
                 &self.result_constructors,
-                super::scheme_body::BodyCompletion::Function,
+                if pending.kind() == crate::sema::types::CallableKind::Stream { super::scheme_body::BodyCompletion::Producer } else { super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,
@@ -638,6 +638,10 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         let declaration = FunctionDeclarationId::new(effect_declaration);
+        if self.recursive_component_has_errors(program, &[def_id]) {
+            self.reject_recursive_component(program, &[def_id]);
+            return None;
+        }
         self.generalize_pending_function(program, def_id)?;
         let pending = self.declaration_inference.pending(declaration)?.clone();
         let callable = Arc::clone(pending.generalized()?);
@@ -650,12 +654,12 @@ impl Checker {
             }
         };
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
-        if pending.kind == crate::sema::types::CallableKind::Proc
+        if matches!(pending.kind, crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
             && (callable.is_quantified())
             && !effects.is_known()
         {
             self.error(program.arena.span(program.arena.block(def.body).span),
-                "generic proc requires a known checked effect contract", DiagnosticCode::CheckLocalInference);
+                "generic effectful callable requires a known checked effect contract", DiagnosticCode::CheckLocalInference);
             return None;
         }
         let scheme = match TypeScheme::with_callable(pending.kind, Arc::clone(&callable), effects, inferred_effects) {
@@ -1562,7 +1566,7 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         let declaration = FunctionDeclarationId::new(effect_declaration);
-        if matches!(kind, CheckedFunctionKind::Pure | CheckedFunctionKind::Proc) {
+        if matches!(kind, CheckedFunctionKind::Pure | CheckedFunctionKind::Proc | CheckedFunctionKind::Stream) {
             for parameter in program.arena.params(def.params) {
                 let span = program.arena.span(parameter.span);
                 if parameter.annotation.is_none()
@@ -1572,6 +1576,13 @@ impl Checker {
                     let ty = self.type_constraints.fresh_at_level(span, 1);
                     self.parameter_types.insert(span, ty);
                 }
+            }
+        }
+        if def.return_ty_defaulted && kind == CheckedFunctionKind::Stream {
+            let body = program.arena.span(program.arena.block(def.body).span);
+            if !self.function_return_types.contains_key(&body) {
+                let item = self.type_constraints.fresh_at_level(body, 1);
+                self.function_return_types.insert(body, Type::Stream(Box::new(item)));
             }
         }
         let signature = PendingFunctionSig {
@@ -1635,7 +1646,9 @@ impl Checker {
                         },
                     })
                     .collect(),
-                return_ty: if def.return_ty_defaulted && kind == CheckedFunctionKind::Pure {
+                return_ty: if def.return_ty_defaulted && kind == CheckedFunctionKind::Stream {
+                    self.function_return_types[&effect_declaration.body].clone()
+                } else if def.return_ty_defaulted && kind == CheckedFunctionKind::Pure {
                     Type::Unknown
                 } else if def.return_ty_defaulted
                     && kind == CheckedFunctionKind::Proc

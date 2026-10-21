@@ -88,11 +88,20 @@ impl Checker {
                 return None;
             }
         }
+        let latent_stream_errors = match self.prepare_recursive_stream_error_flows(&members, &recursive_calls) {
+            Ok(latent) => latent,
+            Err((span, error)) => {
+                self.error(span, &format!("recursive stream invocation has no checked error flow: {error:?}"), DiagnosticCode::CheckLocalInference);
+                self.reject_recursive_component(program, definitions);
+                return None;
+            }
+        };
         if let Err((owner, _)) = self.resolve_stream_origin_applications(&members, &recursive_calls) {
             self.report_stream_origin_boundary(owner.body);
             self.reject_recursive_component(program, definitions);
             return None;
         }
+        self.latent_stream_error_spans.extend(latent_stream_errors);
         for member in prepared.into_values() {
             self.publish_function_generalization(program, member);
         }
@@ -108,6 +117,9 @@ impl Checker {
     }
 
     pub(super) fn reject_recursive_component(&mut self, program: &ArenaProgram, definitions: &[FunctionDefId]) {
+        let rejected_owners = definitions.iter().map(|&definition| self.effect_declaration_id(program, program.arena.function_def(definition).body)).collect::<BTreeSet<_>>();
+        self.stream_origin_outputs.reject_declarations(&rejected_owners);
+        self.latent_stream_error_spans.retain(|&span| !definitions.iter().any(|&definition| function_contains_span(program, definition, span)));
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
@@ -120,6 +132,7 @@ impl Checker {
         }).chain(self.call_instantiations.keys().copied().filter(|&span| {
             definitions.iter().any(|&definition| function_contains_span(program, definition, span))
         })).collect::<BTreeSet<_>>();
+        self.latent_stream_error_spans.retain(|span| !rejected_calls.contains(span));
         self.call_instantiations.retain(|span, _| !rejected_calls.contains(span));
         self.pending_call_instantiations.retain(|span, _| !rejected_calls.contains(span));
     }
@@ -141,6 +154,126 @@ mod tests {
     use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn omitted_stream_interfaces_share_original_cells_and_publish_once() {
+        for recursive in [false, true] {
+            let source = if recursive {
+                concat!(
+                    "stream left(value, count = 1) { if count > 0 { yield value; yield @right(value, count - 1) } }\n",
+                    "stream right(value, count = 1) { if count > 0 { yield value; yield @left(value, count - 1) } }\n",
+                    "let integers: Stream[Int] = left(7, 2)\nlet words: Stream[Str] = right(\"word\", 2)\n",
+                )
+            } else {
+                "stream values(value, count = 1) { if count > 0 { yield value } }\nlet integers: Stream[Int] = values(7)\nlet words: Stream[Str] = values(\"word\")\n"
+            };
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let count = if recursive { 2 } else { 1 };
+                assert_eq!(checked.checked_declarations.functions.len(), count);
+                assert_eq!(checked.function_body_check_entries, count);
+                for declaration in checked.checked_declarations.functions.values() {
+                    let scheme = declaration.scheme.as_ref().expect("producer scheme");
+                    assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Stream);
+                    assert_eq!(scheme.type_parameters().len(), 1);
+                    assert_eq!(scheme.return_type(), &SchemeType::Stream(Box::new(scheme.params()[0].ty.clone())));
+                    assert_eq!(scheme.params()[1].ty, SchemeType::Ground(Type::Int));
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn omitted_stream_recursive_callback_effects_keep_actual_peer_instances() {
+        let source = concat!(
+            "pure integer(value: Int) -> Int { value }\n",
+            "pure text(value: Str) -> Str { value }\n",
+            "stream left(action, value, count = 1) { if count > 0 { yield action(value); yield @right(action, value, count - 1) } }\n",
+            "stream right(action, value, count = 1) { if count > 0 { yield action(value); yield @left(action, value, count - 1) } }\n",
+            "let integers: Stream[Int] = left(integer, 7, 2)\nlet words: Stream[Str] = right(text, \"word\", 2)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let program = &parsed.arena;
+            let view = super::super::CheckBundleView::for_root(program, program.statements, None, Some(SourceId::new(0)));
+            let statements = program.statement_ids().collect::<Vec<_>>();
+            let phase = |collecting, summaries, origins, graph| {
+                let mut checker = Checker::new(CheckOptions::for_execution());
+                checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(program));
+                checker.effect_graph = graph;
+                checker.authoritative_effect_graph = true;
+                checker.collecting_effects = collecting;
+                checker.record_effects = collecting;
+                checker.defer_effect_diagnostics = true;
+                checker.effect_summaries = summaries;
+                checker.stream_origin_inputs = origins;
+                checker.collect_definitions_arena(program, Arc::new(program.clone()), source, statements.iter().copied());
+                checker.infer_default_parameter_types(program, source, &statements);
+                checker.infer_local_pure_returns(&view, source, &statements);
+                for &statement in &statements { checker.check_stmt_arena(program, source, statement); }
+                checker
+            };
+            let mut summaries = BTreeMap::new();
+            let mut origins = super::super::stream_origins::StreamOriginSummaries::new();
+            let mut graph = None;
+            for _ in 0..3 {
+                let mut probe = phase(true, summaries, origins, super::super::infer_effects::EffectGraph::declarations_for_root(&view));
+                assert!(probe.diagnostics.is_empty(), "{:?}", probe.diagnostics);
+                probe.bind_effect_graph().unwrap();
+                summaries = probe.effect_graph.solve_with_external(&BTreeMap::new()).unwrap();
+                probe.normalize_stream_origin_applications().unwrap();
+                probe.settle_stream_origin_dependencies(&super::super::stream_origins::StreamOriginSummaries::new());
+                origins = probe.stream_origin_outputs;
+                graph = Some(probe.effect_graph);
+            }
+            let phase = phase(false, summaries, origins, graph.expect("effect probes retain their authoritative graph"));
+            assert!(phase.diagnostics.is_empty(), "{:?}", phase.diagnostics);
+            let peer_calls = phase.provisional_function_calls.iter().filter_map(|(&span, (caller, callee))| {
+                (caller != &callee.effect_declaration()).then_some(span)
+            }).collect::<Vec<_>>();
+            assert_eq!(peer_calls.len(), 2);
+            for span in peer_calls {
+                assert!(phase.latent_stream_error_spans.contains(&span));
+                let expression = view.expr_ids().into_iter().find(|&expression| program.arena.expr(expression).span == span).expect("actual selected recursive stream expression");
+                let mut origin = phase.stream_expr_origin(program, expression);
+                assert!(!origin.join(&super::super::stream_origins::StreamOrigins::error()));
+            }
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let mut peer_calls = Vec::new();
+            for declaration in checked.checked_declarations.functions.values().filter(|declaration| matches!(declaration.name.as_str().as_ref(), "left" | "right")) {
+                let scheme = declaration.scheme.as_ref().expect("producer callback scheme");
+                assert_eq!(scheme.callable().requirements().applications.len(), 2);
+                assert!(scheme.effects().is_known());
+                peer_calls.extend(checked.selected_function_calls.iter().filter_map(|(&span, target)| {
+                    (matches!(target.name.as_str().as_ref(), "left" | "right")
+                        && declaration.body.source_id == span.source_id
+                        && declaration.body.start() <= span.start() && span.end() <= declaration.body.end()).then_some(span)
+                }));
+            }
+            assert_eq!(peer_calls.len(), 2);
+            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(span)
+                && checked.checked_control_flow.latent_stream_error_spans.contains(span)));
+        });
+    }
+
+    #[test]
+    fn omitted_stream_interfaces_reject_incompatible_yields_and_effect_bounds() {
+        for (source, code) in [
+            ("stream values(flag: Bool) { if flag { yield 7 } else { yield \"word\" } }", DiagnosticCode::CheckTypeMismatch),
+            ("stream values(value) [] { print \"creation effect\"; yield value }", DiagnosticCode::CheckEffectViolation),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{:?}", checked.diagnostics);
+            assert!(checked.checked_declarations.functions.values().all(|declaration| declaration.scheme.is_none()));
+        }
+    }
 
     #[test]
     fn recursive_default_parameters_share_header_cells_before_peer_bodies() {

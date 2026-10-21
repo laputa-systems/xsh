@@ -1,3 +1,4 @@
+use crate::sema::types::CallableKind;
 use crate::sema::callable_application::{inferred_proc_return_envelope, join_error_types};
 use super::{
     AnnotationFact, AnnotationFactKind, BTreeMap, CheckBundleView, Checker, FxHashSet, Name, Span,
@@ -28,9 +29,13 @@ struct ReturnDeclaration {
     name: Name,
     names: Vec<Name>,
     span: Span,
-    function: Option<FunctionDefId>,
-    proc_def: bool,
+    function: Option<(FunctionDefId, CallableKind)>,
     statement: StmtId,
+}
+
+impl ReturnDeclaration {
+    fn definition(&self) -> Option<FunctionDefId> { self.function.map(|(definition, _)| definition) }
+    fn kind(&self) -> Option<CallableKind> { self.function.map(|(_, kind)| kind) }
 }
 
 #[derive(Clone, Default)]
@@ -97,7 +102,7 @@ impl Checker {
             };
             let stmt = program.arena.stmt(statement);
             match stmt.kind {
-                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function)
+                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function) | ArenaStmtKind::StreamDef(function)
                     if !program.arena.function_def(function).test_declaration =>
                 {
                     let def = program.arena.function_def(function);
@@ -105,8 +110,12 @@ impl Checker {
                         name: def.name,
                         names: vec![def.name],
                         span: stmt.span,
-                        function: Some(function),
-                        proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
+                        function: Some((function, match stmt.kind {
+                            ArenaStmtKind::PureDef(_) => CallableKind::Pure,
+                            ArenaStmtKind::ProcDef(_) => CallableKind::Proc,
+                            ArenaStmtKind::StreamDef(_) => CallableKind::Stream,
+                            _ => unreachable!(),
+                        })),
                         statement,
                     });
                 }
@@ -123,7 +132,6 @@ impl Checker {
                             names,
                             span: stmt.span,
                             function: None,
-                            proc_def: false,
                             statement,
                         });
                     }
@@ -132,20 +140,20 @@ impl Checker {
             }
         }
         if !declarations.iter().any(|decl| {
-            decl.function.is_some_and(|id| {
+            decl.definition().is_some_and(|id| {
                 let def = program.arena.function_def(id);
                 let has_inferred_parameter = program.arena.params(def.params).iter().any(|parameter| {
                     parameter.annotation.is_none() && parameter.default.is_none()
                 });
                 def.return_ty_defaulted
-                    && (!decl.proc_def || proc_may_return_value(program, def))
+                    && (decl.kind() != Some(CallableKind::Proc) || proc_may_return_value(program, def))
                     || has_inferred_parameter
             })
         }) {
             return;
         }
         let function_indices = declarations.iter().enumerate().filter_map(|(index, declaration)| {
-            let definition = declaration.function?;
+            let definition = declaration.definition()?;
             let def = program.arena.function_def(definition);
             Some((super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body)), index))
         }).collect::<BTreeMap<_, _>>();
@@ -239,7 +247,7 @@ impl Checker {
             }
             for &index in &component {
                 let decl = &declarations[index];
-                let Some(id) = decl.function else {
+                let Some(id) = decl.definition() else {
                     let kind = program.arena.stmt(decl.statement).kind;
                     if let ArenaStmtKind::Let {
                         target,
@@ -296,13 +304,18 @@ impl Checker {
                 let infers_parameters = program.arena.params(def.params).iter().any(|parameter| {
                     parameter.annotation.is_none() && parameter.default.is_none()
                 });
-                if !def.return_ty_defaulted {
-                    if decl.proc_def && !infers_parameters { continue; }
+                if decl.kind() == Some(CallableKind::Stream) {
                     self.check_body_before_callers(program, source, decl, &declarations, def);
                     self.generalize_pending_function(program, id);
                     continue;
                 }
-                if decl.proc_def {
+                if !def.return_ty_defaulted {
+                    if decl.kind() == Some(CallableKind::Proc) && !infers_parameters { continue; }
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
+                    self.generalize_pending_function(program, id);
+                    continue;
+                }
+                if decl.kind() == Some(CallableKind::Proc) {
                     if proc_may_return_value(program, def) {
                         let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                             Some("entry")
@@ -370,7 +383,7 @@ impl Checker {
                         kind: AnnotationFactKind::InferredPureReturn { body: body_span },
                         ty,
                     });
-                    if !decl.proc_def {
+                    if decl.kind() != Some(CallableKind::Proc) {
                         self.generalize_pending_function(program, id);
                     }
                 }
@@ -386,20 +399,20 @@ impl Checker {
         component: &[usize],
         declarations: &[ReturnDeclaration],
     ) {
-        let definitions = component.iter().filter_map(|&index| declarations[index].function).collect::<Vec<_>>();
+        let definitions = component.iter().filter_map(|&index| declarations[index].definition()).collect::<Vec<_>>();
         let start = self.diagnostics.len();
         for &index in component {
             let declaration = &declarations[index];
-            let Some(definition) = declaration.function else { continue; };
+            let Some(definition) = declaration.definition() else { continue; };
             let def = program.arena.function_def(definition);
-            if !def.return_ty_defaulted { continue; }
-            if declaration.proc_def && (declaration.name == "main" || declaration.name.as_str().starts_with("main "))
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) { continue; }
+            if declaration.kind() == Some(CallableKind::Proc) && (declaration.name == "main" || declaration.name.as_str().starts_with("main "))
                 && proc_may_return_value(program, def)
             {
                 self.error(declaration.span, "entry proc returns a value and requires an explicit return annotation", DiagnosticCode::CheckRequiredReturn);
             }
             let body = program.arena.span(program.arena.block(def.body).span);
-            let ty = if declaration.proc_def {
+            let ty = if declaration.kind() == Some(CallableKind::Proc) {
                 if proc_may_return_value(program, def) {
                     Type::Result(Box::new(self.type_constraints.fresh_at_level(body, 1)), Box::new(Type::Error))
                 } else { self.type_from_arena(program, def.return_ty) }
@@ -410,25 +423,25 @@ impl Checker {
         let mut propagations = Vec::new();
         for &index in component {
             let declaration = &declarations[index];
-            let Some(definition) = declaration.function else {
+            let Some(definition) = declaration.definition() else {
                 self.error(declaration.span, "recursive value bindings require a callable declaration boundary", DiagnosticCode::CheckLocalInference);
                 continue;
             };
             let def = program.arena.function_def(definition);
-            if !def.return_ty_defaulted {
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) {
                 self.check_body_before_callers(program, source, declaration, declarations, def);
                 continue;
             }
             self.inferred_returns = Some(Vec::new());
             self.inferred_propagations.clear();
             self.inference_reachable = true;
-            self.return_conflicts = declaration.proc_def.then(Vec::new);
+            self.return_conflicts = (declaration.kind() == Some(CallableKind::Proc)).then(Vec::new);
             self.check_body_before_callers(program, source, declaration, declarations, def);
             let candidates = self.inferred_returns.take().expect("recursive return checking owns its candidates");
             let errors = std::mem::take(&mut self.inferred_propagations);
             let body = program.arena.span(program.arena.block(def.body).span);
             let original = self.function_return_types[&body].clone();
-            if declaration.proc_def {
+            if declaration.kind() == Some(CallableKind::Proc) {
                 let actual = self.normalize_inferred_proc_returns(self.effect_declaration_id(program, def.body), candidates, &errors);
                 self.expect_type(&original, &actual, body);
                 for (left, right, span) in self.return_conflicts.take().unwrap_or_default() {
@@ -494,7 +507,11 @@ impl Checker {
                 }
             }
         }
-        self.check_function_arena(program, source, def, !decl.proc_def);
+        match decl.kind().expect("a callable declaration owns its body") {
+            CallableKind::Pure => self.check_function_arena(program, source, def, true),
+            CallableKind::Proc => self.check_function_arena(program, source, def, false),
+            CallableKind::Stream => self.check_stream_function_arena(program, source, def),
+        }
         self.scopes = visible_scopes;
     }
 

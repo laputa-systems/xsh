@@ -160,25 +160,29 @@ impl Checker {
         span: Span,
     ) {
         if return_ty.is_result() { return; }
+        if self.defer_recursive_stream_error_flow(effects, return_ty, span) { return; }
         let super::InvocationEffects::Checked(effects) = effects else {
             if !self.collecting_effects {
                 self.error(span, "invocation error flow has no settled effect contract", DiagnosticCode::CheckLocalInference);
             }
             return;
         };
-        let contract = match self.type_constraints.resolve_effect(effects.contract()) {
-            Ok(contract) => contract,
+        match self.invocation_error_flow(effects, return_ty) {
+            Ok(flow) => self.record_callee_error_flow(flow, span),
             Err(_) => {
                 self.error(span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference);
-                return;
             }
-        };
+        }
+    }
+
+    pub(super) fn invocation_error_flow(&self, effects: &crate::sema::types::CallableEffects, return_ty: &Type) -> Result<crate::sema::types::CalleeErrorFlow, crate::sema::constraints::ConstraintResolutionError> {
+        let contract = self.type_constraints.resolve_effect(effects.contract())?;
         let may_error = match contract {
             crate::sema::effects::EffectContract::Unknown => false,
             crate::sema::effects::EffectContract::Known(expression) => expression.direct().contains(Effect::Error)
                 || expression.variables().any(|(_, mask)| mask.contains(Effect::Error)),
         };
-        self.record_callee_propagation(Some(if may_error { &[Effect::Error] } else { &[] }), return_ty, span);
+        Ok(return_ty.callee_error_flow(Some(if may_error { &[Effect::Error] } else { &[] })))
     }
 
     pub(super) fn record_callee_propagation(
@@ -187,7 +191,11 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
-        match return_ty.callee_error_flow(effects) {
+        self.record_callee_error_flow(return_ty.callee_error_flow(effects), span);
+    }
+
+    fn record_callee_error_flow(&mut self, flow: crate::sema::types::CalleeErrorFlow, span: Span) {
+        match flow {
             crate::sema::types::CalleeErrorFlow::None => {}
             crate::sema::types::CalleeErrorFlow::Latent => { self.latent_stream_error_spans.insert(span); }
             crate::sema::types::CalleeErrorFlow::Immediate => {

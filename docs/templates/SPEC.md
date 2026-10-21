@@ -3059,11 +3059,11 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure` or `proc` declaration may omit its type annotation. The
+A required parameter in a `pure`, `proc`, or `stream` declaration may omit its type annotation. The
 checker infers that type from the declaration body. An explicit `Any` remains a
 dynamic type and is never treated as a type variable; it may appear beside
-quantified parameters. Required parameters in `stream` declarations,
-callable types, and module contracts still need annotations.
+quantified parameters. Required parameters in callable types and module
+contracts still need annotations.
 
 When a checked pure or finite-effect proc signature retains quantified type or row variables, its
 executable body may contain immutable `let` bindings followed by one value
@@ -3291,6 +3291,12 @@ See the [XSHT lint notes](XSHT.md#lint) for how notes differ from warnings.
 ### 9.5 Stream producers
 
 Calling a `stream` producer returns a `Stream[T]` without running its body.
+Parameter and return annotations may be omitted when the producer's defaults,
+yields, delegation, and parameter relationships determine them. Recursive
+producers share one monomorphic constraint component while their bodies are
+checked; their declaration schemes are generalized together afterward. Each
+independent call can choose a different item type, while aliases of one created
+producer retain that producer's item type.
 The body runs as the stream is consumed by a `for` loop, a pipeline, or
 `.collect()`. Each `yield value` emits one item, and `yield @source` emits every
 item of a `List[T]` or `Stream[T]`, pulling a delegated stream on demand. The

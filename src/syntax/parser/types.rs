@@ -178,10 +178,3 @@ pub(in crate::syntax::parser) fn result_unit_type_expr(
     let ok = arena.push_named_type_expr(Name::UNIT, span);
     arena.push_result_type_expr(ok, None, span)
 }
-
-pub(in crate::syntax::parser) fn unknown_type_expr(
-    arena: &mut ArenaProgramBuilder<'_>,
-    span: Span,
-) -> TypeExprId {
-    arena.push_named_type_expr(Name::UNKNOWN, span)
-}

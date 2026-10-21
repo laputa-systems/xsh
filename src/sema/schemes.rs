@@ -237,9 +237,8 @@ impl TypeScheme {
         if callable.is_quantified() {
             match kind {
                 crate::sema::types::CallableKind::Pure => {}
-                crate::sema::types::CallableKind::Proc if effects.is_known() => {}
-                crate::sema::types::CallableKind::Proc => return Err(SchemeBuildError::UnresolvedEffects),
-                crate::sema::types::CallableKind::Stream => return Err(SchemeBuildError::UnsupportedCallableKind),
+                crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream if effects.is_known() => {}
+                crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream => return Err(SchemeBuildError::UnresolvedEffects),
             }
         }
         Ok(Self {
