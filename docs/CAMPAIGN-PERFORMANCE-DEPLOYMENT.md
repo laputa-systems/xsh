@@ -131,12 +131,22 @@ layouts. Ground calls still require selected argument evidence. Independent
 source review finds no defect in that mapping. Cold verification must also
 reject an in-range ordinal pointing to the wrong caller obligation.
 
-The XSHT migration passes four of six focused controls: finite, unknown and
-symbolic effect permissions, plus an existing capture autofix. Its generic
-body-contract control exposes unfinished Capture lowering. An existing inferred
-return autofix also loses one safe fix and remains under diagnosis. Body-proof
-inputs require execution facts and matching source context. No tooling or cold
-acceptance follows from these results.
+Unqualified compiler checkpoint `096edb232` preserves inferred nominal return
+schemas from actual constructors, separately from contextual expectations.
+Both focused schema controls and the exact prepared-body comparison pass;
+independent review approves this prerequisite only. Mutable reads cannot supply
+constructor identity. The original private-return autofix again proposes both
+expected fixes on this source. Generic Capture still fails during indexed
+preparation, so this checkpoint earns no F2 or cold-execution acceptance.
+
+The isolated seven-file XSHT migration passes eleven focused controls on that
+checkpoint, with zero failures or ignores and independent review approval.
+Finite, unknown and symbolic permissions remain distinct. Original effect-fact
+coverage is required before any reload, and annotation removal requires a
+successful canonical body proof. Three regressions reproduce and fix the
+previous fail-open caller paths. The generic Capture body-contract fixture
+remains known red because of the compiler prerequisite above; full tooling
+acceptance remains open.
 
 The isolated producer repair now passes the actual frozen `cut` source and
 its portable counter, self-slice and field-guard controls. Independently
@@ -153,11 +163,14 @@ after repair. The other two relationships remain under repair. The actual
 AWK, developer module and system-report checks must pass before merged corpus
 qualification. These isolated results earn no interface or removal credit.
 
-Later isolated checks complete every producer proof in system-report and the
-developer module, then exceed the unchanged final work budget. Exact repeated
-query counts do not justify a cache. The producer lane measures unrelated guard
-ancestry work before pruning it through the same predicate and binding proofs.
-AWK remains under repair. None of these modules has final corpus acceptance.
+The later isolated producer repair passes all four actual source preparations:
+cut, AWK, the developer module and system-report. The 16/32/64/128-field guarded
+workload also passes without optional hints, on both execution routes, under
+the unchanged work limits. The repair removes expression visits from the writer
+census only when complete statement coverage proves the old traversal's result,
+and reuses positive predicates only for the same immutable snapshot and guard.
+Final portable regression qualification, cleaned-source review and fresh merged
+corpus replay remain required. No interface or annotation-removal credit follows.
 
 The fresh eight-check corpus replay repeats all twenty missing producer
 contracts and two slice-contract failures from `520757c30`. The first actual
