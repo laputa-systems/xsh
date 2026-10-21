@@ -122,14 +122,30 @@ Named-cause repair `4d4c93a81` passes 67 focused controls on its isolated source
 and is integrated. The verifier authenticates the exact binding subjects,
 payload and cause without inventing a success type. Merged test extension
 `f91ef3f8d` covers both explicit returns and the original implicit tail with
-the same five physical mutations. That extension still needs execution.
+the same five physical mutations. Fresh merged replay exposes a real remaining
+failure: the earlier tail repair handles expression tails but misses bare
+binding tails. Repair `de8e288dd` uses the exact resolved binding and its checked
+slot type. Both tail forms now reject all five mutations. All 68 focused
+controls pass, including parameter and captured Result forwarding, cleanup
+order and broader-error retarget rejection. The repair is integrated.
 
 The owner also requested isolated Laputa certificate hardening. Laputa commit
 `2549eb0` removes unauthenticated live certificate downloads, updates packaged
-roots and runtimes, and makes CA package dependencies explicit. Static checks
-pass. Runtime checks, signed trust-release publication and XSH distrust-policy
-enforcement remain pending. The production signing public key is not provisioned.
+roots and runtimes, and makes CA package dependencies explicit. Seven source
+checks and the focused CA recipe test pass. XSH master includes Ed25519 host
+verification at `21ce1ed25`, with one registry and two native controls passing.
+Signed trust-release composition and XSH distrust-policy enforcement remain
+under implementation and review. The production signing public key is not provisioned.
 These security changes do not supply inference or deployment acceptance credit.
+
+Isolated compiler checkpoint `dc21c8501` passes thirteen runtime-layout controls
+with one remaining Proc-origin failure. A later draft passes its first three
+Proc-origin controls, including direct and aliased returns, Result-as-data,
+and malformed physical return-site evidence. Ordinary branch, recursive and
+Stream completion remain mandatory. These drafts are not integrated or qualified.
+Work-counter checkpoint `85efae76e` passes seven focused controls, but review
+finds discarded diagnostic work and nested retained type nodes undercounted.
+Both metrics require repair before integration or performance use.
 
 The superseded failed producer-qualification checkout is removed after preserving
 its complete scratch tree and checking clean ancestry, handles and registration.
