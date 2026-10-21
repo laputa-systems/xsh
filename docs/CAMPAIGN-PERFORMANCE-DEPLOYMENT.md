@@ -21,6 +21,13 @@ The deliverables are:
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
 
+Source `01b6b5a64` adds actual paired-comparator controls. All three selected
+XSHT tests pass after integration in `.work/wt/full-inference-paired-qualified`.
+One unchanged generic body preserves both concrete Int and Str instances.
+Folded operator/domain changes beneath list and record parents are rejected;
+malformed source is distinguished from a checked-body mismatch. These tests
+do not qualify the frozen corpus or repair the producer regressions below.
+
 Source `323a3e52a` is integrated after independent review of contextual
 aggregate producer proofs. Fresh aggregate carriers require an authenticated
 consumer; every physical record entry remains proved, including overwritten
