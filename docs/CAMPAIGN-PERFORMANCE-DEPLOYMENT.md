@@ -46,8 +46,18 @@ approval. Fresh literals require actual members; splices require independent
 NonEmpty evidence. Comprehensions retain that validation only from their
 actual source through the canonical single, unfiltered mapping rule. Empty,
 wrong-member and ordinary-list source mutations are rejected. Matching
-verification products are building for a fresh corpus replay; no full baseline
-or corpus acceptance follows yet.
+verification products build: `xsh` is 36,307,072 bytes and `xsht` is 44,313,360
+bytes. Seven existing runner/resource/constructor controls and all five new
+comprehension selectors pass, with zero skips and unchanged product pins.
+The comprehension file is integrated at `7fef1b5e6`; all five selectors also
+pass against that clean integrated source.
+
+The fresh eight-check corpus replay repeats all twenty missing producer
+contracts and two slice-contract failures from `520757c30`. The first actual
+Laputa failure is reproduced in `pm/graph.xsh::edges`: a lowered `collect`
+block ends in its unannotated empty-list accumulator, whose element type
+is not derived from its yield writers. This class is under repair; no full
+baseline or corpus acceptance follows yet.
 
 Source `4e0863e6c` combines the reviewed assignment and producer repairs for
 fresh merged qualification. Assignment source `6591e9ab7` passes 21 focused
