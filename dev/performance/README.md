@@ -258,8 +258,8 @@ invocation-scoped; ordinary checks do not retain a global statistics record.
 | `level_adjustments` | Type, row, or effect cell levels lowered during solving. |
 | `effect_edge_visits` | Effect dependency edges inspected during deduplication, binding, fixed-point solving, and contract walks. |
 | `candidate_tests` | Calls to the canonical constraint-trial operation, including failed probes. |
-| `diagnostic_work` | Lexical, parsed, checked, reveal-type, and lowering diagnostic records produced for the entry. |
-| `output_type_nodes` | Type records in the final compact declaration and body outputs, including call-instantiation type and row arguments. |
+| `diagnostic_work` | Diagnostic records constructed across the source invocation, including discarded checker probes and reveal types cleared before publication. |
+| `output_type_nodes` | Structural `Type` and `SchemeType` nodes in the final compact declaration and body outputs, including call-instantiation type and row arguments; shared `Arc` payloads count once. |
 | `evidence_nodes` | Final compact effect facts, static callable aliases, stream-stage plans, body evidence records, and nested call-instantiation evidence. |
 
 The same record reports `function_body_check_entries` separately. It counts

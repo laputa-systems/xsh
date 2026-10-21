@@ -191,15 +191,54 @@ pub(crate) struct ConstraintCounters {
     scheme_instantiations: AtomicU64,
     successful_generic_call_resolutions: AtomicU64,
     worklist_wakeups: AtomicU64,
-    host_candidate_trials: AtomicU64,
-    host_obligation_requeues: AtomicU64,
     rollbacks: AtomicU64,
     rollback_changes: AtomicU64,
+    extended: Option<Box<ExtendedConstraintCounters>>,
+}
+
+#[derive(Debug)]
+struct ExtendedConstraintCounters {
+    host_candidate_trials: AtomicU64,
+    host_obligation_requeues: AtomicU64,
     level_adjustments: AtomicU64,
     effect_edge_visits: AtomicU64,
     candidate_tests: AtomicU64,
     function_body_check_entries: AtomicU64,
-    record_extended_work: bool,
+    diagnostic_work: AtomicU64,
+}
+
+impl Default for ExtendedConstraintCounters {
+    fn default() -> Self {
+        Self {
+            host_candidate_trials: AtomicU64::new(0),
+            host_obligation_requeues: AtomicU64::new(0),
+            level_adjustments: AtomicU64::new(0),
+            effect_edge_visits: AtomicU64::new(0),
+            candidate_tests: AtomicU64::new(0),
+            function_body_check_entries: AtomicU64::new(0),
+            diagnostic_work: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Clone for ExtendedConstraintCounters {
+    fn clone(&self) -> Self {
+        Self {
+            host_candidate_trials: AtomicU64::new(
+                self.host_candidate_trials.load(Ordering::Relaxed),
+            ),
+            host_obligation_requeues: AtomicU64::new(
+                self.host_obligation_requeues.load(Ordering::Relaxed),
+            ),
+            level_adjustments: AtomicU64::new(self.level_adjustments.load(Ordering::Relaxed)),
+            effect_edge_visits: AtomicU64::new(self.effect_edge_visits.load(Ordering::Relaxed)),
+            candidate_tests: AtomicU64::new(self.candidate_tests.load(Ordering::Relaxed)),
+            function_body_check_entries: AtomicU64::new(
+                self.function_body_check_entries.load(Ordering::Relaxed),
+            ),
+            diagnostic_work: AtomicU64::new(self.diagnostic_work.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl Default for ConstraintCounters {
@@ -215,15 +254,9 @@ impl Default for ConstraintCounters {
             scheme_instantiations: AtomicU64::new(0),
             successful_generic_call_resolutions: AtomicU64::new(0),
             worklist_wakeups: AtomicU64::new(0),
-            host_candidate_trials: AtomicU64::new(0),
-            host_obligation_requeues: AtomicU64::new(0),
             rollbacks: AtomicU64::new(0),
             rollback_changes: AtomicU64::new(0),
-            level_adjustments: AtomicU64::new(0),
-            effect_edge_visits: AtomicU64::new(0),
-            candidate_tests: AtomicU64::new(0),
-            function_body_check_entries: AtomicU64::new(0),
-            record_extended_work: cfg!(test),
+            extended: cfg!(test).then(|| Box::default()),
         }
     }
 }
@@ -231,7 +264,7 @@ impl Default for ConstraintCounters {
 impl ConstraintCounters {
     pub(crate) fn for_measurement() -> Self {
         Self {
-            record_extended_work: true,
+            extended: Some(Box::default()),
             ..Self::default()
         }
     }
@@ -250,77 +283,97 @@ impl ConstraintCounters {
                 .successful_generic_call_resolutions
                 .load(Ordering::Relaxed),
             worklist_wakeups: self.worklist_wakeups.load(Ordering::Relaxed),
-            host_candidate_trials: self.host_candidate_trials.load(Ordering::Relaxed),
-            host_obligation_requeues: self.host_obligation_requeues.load(Ordering::Relaxed),
+            host_candidate_trials: self.extended.as_ref().map_or(0, |extended| {
+                extended.host_candidate_trials.load(Ordering::Relaxed)
+            }),
+            host_obligation_requeues: self.extended.as_ref().map_or(0, |extended| {
+                extended.host_obligation_requeues.load(Ordering::Relaxed)
+            }),
             rollbacks: self.rollbacks.load(Ordering::Relaxed),
             rollback_changes: self.rollback_changes.load(Ordering::Relaxed),
-            level_adjustments: self.level_adjustments.load(Ordering::Relaxed),
-            effect_edge_visits: self.effect_edge_visits.load(Ordering::Relaxed),
-            candidate_tests: self.candidate_tests.load(Ordering::Relaxed),
-            function_body_check_entries: self
-                .function_body_check_entries
-                .load(Ordering::Relaxed),
+            level_adjustments: self.extended.as_ref().map_or(0, |extended| {
+                extended.level_adjustments.load(Ordering::Relaxed)
+            }),
+            effect_edge_visits: self.extended.as_ref().map_or(0, |extended| {
+                extended.effect_edge_visits.load(Ordering::Relaxed)
+            }),
+            candidate_tests: self.extended.as_ref().map_or(0, |extended| {
+                extended.candidate_tests.load(Ordering::Relaxed)
+            }),
+            function_body_check_entries: self.extended.as_ref().map_or(0, |extended| {
+                extended.function_body_check_entries.load(Ordering::Relaxed)
+            }),
+            diagnostic_work: self.extended.as_ref().map_or(0, |extended| {
+                extended.diagnostic_work.load(Ordering::Relaxed)
+            }),
         }
     }
 
     fn record_level_adjustment(&self) {
-        if self.record_extended_work {
-            self.level_adjustments.fetch_add(1, Ordering::Relaxed);
+        if let Some(extended) = &self.extended {
+            extended.level_adjustments.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     fn record_candidate_test(&self) {
-        if self.record_extended_work {
-            self.candidate_tests.fetch_add(1, Ordering::Relaxed);
+        if let Some(extended) = &self.extended {
+            extended.candidate_tests.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_effect_edge_visit(&self) {
-        if self.record_extended_work {
-            self.effect_edge_visits.fetch_add(1, Ordering::Relaxed);
+        if let Some(extended) = &self.extended {
+            extended.effect_edge_visits.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_effect_constraint(&self) {
-        if self.record_extended_work {
+        if self.extended.is_some() {
             self.generated_constraints.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_effect_variable(&self) {
-        if self.record_extended_work {
+        if self.extended.is_some() {
             self.fresh_variables.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_effect_worklist_wakeup(&self) {
-        if self.record_extended_work {
+        if self.extended.is_some() {
             self.worklist_wakeups.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_application_worklist_wakeup(&self) {
-        if self.record_extended_work {
+        if self.extended.is_some() {
             self.worklist_wakeups.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_function_body_check_entry(&self) {
-        if self.record_extended_work {
-            self.function_body_check_entries
+        if let Some(extended) = &self.extended {
+            extended
+                .function_body_check_entries
                 .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_host_candidate_trial(&self) {
-        if self.record_extended_work {
-            self.host_candidate_trials.fetch_add(1, Ordering::Relaxed);
+        if let Some(extended) = &self.extended {
+            extended.host_candidate_trials.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_host_obligation_requeue(&self) {
-        if self.record_extended_work {
-            self.host_obligation_requeues.fetch_add(1, Ordering::Relaxed);
+        if let Some(extended) = &self.extended {
+            extended.host_obligation_requeues.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_diagnostic_work(&self) {
+        if let Some(extended) = &self.extended {
+            extended.diagnostic_work.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -348,21 +401,9 @@ impl Clone for ConstraintCounters {
                 self.successful_generic_call_resolutions.load(Ordering::Relaxed),
             ),
             worklist_wakeups: AtomicU64::new(self.worklist_wakeups.load(Ordering::Relaxed)),
-            host_candidate_trials: AtomicU64::new(
-                self.host_candidate_trials.load(Ordering::Relaxed),
-            ),
-            host_obligation_requeues: AtomicU64::new(
-                self.host_obligation_requeues.load(Ordering::Relaxed),
-            ),
             rollbacks: AtomicU64::new(self.rollbacks.load(Ordering::Relaxed)),
             rollback_changes: AtomicU64::new(self.rollback_changes.load(Ordering::Relaxed)),
-            level_adjustments: AtomicU64::new(self.level_adjustments.load(Ordering::Relaxed)),
-            effect_edge_visits: AtomicU64::new(self.effect_edge_visits.load(Ordering::Relaxed)),
-            candidate_tests: AtomicU64::new(self.candidate_tests.load(Ordering::Relaxed)),
-            function_body_check_entries: AtomicU64::new(
-                self.function_body_check_entries.load(Ordering::Relaxed),
-            ),
-            record_extended_work: self.record_extended_work,
+            extended: self.extended.clone(),
         }
     }
 }
@@ -387,6 +428,7 @@ pub(crate) struct ConstraintMetrics {
     pub(crate) effect_edge_visits: u64,
     pub(crate) candidate_tests: u64,
     pub(crate) function_body_check_entries: u64,
+    pub(crate) diagnostic_work: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
