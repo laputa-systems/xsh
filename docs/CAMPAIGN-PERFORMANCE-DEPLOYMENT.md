@@ -8,6 +8,19 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Current inference assembly `e94bd925f` passes 213 of 214 focused controls with
+no ignores. The retained Stream-function alias positive is the sole failure.
+The combined run includes the Range, constructor, shorthand, Proc completion,
+counter and mutable-callable controls. Master remains at `d2453760a`.
+
+Matching verification products on earlier assembly `a57c98136` pass both expr
+cases and all eight btop cases in the original 27-case replay. Five cp cases
+newly fail authored Proc propagation during checking. Repair `8e1eeeff1` passes
+sixteen focused controls and is included in the current combined run.
+Matching products and the unchanged native replay remain required for that
+repair. Stream-kind transport, explicit recursive return expressions, corpus
+classification and the inherited full acceptance gates remain open.
+
 Master includes the four foundation commits through `c44e47016` and the
 independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
 all 46 canonical-launcher tests. The earlier pinned warning-denied check passed
