@@ -728,10 +728,14 @@ assert match fail_value() { Err(_) => true; Ok(_) => false }
     execute_both(&program);
     let (step, transfer) = (0..program.store.driver_steps.len()).find_map(|step| {
         let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
-        decoder.instruction_range.clone().find(|&instruction| decoder.direct_error_transfer(instruction).unwrap().is_some()).map(|instruction| (step, instruction))
+        decoder.instruction_range.clone().find(|&instruction|
+            program.store.try_operand(instruction).unwrap().is_some_and(|value|
+                matches!(decoder.expression_view(value).unwrap(), schema::ExprView::Err { .. }))).map(|instruction| (step, instruction))
     }).unwrap();
     let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
-    let (payload, cause) = decoder.direct_error_transfer(transfer).unwrap().unwrap();
+    let operand = program.store.try_operand(transfer).unwrap().unwrap();
+    let schema::ExprView::Err { value, cause } = decoder.expression_view(operand).unwrap() else { panic!("direct error operand") };
+    let payload = value.raw() as usize;
     assert!(cause.is_none());
     assert_eq!(program.store.tags[payload], FullTag::ExprMatch);
     let message = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
@@ -759,7 +763,10 @@ assert match transfer(First.Failed(message: "first"), Other.Failed(message: "oth
     let owner = function(&program, "transfer");
     let decoder = function_view_decoder(&program.store, owner);
     let (transfer, payload) = decoder.instruction_range.clone().find_map(|instruction| {
-        decoder.direct_error_transfer(instruction).unwrap().map(|(payload, cause)| { assert!(cause.is_none()); (instruction, payload) })
+        let operand = program.store.try_operand(instruction).unwrap()?;
+        let schema::ExprView::Err { value, cause } = decoder.expression_view(operand).unwrap() else { return None };
+        assert!(cause.is_none());
+        Some((instruction, value.raw() as usize))
     }).unwrap();
     assert_eq!(program.store.tags[transfer], FullTag::ExprTry);
     assert!(matches!(decoder.expression_view(payload).unwrap(), schema::ExprView::Param(0)));
@@ -788,8 +795,8 @@ assert match capture(Stopped.Failed(message: "stopped"), Stopped.Failed(message:
         let (transfer, first, second) = {
             let decoder = function_view_decoder(&program.store, owner);
             let transfer = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprTry).unwrap();
-            assert!(decoder.direct_error_transfer(transfer).unwrap().is_none());
             let schema::ExprView::Try { value, .. } = decoder.expression_view(transfer).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::MatchExpr { .. }));
             let first = decoder.argument_binding_match(value.raw() as usize).unwrap().unwrap();
             let second = decoder.argument_binding_match(first.result).unwrap().unwrap();
             (transfer, first, second)

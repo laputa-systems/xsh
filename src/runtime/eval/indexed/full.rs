@@ -855,10 +855,6 @@ impl FullStore {
         Ok(Some(value))
     }
 
-    fn direct_error_transfer_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
-        Ok(self.try_operand(instruction)?.filter(|&value| self.tags[value] == FullTag::ExprErr))
-    }
-
     #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
@@ -12539,12 +12535,6 @@ impl<'a> FullDecoder<'a> {
                 _ => return Ok(false),
             }
         }
-    }
-
-    fn direct_error_transfer(&self, instruction: usize) -> Result<Option<(usize, Option<usize>)>, IrVerifyError> {
-        let Some(operand) = self.store.direct_error_transfer_operand(instruction)? else { return Ok(None) };
-        let schema::ExprView::Err { value, cause } = self.expression_view(operand)? else { unreachable!() };
-        Ok(Some((value.raw() as usize, cause.map(|cause| cause.raw() as usize))))
     }
 
     fn argument_binding_match(&self, instruction: usize) -> Result<Option<IndexedArgumentBinding>, IrVerifyError> {
