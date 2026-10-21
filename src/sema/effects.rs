@@ -19,11 +19,7 @@ impl CallableEffects {
     }
 
     pub fn concrete(&self) -> Result<Option<Vec<Effect>>, UnresolvedCallableEffects> {
-        match &self.contract {
-            EffectContract::Unknown => Ok(None),
-            EffectContract::Known(expression) => expression.closed()
-                .map(|effects| Some(effects.iter().collect())).ok_or(UnresolvedCallableEffects),
-        }
+        self.contract.concrete()
     }
 
     pub(crate) fn contract(&self) -> &EffectContract<crate::sema::constraints::EffectVariableId> {
@@ -35,10 +31,7 @@ impl CallableEffects {
     }
 
     pub(crate) fn from_clause(effects: Option<impl IntoIterator<Item = Effect>>) -> Self {
-        match effects {
-            Some(effects) => Self::finite(effects),
-            None => Self::unknown(),
-        }
+        Self::from_contract(EffectContract::from_clause(effects))
     }
 
     pub(crate) fn has_inference(&self) -> bool {
@@ -214,6 +207,21 @@ pub(crate) enum EffectContract<V> {
 }
 
 impl<V: Ord> EffectContract<V> {
+    pub(crate) fn from_clause(effects: Option<impl IntoIterator<Item = Effect>>) -> Self {
+        match effects {
+            Some(effects) => Self::finite(EffectSet::new(effects)),
+            None => Self::Unknown,
+        }
+    }
+
+    pub(crate) fn concrete(&self) -> Result<Option<Vec<Effect>>, UnresolvedCallableEffects> {
+        match self {
+            Self::Unknown => Ok(None),
+            Self::Known(expression) => expression.closed()
+                .map(|effects| Some(effects.iter().collect())).ok_or(UnresolvedCallableEffects),
+        }
+    }
+
     pub(crate) fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>() + match self {
             Self::Unknown => 0,

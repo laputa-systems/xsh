@@ -574,8 +574,9 @@ impl FullBuilder {
                 let params = super::table_range(params_start, self.store.scheme_callable_parameters.len())?;
                 let return_type = self.intern_scheme_type(monotype.return_type(), type_parameters, row_parameters)?;
                 let return_schema = monotype.return_schema().map(|schema| self.intern_scheme_schema(schema)).transpose()?;
+                let effects = effects.concrete().map_err(|_| IrBuildError::format("unresolved_scheme_callable_effects", None, 0, 0))?;
                 let effects_start = self.store.scheme_effects.len();
-                if let Some(effects) = effects { self.store.scheme_effects.extend_from_slice(effects); }
+                if let Some(effects) = &effects { self.store.scheme_effects.extend_from_slice(effects); }
                 let effects_range = super::table_range(effects_start, self.store.scheme_effects.len())?;
                 let index = u32::try_from(self.store.scheme_callable_monotypes.len()).ok().filter(|index| *index != IR_NONE)
                     .ok_or_else(|| IrBuildError::format("scheme_callable_monotype_overflow", None, 0, 0))?;

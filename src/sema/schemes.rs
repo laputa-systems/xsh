@@ -32,7 +32,7 @@ pub(crate) enum SchemeType {
     Callable {
         kind: crate::sema::types::CallableKind,
         monotype: Arc<CallableMonotype>,
-        effects: Option<Arc<[Effect]>>,
+        effects: EffectContract<SchemeEffectParameterId>,
     },
     List(Box<Self>),
     Map(Box<Self>, Box<Self>),
@@ -212,7 +212,7 @@ impl TypeScheme {
         effects: Option<Vec<Effect>>,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
-        if !callable.type_parameters.is_empty() || !callable.row_parameters.is_empty() {
+        if callable.is_quantified() {
             match kind {
                 crate::sema::types::CallableKind::Pure => {}
                 crate::sema::types::CallableKind::Proc if effects.is_some() => {}
@@ -322,6 +322,8 @@ impl CallableScheme {
             parameter.ty.validate(
                 &type_ids,
                 &row_ids,
+                &effect_ids,
+                &mut used_effects,
                 &mut used_types,
                 &mut used_rows,
                 &mut row_requirements,
@@ -330,6 +332,8 @@ impl CallableScheme {
         return_type.validate(
             &type_ids,
             &row_ids,
+            &effect_ids,
+            &mut used_effects,
             &mut used_types,
             &mut used_rows,
             &mut row_requirements,
@@ -341,7 +345,7 @@ impl CallableScheme {
                 .chain(std::iter::once(&application.result))
                 .chain(application.proc_returns.iter().flat_map(|envelope| std::iter::once(&envelope.result).chain(envelope.propagated_errors.iter())))
             {
-                ty.validate(&type_ids, &row_ids, &mut used_types, &mut used_rows, &mut row_requirements)?;
+                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
             }
             validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
         }
@@ -377,6 +381,11 @@ impl CallableScheme {
 
     pub(crate) fn requirements(&self) -> &CallableRequirements {
         &self.requirements
+    }
+
+    pub(crate) fn is_quantified(&self) -> bool {
+        !self.type_parameters.is_empty() || !self.row_parameters.is_empty()
+            || !self.requirements.effect_parameters.is_empty()
     }
 
     pub(crate) fn type_parameters(&self) -> &[SchemeTypeParameterId] {
@@ -624,6 +633,8 @@ impl CallInstantiation {
             ty.validate(
                 &caller_type_ids,
                 &caller_row_ids,
+                &caller_effect_ids,
+                &mut used_effects,
                 &mut used_types,
                 &mut used_rows,
                 &mut row_requirements,
@@ -638,6 +649,8 @@ impl CallInstantiation {
                 ty.validate(
                     &caller_type_ids,
                     &caller_row_ids,
+                    &caller_effect_ids,
+                    &mut used_effects,
                     &mut used_types,
                     &mut used_rows,
                     &mut row_requirements,
@@ -763,6 +776,8 @@ impl SchemeBodyFacts {
         let mut used_types = BTreeSet::new();
         let mut used_rows = BTreeSet::new();
         let mut row_requirements = BTreeMap::new();
+        let effect_ids = scheme.callable().requirements().effect_parameters.iter().copied().collect();
+        let mut used_effects = BTreeSet::new();
         for ty in expression_types.values().chain(tail_types.values()) {
             if let Some(error) = ty.body_build_error() {
                 return Err(error);
@@ -770,6 +785,8 @@ impl SchemeBodyFacts {
             ty.validate(
                 &type_ids,
                 &row_ids,
+                &effect_ids,
+                &mut used_effects,
                 &mut used_types,
                 &mut used_rows,
                 &mut row_requirements,
@@ -908,7 +925,7 @@ impl SchemeType {
                                 rest: parameter.rest,
                             })).collect::<Option<Vec<_>>>()?,
                             return_ty: Box::new(nested(monotype.return_type())?),
-                            effects: super::types::CallableEffects::from_clause(effects.as_ref().map(|effects| effects.to_vec())),
+                            effects: super::types::CallableEffects::from_clause(effects.concrete().ok()?),
                         },
                     })))
                 }
@@ -989,7 +1006,8 @@ impl SchemeType {
     pub(crate) fn contains_parameter(&self) -> bool {
         match self {
             Self::Parameter(_) => true,
-            Self::Callable { monotype, .. } => monotype.params().iter().any(|parameter| parameter.ty.contains_parameter())
+            Self::Callable { monotype, effects, .. } => matches!(effects, EffectContract::Known(expression) if expression.closed().is_none())
+                || monotype.params().iter().any(|parameter| parameter.ty.contains_parameter())
                 || monotype.return_type().contains_parameter(),
             Self::List(inner)
             | Self::Stream(inner)
@@ -1099,19 +1117,22 @@ impl SchemeType {
         &self,
         type_ids: &BTreeSet<SchemeTypeParameterId>,
         row_ids: &BTreeSet<SchemeRowParameterId>,
+        effect_ids: &BTreeSet<SchemeEffectParameterId>,
+        used_effects: &mut BTreeSet<SchemeEffectParameterId>,
         used_types: &mut BTreeSet<SchemeTypeParameterId>,
         used_rows: &mut BTreeSet<SchemeRowParameterId>,
         row_requirements: &mut BTreeMap<SchemeRowParameterId, BTreeSet<Name>>,
     ) -> Result<(), SchemeBuildError> {
         match self {
             Self::Ground(ty) => validate_ground(ty),
-            Self::Callable { monotype, .. } => {
+            Self::Callable { monotype, effects, .. } => {
+                validate_effect_contract(effects, effect_ids, used_effects)?;
                 for parameter in monotype.params() {
                     if let Some(schema) = &parameter.schema_expectation { validate_schema_ground_types(schema)?; }
-                    parameter.ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)?;
+                    parameter.ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)?;
                 }
                 if let Some(schema) = monotype.return_schema() { validate_schema_ground_types(schema)?; }
-                monotype.return_type().validate(type_ids, row_ids, used_types, used_rows, row_requirements)
+                monotype.return_type().validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)
             }
             Self::Parameter(id) => {
                 if type_ids.contains(id) {
@@ -1122,15 +1143,15 @@ impl SchemeType {
                 }
             }
             Self::List(ty) | Self::Stream(ty) | Self::Set(ty) | Self::Optional(ty) => {
-                ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)
+                ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)
             }
             Self::Map(key, value) | Self::Result(key, value) => {
-                key.validate(type_ids, row_ids, used_types, used_rows, row_requirements)?;
-                value.validate(type_ids, row_ids, used_types, used_rows, row_requirements)
+                key.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)?;
+                value.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)
             }
             Self::Record { fields, tail } => {
                 for ty in fields.values() {
-                    ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)?;
+                    ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)?;
                 }
                 if let SchemeRowTail::Parameter(id) = tail {
                     if row_ids.contains(id) {
@@ -1149,7 +1170,7 @@ impl SchemeType {
             }
             Self::Union(types) => {
                 for ty in types {
-                    ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)?;
+                    ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)?;
                 }
                 Ok(())
             }
@@ -1167,7 +1188,7 @@ impl SchemeType {
                 if !valid_base {
                     return Err(SchemeBuildError::InvalidValidatedBase);
                 }
-                ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)
+                ty.validate(type_ids, row_ids, effect_ids, used_effects, used_types, used_rows, row_requirements)
             }
         }
     }
@@ -1182,7 +1203,7 @@ impl SchemeType {
             Self::Parameter(_) => {}
             Self::Callable { monotype, effects, .. } => {
                 bytes = bytes.saturating_add(monotype.retained_bytes())
-                    .saturating_add(effects.as_ref().map_or(0, |effects| std::mem::size_of_val(effects.as_ref())));
+                    .saturating_add(effects.retained_bytes());
             }
             Self::List(ty)
             | Self::Stream(ty)
@@ -1236,7 +1257,7 @@ fn validate_schema_ground_types(schema: &SchemaExpectation) -> Result<(), Scheme
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemeBuildError, SchemeType, TypeScheme};
+    use super::{EffectContract, SchemeBuildError, SchemeType, TypeScheme};
     use crate::sema::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
     use crate::sema::schemes::{
         CallInstantiation, CallableScheme, RowEvidence, SchemeParameter,
@@ -1365,7 +1386,7 @@ mod tests {
                     SchemeType::Ground(Type::Int),
                     return_schema,
                 )),
-                effects: Some(Arc::from([])),
+                effects: EffectContract::finite(super::super::effects::EffectSet::default()),
             };
             assert!(matches!(callback(None, None).closed_ground_type(), Some(Type::Callable(_))));
             let schema = SchemaExpectation {
@@ -1397,7 +1418,7 @@ mod tests {
                         SchemeType::Ground(Type::Int),
                         (!schema_in_parameter).then(|| schema.clone()),
                     )),
-                    effects: Some(Arc::from([])),
+                    effects: EffectContract::finite(super::super::effects::EffectSet::default()),
                 };
                 let result = TypeScheme::new(crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(),
                     vec![SchemeParameter { name: Name::intern("action"), ty: callback, schema_expectation: None, defaulted: false, rest: false }],

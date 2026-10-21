@@ -200,11 +200,11 @@ impl Checker {
             Err(_) => return None,
         };
         if !pending.generalizable()
-            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty())
+            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty())
         {
             return None;
         }
-        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty();
+        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
             let span = program.arena.expr(expression).span;
             let call = self.api_calls.get(&span)?;
@@ -233,7 +233,7 @@ impl Checker {
             };
             crate::sema::builtin_templates::registered_call_is_executable(&plan).then(|| (expression, Arc::new(plan)))
         }).collect::<BTreeMap<_, _>>();
-        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() {
+        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty() {
             let parameter_bindings = params
                 .iter()
                 .filter_map(|parameter| {
@@ -513,7 +513,7 @@ impl Checker {
         let effects = effect_fact.and_then(|fact| fact.effective.clone());
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
         if pending.kind == crate::sema::types::CallableKind::Proc
-            && (!callable.type_parameters().is_empty() || !callable.row_parameters().is_empty())
+            && (callable.is_quantified())
             && effects.is_none()
         {
             self.error(program.arena.span(program.arena.block(def.body).span),
@@ -529,8 +529,7 @@ impl Checker {
             )
             .ok()?,
         );
-        let scheme_body_facts = if callable.type_parameters().is_empty()
-            && callable.row_parameters().is_empty()
+        let scheme_body_facts = if !callable.is_quantified()
         {
             None
         } else {
@@ -1469,7 +1468,7 @@ pub(super) fn callable_type_from_function_signature(
     sig: &FunctionSig,
 ) -> Option<super::CallableType> {
     let scheme = sig.scheme();
-    if !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty() {
+    if scheme.callable().is_quantified() {
         return None;
     }
     let params = scheme
@@ -1566,8 +1565,7 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
                     crate::sema::types::CallableKind::Pure => super::ModuleExportType::Pure { sig, optional: false },
                     crate::sema::types::CallableKind::Stream => unreachable!(),
                 }
-            } else if !signature.scheme().type_parameters().is_empty()
-                || !signature.scheme().row_parameters().is_empty()
+            } else if signature.scheme().callable().is_quantified()
             {
                 super::ModuleExportType::GenericCallable { kind, optional: false }
             } else { continue };

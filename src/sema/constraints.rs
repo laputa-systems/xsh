@@ -595,7 +595,7 @@ impl TypeConstraints {
             types,
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
-            requirements: CallableRequirements::default(),
+            requirements: CallableRequirements { effect_parameters: generalization.effect_parameters, ..CallableRequirements::default() },
         })
     }
 
@@ -622,7 +622,7 @@ impl TypeConstraints {
         let type_parameter_count = generalization.type_parameters.len();
         let row_parameter_count = generalization.row_parameters.len();
         let effect_parameter_count = generalization.effect_parameters.len();
-        let quantified = type_parameter_count != 0 || row_parameter_count != 0;
+        let quantified = type_parameter_count != 0 || row_parameter_count != 0 || effect_parameter_count != 0;
         let body_types = body_types
             .iter()
             .filter(|_| quantified)
@@ -811,6 +811,7 @@ impl TypeConstraints {
                     &parameter.ty,
                     &type_arguments,
                     &row_arguments,
+                    &effect_arguments,
                     level,
                     origin,
                     0,
@@ -821,24 +822,25 @@ impl TypeConstraints {
             callable.return_type(),
             &type_arguments,
             &row_arguments,
+            &effect_arguments,
             level,
             origin,
             0,
         )?;
         let mut applications = Vec::new();
         for application in &callable.requirements().applications {
-            let callee = self.instantiate_scheme_type(&application.callee, &type_arguments, &row_arguments, level, origin, 0)?;
+            let callee = self.instantiate_scheme_type(&application.callee, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
             let arguments = application.arguments.iter().map(|argument| Ok(super::callable_application::CallableApplicationArgument {
                 kind: argument.kind,
-                ty: self.instantiate_scheme_type(&argument.ty, &type_arguments, &row_arguments, level, origin, 0)?,
+                ty: self.instantiate_scheme_type(&argument.ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?,
                 span: argument.span,
             })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
-            let result = self.instantiate_scheme_type(&application.result, &type_arguments, &row_arguments, level, origin, 0)?;
+            let result = self.instantiate_scheme_type(&application.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
             let effects = application.effects.substitute(|id| effect_arguments.get(id).copied()
                 .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter)))?;
             let proc_returns = application.proc_returns.iter().map(|envelope| Ok(super::callable_application::ProcReturnEnvelope {
-                result: self.instantiate_scheme_type(&envelope.result, &type_arguments, &row_arguments, level, origin, 0)?,
-                propagated_errors: envelope.propagated_errors.iter().map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, level, origin, 0)).collect::<Result<Vec<_>, _>>()?.into(),
+                result: self.instantiate_scheme_type(&envelope.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?,
+                propagated_errors: envelope.propagated_errors.iter().map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)).collect::<Result<Vec<_>, _>>()?.into(),
                 span: envelope.span,
             })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
             applications.push(self.register_callable_application(scope, super::callable_application::CallableApplication {
@@ -862,7 +864,7 @@ impl TypeConstraints {
         origin: Span,
     ) -> Result<Type, SchemeOperationError> {
         let mut operand = self.clone();
-        let ty = operand.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, 1, origin, 0)?;
+        let ty = operand.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, 1, origin, 0)?;
         operand.resolve(&ty).map_err(SchemeOperationError::Resolution)
     }
 
@@ -910,7 +912,7 @@ impl TypeConstraints {
         let bindings = self.callable_application_bindings(instantiated)?;
         let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[])
             .map_err(SchemeOperationError::Build)?;
-        if !callable.type_parameters().is_empty() || !callable.row_parameters().is_empty() {
+        if callable.is_quantified() {
             self.counters
                 .successful_generic_call_resolutions
                 .fetch_add(1, Ordering::Relaxed);
@@ -932,8 +934,7 @@ impl TypeConstraints {
         }
         match ty {
             Type::Callable(callable) => {
-                let effects = super::types::CallableEffects::from_contract(self.resolve_effect(callable.sig.effects.contract())?)
-                    .concrete().map_err(|_| SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects))?;
+                let effects = self.generalize_effect_contract(callable.sig.effects.contract(), environment_level, generalization)?;
                 let params = callable.sig.params.iter().map(|parameter| Ok(SchemeParameter {
                     name: parameter.name,
                     ty: self.generalize_type(&parameter.ty, environment_level, generalization, depth + 1)?,
@@ -945,7 +946,7 @@ impl TypeConstraints {
                 Ok(SchemeType::Callable {
                     kind: if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                     monotype: Arc::new(CallableMonotype::new(params, return_type, None)),
-                    effects: effects.map(Arc::from),
+                    effects,
                 })
             }
             Type::Inference(id) => {
@@ -1139,6 +1140,7 @@ impl TypeConstraints {
         ty: &SchemeType,
         type_arguments: &BTreeMap<SchemeTypeParameterId, Type>,
         row_arguments: &BTreeMap<SchemeRowParameterId, RowVariableId>,
+        effect_arguments: &BTreeMap<SchemeEffectParameterId, EffectVariableId>,
         level: u32,
         origin: Span,
         depth: usize,
@@ -1153,6 +1155,7 @@ impl TypeConstraints {
                 ty,
                 type_arguments,
                 row_arguments,
+                effect_arguments,
                 level,
                 origin,
                 depth,
@@ -1179,7 +1182,8 @@ impl TypeConstraints {
                     sig: CallableType {
                         params,
                         return_ty: Box::new(nested(self, monotype.return_type(), depth + 1)?),
-                        effects: super::types::CallableEffects::from_clause(effects.as_ref().map(|effects| effects.to_vec())),
+                        effects: super::types::CallableEffects::from_contract(effects.substitute(|id| effect_arguments.get(id).copied()
+                            .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter)))?),
                     },
                 })))
             }

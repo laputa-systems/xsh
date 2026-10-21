@@ -1952,7 +1952,7 @@ fn decode_scheme_type(
             SchemeType::Callable {
                 kind: callable.kind,
                 monotype: Arc::new(CallableMonotype::new(params, return_type, return_schema)),
-                effects: callable.has_effects.then(|| Arc::from(effects)),
+                effects: crate::sema::effects::EffectContract::from_clause(callable.has_effects.then(|| effects.iter().cloned())),
             }
         }
         FullSchemeTypeTag::Ground => {

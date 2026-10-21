@@ -198,6 +198,49 @@ mod tests {
     }
 
     #[test]
+    fn callable_requirement_nested_effects_share_bound_scope_and_fresh_instances() {
+        SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let effect = constraints.fresh_effect_at_level(span(), 1);
+            let mut actual = callback(false, "payload", Type::Int, false, false);
+            let Type::Callable(callable) = &mut actual else { unreachable!() };
+            Arc::make_mut(callable).sig.effects = CallableEffects::from_contract(EffectContract::variable(effect));
+            let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
+            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(
+                &[actual.clone(), actual], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration,
+            ).unwrap();
+            assert_eq!(generalized.requirements.effect_parameters.len(), 1);
+            assert!(generalized.types[0].closed_ground_type().is_none());
+            assert!(generalized.types[0].contains_parameter());
+            let mut types = generalized.types.into_iter();
+            let parameter = crate::sema::schemes::SchemeParameter {
+                name: Name::intern("action"), ty: types.next().unwrap(), schema_expectation: None, defaulted: false, rest: false,
+            };
+            let scheme = crate::sema::schemes::CallableScheme::new(
+                generalized.type_parameters, generalized.row_parameters, vec![parameter.clone()], types.next().unwrap(), None, false, generalized.requirements,
+            ).unwrap();
+            assert!(scheme.is_quantified());
+            assert!(scheme.type_parameters().is_empty());
+            assert!(scheme.row_parameters().is_empty());
+            assert_eq!(crate::sema::schemes::CallableScheme::new(Vec::new(), Vec::new(), vec![parameter], scheme.return_type().clone(), None, false,
+                crate::sema::schemes::CallableRequirements::default()), Err(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
+            let mut previous = None;
+            for effects in [EffectSet::new([Effect::Env, Effect::Error]), EffectSet::new([Effect::Time])] {
+                let instance = constraints.instantiate_callable(&scheme, 1, span(), CallableApplicationScope::Invocation).unwrap();
+                let variable = *instance.effect_arguments.values().next().unwrap();
+                assert_ne!(previous, Some(variable));
+                previous = Some(variable);
+                constraints.constrain_effect(super::super::EffectPredicate::Equal(EffectContract::variable(variable), EffectContract::finite(effects))).unwrap();
+                let returned = constraints.resolve(&instance.return_type).unwrap();
+                assert_eq!(returned, constraints.resolve(&instance.params[0]).unwrap());
+                let Type::Callable(returned) = returned else { unreachable!() };
+                assert_eq!(returned.sig.effects.concrete().unwrap(), Some(effects.iter().collect()));
+                assert_eq!(constraints.resolve_call_instantiation(&scheme, &instance).unwrap().effect_arguments().values().next().unwrap().closed(), Some(effects));
+            }
+        });
+    }
+
+    #[test]
     fn callable_requirement_instances_share_one_scope_and_keep_clients_fresh() {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();

@@ -1,7 +1,7 @@
 use super::{CheckedFunctionDeclaration, Checker, CheckOutput};
 use crate::sema::constants::SchemaExpectation;
 use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
-    SchemeRowTail, SchemeType, SchemeTypeParameterId, TypeScheme};
+    SchemeRowTail, SchemeType, SchemeTypeParameterId, SchemeEffectParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
 use crate::syntax::arena::{ArenaProgram, TypeDefId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -95,14 +95,14 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
-    BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
+    BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas }.schema(left, right)
 }
 
 pub(super) fn same_bound_operand(
     left: &SchemeType, left_owner: &TypeScheme, right: &SchemeType, right_owner: &TypeScheme,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>,
 ) -> bool {
-    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), left_schemas, right_schemas };
+    let mut equivalence = BoundEquivalence { types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(), left_schemas, right_schemas };
     if !equivalence.scheme(left_owner, right_owner) { return false; }
     let bound_types = equivalence.types.len();
     let bound_rows = equivalence.rows.len();
@@ -115,7 +115,7 @@ impl CheckedCallableContract {
     }
 
     pub fn is_generic(&self) -> bool {
-        !self.scheme.type_parameters().is_empty() || !self.scheme.row_parameters().is_empty()
+        self.scheme.callable().is_quantified()
     }
 
     /// Compares checked structure modulo bound type and row parameter names.
@@ -147,7 +147,7 @@ impl CheckedCallableContract {
             return Ok(None);
         }
         let schemas = BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(),
+            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
             left_schemas: &self.schema_identities, right_schemas: &generalized.schema_identities,
         };
         if !schemas.schema(self.scheme.return_schema(), generalized.scheme.return_schema())
@@ -224,7 +224,7 @@ impl CheckedCallableContract {
 
     fn same_shape(&self, other: &Self) -> bool {
         BoundEquivalence {
-            types: BTreeMap::new(), rows: BTreeMap::new(),
+            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
             left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
         }.scheme(&self.scheme, &other.scheme)
     }
@@ -278,6 +278,7 @@ fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
 struct BoundEquivalence<'a> {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
+    effects: BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId>,
     left_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
     right_schemas: &'a BTreeMap<TypeDefId, SchemaIdentity>,
 }
@@ -291,6 +292,11 @@ fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key
 
 impl BoundEquivalence<'_> {
     fn scheme(&mut self, left: &TypeScheme, right: &TypeScheme) -> bool {
+        let left_effects = &left.callable().requirements().effect_parameters;
+        let right_effects = &right.callable().requirements().effect_parameters;
+        if left_effects.len() != right_effects.len()
+            || !left_effects.iter().zip(right_effects).all(|(left, right)| bind(&mut self.effects, *left, *right))
+        { return false; }
         if left.kind() != right.kind()
             || left.type_parameters().len() != right.type_parameters().len()
             || left.row_parameters().len() != right.row_parameters().len()
@@ -334,6 +340,11 @@ impl BoundEquivalence<'_> {
             && self.schema(left.return_schema(), right.return_schema())
     }
 
+    fn effects(&self, left: &crate::sema::effects::EffectContract<SchemeEffectParameterId>, right: &crate::sema::effects::EffectContract<SchemeEffectParameterId>) -> bool {
+        left.substitute(|id| self.effects.get(id).copied()
+            .map(crate::sema::effects::EffectContract::variable).ok_or(())).is_ok_and(|left| &left == right)
+    }
+
     fn ty(&mut self, left: &SchemeType, right: &SchemeType) -> bool {
         if let (Some(left), Some(right)) = (left.closed_ground_type(), right.closed_ground_type()) {
             return left == right;
@@ -343,7 +354,7 @@ impl BoundEquivalence<'_> {
             (SchemeType::Parameter(left), SchemeType::Parameter(right)) => bind(&mut self.types, *left, *right),
             (SchemeType::Callable { kind: left_kind, monotype: left, effects: left_effects },
              SchemeType::Callable { kind: right_kind, monotype: right, effects: right_effects }) => {
-                left_kind == right_kind && same_effects(left_effects.as_deref(), right_effects.as_deref()) && self.monotype(left, right)
+                left_kind == right_kind && self.effects(left_effects, right_effects) && self.monotype(left, right)
             }
             (SchemeType::List(left), SchemeType::List(right))
             | (SchemeType::Stream(left), SchemeType::Stream(right))
@@ -741,7 +752,7 @@ mod tests {
         let owner = SymbolOwner::new();
         owner.with_current(|| {
             let callback = |kind, schema| SchemeType::Callable {
-                kind, effects: Some(Arc::from([])),
+                kind, effects: crate::sema::effects::EffectContract::finite(crate::sema::effects::EffectSet::default()),
                 monotype: Arc::new(CallableMonotype::new(
                     vec![instance_parameter(SchemeType::Ground(Type::Int))], SchemeType::Ground(Type::Int), schema)),
             };

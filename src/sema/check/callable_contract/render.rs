@@ -14,12 +14,16 @@ use std::fmt;
 #[derive(Default)]
 struct BinderNames {
     types: BTreeMap<SchemeTypeParameterId, usize>,
+    effects: BTreeMap<crate::sema::schemes::SchemeEffectParameterId, usize>,
     rows: BTreeMap<SchemeRowParameterId, usize>,
 }
 
 impl BinderNames {
     fn from_scheme(scheme: &TypeScheme) -> Self {
         let mut names = Self::default();
+        for (index, &id) in scheme.callable().requirements().effect_parameters.iter().enumerate() {
+            names.effects.insert(id, index);
+        }
         for parameter in scheme.params() {
             names.visit_scheme_type(&parameter.ty);
         }
@@ -111,6 +115,9 @@ impl BinderNames {
                 format!("{name}\\{{{}}}", lacks.join(", "))
             });
         }
+        let mut effects = self.effects.values().copied().collect::<Vec<_>>();
+        effects.sort_unstable();
+        binders.extend(effects.into_iter().map(|index| format!("E{index}")));
         binders
     }
 }
@@ -191,7 +198,14 @@ fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMa
                 rendered.push_str(&render_schema(schema, identities));
             }
             rendered.push_str(" effects=");
-            rendered.push_str(&render_effects(effects.as_deref()));
+            rendered.push_str(&match effects {
+                crate::sema::effects::EffectContract::Unknown => "unknown".to_owned(),
+                crate::sema::effects::EffectContract::Known(expression) => {
+                    let mut terms = expression.direct().iter().map(|effect| format!("{effect:?}").to_lowercase()).collect::<Vec<_>>();
+                    terms.extend(expression.variables().map(|(id, mask)| format!("E{}&{}", names.effects[id], render_effects(Some(&mask.iter().collect::<Vec<_>>())))));
+                    format!("[{}]", terms.join(", "))
+                }
+            });
             rendered
         }
         SchemeType::List(item) => format!("List[{}]", render_scheme_type(item, names, identities)),
