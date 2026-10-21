@@ -701,6 +701,24 @@ impl Type {
         inferred.unwrap_or(Self::Error)
     }
 
+    pub(crate) fn run_capture_output(kind: crate::syntax::node::RunKind, assert_success: bool) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        match kind {
+            RunKind::Plain if assert_success => Some(Self::run_statement_result()),
+            RunKind::Plain | RunKind::Status => Some(Self::Status),
+            kind => Self::run_capture_result(kind),
+        }
+    }
+
+    pub(crate) fn run_pipeline_output(head: crate::syntax::node::RunKind, propagate: bool) -> Option<Self> {
+        use crate::syntax::node::RunKind;
+        match head {
+            RunKind::Plain | RunKind::Status if propagate => Some(Self::run_statement_result()),
+            RunKind::Plain | RunKind::Status => Some(Self::Status),
+            kind => Self::run_capture_result(kind),
+        }
+    }
+
     pub(crate) fn run_capture_result(kind: crate::syntax::node::RunKind) -> Option<Self> {
         use crate::syntax::node::RunKind;
         let output = match kind {
