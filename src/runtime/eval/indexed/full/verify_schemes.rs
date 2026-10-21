@@ -1304,8 +1304,8 @@ fn verify_body_expression(
             let (target, _, target_pure) = decoder.function_reference_target(function)?;
             let kind = store.function_metadata[target.index()].callable_kind;
             match (ty, pure, target_pure, kind) {
-                (SchemeType::Ground(Type::Pure), true, true, crate::sema::types::CallableKind::Pure)
-                | (SchemeType::Ground(Type::Proc), false, false, crate::sema::types::CallableKind::Proc) => ty.clone(),
+                (SchemeType::Ground(Type::Function(crate::sema::types::CallableKind::Pure)), true, true, crate::sema::types::CallableKind::Pure)
+                | (SchemeType::Ground(Type::Function(crate::sema::types::CallableKind::Proc)), false, false, crate::sema::types::CallableKind::Proc) => ty.clone(),
                 _ => return Err(IrVerifyError::new("generic function value disagrees with its ground executable target")),
             }
         }

@@ -378,7 +378,7 @@ impl Checker {
             let reference_end = Span::at(body_span.source_id, body_span.end());
             checked_calls.extend(self.selected_function_calls.range(reference_start..reference_end).filter_map(|(&span, target)| {
                 if span.source_id != body_span.source_id || span.start() < body_span.start() || span.end() > body_span.end()
-                    || !matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc))
+                    || !matches!(self.expr_types.get(&span), Some(Type::Function(crate::sema::types::CallableKind::Pure | crate::sema::types::CallableKind::Proc)))
                 { return None; }
                 let definition = program.arena.function_def(target.definition);
                 let owner = FunctionDeclarationId::new(super::EffectDeclarationId {
