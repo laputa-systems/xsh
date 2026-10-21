@@ -168,6 +168,16 @@ pub(crate) struct NetCallOptions {
 }
 
 #[cfg(feature = "net")]
+pub(crate) fn validate_root_bundle(pem: &[u8], span: Span) -> Result<(), RuntimeError> {
+    xsh_net::validate_root_bundle(pem).map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn validate_root_bundle(_pem: &[u8], span: Span) -> Result<(), RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(feature = "net")]
 pub(crate) fn make_agent(
     key: &NetAgentKey,
     runtime: &NetRuntimeOwner,

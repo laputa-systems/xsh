@@ -1918,6 +1918,7 @@ dependencies = [
  "async-net",
  "crossbeam-channel",
  "futures-lite",
+ "graviola",
  "h12tiny-client",
  "http",
  "http-body-util",
@@ -1929,6 +1930,7 @@ dependencies = [
  "rustls-graviola",
  "rustls-pemfile",
  "rustls-platform-verifier",
+ "rustls-webpki",
 ]
 
 [[package]]

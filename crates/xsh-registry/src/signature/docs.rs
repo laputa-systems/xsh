@@ -414,6 +414,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. The operation has no host effects.",
             &["crypto", "ed25519", "verification", "signature"],
         )),
+        ("net", "validate_root_bundle") => Some((
+            "Validate a PEM certificate bundle without changing trust.",
+            "Pure: reads no files, makes no connection and changes no trust settings. Every PEM certificate must decode and be accepted by the TLS root store. Empty bundles, raw DER, malformed certificates, non-certificate PEM sections and unrelated text fail with NetError.TrustStore. Whitespace and lines starting with # are allowed between certificates. Validation checks bundle structure, not certificate dates, revocation, hostname or trustworthiness.",
+            &["net", "tls", "certificate", "trust", "validation"],
+        )),
         ("net", "request") => Some((
             "Performs one structured HTTP request.",
             "Network, timeout, and response failures remain typed error data: a NetError variant (Dns, Connect, ConnectTimeout, Timeout, Tls, Certificate, TrustStore, EmptyReply, Status, Redirect, Unsupported, Write, Io, Other) to branch on, never a boolean. redirects bounds how many redirects are followed (default 3) and redirect_limit selects what happens to a redirect that is not followed: error (default) fails with NetError.Redirect, return hands back the 3xx response with its Location header. A followed 301 or 302 answer to POST, and a 303 answer to any method but GET and HEAD, is repeated as GET without a body; 307 and 308 repeat the method and body; Authorization, Cookie and an explicit Host header are dropped when the redirect leaves the origin.",

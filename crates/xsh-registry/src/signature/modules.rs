@@ -1138,6 +1138,15 @@ fn module_module() -> ModuleSig {
 fn net_module() -> ModuleSig {
     module_sig(vec![
         (
+            "validate_root_bundle",
+            sig(
+                vec![param("pem", Type::Bytes)],
+                result(Type::Unit),
+                true,
+                RuntimeOp::NetValidateRootBundle,
+            ),
+        ),
+        (
             "request",
             sig(
                 vec![param("request", Type::Record(BTreeMap::new()))],
