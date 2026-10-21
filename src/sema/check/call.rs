@@ -883,10 +883,14 @@ impl Checker {
         {
             match export {
                 ModuleExportType::Proc { sig, .. } => {
+                    let Ok(effects) = sig.effects.concrete() else {
+                        self.error(span, "module callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
+                        return Type::Invalid;
+                    };
                     if self.collecting_effects {
                         self.provisional_effects_read.set(true);
                     }
-                    self.record_effect_contract(&sig.effects, &name.as_str());
+                    self.record_effect_contract(&effects, &name.as_str());
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -896,12 +900,12 @@ impl Checker {
                     } else if let Some(caller_effs) = self.boundary.current_effects.clone() {
                         self.check_module_callable_effects(
                             &caller_effs,
-                            &sig.effects,
+                            &effects,
                             &name.as_str(),
                             span,
                         );
                     }
-                    self.check_callee_not_excluded(&sig.effects, &[], &name.as_str(), span);
+                    self.check_callee_not_excluded(&effects, &[], &name.as_str(), span);
                     self.check_module_callable_arg_list_arena(
                         arena,
                         source,
@@ -910,10 +914,14 @@ impl Checker {
                         span,
                         checked_argument,
                     );
-                    self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
+                    self.record_callee_propagation(effects.as_deref(), &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
                 }
                 ModuleExportType::Pure { sig, .. } => {
+                    let Ok(effects) = sig.effects.concrete() else {
+                        self.error(span, "module callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
+                        return Type::Invalid;
+                    };
                     self.check_module_callable_arg_list_arena(
                         arena,
                         source,
@@ -922,7 +930,7 @@ impl Checker {
                         span,
                         checked_argument,
                     );
-                    self.record_callee_propagation(sig.effects.as_deref(), &sig.return_ty, span);
+                    self.record_callee_propagation(effects.as_deref(), &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
                 }
                 // A module's exported value of a callable type is called

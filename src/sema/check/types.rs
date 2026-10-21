@@ -839,7 +839,7 @@ impl Checker {
                 })
                 .collect(),
             return_ty: Box::new(self.type_from_ann(&return_ty)),
-            effects,
+            effects: crate::sema::types::CallableEffects::from_clause(effects),
         }
     }
 }

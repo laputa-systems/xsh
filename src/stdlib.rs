@@ -74,7 +74,7 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
                         rest: false,
                     }],
                     return_ty: Box::new(crate::sema::types::Type::Str),
-                    effects: None,
+                    effects: crate::sema::types::CallableEffects::unknown(),
                 },
             },
         }],

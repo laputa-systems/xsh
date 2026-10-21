@@ -767,7 +767,7 @@ impl SchemeType {
                                 rest: parameter.rest,
                             })).collect::<Option<Vec<_>>>()?,
                             return_ty: Box::new(nested(monotype.return_type())?),
-                            effects: effects.as_ref().map(|effects| effects.to_vec()),
+                            effects: super::types::CallableEffects::from_clause(effects.as_ref().map(|effects| effects.to_vec())),
                         },
                     })))
                 }

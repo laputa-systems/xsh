@@ -12,6 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "constraints/effects.rs"]
+mod effect_constraints;
+pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId};
+#[path = "constraints/applications.rs"]
+mod application_constraints;
+pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId};
+
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
 #[cfg(test)]
@@ -154,6 +161,8 @@ enum ConstraintChange {
     Type(TypeVariableId, Variable),
     FreshType(TypeVariableId),
     Row(RowVariableId, Option<RowVariable>),
+    Effect(effect_constraints::EffectChange),
+    Application(application_constraints::ApplicationChange),
 }
 
 #[derive(Clone, Copy)]
@@ -306,6 +315,8 @@ impl Clone for Variable {
 pub struct TypeConstraints {
     variables: FxHashMap<TypeVariableId, Variable>,
     rows: FxHashMap<RowVariableId, RowVariable>,
+    effects: effect_constraints::EffectConstraints,
+    applications: application_constraints::CallableApplications,
     counters: ConstraintCounters,
     trial_changes: Option<Vec<ConstraintChange>>,
 }
@@ -316,6 +327,8 @@ impl Clone for TypeConstraints {
         Self {
             variables: self.variables.clone(),
             rows: self.rows.clone(),
+            effects: self.effects.clone(),
+            applications: self.applications.clone(),
             counters: self.counters.clone(),
             trial_changes: None,
         }
@@ -401,6 +414,7 @@ impl TypeConstraints {
         };
         match result {
             Ok(()) => {
+                self.applications.enqueue_changes(0, &mut changes);
                 self.retain_trial_changes(changes);
                 Ok(())
             }
@@ -835,6 +849,8 @@ impl TypeConstraints {
         }
         match ty {
             Type::Callable(callable) => {
+                let effects = super::types::CallableEffects::from_contract(self.resolve_effect(callable.sig.effects.contract())?)
+                    .concrete().map_err(|_| SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects))?;
                 let params = callable.sig.params.iter().map(|parameter| Ok(SchemeParameter {
                     name: parameter.name,
                     ty: self.generalize_type(&parameter.ty, environment_level, generalization, depth + 1)?,
@@ -846,7 +862,7 @@ impl TypeConstraints {
                 Ok(SchemeType::Callable {
                     kind: if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                     monotype: Arc::new(CallableMonotype::new(params, return_type, None)),
-                    effects: callable.sig.effects.clone().map(Arc::from),
+                    effects: effects.map(Arc::from),
                 })
             }
             Type::Inference(id) => {
@@ -1080,7 +1096,7 @@ impl TypeConstraints {
                     sig: CallableType {
                         params,
                         return_ty: Box::new(nested(self, monotype.return_type(), depth + 1)?),
-                        effects: effects.as_ref().map(|effects| effects.to_vec()),
+                        effects: super::types::CallableEffects::from_clause(effects.as_ref().map(|effects| effects.to_vec())),
                     },
                 })))
             }
@@ -2217,6 +2233,7 @@ impl TypeConstraints {
                                         .push(LevelNode::Type(ty.clone(), depth + 1)),
                                     ModuleExportType::Pure { sig, .. }
                                     | ModuleExportType::Proc { sig, .. } => {
+                                        self.effects.lower_levels(sig.effects.contract(), level, changes)?;
                                         pending.push(LevelNode::Type(
                                             (*sig.return_ty).clone(),
                                             depth + 1,
@@ -2235,6 +2252,7 @@ impl TypeConstraints {
                             }));
                         }
                         Type::Callable(callable) => {
+                            self.effects.lower_levels(callable.sig.effects.contract(), level, changes)?;
                             pending.push(LevelNode::Type(
                                 (*callable.sig.return_ty).clone(),
                                 depth + 1,
@@ -2499,14 +2517,12 @@ impl TypeConstraints {
                 let resolved_actual = constraints
                     .resolve_with_changes(actual, 0, changes)
                     .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                let unresolved = constraints
-                    .variable_ids(&resolved_expected)
+                let unresolved = has_inference(&resolved_expected, 0)
                     .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                let actual_unresolved = constraints
-                    .variable_ids(&resolved_actual)
+                let actual_unresolved = has_inference(&resolved_actual, 0)
                     .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                if unresolved.is_empty()
-                    && actual_unresolved.is_empty()
+                if !unresolved
+                    && !actual_unresolved
                     && !resolved_actual.matches_expected(&resolved_expected)
                 {
                     return Err((resolved_expected, resolved_actual, None));
@@ -2883,12 +2899,16 @@ impl TypeConstraints {
                     let mut actual_signature = right.sig.clone();
                     self.resolve_callable_depth_inner(&mut actual_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                    let effects_fit = left.pure || expected_signature.effects.as_ref().is_none_or(|bound| {
-                        actual_signature.effects.as_ref().is_some_and(|required| required.iter().all(|effect| super::check::Checker::effects_covers(bound, effect)))
-                    });
+                    if !left.pure {
+                        self.constrain_effect_inner(EffectPredicate::Covered(
+                            actual_signature.effects.contract().clone(), expected_signature.effects.contract().clone(),
+                        ), changes).map_err(|error| (expected.clone(), actual.clone(), match error {
+                            EffectConstraintError::Resolution(error) => Some(error),
+                            EffectConstraintError::Mismatch | EffectConstraintError::Unresolved => None,
+                        }))?;
+                    }
                     if expected_signature.params.iter().zip(&actual_signature.params).any(|(expected, actual)| expected.ty != actual.ty)
                         || !super::types::callable_return_fits(&actual_signature.return_ty, &expected_signature.return_ty)
-                        || !effects_fit
                     {
                         return Err((expected, actual, None));
                     }
@@ -3254,6 +3274,9 @@ impl TypeConstraints {
         depth: usize,
         access: &mut ResolutionAccess<'_>,
     ) -> Result<(), ConstraintResolutionError> {
+        signature.effects = super::types::CallableEffects::from_contract(self.effects.resolve(
+            signature.effects.contract(), depth + 1, &mut BTreeSet::new(),
+        )?);
         for parameter in &mut signature.params {
             self.resolve_depth_inner(
                 &mut parameter.ty,
@@ -3598,6 +3621,8 @@ impl TypeConstraints {
                 ConstraintChange::Row(id, None) => {
                     self.rows.remove(&id);
                 }
+                ConstraintChange::Effect(change) => self.effects.rollback(change),
+                ConstraintChange::Application(change) => self.applications.rollback(change),
             }
         }
     }
@@ -3829,7 +3854,9 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
         if depth > MAX_TYPE_DEPTH {
             return Err(ConstraintResolutionError::TypeDepth);
         }
-        if matches!(ty, Type::Inference(_)) {
+        if matches!(ty, Type::Inference(_))
+            || matches!(ty, Type::Callable(callable) if callable.sig.effects.has_inference())
+        {
             return Ok(true);
         }
         if let Type::Module(exports) = ty {
@@ -3849,7 +3876,7 @@ fn module_has_inference(
         let found = match export {
             ModuleExportType::Value { ty, .. } => has_inference(ty, depth + 1)?,
             ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
-                let mut found = false;
+                let mut found = sig.effects.has_inference();
                 for parameter in &sig.params {
                     if has_inference(&parameter.ty, depth + 2)? {
                         found = true;
@@ -3902,7 +3929,7 @@ mod tests {
                     rest: false,
                 }],
                 return_ty: Box::new(result),
-                effects: Some(Vec::new()),
+                effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
     }

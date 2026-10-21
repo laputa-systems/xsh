@@ -7443,7 +7443,7 @@ impl Evaluator {
         let sig = CallableType {
             params: sig.params.clone(),
             return_ty: Box::new(sig.return_ty.clone()),
-            effects: sig.effects.clone(),
+            effects: crate::sema::types::CallableEffects::from_clause(sig.effects.clone()),
         };
         Arc::make_mut(&mut self.module_export_signatures)
             .insert(function, ModuleExportSignature { pure, sig });

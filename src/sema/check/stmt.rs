@@ -7815,7 +7815,7 @@ mod reader_binding_identity_tests {
                     sig: crate::sema::types::CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Int),
-                        effects: Some(Vec::new()),
+                        effects: crate::sema::types::CallableEffects::finite([]),
                     },
                 }),
             );
@@ -7933,7 +7933,7 @@ mod reader_binding_identity_tests {
                 sig: crate::sema::types::CallableType {
                     params: Vec::new(),
                     return_ty: Box::new(Type::Int),
-                    effects: Some(Vec::new()),
+                    effects: crate::sema::types::CallableEffects::finite([]),
                 },
             }));
             let ty = checker.check_tail_stmt_arena(program, source, tail, Some(&expected));

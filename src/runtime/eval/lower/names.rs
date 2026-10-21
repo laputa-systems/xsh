@@ -260,7 +260,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let actual = crate::sema::types::CallableType {
                     params: signature.params.clone(),
                     return_ty: Box::new(signature.return_ty.clone()),
-                    effects: signature.effects.clone(),
+                    effects: crate::sema::types::CallableEffects::from_clause(signature.effects.clone()),
                 };
                 expected.mismatch(definition.kind != CallableKind::Proc, &actual, true).is_none()
             }

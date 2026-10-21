@@ -1374,7 +1374,8 @@ fn verify_body_expression(
                 }
                 let ceiling = bounded(owner_scheme.effects, &store.scheme_effects, "generic owner effects are invalid")?;
                 let required = match target.contract {
-                    FullCallableContract::Ground(signature) => store.semantic.to_signature_with_budget(signature, 0, &mut budget.semantic_types)?.effects,
+                    FullCallableContract::Ground(signature) => store.semantic.to_signature_with_budget(signature, 0, &mut budget.semantic_types)?.effects.concrete()
+                        .map_err(|_| IrVerifyError::new("generic call target effect contract is unresolved"))?,
                     FullCallableContract::Scheme(scheme) => {
                         let scheme = store.scheme(scheme)?;
                         if !scheme.has_effects { None } else { Some(bounded(scheme.effects, &store.scheme_effects, "generic target effects are invalid")?.to_vec()) }
@@ -3900,7 +3901,7 @@ fn instantiate_scheme_type_inner(
             budget.charge(effects.len())?;
             Type::Callable(Arc::new(crate::sema::types::TypedCallable {
                 pure,
-                sig: crate::sema::types::CallableType { params, return_ty, effects: callable.has_effects.then(|| effects.to_vec()) },
+                sig: crate::sema::types::CallableType { params, return_ty, effects: crate::sema::types::CallableEffects::from_clause(callable.has_effects.then(|| effects.to_vec())) },
             }))
         }
         FullSchemeTypeTag::Ground => {

@@ -209,7 +209,11 @@ fn parameter_count(count: usize) -> String {
 }
 
 fn render_effects(sig: &CallableType) -> Option<String> {
-    sig.effects.as_ref().map(|effects| {
+    let effects = match sig.effects.concrete() {
+        Ok(effects) => effects,
+        Err(_) => return Some("[<effects need inference>]".to_string()),
+    };
+    effects.as_ref().map(|effects| {
         format!(
             "[{}]",
             effects

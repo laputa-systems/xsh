@@ -210,7 +210,7 @@ impl CheckedCallableContract {
         }).collect::<Option<Vec<_>>>()?;
         let ty = Type::Callable(Arc::new(TypedCallable { pure, sig: CallableType {
             params, return_ty: Box::new(self.scheme.return_type().closed_ground_type()?),
-            effects: if pure { None } else { self.scheme.effects().map(<[_]>::to_vec) },
+            effects: crate::sema::types::CallableEffects::from_clause(if pure { None } else { self.scheme.effects().map(<[_]>::to_vec) }),
         } }));
         let mut pending = vec![&ty];
         while let Some(ty) = pending.pop() {

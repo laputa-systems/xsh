@@ -56,20 +56,12 @@ impl Checker {
         self.boundary.excluded_effects.truncate(enclosing);
     }
 
-    /// The innermost enclosing bound that rules out `required`. `io` implies
-    /// `fs`, `net`, `process`, and `env`, so excluding any of those excludes a
-    /// requirement for `io`; excluding `io` excludes only `io` itself.
     fn excluding_bound(&self, required: &Effect) -> Option<ExcludedEffect> {
         self.boundary.excluded_effects
             .iter()
             .rev()
             .find(|excluded| {
-                excluded.effect == *required
-                    || (*required == Effect::Io
-                        && matches!(
-                            excluded.effect,
-                            Effect::Fs | Effect::Net | Effect::Process | Effect::Env
-                        ))
+                crate::sema::effects::effect_covers(required, &excluded.effect)
             })
             .cloned()
     }

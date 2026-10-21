@@ -256,7 +256,10 @@ fn render_callable_type(kind: &str, signature: &CallableType) -> String {
         render_type(&signature.return_ty)
     );
     rendered.push_str(" effects=");
-    rendered.push_str(&render_effects(signature.effects.as_deref()));
+    match signature.effects.concrete() {
+        Ok(effects) => rendered.push_str(&render_effects(effects.as_deref())),
+        Err(_) => rendered.push_str("<effects need inference>"),
+    }
     rendered
 }
 

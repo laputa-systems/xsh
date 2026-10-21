@@ -8289,6 +8289,7 @@ impl<'a> FullDecoder<'a> {
                 Type::Callable(callable) => callable
                     .sig
                     .effects
+                    .concrete().map_err(|_| IrVerifyError::new("checked callable effect contract is unresolved"))?
                     .as_ref()
                     .is_some_and(|effects| effects.contains(&Effect::Error)),
                 _ => false,
@@ -8298,6 +8299,7 @@ impl<'a> FullDecoder<'a> {
                     Some(Type::Callable(callable)) => callable
                         .sig
                         .effects
+                        .concrete().map_err(|_| IrVerifyError::new("checked callable effect contract is unresolved"))?
                         .as_ref()
                         .is_some_and(|effects| effects.contains(&Effect::Error)),
                     _ => false,
@@ -21395,7 +21397,7 @@ assert sample("{\"tool\":\"make\"}")? == "make make make make"
                 }
                 let FullCallableContract::Ground(signature) = independent.store.functions[owner].contract else { unreachable!() };
                 let mut callable = independent.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-                callable.effects = Some(vec![Effect::Error]);
+                callable.effects = crate::sema::types::CallableEffects::finite([Effect::Error]);
                 let mut forged = independent.clone();
                 let mut semantic = SemanticPoolBuilder::default();
                 forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
@@ -21435,7 +21437,7 @@ proc host(root: FsRoot, wrong: Path) [fs, error] -> Result[Path] {
             FullVerifier::verify(&forged).expect_err("filesystem-root native methods must authenticate their actual receiver");
             let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
             let mut callable = program.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Error]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Error]);
             let mut forged_bound = program.clone();
             let mut semantic = SemanticPoolBuilder::default();
             forged_bound.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged_bound.store.semantic, &callable).unwrap());
@@ -22763,7 +22765,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Process]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Process]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             let failure = FullVerifier::verify(&forged).unwrap_err();
@@ -22823,7 +22825,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(Vec::new());
+            callable.effects = crate::sema::types::CallableEffects::finite([]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -22841,7 +22843,7 @@ assert apply(40) == 42
             dynamic.store.data[statement] = IrData::from_range(IrRange::new(start, 2));
             let FullCallableContract::Ground(signature) = dynamic.store.functions[erased].contract else { panic!("erased contract") };
             let mut callable = dynamic.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Error]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Error]);
             dynamic.store.functions[erased].contract = FullCallableContract::Ground(semantic.intern_signature(&mut dynamic.store.semantic, &callable).unwrap());
             FullVerifier::verify(&dynamic).unwrap();
             let decoder = function_view_decoder(&dynamic.store, erased);
@@ -22849,7 +22851,7 @@ assert apply(40) == 42
             assert_eq!(decoder.derive_checked_expression_type(value as usize).unwrap(), Some(Type::Any));
             let FullCallableContract::Ground(signature) = dynamic.store.functions[erased].contract else { panic!("erased contract") };
             let mut callable = dynamic.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(Vec::new());
+            callable.effects = crate::sema::types::CallableEffects::finite([]);
             dynamic.store.functions[erased].contract = FullCallableContract::Ground(semantic.intern_signature(&mut dynamic.store.semantic, &callable).unwrap());
             dynamic.store.checked_expr_types.retain(|fact| fact.is_contract());
             let error = FullVerifier::verify(&dynamic).unwrap_err();
@@ -22872,7 +22874,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(Vec::new());
+            callable.effects = crate::sema::types::CallableEffects::finite([]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -22888,7 +22890,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Env]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Env]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -22909,7 +22911,7 @@ assert apply(40) == 42
                 let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground command") };
                 let mut forged = program.clone();
                 let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-                callable.effects = Some(vec![Effect::Process]);
+                callable.effects = crate::sema::types::CallableEffects::finite([Effect::Process]);
                 let mut semantic = SemanticPoolBuilder::default();
                 forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
                 assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -22938,7 +22940,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[function].contract else { panic!("ground contract") };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Time]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Time]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[function].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -22946,7 +22948,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[assertion].contract else { panic!("ground assertion") };
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(Vec::new());
+            callable.effects = crate::sema::types::CallableEffects::finite([]);
             forged.store.functions[assertion].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
         });
@@ -23015,7 +23017,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[unopened].contract else { panic!("ground contract") };
             let mut forged = (*program).clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = Some(vec![Effect::Fs]);
+            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Fs]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[unopened].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect io"));
@@ -23034,7 +23036,7 @@ assert apply(40) == 42
             let FullCallableContract::Ground(signature) = program.store.functions[helper].contract else { panic!("ground helper") };
             let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
                 &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            signature.effects = Some(vec![crate::syntax::node::Effect::Fs]);
+            signature.effects = crate::sema::types::CallableEffects::finite([crate::syntax::node::Effect::Fs]);
             let traced = scheme_fixture_root_function(&program, "traced");
             let FullCallableContract::Scheme(scheme) = program.store.functions[traced].contract else { panic!("generic caller") };
             let effects = program.store.schemes[scheme.index()].effects.bounds(program.store.scheme_effects.len()).unwrap();
@@ -23166,7 +23168,7 @@ assert apply(40) == 42
             let argument_node = program.store.scheme_types[argument.index()];
             assert_eq!(argument_node.tag, schema::FullSchemeTypeTag::Ground);
             let Type::Callable(callback) = program.store.semantic.to_type(TypeId::from_raw(argument_node.first).unwrap()).unwrap() else { panic!("checked callback type") };
-            assert_eq!(callback.sig.effects, None);
+            assert_eq!(callback.sig.effects, crate::sema::types::CallableEffects::unknown());
             let identity = scheme_fixture_root_function(&program, "identity");
             let FullCallableContract::Scheme(scheme_id) = program.store.functions[identity].contract else { panic!("identity scheme") };
             let scheme = *program.store.scheme(scheme_id).unwrap();
@@ -39405,7 +39407,7 @@ print $value
             sig: crate::sema::types::CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Int),
-                effects: None,
+                effects: crate::sema::types::CallableEffects::unknown(),
             },
         }));
         for (instruction, message) in [
@@ -39491,7 +39493,7 @@ test test_typed_callable_literal_containers {
                     rest: false,
                 }],
                 return_ty: Box::new(Type::Int),
-                effects: None,
+                effects: crate::sema::types::CallableEffects::unknown(),
             },
         }));
         let mut record_fields = BTreeMap::new();
@@ -41213,7 +41215,7 @@ pure construct_failure() -> Result[Unit, Failure] {
             sig: CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: None,
+                effects: crate::sema::types::CallableEffects::unknown(),
             },
         }));
         let mut builder = FullBuilder::new(SourceId::new(0));
@@ -43791,7 +43793,7 @@ proc local() [env, error] -> Int {
                 sig: CallableType {
                     params: Vec::new(),
                     return_ty: Box::new(Type::Unit),
-                    effects: None,
+                    effects: crate::sema::types::CallableEffects::unknown(),
                 },
             }))
         };

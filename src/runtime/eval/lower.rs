@@ -3037,7 +3037,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.canonicalize_checked_callable(CallableType {
                         params: signature.params.clone(),
                         return_ty: Box::new(signature.return_ty.clone()),
-                        effects: signature.effects.clone(),
+                        effects: crate::sema::types::CallableEffects::from_clause(signature.effects.clone()),
                     })
                 })
         }).flatten();

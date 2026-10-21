@@ -8684,7 +8684,7 @@ mod checked_storage_tests {
         let name = Name::intern("item");
         let function = crate::runtime::value::FunctionName::name(name);
         let signature = |return_ty| crate::sema::types::CallableType {
-            params: Vec::new(), return_ty: Box::new(return_ty), effects: None,
+            params: Vec::new(), return_ty: Box::new(return_ty), effects: crate::sema::types::CallableEffects::unknown(),
         };
         let check = super::super::LoweredTypeCheck {
             schema: None,

@@ -206,6 +206,14 @@ impl Checker {
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
+        let effects = match self.type_constraints.resolve_effect(callable.sig.effects.contract()) {
+            Ok(contract) => crate::sema::types::CallableEffects::from_contract(contract).concrete(),
+            Err(_) => Err(crate::sema::types::UnresolvedCallableEffects),
+        };
+        let Ok(effects) = effects else {
+            self.error(span, "callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
+            return Type::Invalid;
+        };
         // A callable type has no rest parameter and no defaults, so a call
         // whose argument count is decided at run time cannot be checked.
         if let Some(arg) = args.iter().find(|arg| {
@@ -260,7 +268,7 @@ impl Checker {
                 .collect(),
             return_ty.clone(),
             None,
-            callable.sig.effects.clone(),
+            effects,
             false,
             true,
         )
@@ -317,5 +325,66 @@ impl Checker {
             DiagnosticCode::CheckCallableType,
         );
         true
+    }
+}
+
+#[cfg(test)]
+mod inferred_callable_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn accepts(source: &str) {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn inferred_callable_positional_uses_preserve_independent_types_and_labels() {
+        accepts("pure apply(action, value) { action(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_clients_do_not_choose_the_declaration_shape() {
+        accepts("pure text(input: Str) -> Str { input }\npure number(payload: Int) -> Int { payload }\nlet text_result: Str = apply(text, \"value\")\nlet number_result: Int = apply(number, 7)\npure apply(action, value) { action(value) }\n");
+    }
+
+    #[test]
+    fn inferred_callable_proc_uses_accept_supported_kinds_in_either_client_order() {
+        for calls in [
+            "let pure_result: Result[Int] = invoke(plain, 7)\nlet proc_result: Result[Int] = invoke(environmental, 8)",
+            "let proc_result: Result[Int] = invoke(environmental, 8)\nlet pure_result: Result[Int] = invoke(plain, 7)",
+        ] {
+            accepts(&format!("pure plain(payload: Int) -> Int {{ payload }}\nproc environmental(input: Int) [env] -> Int {{ let _ = env.get(\"XSH_INFERRED_CALLBACK\"); input }}\nproc invoke(action, value) {{ action(value) }}\n{calls}\n"));
+        }
+    }
+
+    #[test]
+    fn inferred_callable_returned_values_keep_the_same_constraint_binding() {
+        accepts("pure relay(action) { action }\npure apply(action, value) { let selected = relay(action); selected(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_aliases_keep_the_selected_callable_relationship() {
+        accepts("pure apply(action, value) { let selected = action; selected(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet numeric = number\nlet textual = text\nlet number_result: Int = apply(numeric, 7)\nlet text_result: Str = apply(textual, \"value\")\n");
+    }
+
+    #[test]
+    fn inferred_callable_recursive_uses_are_monomorphic_within_the_component() {
+        accepts("pure repeated(action, value, count: Int) { if count == 0 { value } else { repeated(action, action(value), count - 1) } }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = repeated(number, 7, 2)\nlet text_result: Str = repeated(text, \"value\", 2)\n");
+    }
+
+    #[test]
+    fn inferred_callable_capture_masks_only_the_captured_error_contribution() {
+        accepts("proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc output(input: Int) [io] -> Int { print $input; input }\nproc combine(left, right, value) { let _ = try { left(value) }; right(value) }\nproc bounded() [env, io] -> Result[Int] { combine(fallible, output, 7) }\n");
+    }
+
+    #[test]
+    fn inferred_callable_uncaptured_use_retains_the_original_error_contribution() {
+        accepts("proc fallible(payload: Int) [env, error] -> Int { let _ = env.get(\"XSH_INFERRED_CALLBACK\"); assert payload > 0; payload }\nproc twice(action, value) { let _ = try { action(value) }; action(value) }\nproc bounded() [env, error] -> Result[Int] { twice(fallible, 7) }\n");
     }
 }

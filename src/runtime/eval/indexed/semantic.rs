@@ -866,7 +866,7 @@ impl SemanticPools {
                     budget,
                 )?,
             ),
-            effects,
+            effects: crate::sema::types::CallableEffects::from_clause(effects),
         })
     }
 
@@ -1599,7 +1599,9 @@ impl SemanticPoolBuilder {
                 rest: param.rest,
             }));
         }
-        let effects = normalized_effects(signature.effects.as_deref());
+        let concrete_effects = signature.effects.concrete()
+            .map_err(|_| IrBuildError::format("unresolved_effects", None, 0, 0))?;
+        let effects = normalized_effects(concrete_effects.as_deref());
         self.intern_signature_key(
             pools,
             SignatureKey {
@@ -1998,7 +2000,7 @@ mod tests {
                 },
             ],
             return_ty: Box::new(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
-            effects: Some(vec![Effect::Fs, Effect::Error]),
+            effects: crate::sema::types::CallableEffects::finite([Effect::Fs, Effect::Error]),
         }
     }
 
@@ -2008,7 +2010,7 @@ mod tests {
             let callable = CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
-                effects: Some(Vec::new()),
+                effects: crate::sema::types::CallableEffects::finite([]),
             };
             let typed = |pure| {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
@@ -2094,7 +2096,7 @@ mod tests {
         let second_signature = builder.intern_signature(&mut pools, &signature).unwrap();
         assert_eq!(first_signature, second_signature);
         let mut reordered_effects = signature.clone();
-        reordered_effects.effects = Some(vec![Effect::Error, Effect::Fs, Effect::Fs]);
+        reordered_effects.effects = crate::sema::types::CallableEffects::finite([Effect::Error, Effect::Fs, Effect::Fs]);
         assert_eq!(
             builder
                 .intern_signature(&mut pools, &reordered_effects)

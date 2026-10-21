@@ -1118,7 +1118,9 @@ impl<'a> ProducerProof<'a> {
             _ => return Ok(None),
         };
         ensure_closed_type(&receiver)?;
-        self.budget.charge(signature.params.len() + signature.effects.as_ref().map_or(0, Vec::len) + 1)?;
+        let effects = signature.effects.concrete()
+            .map_err(|_| IrVerifyError::new("module callable effect contract is unresolved"))?;
+        self.budget.charge(signature.params.len() + effects.as_ref().map_or(0, Vec::len) + 1)?;
         self.budget.charge_clone(&signature.return_ty)?;
         for parameter in &signature.params { self.budget.charge_clone(&parameter.ty)?; }
         let callable = TypedCallable { pure, sig: signature.clone() };
@@ -2637,7 +2639,9 @@ impl<'a> ProducerProof<'a> {
             }
             schema::ExprView::DynamicCall { callee, .. } => {
                 if let Some((base, receiver, callable)) = self.module_callable(&decoder, callee.raw() as usize)? {
-                    self.require_callable_effects(&decoder, instruction, callable.sig.effects.as_deref(), callable.pure)?;
+                    let effects = callable.sig.effects.concrete()
+                        .map_err(|_| IrVerifyError::new("callable effect contract is unresolved"))?;
+                    self.require_callable_effects(&decoder, instruction, effects.as_deref(), callable.pure)?;
                     if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("module callable result disagrees with its export contract")); }
                     self.expression(owner, base, receiver, false);
                     self.producer_owner_contract(owner)?;
@@ -3327,7 +3331,9 @@ impl<'a> ProducerProof<'a> {
     fn verify_native_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, op: super::super::RuntimeOp, call_plan: Option<&crate::runtime::eval::ModuleCallPlan>, arguments: Vec<Option<usize>>, expected: &Type) -> Result<(), IrVerifyError> {
         let actuals = (0..arguments.len()).map(|_| OnceCell::new()).collect::<Vec<OnceCell<ProducerOperandContext>>>();
         let (result, parameters, effects, pure) = if let Some(bridge) = crate::stdlib::bridge_contract(op) {
-            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), bridge.sig.effects.unwrap_or_default(), bridge.pure)
+            let effects = bridge.sig.effects.concrete()
+                .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
+            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.pure)
         } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan {
             (plan.signature.return_ty.clone(), plan.signature.params.iter().enumerate().map(|(slot, parameter)| {
                 let ty = if plan.word_conversions.iter().any(|conversion| conversion.slot == slot) {

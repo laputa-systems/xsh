@@ -1482,7 +1482,7 @@ pub(super) fn callable_type_from_function_signature(
     Some(super::CallableType {
         params,
         return_ty: Box::new(scheme.return_type().closed_ground_type()?),
-        effects: scheme.effects().map(<[_]>::to_vec),
+        effects: crate::sema::types::CallableEffects::from_clause(scheme.effects().map(<[_]>::to_vec)),
     })
 }
 

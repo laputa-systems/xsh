@@ -2595,15 +2595,7 @@ impl Checker {
     }
 
     pub(crate) fn effects_covers(caller: &[Effect], required: &Effect) -> bool {
-        if caller.contains(required) {
-            return true;
-        }
-        // io subsumes fs, net, process, env but not time or error
-        caller.contains(&Effect::Io)
-            && matches!(
-                required,
-                Effect::Fs | Effect::Net | Effect::Process | Effect::Env
-            )
+        caller.iter().any(|permission| super::effects::effect_covers(permission, required))
     }
 
     pub(crate) fn check_callee_effects(

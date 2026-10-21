@@ -320,6 +320,17 @@ and return boundary. Pure body restrictions remain independent of capability
 sets, and captured errors remove only the Error requirement within their actual
 runtime boundary.
 
+`CallableType.effects` uses the opaque `CallableEffects` contract. Unknown,
+known empty, and symbolic effects remain distinct. Concrete projection rejects
+unresolved symbolic terms. Effect expressions retain raw capability identity,
+including `io`, while permission and exclusion checks share one implication
+relation. `TypeConstraints` owns effect cells, predicates, dependency queues,
+and callable-application requirements. Their fresh identities, bindings, levels,
+watchers, and queue changes use the same rollback journal as type and row cells.
+Application requirements refer to the actual callable type variable and use
+the canonical argument binder, preserving authored labels, defaults, and rest
+layout through aliases and returned values.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 

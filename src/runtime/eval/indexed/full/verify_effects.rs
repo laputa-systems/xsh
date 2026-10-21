@@ -120,7 +120,9 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize) -> Result<()
             FullTag::ExprModuleCall => {
                 let schema::ExprView::ModuleCall { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 if let Some(bridge) = crate::stdlib::bridge_contract(op) {
-                    require(instruction, bridge.sig.effects.as_deref(), bridge.pure, &mut captured)?;
+                    let effects = bridge.sig.effects.concrete()
+                        .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
+                    require(instruction, effects.as_deref(), bridge.pure, &mut captured)?;
                 } else { match crate::modules::signature::native_static_operation_effect_rule(op) {
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => {}

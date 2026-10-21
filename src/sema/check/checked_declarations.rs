@@ -279,7 +279,7 @@ impl Checker {
                 defaulted: param.default.is_some(), rest: param.rest,
             })).collect::<Option<Vec<_>>>()?,
             return_ty: Box::new(self.resolved_type_expressions.annotations.get(&(self.current_namespace, return_ty))?.clone()),
-            effects: effects.map(|effects| program.arena.effects(effects).collect()),
+            effects: crate::sema::types::CallableEffects::from_clause(effects.map(|effects| program.arena.effects(effects))),
         })
     }
 
