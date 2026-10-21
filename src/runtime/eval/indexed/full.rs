@@ -1331,10 +1331,11 @@ impl FullProgram {
             let range = scheme.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("stream factory fact range is invalid"))?;
             let facts = &self.store.scheme_body_facts[range];
             let key = (instruction, schemes::FullSchemeBodyFactKind::Expression as u8);
-            let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind as u8)) else { return Ok(None); };
+            let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
             if facts[index].function != function { return Err(IrVerifyError::new("stream factory fact belongs to another function")); }
             let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
-            return verify_schemes::instantiate_bound_type(&self.store, facts[index].ty, &invocation.substitution, &mut budget, 0).map(Some);
+            let ty = facts[index].ty().ok_or_else(|| IrVerifyError::new("stream factory expression has no material type"))?;
+            return verify_schemes::instantiate_bound_type(&self.store, ty, &invocation.substitution, &mut budget, 0).map(Some);
         }
         let Ok(index) = self.store.checked_expr_types.binary_search_by_key(&instruction, |fact| fact.instruction) else { return Ok(None); };
         let fact = self.store.checked_expr_types[index];
