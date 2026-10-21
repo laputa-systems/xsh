@@ -178,6 +178,9 @@ review approves that bounded prefix. The warning-denied non-test check still
 needs the canonical reuse API's SCC production consumer. Host `.call` and
 `utils.cache` adapters, SelfCall completion, recursion and Stream remain open.
 This checkpoint is not integrated or qualified for master.
+Isolated assembly `0c75290cf` merges that checkpoint with the campaign source.
+The reviewed resolution preserves the registry's declaration-effect ceiling
+and the scoped per-call effect proof. No combined build or test credit follows.
 
 The recursive-component prototype passes its staged publication and mutation
 controls, including the reproduced late-effect failure. Its matching products
@@ -185,10 +188,19 @@ build and its narrow warning-denied non-test check passes. Only one of six
 native runtime controls passes before subsequent source repairs. Application
 origins need authenticated callee-scope normalization before export; no SCC
 membership waiver supplies authority.
+A later four-control replay passes default preparation and callee-binder
+authentication, including its mutations. Recursive Proc self calls also pass
+inside a mixed control, but callback peers and imported callback roots still
+fail effect-scope or stream-origin publication. The group has two passes and
+two failures; the inherited collecting probe also remains separate work from
+the authoritative body check.
 
 Nested fresh aggregate inference has twenty focused checker passes, including
 a reproduced default-parameter panic regression and signal-hook inference.
 Generic payload preservation and actual `expr` preparation still need proof.
+The four generic-payload discriminators have one pass and three failures.
+The repair must validate the actual fresh holes without demanding that an
+unrelated generic field become ground, while rejecting unconstrained holes.
 Explicit `List[Any]` and genuinely heterogeneous literals remain dynamic.
 Two missing native witnesses are integrated at `6397a90cf`, covering compatible
 mutable-callable reassignment and a named constant inside a generic body.
