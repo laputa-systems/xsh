@@ -211,11 +211,28 @@ Direct slot/null comparisons establish an immutable pattern read in an active
 `if` branch or `while` body, or after a matching `if` branch that cannot complete,
 only when the exact regional binding has no writers. Null exclusion preserves
 the payload's unsigned and validated domains.
-Every destructuring source and guard envelope is proved, including targets that bind no values. Fresh list arguments preserve
-contextual element proofs through canonical binding carriers; stored list
-contracts remain invariant. Runtime storage validators
-discharge complete checks. Typed callable signatures and nominal payloads retain
-independent producer proof. Generic shared-state restrictions remain separate.
+Every destructuring source and guard envelope is proved, including targets that
+bind no values. Fresh list and map arguments receive context only from selected
+call parameters or physical checked-record fields. Their binding carriers retain
+exact owner, source, pattern, and slot identities. Every proposing use must agree
+on one concrete source contract. Stored collection contracts remain invariant.
+Conditional producers derive their contract from independently typed completing
+arms, then prove every condition and arm under that contract.
+
+Every physical record entry retains its producer proof, including overwritten
+fields and spreads. Checked storage proves the actual input through intermediate
+wrappers before applying runtime validation. Matching record fields can defer
+nonnominal predicates to that gate without changing stored collection variance.
+Typed callable signatures and nominal payloads retain independent producer proof.
+The exact optional-payload carrier preserves the original optional producer for
+those incomplete runtime checks. Generic shared-state restrictions remain separate.
+
+The producer census collects pattern and pipeline instructions during its
+mandatory instruction scan. Later scope registration visits those candidates
+under the same work bound. Selected native arguments can carry an owned,
+single-use declared-type fact into their existing proof obligation. The fact
+must match the exact owner and instruction. Contextual hints cannot supply it,
+and consuming the fact retains all child, shape, storage, and effect proofs.
 
 Quantified proc effects must be finite and include each selected callee's
 checked effect contract. `FullVerifier` derives ground owner requirements from

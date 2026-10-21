@@ -907,3 +907,368 @@ assert keep(Item(null))? == 0
         execute_both(&lawful);
     });
 }
+
+#[test]
+fn producer_corpus_reduced_empty_list_argument_carrier() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+type Row = {items: List[Str]}
+let row = Row(items: [])
+assert row.items.is_empty()
+"#);
+        execute_both(&program);
+    });
+}
+
+
+#[test]
+fn producer_corpus_reduced_empty_map_argument_carrier() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+type Row = {before: Int, items: Map[Str, Int], after: Int}
+var counter = 0
+proc next() [] -> Int { counter += 1; counter }
+let row = Row(after: next(), items: {}, before: next())
+assert row.items.is_empty()
+assert row.after == 1
+assert row.before == 2
+assert counter == 2
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+    });
+}
+
+
+
+#[test]
+fn producer_context_immutable_branch_splice() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+pure scalar() -> Int { 7 }
+pure words(flag: Bool) -> List[Str] {
+    let prefix = if flag { [] } else { ["a"] }
+    [@prefix, "b"]
+}
+assert words(true) == ["b"]
+assert words(false) == ["a", "b"]
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "words");
+        let item = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let scalar = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+        let mut wrong_item = program.clone();
+        wrong_item.store.tags[item] = FullTag::ExprInt;
+        wrong_item.store.data[item] = program.store.data[scalar];
+        let error = FullVerifier::verify(&wrong_item).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract") || error.message.contains("fresh list splice disagrees"), "{error:?}");
+    });
+}
+
+#[test]
+fn producer_context_carrier_contracts_require_unique_consumers() {
+    on_large_stack(|| {
+        for fields in ["left: List[Str], right: List[Str]", "left: List[Str], right: List[Int]"] {
+            let source = format!("type Pair = {{{fields}}}\nlet pair = Pair(left: [], right: [])\nassert pair.left.is_empty()\nassert pair.right.is_empty()\n");
+            let mut program = fixture(&source);
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let mut fields = Vec::new();
+            for step in 0..program.store.driver_steps.len() {
+                let mut decoder = stage_view_decoder(&program.store);
+                let row = program.store.driver_steps[step];
+                decoder.owner = driver_owner(step).unwrap();
+                decoder.slot_count = row.slot_count;
+                decoder.instruction_range = program.store.driver_instruction_range(step).unwrap();
+                for instruction in decoder.instruction_range.clone() {
+                    if program.store.tags[instruction] != FullTag::ExprRecord { continue; }
+                    let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                    let writers = decoder.checked_record_field_writers(&mut entries, |_| unreachable!()).unwrap();
+                    for writer in writers.values() {
+                        if let CheckedRecordFieldWriter::Value(value) = writer {
+                            if program.store.tags[*value] == FullTag::ExprParam { fields.push(*value); }
+                        }
+                    }
+                }
+            }
+            assert_eq!(fields.len(), 2);
+            let mut wrong_binder = program.clone();
+            let first = program.store.data[fields[0]].range().start as usize;
+            let second = program.store.data[fields[1]].range().start as usize;
+            wrong_binder.store.extra[second] = program.store.extra[first];
+            let error = FullVerifier::verify(&wrong_binder).unwrap_err();
+            assert!(error.message.contains("contextual aggregate subject has no authenticated consumer contract") || error.message.contains("conflicting consumer contracts"), "{error:?}");
+        }
+    });
+}
+
+#[test]
+fn producer_context_overwritten_record_entries_keep_their_obligations() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+type Row = {value: Int}
+pure earlier() -> Int { 7 }
+pure alternate() -> Bool { false }
+pure keep() -> Result[Row] { Ok({value: earlier(), ...{value: 9}}) }
+assert keep()?.value == 9
+var counter = 0
+proc next() [] -> Int { counter += 1; counter }
+let observed = {value: next(), ...{value: next()}}
+assert observed.value == 2
+assert counter == 2
+let failed = try { {value: "bad".parse_int()?, ...{value: next()}} }
+assert match failed {
+    Ok(_) => false
+    Err(_) => true
+}
+assert counter == 2
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let earlier = function(&program, "earlier");
+        let scalar = program.store.function_instruction_range(earlier).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let alternate = function(&program, "alternate");
+        let boolean = program.store.function_instruction_range(alternate).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        let mut wrong_child = program.clone();
+        wrong_child.store.tags[scalar] = FullTag::ExprBool;
+        wrong_child.store.data[scalar] = program.store.data[boolean];
+        let error = FullVerifier::verify(&wrong_child).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+
+    });
+}
+
+#[test]
+fn producer_context_checked_records_preserve_source_domains() {
+    on_large_stack(|| {
+        for body in ["Row(value: 7)", "{...{value: 7}}"] {
+            let source = format!("type Row = {{value: Int}}\npure alternate() -> Bool {{false}}\npure keep() -> Result[Row] {{ let row: Row = {body}; Ok(row) }}\nassert keep()?.value == 7\n");
+            let mut program = fixture(&source);
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let keep = function(&program, "keep");
+            let scalar = program.store.function_instruction_range(keep).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+            let alternate = function(&program, "alternate");
+            let boolean = program.store.function_instruction_range(alternate).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+            let mut wrong_field = program.clone();
+            wrong_field.store.tags[scalar] = FullTag::ExprBool;
+            wrong_field.store.data[scalar] = program.store.data[boolean];
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert!(error.message.contains("checked record field disagrees with its contract") || error.message.contains("checked record spread field disagrees with its contract") || error.message.contains("checked value input disagrees with its contract"), "{error:?}");
+        }
+        let program = fixture(r#"
+type Row = {value: UInt, items: NonEmpty[Int]}
+pure make(value: Int) -> Result[Row] { Ok(Row(value: value, items: [7])) }
+assert make(7)?.value == 7
+"#);
+        execute_both(&program);
+        let failed = Arc::new(fixture(r#"
+type Row = {value: UInt, items: NonEmpty[Int]}
+pure make(value: Int) -> Result[Row] { Ok(Row(value: value, items: [7])) }
+let failed = make(-1)?
+"#));
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*failed.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&failed));
+            evaluator.force_frames = force_frames;
+            let error = (0..failed.driver_step_count().unwrap()).find_map(|step| evaluator.eval_indexed_driver_step(step, Span::new(failed.store.source_id, 0, 0)).unwrap().err()).unwrap();
+            assert_eq!(error.kind, "type-error");
+            assert!(error.message.contains("UInt constraint"), "{error:?}");
+        }
+        {
+            let source = "type Row = {count: UInt}\npure alternate() -> Bool { false }\npure keep() -> Row? { let row: Row? = {count: 7}; row }\nassert keep() != null\n";
+            let mut optional = fixture(&source);
+            optional.store.checked_expr_types.retain(|fact| fact.is_contract());
+            FullVerifier::verify(&optional).unwrap();
+            execute_both(&optional);
+            let keep = function(&optional, "keep");
+            let scalar = optional.store.function_instruction_range(keep).unwrap().find(|&instruction| matches!(optional.store.tags[instruction], FullTag::ExprInt | FullTag::ExprUInt)).unwrap();
+            let alternate = function(&optional, "alternate");
+            let boolean = optional.store.function_instruction_range(alternate).unwrap().find(|&instruction| optional.store.tags[instruction] == FullTag::ExprBool).unwrap();
+            let mut wrong_field = optional.clone();
+            wrong_field.store.tags[scalar] = FullTag::ExprBool;
+            wrong_field.store.data[scalar] = optional.store.data[boolean];
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert!(error.message.contains("checked record field disagrees with its contract") || error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        }
+        let mut nested = fixture(r#"
+type Inner = {items: NonEmpty[Int]}
+type Row = {nested: Inner}
+pure alternate_nested() -> Bool { false }
+pure make(flag: Bool) -> Result[Row] {
+    let row: Row = if flag { {nested: {items: [7]}} } else { {nested: {items: [8]}} }
+    Ok(row)
+}
+assert make(true)?.nested.items[0] == 7
+assert make(false)?.nested.items[0] == 8
+"#);
+        nested.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&nested).unwrap();
+        execute_both(&nested);
+        let make = function(&nested, "make");
+        let scalars = nested.store.function_instruction_range(make).unwrap().filter(|&instruction| nested.store.tags[instruction] == FullTag::ExprInt).collect::<Vec<_>>();
+        assert_eq!(scalars.len(), 2);
+        let alternate = function(&nested, "alternate_nested");
+        let boolean = nested.store.function_instruction_range(alternate).unwrap().find(|&instruction| nested.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        let mut wrong_nested = nested.clone();
+        for scalar in scalars {
+            wrong_nested.store.tags[scalar] = FullTag::ExprBool;
+            wrong_nested.store.data[scalar] = nested.store.data[boolean];
+        }
+        let error = FullVerifier::verify(&wrong_nested).unwrap_err();
+        assert!(error.message.contains("checked value input disagrees with its contract") || error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+    });
+}
+
+#[test]
+fn producer_context_census_bounds_mixed_instruction_patterns() {
+    on_large_stack(|| {
+        for locals in [64, 128, 256, 512] {
+            let declarations = (0..locals).map(|index| format!("let local_{index} = {index}; ")).collect::<String>();
+            let source = format!("enum Node {{ Item(Int) }}\npure alternate() -> Int {{ 0 }}\npure keep(node: Node) -> Result[Int] {{ {declarations} match node {{ Item(value) => Ok(value) }} }}\nassert keep(Item(7))? == 7\n");
+            let program = fixture(&source);
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let keep = function(&program, "keep");
+            program.symbol_owner().with_current(|| {
+                let mut decoder = function_view_decoder(&program.store, keep);
+                let range = decoder.instruction_range.clone();
+                decoder.instruction_states = Some(RefCell::new(vec![0; range.len()]));
+                decoder.instruction_proof = Some(RefCell::new(in_place::InstructionProof::new(range)));
+                decoder.block_states = Some(OwnedBlockStates::new(decoder.owner, &owned_block_counts(&program.store)));
+                let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
+                decoder.producer_demand = index.demand();
+                let body = [program.store.functions[keep].body];
+                let mut cursor = FullCursor::new(&body);
+                Vec::<BuildStmtId>::verify(&decoder, &mut cursor).unwrap();
+                cursor.finish().unwrap();
+                decoder.finish_function().unwrap();
+                index.record(&decoder).unwrap();
+                let (visits, instructions) = index.census_instruction_work();
+                assert_eq!(visits, instructions * 2 + 1);
+            });
+            let decoder = function_view_decoder(&program.store, keep);
+            let matched = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprMatch).unwrap();
+            let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(matched).unwrap() else { unreachable!() };
+            let (pattern, _, _) = arms.next().unwrap().unwrap();
+            let binds = decoder.pattern_capture_slots(pattern.raw() as usize).unwrap();
+            assert_eq!(binds.len(), 1);
+            assert!(matches!(decoder.checked_pattern_view(pattern.raw()).unwrap(), schema::PatternView::Tag { .. }));
+            let payload = program.store.pattern_data[pattern.raw() as usize].range();
+            let slot_word = (payload.start + payload.len) as usize - 1;
+            assert_eq!(program.store.extra[slot_word], *binds.first().unwrap() as u32);
+            let mut wrong_pattern = program.clone();
+            wrong_pattern.store.extra[slot_word] = 0;
+            let error = FullVerifier::verify(&wrong_pattern).unwrap_err();
+            assert!(error.message.contains("slot") || error.message.contains("capture"), "{error:?}");
+            let mut wrong_owner = program.clone();
+            let alternate = function(&program, "alternate");
+            wrong_owner.store.function_instruction_starts[keep] = program.store.function_instruction_starts[alternate];
+            let error = FullVerifier::verify(&wrong_owner).unwrap_err();
+            assert!(error.message.contains("instruction") || error.message.contains("owner"), "{error:?}");
+        }
+    });
+}
+
+#[test]
+fn producer_context_native_arguments_keep_nested_producer_proofs() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+pure source() -> Bytes { b"." }
+pure alternate() -> Str { "." }
+pure keep() -> Result[Path] { Ok(source() as Path) }
+assert keep()? == p"."
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let source = function(&program, "source");
+        let bytes = program.store.function_instruction_range(source).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBytes).unwrap();
+        let alternate = function(&program, "alternate");
+        let text = program.store.function_instruction_range(alternate).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let mut wrong_leaf = program.clone();
+        wrong_leaf.store.tags[bytes] = FullTag::ExprStr;
+        wrong_leaf.store.data[bytes] = program.store.data[text];
+        let error = FullVerifier::verify(&wrong_leaf).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        let keep = function(&program, "keep");
+        let decoder = function_view_decoder(&program.store, keep);
+        assert!(decoder.instruction_range.clone().any(|instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: RuntimeOp::PathParseBytes, .. }))));
+    });
+}
+
+#[test]
+fn producer_context_carrier_hints_do_not_replace_consumer_contracts() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+type Row = {items: List[Str]}
+pure alternate() -> Bool { false }
+pure keep() -> Result[Row] { Ok(Row(items: [])) }
+assert keep()?.items.is_empty()
+"#);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let keep = function(&program, "keep");
+        let empty = program.store.function_instruction_range(keep).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprList).unwrap();
+        let owner = ExecutableOwner::Function(IrFunctionId::new(keep).unwrap());
+        let mut wrong_hint = program.clone();
+        let ty = SemanticPoolBuilder::default().intern_type(&mut wrong_hint.store.semantic, &Type::List(Box::new(Type::Int))).unwrap();
+        wrong_hint.store.checked_expr_types.push(FullCheckedExprType { instruction: empty as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(owner) });
+        wrong_hint.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        let error = FullVerifier::verify(&wrong_hint).unwrap_err();
+        assert!(error.message.contains("checked record field disagrees with its contract") || error.message.contains("contextual aggregate hint disagrees"), "{error:?}");
+        let mut coordinated = program.clone();
+        let ty = SemanticPoolBuilder::default().intern_type(&mut coordinated.store.semantic, &Type::List(Box::new(Type::Str))).unwrap();
+        coordinated.store.checked_expr_types.push(FullCheckedExprType { instruction: empty as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(owner) });
+        coordinated.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        let alternate = function(&program, "alternate");
+        let boolean = program.store.function_instruction_range(alternate).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        coordinated.store.tags[empty] = FullTag::ExprBool;
+        coordinated.store.data[empty] = program.store.data[boolean];
+        let error = FullVerifier::verify(&coordinated).unwrap_err();
+        assert_eq!(error.message, "full IR contains an instruction or block not owned by the function body");
+        let mut typed_items = fixture(r#"
+type Row = {items: List[Str]}
+pure alternate() -> Bool { false }
+pure keep() -> Result[Row] { Ok(Row(items: ["word"])) }
+assert keep()?.items[0] == "word"
+"#);
+        typed_items.store.checked_expr_types.retain(|fact| fact.is_contract());
+        FullVerifier::verify(&typed_items).unwrap();
+        execute_both(&typed_items);
+        let item_owner = function(&typed_items, "keep");
+        let list = typed_items.store.function_instruction_range(item_owner).unwrap().find(|&instruction| typed_items.store.tags[instruction] == FullTag::ExprList).unwrap();
+        let item = typed_items.store.function_instruction_range(item_owner).unwrap().find(|&instruction| typed_items.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let alternate_items = function(&typed_items, "alternate");
+        let boolean_item = typed_items.store.function_instruction_range(alternate_items).unwrap().find(|&instruction| typed_items.store.tags[instruction] == FullTag::ExprBool).unwrap();
+        let ty = SemanticPoolBuilder::default().intern_type(&mut typed_items.store.semantic, &Type::List(Box::new(Type::Str))).unwrap();
+        typed_items.store.checked_expr_types.push(FullCheckedExprType { instruction: list as u32, type_id: ty, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(item_owner).unwrap())) });
+        typed_items.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        typed_items.store.tags[item] = FullTag::ExprBool;
+        typed_items.store.data[item] = typed_items.store.data[boolean_item];
+        let error = FullVerifier::verify(&typed_items).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract") || error.message.contains("checked record field disagrees with its contract"), "{error:?}");
+        let mut wrong_owner = wrong_hint.clone();
+        wrong_owner.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == empty as u32).unwrap().purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(alternate).unwrap()));
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let mut wrong_instruction = wrong_hint;
+        wrong_instruction.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == empty as u32).unwrap().instruction = boolean as u32;
+        wrong_instruction.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+        assert!(FullVerifier::verify(&wrong_instruction).is_err());
+    });
+}
+
+#[test]
+fn producer_context_native_constructor_preparation_stays_within_work_bound() {
+    on_large_stack(|| {
+        let program = fixture(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/xsh/generic-constructors.xsh")));
+        FullVerifier::verify(&program).unwrap();
+    });
+}

@@ -268,6 +268,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_expanded_argument_values(
         &mut self,
         expanded: &[crate::sema::arguments::ExpandedArgument],
+        constructor: Option<ExprId>,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -276,7 +277,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut bindings = Vec::new();
         let mut arguments = Vec::with_capacity(expanded.len());
         let mut record_entry = None;
-        for arg in expanded {
+        for (index, arg) in expanded.iter().enumerate() {
             let span = match arg.value {
                 ArgumentValueSource::Expression(expr) => self.program.arena.expr(expr).span,
                 _ => arg.span,
@@ -285,7 +286,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ArgumentValueSource::Expression(expr)
                 | ArgumentValueSource::PositionalSplice(expr) => {
                     record_entry = None;
-                    self.lower_expr(expr, slots, current_function, item_slot)?
+                    let contextual = constructor.and_then(|constructor| {
+                        self.bodies.resolved_type_expressions.instantiations.get(&constructor)?;
+                        let Type::Record(fields) = self.bodies.expr_types.get(&constructor)? else { return None };
+                        let field = arg.name.or_else(|| self.bodies.record_constructor_fields.get(&constructor)?.get(index).copied())?;
+                        let literal = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, expr, &FxHashMap::default())?;
+                        let contextual = literal.clone().in_type(fields.get(&field)?);
+                        (contextual != literal).then_some(contextual)
+                    });
+                    match contextual {
+                        Some(literal) => self.lower_record_default(&literal)?,
+                        None => self.lower_expr(expr, slots, current_function, item_slot)?,
+                    }
                 }
                 ArgumentValueSource::RecordField { record, field } => {
                     let base = match record_entry {
@@ -463,7 +475,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             overrides.push((callee, slots.postfix_receivers.insert(callee, bound)));
         }
         let lowered =
-            self.lower_expanded_argument_values(&expanded, slots, current_function, item_slot);
+            self.lower_expanded_argument_values(&expanded, Some(id), slots, current_function, item_slot);
         let result = (|| {
             let lowered = lowered?;
             bindings.extend(lowered.bindings);
@@ -599,6 +611,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
+            C::Map(values) if values.is_empty() => BuildExprRow::EmptyMap,
             C::Map(_) | C::Set(_) => BuildExprRow::PreparedConstant(super::lower_prepared_literal(value, Some(&self.declarations.wire_enums))?),
             C::List(values) => BuildExprRow::List(
                 values
@@ -777,7 +790,7 @@ mod named_spread_lowering_tests {
             expression_type_storage_bytes,
         );
         let lowered = probe
-            .lower_expanded_argument_values(&expanded, &mut SlotScope::default(), None, None)
+            .lower_expanded_argument_values(&expanded, None, &mut SlotScope::default(), None, None)
             .expect("expanded entries lower");
 
         assert_eq!(parsed.arena.arena.expr_tags.len(), expression_count);

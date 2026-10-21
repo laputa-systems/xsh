@@ -726,7 +726,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let lowered =
                     if let (Some(literal), Type::Record(schema_fields)) = (literal, &schema) {
                         let contextual = literal.clone().in_type(schema_fields.get(&name)?);
-                        if contextual != literal {
+                        if contextual != literal && arg.lowered.is_none() {
                             self.lower_record_default(&contextual)?
                         } else {
                             self.lower_call_argument(arg, slots, current_function, item_slot)?

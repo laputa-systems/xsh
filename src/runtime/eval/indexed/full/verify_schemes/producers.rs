@@ -6,7 +6,7 @@ use super::{
     merge_list_item_types,
 };
 use crate::sema::types::{ConditionRole, ModuleExportType, TypedCallable};
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::{OnceCell, RefCell}, rc::Rc, sync::Arc};
 #[cfg(test)]
 use std::cell::Cell;
 use super::super::decode::BorrowCodec;
@@ -305,9 +305,17 @@ impl GroundProducerIndex {
         let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeSet::new(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_can_complete: BTreeMap::new(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
-                for instruction in range.clone() {
+        let mut pattern_instructions = Vec::new();
+        for instruction in range.clone() {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
+            if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
+                | FullTag::ExprPatternIf | FullTag::StmtPatternIf | FullTag::StmtPatternWhile
+                | FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprPipeline)
+            {
+                work.borrow_mut().charge(1)?;
+                pattern_instructions.push(instruction);
+            }
             if super::super::verify_effects::needs_operand_proof(decoder.store, instruction)? { self.effect_operations.push(instruction); }
             if has_condition_inputs(decoder.store.tags[instruction]) {
                 record_condition_inputs(decoder, instruction, &mut self.conditions, |amount| work.borrow_mut().charge(amount))?;
@@ -362,7 +370,7 @@ impl GroundProducerIndex {
             }
         }
         let mut callback_anchors = BTreeMap::new();
-        for instruction in range.clone() {
+        for instruction in pattern_instructions {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
             if decoder.store.tags[instruction] == FullTag::StmtMatch {
@@ -715,10 +723,43 @@ fn install_condition_regions(decoder: &FullDecoder<'_>, owner: &mut ProducerOwne
     Ok(())
 }
 
-#[derive(Clone)]
+struct DeclaredProducerFact {
+    owner: u32,
+    instruction: usize,
+    ty: Arc<Type>,
+}
+
+impl DeclaredProducerFact {
+    fn into_type(self, owner: u32, instruction: usize) -> Result<Arc<Type>, IrVerifyError> {
+        if self.owner != owner || self.instruction != instruction { return Err(IrVerifyError::new("declared producer fact belongs to another expression")); }
+        Ok(self.ty)
+    }
+}
+
+enum NativeArgumentContext {
+    Declared(DeclaredProducerFact),
+    Contextual(Option<Arc<Type>>),
+}
+
+impl NativeArgumentContext {
+    fn ty(&self) -> Option<&Type> {
+        match self {
+            Self::Declared(fact) => Some(&fact.ty),
+            Self::Contextual(ty) => ty.as_deref(),
+        }
+    }
+
+    fn into_parts(self) -> (Option<Arc<Type>>, Option<DeclaredProducerFact>) {
+        match self {
+            Self::Declared(fact) => (Some(Arc::clone(&fact.ty)), Some(fact)),
+            Self::Contextual(ty) => (ty, None),
+        }
+    }
+}
+
 enum Obligation {
     Function(usize),
-    Expression(u32, usize, Arc<Type>, bool),
+    Expression(u32, usize, Arc<Type>, bool, Option<DeclaredProducerFact>),
     Slot(u32, ProducerBinding, usize, Arc<Type>),
     PipelinePrefix(u32, usize, usize, Arc<Type>),
     Storage(u32, Arc<Type>),
@@ -727,6 +768,12 @@ enum Obligation {
 pub(in crate::runtime::eval::indexed::full) enum ProducerContexts<'a> {
     Pending(&'a [(u32, super::super::ExecutableOwner, Arc<Type>)]),
     Published,
+}
+
+struct RecordProducerWriters {
+    writers: BTreeMap<Name, super::super::CheckedRecordFieldWriter>,
+    unresolved: BTreeSet<usize>,
+    types: BTreeMap<usize, Arc<Type>>,
 }
 
 struct ProducerProof<'a> {
@@ -752,6 +799,9 @@ struct ProducerProof<'a> {
     driver_output_types: BTreeMap<usize, Rc<BTreeMap<u32, Arc<Type>>>>,
     pattern_types: BTreeMap<(u32, ProducerBinding), Arc<Type>>,
     fresh_lists: BTreeMap<(u32, usize), Option<usize>>,
+    contextual_sources: BTreeMap<(u32, ProducerBinding), (usize, Arc<Type>)>,
+    deferred_sources: BTreeMap<(u32, ProducerBinding), usize>,
+    contextual_reads: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     captured_errors: BTreeMap<(u32, usize), CapturedErrorDerivation>,
     incoming: BTreeMap<usize, Vec<usize>>,
     budget: SchemeInstantiationBudget,
@@ -764,7 +814,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), scheme_scopes: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
     for &step in &index.driver_outputs {
         proof.budget.charge(1)?;
@@ -834,7 +884,8 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     proof.finish()?;
     if let Some(work) = &index.work {
         let initial = SchemeInstantiationBudget::new(store).remaining;
-        proof.budget.charge(initial - work.borrow().remaining)?;
+        let census_work = initial - work.borrow().remaining;
+        proof.budget.charge(census_work)?;
     }
     if matches!(proof.contexts, ProducerContexts::Published) {
         for fact in &store.checked_expr_types {
@@ -953,10 +1004,14 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool) {
+        self.expression_with_fact(owner, instruction, expected, returned, None);
+    }
+
+    fn expression_with_fact(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool, fact: Option<DeclaredProducerFact>) {
         let previous = self.expressions.entry((owner, instruction)).or_default();
         if previous.iter().any(|(ty, transport)| **ty == *expected && *transport == returned) { return; }
         previous.push((Arc::clone(&expected), returned));
-        self.pending.push(Obligation::Expression(owner, instruction, expected, returned));
+        self.pending.push(Obligation::Expression(owner, instruction, expected, returned, fact));
     }
 
     fn binding(&mut self, owner: u32, at: usize, slot: usize) -> Result<ProducerBinding, IrVerifyError> {
@@ -1207,6 +1262,31 @@ impl<'a> ProducerProof<'a> {
         }
     }
 
+    fn conditional_producer_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize,
+        arms: impl Iterator<Item = Result<usize, IrVerifyError>>) -> Result<Option<Arc<Type>>, IrVerifyError>
+    {
+        let mut known = Vec::new();
+        let mut unknown = false;
+        for arm in arms {
+            self.budget.charge(1)?;
+            let Some(arm) = decoder.checked_branch_value_instruction(arm?)? else { continue };
+            match self.need_context(decoder, arm)? {
+                Some(ty) => known.push(ty),
+                None => unknown = true,
+            }
+        }
+        let candidate = FullDecoder::checked_branch_result_type_with((0..known.len()).map(Ok), |index| {
+            self.budget.charge(1)?;
+            Ok(Some(Arc::clone(&known[index])))
+        })?;
+        let Some(candidate) = candidate else { return Ok(None) };
+        if unknown {
+            ensure_substitution_type(&candidate)?;
+            self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
+        }
+        Ok(Some(candidate))
+    }
+
     fn derive_unannotated_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let literal = match decoder.expression_view(instruction)? {
             schema::ExprView::Null => Some(Type::Null),
@@ -1292,22 +1372,14 @@ impl<'a> ProducerProof<'a> {
                 };
             }
             schema::ExprView::IfExpr { branches, else_value, .. } => {
-                return FullDecoder::checked_branch_result_type_with(
+                return self.conditional_producer_type(decoder, instruction,
                     branches.map(|branch| branch.map(|(_, value)| value.raw() as usize))
-                        .chain(std::iter::once(Ok(else_value.raw() as usize)))
-                        .map(|instruction| instruction.and_then(|instruction| decoder.checked_branch_value_instruction(instruction)))
-                        .filter_map(Result::transpose),
-                    |instruction| self.need_context(decoder, instruction),
-                );
+                        .chain(std::iter::once(Ok(else_value.raw() as usize))));
             }
             schema::ExprView::PatternIf { branches, else_value, .. } => {
-                return FullDecoder::checked_branch_result_type_with(
+                return self.conditional_producer_type(decoder, instruction,
                     branches.map(|branch| branch.map(|(_, value, _)| value.raw() as usize))
-                        .chain(std::iter::once(Ok(else_value.raw() as usize)))
-                        .map(|instruction| instruction.and_then(|instruction| decoder.checked_branch_value_instruction(instruction)))
-                        .filter_map(Result::transpose),
-                    |instruction| self.need_context(decoder, instruction),
-                );
+                        .chain(std::iter::once(Ok(else_value.raw() as usize))));
             }
             schema::ExprView::MatchExpr { mut arms, .. } => {
                 let mut output: Option<Arc<Type>> = None;
@@ -2096,10 +2168,12 @@ impl<'a> ProducerProof<'a> {
                         let Type::List(item) = expected.as_ref() else { return Err(IrVerifyError::new("ground rest parameter has no list contract")) };
                         Arc::new((**item).clone())
                     } else { expected };
+                    self.contextual_argument(decoder, instruction, &expected)?;
                     self.expression(decoder.owner, instruction, expected, false);
                 }
                 ProducerArgument::Splice(instruction) => {
                     if !rest { return Err(IrVerifyError::new("ground producer splice has no rest parameter")); }
+                    self.contextual_argument(decoder, instruction, &expected)?;
                     self.expression(decoder.owner, instruction, expected, false);
                 }
             }
@@ -2113,22 +2187,42 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn finish(&mut self) -> Result<(), IrVerifyError> {
-        while let Some(obligation) = self.pending.pop() {
-            self.budget.charge(1)?;
-            match obligation {
-                Obligation::Function(index) => {
-                    let owner = function_owner(index)?;
-                    let decoder = self.owner(owner)?;
-                    let expected = self.contract_type(decoder.function_return_type(index)?)?;
-                    for returned in self.index.owners[&owner].header_returns().copied().collect::<Vec<_>>() {
-                        let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { unreachable!("ground producer return index contains a non-return") };
-                        self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);
+        loop {
+            while let Some(obligation) = self.pending.pop() {
+                self.budget.charge(1)?;
+                match obligation {
+                    Obligation::Function(index) => {
+                        let owner = function_owner(index)?;
+                        let decoder = self.owner(owner)?;
+                        let expected = self.contract_type(decoder.function_return_type(index)?)?;
+                        for returned in self.index.owners[&owner].header_returns().copied().collect::<Vec<_>>() {
+                            let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { unreachable!("ground producer return index contains a non-return") };
+                            self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);
+                        }
                     }
+                    Obligation::Expression(owner, instruction, expected, returned, fact) => self.verify_expression(owner, instruction, expected, returned, fact)?,
+                    Obligation::Slot(owner, binding, slot, expected) => self.verify_slot(owner, binding, slot, expected)?,
+                    Obligation::PipelinePrefix(owner, pipeline, end, expected) => self.verify_pipeline_prefix(owner, pipeline, end, expected)?,
+                    Obligation::Storage(binding, expected) => self.verify_storage(binding, expected)?,
                 }
-                Obligation::Expression(owner, instruction, expected, returned) => self.verify_expression(owner, instruction, expected, returned)?,
-                Obligation::Slot(owner, binding, slot, expected) => self.verify_slot(owner, binding, slot, expected)?,
-                Obligation::PipelinePrefix(owner, pipeline, end, expected) => self.verify_pipeline_prefix(owner, pipeline, end, expected)?,
-                Obligation::Storage(binding, expected) => self.verify_storage(binding, expected)?,
+            }
+            if self.deferred_sources.is_empty() { break; }
+            for ((owner, binding), source) in std::mem::take(&mut self.deferred_sources) {
+                self.budget.charge(1)?;
+                let (actual_source, expected) = self.contextual_sources.get(&(owner, binding)).cloned()
+                    .ok_or_else(|| IrVerifyError::new("contextual aggregate subject has no authenticated consumer contract"))?;
+                if actual_source != source { return Err(IrVerifyError::new("contextual aggregate subject has a different source binding")); }
+                for required in self.contextual_reads.remove(&(owner, binding)).into_iter().flatten() {
+                    self.budget.charge_clone(&required)?;
+                    if !expected.matches_expected(&required)
+                        || !super::initializer_type_matches_annotation(&expected, &required, &mut self.budget, 0)?
+                    { return Err(IrVerifyError::new("contextual aggregate read disagrees with its consumer contract")); }
+                }
+                let decoder = self.owner(owner)?;
+                if let Some(context) = self.need_context(&decoder, source)? && context != expected {
+                    return Err(IrVerifyError::new("contextual aggregate hint disagrees with its consumer contract"));
+                }
+                self.expression(owner, source, expected, false);
             }
         }
         Ok(())
@@ -2191,7 +2285,8 @@ impl<'a> ProducerProof<'a> {
         }
     }
 
-    fn verify_expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {
+    fn verify_expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool, fact: Option<DeclaredProducerFact>) -> Result<(), IrVerifyError> {
+        let declared = fact.map(|fact| fact.into_type(owner, instruction)).transpose()?;
         let decoder = self.owner(owner)?;
         self.budget.charge(1)?;
         let expected = if expected.as_ref() == &Type::Any && self.store.tags[instruction] == FullTag::ExprCapture {
@@ -2218,8 +2313,21 @@ impl<'a> ProducerProof<'a> {
             self.function(target.index());
             return Ok(());
         }
-        if expected.unvalidated() == &Type::ErasedRecord && matches!(decoder.expression_view(instruction)?, schema::ExprView::Record(_)) { return Ok(()); }
-        let actual = self.declared_type(&decoder, instruction)?;
+        let actual = match declared {
+            Some(actual) => Some(actual),
+            None => self.declared_type(&decoder, instruction)?,
+        };
+        if matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _))
+            && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
+            && let Some(source) = self.fresh_contextual_argument_source(&decoder, instruction)?
+            && self.declared_type(&decoder, source)?.is_none()
+        {
+            let binding = self.binding(owner, instruction, slot)?;
+            self.deferred_sources.insert((owner, binding), source);
+            self.budget.charge_clone(&expected)?;
+            self.contextual_reads.entry((owner, binding)).or_default().push(Arc::clone(&expected));
+            return Ok(());
+        }
         let contextual_list_source = if matches!(expected.as_ref(), Type::List(_))
             && actual.as_ref().is_none_or(|actual| !actual.matches_expected(&expected))
         { self.fresh_contextual_list_source(&decoder, instruction)? } else { None };
@@ -2259,7 +2367,14 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, contextual_list_source.unwrap(), expected, false);
                 Ok(())
             }
-            schema::ExprView::Param(slot) => self.slot(owner, instruction, slot, actual.unwrap_or(expected)),
+            schema::ExprView::Param(slot) => {
+                let binding = self.binding(owner, instruction, slot)?;
+                if let Some((source, contract)) = self.contextual_sources.get(&(owner, binding)).cloned() {
+                    if contract.as_ref() != expected.as_ref() { return Err(IrVerifyError::new("contextual aggregate read disagrees with its consumer contract")); }
+                    self.expression(owner, source, contract, false);
+                    Ok(())
+                } else { self.slot(owner, instruction, slot, actual.unwrap_or(expected)) }
+            },
             schema::ExprView::Glob { .. } | schema::ExprView::LastStatus { .. } => Ok(()),
             schema::ExprView::Range { start, end, .. } => {
                 if !Type::Stream(Box::new(Type::Int)).matches_expected(&expected) { return Err(IrVerifyError::new("range producer has an incompatible stream contract")); }
@@ -2424,13 +2539,19 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, base.raw() as usize, ty, false);
                 Ok(())
             }
-            schema::ExprView::Record(mut fields) => {
-                if expected.unvalidated() == &Type::ErasedRecord { return Ok(()); }
+            schema::ExprView::Record(_) => {
+                let RecordProducerWriters { writers, mut unresolved, .. } = self.record_field_writers(&decoder, instruction)?;
+                if expected.unvalidated() == &Type::ErasedRecord {
+                    if !unresolved.is_empty() { return Err(IrVerifyError::new("record field has no producer contract")); }
+                    return Ok(());
+                }
                 let Type::Record(expected_fields) = expected.unvalidated() else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
-                let writers = decoder.checked_record_field_writers(&mut fields, |value| self.need_context(&decoder, value)?.ok_or_else(|| IrVerifyError::new("ground record spread has no producer contract")))?;
                 for (name, expected) in expected_fields.iter() {
                     match writers.get(name) {
-                        Some(super::super::CheckedRecordFieldWriter::Value(value)) => self.expression(owner, *value, Arc::new(expected.clone()), false),
+                        Some(super::super::CheckedRecordFieldWriter::Value(value)) => {
+                            unresolved.remove(value);
+                            self.expression(owner, *value, Arc::new(expected.clone()), false);
+                        },
                         Some(super::super::CheckedRecordFieldWriter::Spread { instruction, fields }) => {
                             let Type::Record(source) = fields.unvalidated() else { unreachable!("record spread writer has a non-record field contract") };
                             if !decoder.checked_type_fits(&source[name], expected) { return Err(IrVerifyError::new("ground record last spread writer disagrees with its result field contract")); }
@@ -2439,6 +2560,7 @@ impl<'a> ProducerProof<'a> {
                         None => return Err(IrVerifyError::new("ground record producer omits a required field")),
                     }
                 }
+                if !unresolved.is_empty() { return Err(IrVerifyError::new("record field has no producer contract")); }
                 Ok(())
             }
             schema::ExprView::Loop { .. } => {
@@ -2621,8 +2743,14 @@ impl<'a> ProducerProof<'a> {
                     self.expression(owner, subject as usize, expected, returned);
                     return Ok(());
                 }
-                let subject = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new(format!("ground match expression has no subject contract at owner {owner}, instruction {instruction}, subject {} {:?}", value.raw(), self.store.tags[value.raw() as usize])))?;
-                self.expression(owner, value.raw() as usize, subject, false);
+                if self.declared_type(&decoder, value.raw() as usize)?.is_none()
+                    && let Some((binding, source)) = self.contextual_match_binding(&decoder, instruction)?
+                {
+                    self.deferred_sources.insert((owner, binding), source);
+                } else {
+                    let subject = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new(format!("ground match expression has no subject contract at owner {owner}, instruction {instruction}, subject {} {:?}", value.raw(), self.store.tags[value.raw() as usize])))?;
+                    self.expression(owner, value.raw() as usize, subject, false);
+                }
                 for arm in &mut arms {
                     let (_, guard, value) = arm?;
                     if let Some(guard) = guard { self.expression(owner, guard.raw() as usize, Arc::new(Type::Bool), false); }
@@ -2690,9 +2818,18 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::CheckedValue { check, value, .. } => {
                 let checked = self.contract_type(check.ty.id)?;
                 if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
-                if check.schema.is_some() || !super::runtime_complete_storage_check_type(&checked, &mut self.budget)? {
+                let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                if check.schema.is_none() {
+                    let input = value.raw() as usize;
+                    if !self.checked_record_arguments(&decoder, input, &checked)? {
+                        let actual = self.need_context(&decoder, input)?.ok_or_else(|| IrVerifyError::new("checked value input has no producer contract"))?;
+                        if !(!runtime_complete && Self::checked_optional_payload_source(&actual, &checked)) && !self.checked_record_field_fits(&decoder, input, &actual, &checked)? { return Err(IrVerifyError::new("checked value input disagrees with its contract")); }
+                        self.expression(owner, input, actual, false);
+                    }
+                }
+                if !runtime_complete {
                     let source = if check.schema.is_none() {
-                        self.need_context(&decoder, value.raw() as usize)?.filter(|source| matches!(source.as_ref(), Type::Optional(payload) if payload.as_ref() == checked.as_ref())).unwrap_or(checked)
+                        self.need_context(&decoder, value.raw() as usize)?.filter(|source| Self::checked_optional_payload_source(source, &checked)).unwrap_or(checked)
                     } else { checked };
                     self.expression(owner, value.raw() as usize, source, false);
                 }
@@ -3018,7 +3155,15 @@ impl<'a> ProducerProof<'a> {
         }
     }
 
+    fn native_argument_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<NativeArgumentContext, IrVerifyError> {
+        Ok(match self.declared_type(decoder, instruction)? {
+            Some(ty) => NativeArgumentContext::Declared(DeclaredProducerFact { owner: decoder.owner, instruction, ty }),
+            None => NativeArgumentContext::Contextual(self.need_context(decoder, instruction)?),
+        })
+    }
+
     fn verify_native_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, op: super::super::RuntimeOp, call_plan: Option<&crate::runtime::eval::ModuleCallPlan>, arguments: Vec<Option<usize>>, expected: &Type) -> Result<(), IrVerifyError> {
+        let actuals = (0..arguments.len()).map(|_| OnceCell::new()).collect::<Vec<OnceCell<NativeArgumentContext>>>();
         let (result, parameters, effects, pure) = if let Some(bridge) = crate::stdlib::bridge_contract(op) {
             (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), bridge.sig.effects.unwrap_or_default(), bridge.pure)
         } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan {
@@ -3039,7 +3184,11 @@ impl<'a> ProducerProof<'a> {
                 for (position, parameter) in signature.params.iter().enumerate() {
                     match arguments.get(position).copied().flatten() {
                         Some(argument) if parameter.ty != Type::Any => {
-                            if let Some(actual) = self.need_context(&decoder, argument)?
+                            if actuals[position].get().is_none() {
+                                let context = self.native_argument_context(decoder, argument)?;
+                                if actuals[position].set(context).is_err() { return Err(IrVerifyError::new("native argument context was already derived")); }
+                            }
+                            if let Some(actual) = actuals[position].get().unwrap().ty()
                                 && !actual.matches_expected(&parameter.ty)
                                 && !self.contextual_list_argument(&decoder, argument, &parameter.ty)?
                             {
@@ -3072,11 +3221,20 @@ impl<'a> ProducerProof<'a> {
         self.require_callable_effects(&decoder, instruction, Some(&effects), pure)?;
         if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground native result disagrees with its operation contract")); }
         if arguments.len() > parameters.len() { return Err(IrVerifyError::new("ground native operation has excess arguments")); }
+        let mut actuals = actuals.into_iter();
         for (position, (parameter, defaulted)) in parameters.into_iter().enumerate() {
+            let actual = actuals.next().and_then(OnceCell::into_inner);
             match arguments.get(position).copied().flatten() {
                 Some(argument) => {
+                    self.contextual_argument(decoder, argument, &parameter)?;
+                    let (actual, fact) = if parameter == Type::Any { (None, None) } else {
+                        match actual {
+                            Some(actual) => actual.into_parts(),
+                            None => self.native_argument_context(decoder, argument)?.into_parts(),
+                        }
+                    };
                     let expected = if parameter == Type::Any { Arc::new(parameter) }
-                    else if let Some(actual) = self.need_context(&decoder, argument)? {
+                    else if let Some(actual) = actual {
                         if actual.matches_expected(&parameter) {
                             actual
                         } else if self.contextual_list_argument(&decoder, argument, &parameter)? {
@@ -3085,7 +3243,7 @@ impl<'a> ProducerProof<'a> {
                             return Err(IrVerifyError::new("ground native argument disagrees with its operation contract"));
                         }
                     } else { Arc::new(parameter) };
-                    self.expression(decoder.owner, argument, expected, false);
+                    self.expression_with_fact(decoder.owner, argument, expected, false, fact);
                 }
                 None if defaulted => {}
                 None => return Err(IrVerifyError::new("ground native operation omits a required argument")),
@@ -3094,40 +3252,179 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn fresh_contextual_list_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
+    fn contextual_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {
+        self.budget.charge(1)?;
+        if self.store.tags[instruction] != FullTag::ExprMatch { return Ok(None); }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(instruction)? else { unreachable!("contextual match tag has another view") };
+        if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap) { return Ok(None); }
+        let Some((pattern, guard, body)) = arms.next().transpose()? else { return Ok(None) };
+        if guard.is_some() || arms.next().transpose()?.is_some() { return Ok(None); }
+        let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())? else { return Ok(None) };
+        let binding = ProducerBinding::ScopedDeclaration(body.raw() as usize, slot);
+        let owner = &self.index.owners[&decoder.owner];
+        let Some(source) = owner.pattern_sources.get(&binding) else { return Ok(None) };
+        if source.source != value.raw() as usize || source.pattern != pattern.raw() || !source.preceding.is_empty()
+            || owner.parents[body.raw() as usize - owner.range.start] != Some(instruction)
+            || owner.writers.get(&binding).is_some_and(|writers| !writers.is_empty())
+            || matches!(owner.header_binding(self.store, decoder.owner, slot)?, Some(ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_)))
+        { return Ok(None); }
+        Ok(Some((binding, source.source)))
+    }
+
+    fn fresh_contextual_argument_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
         self.budget.charge(1)?;
         let key = (decoder.owner, argument);
         if let Some(source) = self.fresh_lists.get(&key) { return Ok(*source); }
-        let source = self.derive_fresh_contextual_list_source(decoder, argument)?;
+        let source = match decoder.expression_view(argument)? {
+            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap => Some(argument),
+            schema::ExprView::Param(slot) => {
+                let binding = self.binding(decoder.owner, argument, slot)?;
+                match binding {
+                    ProducerBinding::ScopedDeclaration(result, _) => {
+                        let owner = &self.index.owners[&decoder.owner];
+                        match owner.parents[result - owner.range.start] {
+                            Some(parent) => self.contextual_match_binding(decoder, parent)?.filter(|(actual, _)| *actual == binding).map(|(_, source)| source),
+                            None => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         self.fresh_lists.insert(key, source);
         Ok(source)
     }
 
-    fn derive_fresh_contextual_list_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
-        let slot = match decoder.expression_view(argument)? {
-            schema::ExprView::List(_) | schema::ExprView::ListBuild(_) => return Ok(Some(argument)),
-            schema::ExprView::Param(slot) => slot,
-            _ => return Ok(None),
-        };
+    fn fresh_contextual_list_source(&mut self, decoder: &FullDecoder<'a>, argument: usize) -> Result<Option<usize>, IrVerifyError> {
+        Ok(self.fresh_contextual_argument_source(decoder, argument)?.filter(|&source| matches!(self.store.tags[source], FullTag::ExprList | FullTag::ExprListBuild)))
+    }
+
+    fn contextual_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!(expected, Type::List(_) | Type::Map(_, _)) { return Ok(false); }
+        let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(false) };
+        let Some(source) = self.fresh_contextual_argument_source(decoder, argument)? else { return Ok(false) };
+        if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
+        if !matches!((self.store.tags[source], expected),
+            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap, Type::Map(_, _)))
+        { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
+        ensure_substitution_type(expected)?;
         let binding = self.binding(decoder.owner, argument, slot)?;
-        let owner = &self.index.owners[&decoder.owner];
-        let Some(source) = owner.pattern_sources.get(&binding) else { return Ok(None) };
-        if !source.preceding.is_empty() || owner.writers.get(&binding).is_some_and(|writers| !writers.is_empty()) {
-            return Ok(None);
+        let key = (decoder.owner, binding);
+        self.deferred_sources.insert(key, source);
+        match self.contextual_sources.get(&key) {
+            Some((actual_source, actual)) if *actual_source != source || actual.as_ref() != expected => return Err(IrVerifyError::new("contextual aggregate argument has conflicting consumer contracts")),
+            Some(_) => {},
+            None => {
+                self.budget.charge_clone(expected)?;
+                self.contextual_sources.insert(key, (source, Arc::new(expected.clone())));
+            },
         }
-        let ProducerBinding::ScopedDeclaration(result, _) = binding else { return Ok(None) };
-        let Some(parent) = owner.parents[result - owner.range.start] else { return Ok(None) };
-        let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(parent)? else { return Ok(None) };
-        let Some(arm) = arms.next().transpose()? else { return Ok(None) };
-        let (pattern, guard, body) = arm;
-        if arms.next().transpose()?.is_some() || guard.is_some() || body.raw() as usize != result
-            || pattern.raw() != source.pattern || value.raw() as usize != source.source
-            || !matches!(decoder.checked_pattern_view(pattern.raw())?, schema::PatternView::Bind { slot: bound } if bound == slot)
-        {
-            return Ok(None);
+        Ok(true)
+    }
+
+    fn record_field_writers(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<RecordProducerWriters, IrVerifyError> {
+        let schema::ExprView::Record(mut fields) = decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("record producer has no physical record")) };
+        self.budget.charge(fields.len())?;
+        let writers = decoder.checked_record_field_writers(&mut fields, |source| self.need_context(decoder, source)?.ok_or_else(|| IrVerifyError::new("record spread has no producer contract")))?;
+        let schema::ExprView::Record(mut fields) = decoder.expression_view(instruction)? else { unreachable!() };
+        self.budget.charge(fields.len())?;
+        let mut unresolved = BTreeSet::new();
+        let mut types = BTreeMap::new();
+        for entry in decoder.checked_record_entries(&mut fields)? {
+            let (value, effective) = match entry {
+                super::super::CheckedRecordEntry::Field(name, value) => (value, matches!(writers.get(&name), Some(super::super::CheckedRecordFieldWriter::Value(actual)) if *actual == value)),
+                super::super::CheckedRecordEntry::Spread(value) => (value, false),
+            };
+            match self.need_context(decoder, value)? {
+                Some(actual) => {
+                    types.insert(value, Arc::clone(&actual));
+                    self.expression(decoder.owner, value, actual, false);
+                }
+                None if effective => { unresolved.insert(value); },
+                None => return Err(IrVerifyError::new("overwritten record entry has no producer contract")),
+            }
         }
-        if matches!(owner.header_binding(self.store, decoder.owner, slot)?, Some(ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_))) { return Ok(None); }
-        Ok(matches!(decoder.expression_view(source.source)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)).then_some(source.source))
+        Ok(RecordProducerWriters { writers, unresolved, types })
+    }
+
+    fn checked_record_arguments(&mut self, decoder: &FullDecoder<'a>, instruction: usize, checked: &Type) -> Result<bool, IrVerifyError> {
+        if self.store.tags[instruction] != FullTag::ExprRecord { return Ok(false); }
+        let record = match checked.unvalidated() {
+            Type::Record(_) => checked.unvalidated(),
+            Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)) => payload,
+            _ => return Ok(false),
+        };
+        let Type::Record(expected) = record else { unreachable!() };
+        let RecordProducerWriters { writers, mut unresolved, types } = self.record_field_writers(decoder, instruction)?;
+        for name in expected.keys() {
+            self.budget.charge(1)?;
+            if !writers.contains_key(name) { return Err(IrVerifyError::new("checked record producer omits a required field")); }
+        }
+        for (name, writer) in writers {
+            self.budget.charge(1)?;
+            match writer {
+                super::super::CheckedRecordFieldWriter::Value(value) => {
+                    let contextual = match expected.get(&name) {
+                        Some(ty) => self.contextual_argument(decoder, value, ty)?,
+                        None => false,
+                    };
+                    if let (Some(actual), Some(expected)) = (types.get(&value), expected.get(&name)) {
+                        if !self.checked_record_field_fits(decoder, value, actual, expected)? { return Err(IrVerifyError::new("checked record field disagrees with its contract")); }
+                    }
+                    if unresolved.remove(&value) {
+                        let ty = expected.get(&name).ok_or_else(|| IrVerifyError::new("checked record field has no producer contract"))?;
+                        if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord) {
+                            return Err(IrVerifyError::new("checked record field has no producer contract"));
+                        }
+                        self.budget.charge_clone(ty)?;
+                        self.expression(decoder.owner, value, Arc::new(ty.clone()), false);
+                    }
+                }
+                super::super::CheckedRecordFieldWriter::Spread { instruction, fields } => {
+                    let Type::Record(actual) = fields.unvalidated() else { unreachable!() };
+                    if let Some(expected) = expected.get(&name) {
+                        let expected = match expected { Type::Validated(validated) => validated.base(), _ => expected };
+                        if !decoder.checked_type_fits(&actual[&name], expected) && !self.checked_storage_record_fields_fit(decoder, &actual[&name], expected, 0)? { return Err(IrVerifyError::new("checked record spread field disagrees with its contract")); }
+                    }
+                    self.expression(decoder.owner, instruction, fields, false);
+                }
+            }
+        }
+        if !unresolved.is_empty() { return Err(IrVerifyError::new("checked record field has no producer contract")); }
+        Ok(true)
+    }
+
+    fn checked_optional_payload_source(source: &Type, checked: &Type) -> bool {
+        matches!(source, Type::Optional(payload) if payload.as_ref() == checked)
+    }
+
+    fn checked_record_field_fits(&mut self, decoder: &FullDecoder<'a>, value: usize, actual: &Type, expected: &Type) -> Result<bool, IrVerifyError> {
+        let expected = match expected { Type::Validated(validated) => validated.base(), _ => expected };
+        if decoder.checked_type_fits(actual, expected) { return Ok(true); }
+        if matches!((actual, expected), (Type::Record(_), Type::Record(_))) && self.checked_storage_record_fields_fit(decoder, actual, expected, 0)? { return Ok(true); }
+        if let Type::Optional(payload) = actual
+            && decoder.checked_type_fits(payload, expected)
+            && self.optional_read_is_narrowed(decoder, value, actual)?
+        { return Ok(true); }
+        Ok(false)
+    }
+
+    fn checked_storage_record_fields_fit(&mut self, decoder: &FullDecoder<'a>, actual: &Type, expected: &Type, depth: usize) -> Result<bool, IrVerifyError> {
+        if depth > 128 { return Err(IrVerifyError::new("checked storage record nesting is too deep")); }
+        self.budget.charge(1)?;
+        let expected = match expected {
+            Type::Validated(validated) if !matches!(validated.validation(), crate::sema::validated::Validation::Nominal(_)) => validated.base(),
+            _ => expected,
+        };
+        if decoder.checked_type_fits(actual, expected) { return Ok(true); }
+        let (Type::Record(actual), Type::Record(expected)) = (actual, expected) else { return Ok(false) };
+        for (name, expected) in expected.iter() {
+            self.budget.charge(1)?;
+            let Some(actual) = actual.get(name) else { return Ok(false) };
+            if !self.checked_storage_record_fields_fit(decoder, actual, expected, depth + 1)? { return Ok(false); }
+        }
+        Ok(true)
     }
 
     fn contextual_list_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
@@ -3451,7 +3748,10 @@ impl<'a> ProducerProof<'a> {
         if !result.matches_expected(expected) {
             return Err(IrVerifyError::new("ground method result disagrees with its selected contract"));
         }
-        for (&argument, parameter) in arguments.iter().zip(&signature.params) { self.expression(decoder.owner, argument, Arc::new(parameter.ty.clone()), false); }
+        for (&argument, parameter) in arguments.iter().zip(&signature.params) {
+            self.contextual_argument(decoder, argument, &parameter.ty)?;
+            self.expression(decoder.owner, argument, Arc::new(parameter.ty.clone()), false);
+        }
         Ok(())
     }
 
@@ -4228,4 +4528,20 @@ fn function_index(owner: u32) -> Result<usize, IrVerifyError> {
 
 fn function_owner(index: usize) -> Result<u32, IrVerifyError> {
     IrFunctionId::new(index).map(IrFunctionId::raw).map_err(|_| IrVerifyError::new("ground producer function index is invalid"))
+}
+
+#[cfg(test)]
+mod declared_producer_fact_tests {
+    use super::*;
+
+    #[test]
+    fn facts_reject_owner_or_instruction_substitution() {
+        let owner = function_owner(0).unwrap();
+        let fact = || DeclaredProducerFact { owner, instruction: 7, ty: Arc::new(Type::Int) };
+        assert_eq!(*fact().into_type(owner, 7).unwrap(), Type::Int);
+        for (actual_owner, actual_instruction) in [(function_owner(1).unwrap(), 7), (owner, 8)] {
+            let error = fact().into_type(actual_owner, actual_instruction).unwrap_err();
+            assert_eq!(error.message, "declared producer fact belongs to another expression");
+        }
+    }
 }

@@ -411,7 +411,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
         .ok()?;
         let lowered =
-            self.lower_expanded_argument_values(&expanded, slots, current_function, None)?;
+            self.lower_expanded_argument_values(&expanded, None, slots, current_function, None)?;
         let mut values = vec![None; params.len()];
         let mut types = vec![None; params.len()];
         let mut booleans = vec![Some(false); params.len()];
