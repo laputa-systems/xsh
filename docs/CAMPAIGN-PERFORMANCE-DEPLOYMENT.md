@@ -97,6 +97,16 @@ Four poisoned-lock failures follow the driver failure. Repair each cause through
 its exact controls before retrying the full boundary on a fresh source.
 The failed receipt remains in `full-inference-producers-qualified-r2`; owned
 cleanup resolves and no combined acceptance follows.
+The private-proc test correction and Result-tail repair are integrated. The
+original Pure parameter test remains, and both exact declaration tests pass.
+The tail repair preserves actual Result forwarding and cleanup order on both
+execution routes; all fifteen networking regressions pass with matching products.
+Library effect repair `f467bb0e0` is also integrated. Both original loaded-module
+regressions pass. Two new controls reject forged reserved callees, enforce
+implementation effect contracts and retain concrete Result error transport.
+On Linux, `unix.uptime_seconds` now requires `fs`, matching its shipped file
+reader; other platforms retain `process`. Fresh combined qualification remains
+required before any compiler-prefix merge to master.
 The separate named-cause source checks successfully but fails preparation when
 its propagated Err is behind a named-argument Match carrier. Repair remains
 mandatory; no fabricated success type or broad verifier fallback is accepted.
