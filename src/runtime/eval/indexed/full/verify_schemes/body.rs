@@ -698,26 +698,7 @@ mod tests {
             Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize),
             _ => None,
         }).unwrap();
-        let schema::ExprView::Param(temporary) = decoder.expression_view(assigned).unwrap() else { panic!("assignment retains its evaluated value") };
-        let (initializer, declaration) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::Let { slot, value, .. }) if slot == temporary => Some((value.raw() as usize, instruction)),
-            _ => None,
-        }).unwrap();
-        assert!(matches!(decoder.expression_view(initializer).unwrap(), schema::ExprView::Param(0)));
-        let alternate = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(1)))).unwrap();
-        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
-        let alternate_type = program.store.scheme_params[parameters.start + 1].ty;
-        let mut changed = program.clone();
-        changed.store.data[initializer] = program.store.data[alternate];
-        let alternate_node = program.store.scheme_types[alternate_type.index()];
-        for fact in &changed.store.scheme_body_facts {
-            if [initializer, assigned, declaration].contains(&(fact.instruction as usize)) {
-                assert_ne!(fact.ty, program.store.scheme_params[parameters.start].ty);
-                let node = &mut changed.store.scheme_types[fact.ty.index()];
-                assert_eq!(node.tag, alternate_node.tag);
-                node.first = alternate_node.first;
-            }
-        }
+        let changed = retarget_comprehension_operand(&program, owner, scheme, assigned, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
     }
 
@@ -1703,6 +1684,10 @@ mod tests {
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
         let actual = program.store.scheme_types[program.store.scheme_params[parameters.start + to].ty.index()];
+        let mut actual = actual;
+        while actual.tag == FullSchemeTypeTag::List {
+            actual = program.store.scheme_types[SchemeTypeId::from_raw(actual.first).unwrap().index()];
+        }
         let mut pending = vec![root];
         let mut instructions = BTreeSet::new();
         let mut leaves = Vec::new();
@@ -1822,6 +1807,39 @@ mod tests {
         changed.store.extra.extend_from_slice(&payload);
         changed.store.data[assignment] = crate::runtime::eval::indexed::IrData::new(start, payload.len() as u32);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+    }
+
+    #[test]
+    fn generic_assignment_list_compounds_preserve_the_unsigned_payload_domain() {
+        let program = prepare("pure append(value, unsigned: List[UInt], signed: List[Int]) { var items = unsigned; items += unsigned; value }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 2);
+        let changed_decoder = decoder_for_function(&changed.store, owner).unwrap();
+        let source = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(changed_decoder.expression_view(*instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+        assert!(matches!(decoder.expression_view(source).unwrap(), schema::ExprView::Param(1)));
+        let scopes = verify_function_schemes(&program.store).unwrap();
+        let scope = scopes[scheme.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&changed.store);
+        for instruction in [value, source] {
+            let fact = changed.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == instruction).unwrap();
+            let actual = decode_scheme_type(&changed.store, scope, fact.ty, &mut budget, 0).unwrap();
+            assert_eq!(actual.closed_ground_type(), Some(Type::List(Box::new(Type::Int))));
+        }
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        for parameter in &program.store.scheme_params[parameters] {
+            let original = decode_scheme_type(&program.store, scope, parameter.ty, &mut budget, 0).unwrap();
+            let retained = decode_scheme_type(&changed.store, scope, parameter.ty, &mut budget, 0).unwrap();
+            assert_eq!(original, retained);
+        }
+        for fact in program.store.scheme_body_facts.iter().filter(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable) {
+            assert_eq!(decode_scheme_type(&changed.store, scope, fact.ty, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::List(Box::new(Type::UInt))));
+        }
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic compound assignment changes its list domain");
     }
 
     #[test]
@@ -2034,7 +2052,7 @@ mod tests {
         let writer = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
             Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize), _ => None,
         }).unwrap();
-        let changed = retarget_record_operand(&program, owner, scheme, writer, 0, 1);
+        let changed = retarget_comprehension_operand(&program, owner, scheme, writer, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
         let mut immutable = program.clone();
         let declaration = immutable.store.scheme_body_facts.iter_mut().find(|fact| fact.kind == FullSchemeBodyFactKind::LocalMutable).unwrap();
