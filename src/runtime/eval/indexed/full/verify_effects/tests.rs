@@ -3255,3 +3255,56 @@ assert sample("word")? == "word"
         assert!(FullVerifier::verify(&forged).is_err());
     });
 }
+
+#[test]
+fn recursive_proc_completion_arms_keep_application_and_formal_result_envelopes() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+pure scalar(value: Int) -> Int { value }
+pure outcome(value: Int) -> Result[Int] { Ok(value) }
+proc left(action, value, count: Int) {
+    if count == 0 { action(value) } else { right(action, value, count - 1) }
+}
+
+proc right(action, value, count: Int) { left(action, value, count) }
+assert left(scalar, 7, 0) == Ok(7)
+assert left(scalar, 7, 2) == Ok(7)
+assert right(outcome, 8, 0) == Ok(8)
+assert right(outcome, 8, 2) == Ok(8)
+proc descend(value, count: Int) {
+    if count == 0 { value } else { descend(value, count - 1) }
+}
+let stored_ok: Result[Int, Str] = Ok(9)
+let stored_error: Result[Int, Str] = Err("stored")
+assert descend(stored_ok, 0) == Ok(stored_ok)
+assert descend(stored_ok, 2) == Ok(stored_ok)
+assert descend(stored_error, 0) == Ok(stored_error)
+assert descend(stored_error, 2) == Ok(stored_error)
+"#);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let mut missing = program.clone();
+        assert!(!missing.store.scheme_application_returns.is_empty());
+        missing.store.scheme_application_returns.clear();
+        assert!(FullVerifier::verify(&missing).is_err());
+    });
+}
+
+
+#[test]
+fn recursive_proc_completion_keeps_discarded_constructor_roles() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+proc descend(value, count: Int) [] {
+    let _ = {items: map.empty(), value}
+    if count == 0 { value } else { descend(value, count - 1) }
+}
+assert descend(7, 0) == Ok(7)
+assert descend(7, 2) == Ok(7)
+assert descend("kept", 0) == Ok("kept")
+assert descend("kept", 2) == Ok("kept")
+"#);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+    });
+}

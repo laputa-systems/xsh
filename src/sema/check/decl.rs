@@ -701,23 +701,21 @@ impl Checker {
             }
         };
         let mut proc_return_sites = BTreeMap::new();
-        if matches!(scheme.return_type(), super::super::schemes::SchemeType::Parameter(_)) {
-            for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
-                let mut representative = None;
-                for site in sites {
-                    let application = match self.type_constraints.generalized_application_ordinal(site.application, effect_declaration, &callable, pending.generalized_scope()?) {
-                        Ok(Some(application)) => application,
-                        Ok(None) => continue,
-                        Err(error) => {
-                            self.error(span, &format!("proc return application has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
-                            return None;
-                        }
-                    };
-                    let candidate = super::super::schemes::SchemeProcReturnSite { application, envelope: site.envelope };
-                    if representative.is_none_or(|previous: super::super::schemes::SchemeProcReturnSite| previous.application > application) { representative = Some(candidate); }
-                }
-                proc_return_sites.insert(span, representative?);
+        for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
+            let mut representative = None;
+            for site in sites {
+                let application = match self.type_constraints.generalized_application_ordinal(site.application, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(application)) => application,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        self.error(span, &format!("proc return application has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                };
+                let candidate = super::super::schemes::SchemeProcReturnSite { application, envelope: site.envelope };
+                if representative.is_none_or(|previous: super::super::schemes::SchemeProcReturnSite| previous.application > application) { representative = Some(candidate); }
             }
+            if let Some(representative) = representative { proc_return_sites.insert(span, representative); }
         }
         let scheme_body_facts = if !callable.is_quantified()
         {

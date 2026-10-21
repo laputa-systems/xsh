@@ -538,6 +538,23 @@ mod tests {
     }
 
     #[test]
+    fn omitted_proc_return_with_authored_parameters_prepares_unit_constructor_roles() {
+        let source = concat!(
+            "proc discard(payload: Int) [] { let _ = {items: map.empty(), payload} }\n",
+            "let completed: Result[Unit] = discard(7)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "discard").unwrap();
+        let scheme = declaration.scheme.as_ref().unwrap();
+        assert_eq!(scheme.params()[0].ty.closed_ground_type(), Some(Type::Int));
+        assert_eq!(scheme.return_type().closed_ground_type(), Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error))));
+        assert!(checked.expr_types.values().all(|ty| !ty.contains_inference() && !ty.contains_recovery()));
+    }
+
+    #[test]
     fn grounded_proc_relay_preserves_original_application_return_sites() {
         let source = concat!(
             "pure first(payload: Int) -> Int { payload }\n",

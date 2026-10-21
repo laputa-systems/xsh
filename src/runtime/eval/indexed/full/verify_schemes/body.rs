@@ -782,8 +782,12 @@ pub(super) fn verify_body(
                                 .get(site.envelope as usize).ok_or_else(|| IrVerifyError::new("scheme return envelope ordinal is out of scope"))?;
                             let source = decode_scheme_type(store, scheme_scope, application.result, budget, 0)?;
                             let output = decode_scheme_type(store, scheme_scope, envelope.result, budget, 0)?;
-                            if !body_types_equal(&source, &actual) || !body_types_equal(&output, expected_return)
-                            { return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope")); }
+                            if !body_types_equal(&source, &actual) {
+                                return Err(IrVerifyError::new("application return disagrees with its actual producer or envelope"));
+                            }
+                            if !body_types_equal(&output, expected_return) {
+                                return Err(IrVerifyError::new("application return producer has no matching proc envelope"));
+                            }
                             if tails.remove(&instruction).is_some_and(|tail| !body_types_equal(&tail, &actual)) { return Err(IrVerifyError::new("application return tail disagrees with its actual producer")); }
                             nested.push(Obligation::ApplicationReturn { instruction, value: returned.raw() as usize, site });
                         } else {
