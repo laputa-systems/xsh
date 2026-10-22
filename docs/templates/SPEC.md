@@ -3125,9 +3125,14 @@ value-producing `if` and `match` branches, loops, or statically selected pure
 calls. Unguarded list indexing and slicing preserve the element relationship;
 literal record keys preserve the selected field relationship through
 compiler-created immutable temporaries. Negative literal indexes retain the ordinary from-end rule, while computed negative indexes
-still fail. Numeric, text, and duration arithmetic with concrete operand types,
-concrete-list concatenation, and unary operations retain their ordinary
-contracts. Concatenation preserves `NonEmpty` when either operand has it.
+still fail. Inferred binary arithmetic retains a relationship between both
+operand types and its result. Each call selects an existing operator signature
+from its input types; a result annotation alone does not choose the inputs.
+This covers integer and floating-point arithmetic, text and list concatenation,
+Set difference, and duration arithmetic. Duration scaling requires `Int`, and
+dividing two durations returns `Int`. Unsupported operand pairs remain type
+errors. Unary operations retain their ordinary contracts.
+Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
 Equality can retain a shared type parameter, including list membership with

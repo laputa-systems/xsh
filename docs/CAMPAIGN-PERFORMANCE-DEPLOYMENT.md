@@ -8,6 +8,31 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Matching verification products built from `ce2c89e34` execute all 121 enumerated
+full-inference native controls and eight changed legacy controls: 110 pass and
+19 fail. Every selector executes exactly once, with no previously passing
+selector regressing. Constant-key module projections and their legacy witness
+also pass through forced frames. Stream iteration cleanup passes; the caught
+iteration-error control reaches execution but lets the error escape its `try`.
+That runtime propagation failure remains open.
+
+The practical four-return comparison with these products passes its source,
+product and view guards, then stops in the original XSH check at
+`core/sort.xsh:2298:159`: `buffered_sort` exceeds the checked stream-return
+projection boundary. Reduced-source checks, Laputa, runtime selectors,
+interfaces and final comparisons do not run. This failed replay earns no
+migration credit. A preceding wrong-product-path invocation fails before any
+source check and remains separate from the actual checker failure.
+
+Arithmetic repair `74bf33f00`, integrated as `f2cc01697`, passes fifteen new
+focused Rust controls and three existing effect controls across compatible
+runs, plus independent review. Sealed input/result relationships survive
+generalization, forwarding and cold verification without runtime inference.
+Directional list refinements and fresh Set-key obligations retain rollback
+proof. Encoded requirements occupy 16 bytes and bindings 8 bytes; scheme and
+call-instantiation rows each grow by 8 bytes. Matching native and resource
+qualification remain pending.
+
 Matching verification products built from `e885b64c5` execute all 121 enumerated
 full-inference native controls and seven changed legacy controls: 105 pass and
 23 fail. Every selector executes exactly once. All previously passing selectors
