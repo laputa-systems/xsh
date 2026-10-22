@@ -8,6 +8,33 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+The combined unfiltered library replay at `6d67d40f3` selects 2,023 tests:
+2,012 pass, eight fail and three are ignored. Five failures use expectations or
+fixture premises from earlier contracts. Corrections pass all five focused
+controls, retaining forged-input rejection, dynamic-key rejection and concrete
+recursive SCC assertions. The recursive fixture now explicitly requires Int;
+integer arithmetic alone also admits UInt and can retain a generalized domain.
+
+The other three failures expose an alias initializer probing `env` as a runtime
+module value before ordinary `env.PATH` checking. Repair `1bee8e87f`, integrated
+as `a09ad8b49`, passes those three controls and two retained module/environment
+controls, plus independent review. Standard namespace-as-value rejection remains.
+The combined library replay remains failed; focused repairs do not replace it.
+
+Iteration evidence repair `42588ef3b`, integrated as `fe094a17c`, passes six
+focused controls and independent review. A checked `List[Any]` source supplies
+its derived item evidence through the canonical iteration contract. Independent
+result forgeries still reject Int-to-Any item widening; bare Any sources still
+require validation, and non-Any refinements retain their directional behavior.
+
+Proc-origin repair `a95f2e801`, integrated as `05c54556e`, passes eight focused
+controls and independent review. Inferred Proc completions already record each
+actual origin; finalization validates those facts without adding the aggregate
+tail's success envelope again. The original `sort` failure was reproduced with
+equal declared/resolved return types and an invalid double-success projection.
+The causal minimal regression goes from fail to pass. Matching products and
+practical replay remain pending.
+
 Checked-dynamic repair `38eaa017c`, integrated as `8a40f9df8`, passes eleven
 distinct focused Rust controls across compatible runs and independent review.
 Passive generic calls retain checked opaque arguments, including typed rest
