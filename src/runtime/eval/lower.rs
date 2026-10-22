@@ -1361,6 +1361,7 @@ pub(super) fn compact_function_selection(
             .chain(super::ProducerDemand::instantiated_calls(program, declarations))
             .chain(super::ProducerDemand::condition_operations(program, declarations))
             .chain(super::ProducerDemand::body_producer_operations(program, declarations))
+            .chain(super::ProducerDemand::environment_path_operations(program, declarations))
             .chain(super::ProducerDemand::process_operations(program, declarations))
             .collect::<std::collections::BTreeSet<_>>();
         let contains_proof_operation = |statement| {

@@ -3304,7 +3304,7 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Eq | BinaryOp::Ne => {
-                let (mut left_ty, mut right_ty) = if self.is_inferred_variant_expr(arena, left)
+                let (left_ty, right_ty) = if self.is_inferred_variant_expr(arena, left)
                     && !self.is_inferred_variant_expr(arena, right)
                 {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
@@ -3330,20 +3330,8 @@ impl Checker {
                 for (operand, other) in [(right, &left_ty), (left, &right_ty)] {
                     self.note_compared_variant_qualifier(arena, operand, other);
                 }
-                for (ty, span) in [(&mut left_ty, left_span), (&mut right_ty, right_span)] {
-                    if !ty.contains_inference() { continue; }
-                    *ty = match self.type_constraints.resolve(ty) {
-                        Ok(resolved) => resolved,
-                        Err(error) => {
-                            let message = match error {
-                                crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "compared type belongs to another inference problem",
-                                crate::sema::constraints::ConstraintResolutionError::TypeDepth => "compared type exceeds the supported nesting depth",
-                            };
-                            self.error(span, message, DiagnosticCode::CheckLocalInference);
-                            return Type::Invalid;
-                        }
-                    };
-                }
+                let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
+                let Ok(right_ty) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
                 let (left_ty, right_ty) = (left_ty.equality_operand_type(), right_ty.equality_operand_type());
                 if left_ty != Type::Any
                     && right_ty != Type::Any
@@ -3372,20 +3360,15 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
-                // A literal member takes its type from the keys or items it
-                // is looked up among, so the container is checked first;
-                // evaluation order is unchanged. A Path container keeps a
-                // literal as text: that membership is text containment.
                 let (left_ty, right_ty) =
                     if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
-                        let right_ty = self
-                            .check_expr_arena(arena, source, right, None)
-                            .into_unvalidated();
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let Ok(right_ty) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
+                        let right_ty = right_ty.into_unvalidated();
                         let expected = match &right_ty {
                             Type::Map(member, _) | Type::List(member) | Type::Set(member) => {
                                 self.path_literal_expectation(arena, left, member)
                             }
-                            // The entries of `env.PATH` are paths.
                             Type::EnvPathList => Some(Type::Path),
                             _ => None,
                         };
@@ -3393,11 +3376,11 @@ impl Checker {
                         (left_ty, right_ty)
                     } else {
                         let left_ty = self.check_expr_arena(arena, source, left, None);
-                        let right_ty = self
-                            .check_expr_arena(arena, source, right, None)
-                            .into_unvalidated();
-                        (left_ty, right_ty)
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let Ok(right_ty) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
+                        (left_ty, right_ty.into_unvalidated())
                     };
+                let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
                 use crate::sema::types::MembershipCheck as M;
                 match right_ty.membership_needle_type(&left_ty) {
                     M::Expected(expected) | M::Compared(expected) => self.expect_type(expected, &left_ty, left_span),
@@ -3573,6 +3556,17 @@ impl Checker {
             self.reject_dynamic_use("an arithmetic operand", target, span);
         }
         result
+    }
+
+    fn resolve_operator_operand(&mut self, ty: Type, span: Span) -> Result<Type, ()> {
+        if !ty.contains_inference() { return Ok(ty); }
+        self.type_constraints.resolve(&ty).map_err(|error| {
+            let message = match error {
+                crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "compared type belongs to another inference problem",
+                crate::sema::constraints::ConstraintResolutionError::TypeDepth => "compared type exceeds the supported nesting depth",
+            };
+            self.error(span, message, DiagnosticCode::CheckLocalInference);
+        })
     }
 
     fn resolve_field_type(&mut self, ty: &Type, span: Span) -> Result<Type, ()> {

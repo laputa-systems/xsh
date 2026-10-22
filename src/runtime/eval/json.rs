@@ -118,6 +118,7 @@ enum JsonInput<'a> {
     Runtime(&'a Value),
     Lowered(&'a LoweredValue),
     Key(MapKeyRef<'a>),
+    Path(&'a crate::runtime::value::PathValue),
 }
 
 enum JsonNode<'a> {
@@ -137,6 +138,7 @@ enum JsonNode<'a> {
 }
 
 enum JsonSequence<'a> {
+    Paths(std::slice::Iter<'a, crate::runtime::value::PathValue>),
     Runtime(std::slice::Iter<'a, Value>),
     Lowered(std::slice::Iter<'a, LoweredValue>),
     Set(std::collections::btree_set::Iter<'a, MapKey>),
@@ -201,12 +203,14 @@ struct JsonStats<'a> {
 fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
     match value {
         JsonInput::Key(key) => JsonNode::Key(key),
+        JsonInput::Path(path) => JsonNode::Unsupported(JsonInput::Path(path)),
         JsonInput::Runtime(value) => match value {
             Value::Null => JsonNode::Null,
             Value::Bool(value) => JsonNode::Bool(*value),
             Value::Int(value) => JsonNode::Int(*value),
             Value::Float(value) => JsonNode::Float(value.0),
             Value::Str(value) => JsonNode::Str(value),
+            Value::EnvPathList(paths) => JsonNode::Sequence(JsonSequence::Paths(paths.entries().iter())),
             Value::List(items) => JsonNode::Sequence(JsonSequence::Runtime(items.iter())),
             Value::Set(items) => JsonNode::Sequence(JsonSequence::Set(items.iter())),
             Value::Map(fields) => JsonNode::Map(JsonMap::Runtime(fields)),
@@ -228,6 +232,7 @@ fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
             LoweredValue::Tag(tag) if tag.wire.is_some() && tag.fields.is_empty() && tag.type_name == tag.wire.as_ref().expect("checked mapping").type_name => {
                 tag.wire.as_ref().and_then(|mapping| mapping.variants.get(&Name::intern(tag.name.as_ref()))).map_or(JsonNode::MissingWireVariant, |wire| JsonNode::Wire(wire))
             }
+            LoweredValue::EnvPathList(paths) => JsonNode::Sequence(JsonSequence::Paths(paths.entries().iter())),
             LoweredValue::List(items) => JsonNode::Sequence(JsonSequence::Lowered(items.iter())),
             LoweredValue::SharedList(items) => JsonNode::Sequence(JsonSequence::Lowered(items.iter())),
             LoweredValue::Set(items) => JsonNode::Sequence(JsonSequence::Set(items.iter())),
@@ -309,6 +314,7 @@ fn write_json(value: JsonInput<'_>, pretty: bool, sink: &mut impl JsonSink, span
 fn write_sequence(items: JsonSequence<'_>, pretty: bool, sink: &mut impl JsonSink, span: Span) -> Result<(), RuntimeError> {
     sink.begin_array();
     match items {
+        JsonSequence::Paths(paths) => for path in paths { sink.array_item(); write_json(JsonInput::Path(path), pretty, sink, span)?; },
         JsonSequence::Runtime(items) => for item in items { sink.array_item(); write_json(JsonInput::Runtime(item), pretty, sink, span)?; },
         JsonSequence::Lowered(items) => for item in items { sink.array_item(); write_json(JsonInput::Lowered(item), pretty, sink, span)?; },
         JsonSequence::Set(items) => for item in items { sink.array_item(); write_json(JsonInput::Key(item.as_ref()), pretty, sink, span)?; },
@@ -372,6 +378,7 @@ fn incompatible(value: JsonInput<'_>, span: Span) -> RuntimeError {
         JsonInput::Runtime(value) => ValueView::Runtime(value),
         JsonInput::Lowered(value) => ValueView::Lowered(value),
         JsonInput::Key(key) => ValueView::Key(key),
+        JsonInput::Path(path) => ValueView::Path(&path.bytes),
     };
     RuntimeError::new("json-compatible", format!("{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly", view.type_name())).with_span(span)
 }

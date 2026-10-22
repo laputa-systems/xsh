@@ -486,6 +486,10 @@ pub(super) fn utils_cache_key(fn_name: &str, args: &[Value]) -> Result<String, &
     Ok(key)
 }
 
+fn encode_cache_key_path(path: &PathValue) -> String {
+    format!("P{}:{}", path.bytes.len(), String::from_utf8_lossy(&path.bytes))
+}
+
 pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static str> {
     Ok(match value {
         Value::Null => "N".to_string(),
@@ -498,7 +502,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
             let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
             format!("Y{}:{}", b.len(), hex)
         }
-        Value::Path(p) => format!("P{}:{}", p.bytes.len(), String::from_utf8_lossy(&p.bytes)),
+        Value::Path(path) => encode_cache_key_path(path),
         Value::Digest(d) => {
             let hex: String = d.bytes.iter().map(|byte| format!("{byte:02x}")).collect();
             format!(
@@ -569,7 +573,14 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::Stream(_) => return Err("Stream"),
         Value::Result(_) => return Err("Result"),
         Value::Status(_) => return Err("Status"),
-        Value::EnvPathList => return Err("EnvPathList"),
+        Value::EnvPathList(paths) => {
+            let mut out = format!("L{}", paths.entries().len());
+            for path in paths.entries() {
+                let encoded = encode_cache_key_path(path);
+                out.push_str(&format!(":{}:{}", encoded.len(), encoded));
+            }
+            out
+        }
         Value::Error(_) => return Err("Error"),
         Value::RunError(_) => return Err("ProcessError"),
         Value::Callable(callable) => return Err(callable.kind().value_type_name()),

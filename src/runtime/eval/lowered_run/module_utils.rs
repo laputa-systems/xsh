@@ -150,6 +150,7 @@ impl Evaluator {
                     crate::runtime::eval::type_view::RetainedValueContract::Callable(callable) => self.prepared_callable_matches(program, value, callable, span),
                     crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                     crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
+                    crate::runtime::eval::type_view::RetainedValueContract::EnvironmentPathList => Ok(value.environment_path_snapshot().is_some()),
                 };
                 match result { Ok(matches) => matches, Err(error) => { proof_error = Some(error); false } }
             });
@@ -175,6 +176,7 @@ impl Evaluator {
                         crate::runtime::eval::type_view::RetainedValueContract::Callable(expected) => self.prepared_callable_matches(program, value, expected, span),
                         crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                         crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
+                    crate::runtime::eval::type_view::RetainedValueContract::EnvironmentPathList => Ok(value.environment_path_snapshot().is_some()),
                     };
                     match result {
                         Ok(matches) => matches,

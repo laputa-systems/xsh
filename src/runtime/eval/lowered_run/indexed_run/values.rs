@@ -223,7 +223,7 @@ pub(super) fn lowered_comp_iterable(value: LoweredValue, span: Span) -> Result<L
     match value {
         LoweredValue::ResultOk(value) => lowered_comp_iterable(*value, span),
         LoweredValue::ResultErr(error) => Err(super::super::runtime_error_from_value(*error, span)),
-        value => Ok(value),
+        value => Ok(value.materialize_list()),
     }
 }
 

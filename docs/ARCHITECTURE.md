@@ -577,6 +577,21 @@ writers, success values, and captured errors. Callable declaration kind decides
 whether a call suspends a producer; a Pure function returning a Stream executes
 its body immediately.
 
+Environment path reads retain owned snapshot entries with sealed provenance.
+The public Rust `Value::EnvPathList` variant carries an opaque
+`EnvPathListSnapshot` instead of a unit marker. Runtime-to-lowered conversion and
+clones retain that provenance; an ordinary path list cannot supply an internal
+checked view contract. The native zero-argument operation returns this checked
+view, while the one-argument `env.path_list` operation returns its ordinary
+`Result[List[Path]]` contract. Actual arity selects the native contract.
+
+Language type tests and `.require` observe snapshot entries as material list
+data, independently of internal view authentication. Successful list validation
+materializes an ordinary list, and validated list consumers use the same
+one-way projection. Membership and equality read captured entries; environment
+mutation methods evaluate their receiver and change the active environment.
+Snapshot values remain runtime-owned and cannot enter the prepared constant pool.
+
 `FullVerifier` proves spawn and wait result envelopes from actual handle and
 command operands and checks command options against canonical registry contracts.
 

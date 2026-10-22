@@ -3846,6 +3846,12 @@ observable, while ordinary scope cleanup drops capability-release errors.
   `pop()`, and `in`/`not in`. Its operands must be `Path` values; a string
   literal there is one (4.4). Its methods
   assign the environment, so they need the `env` effect like any assignment.
+  Each read captures the current entries. A stored read keeps those entries
+  when the environment changes; its methods still change the active environment.
+  Across an `Any` boundary, the captured entries retain the observable behavior
+  of `List[Path]`: list validation and type tests succeed, equality compares
+  entries, and JSON requires explicit conversion of each `Path`. A runtime
+  `EnvPathList` test or validation does not establish the checked view capability.
 
 ## 11. Processes
 

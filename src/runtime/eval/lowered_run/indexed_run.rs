@@ -1779,7 +1779,7 @@ impl Evaluator {
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
                         super::checked_storage_value(self, &value, &check, span)?;
-                        ControlFlow::Continue(value)
+                        ControlFlow::Continue(value.materialize_validated_list(&check.ty))
                     }
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }

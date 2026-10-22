@@ -4348,7 +4348,7 @@ impl Evaluator {
         span: Span,
         message: &'static str,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        match value {
+        match value.materialize_list() {
             LoweredValue::List(items) => Ok(items),
             LoweredValue::SharedList(items) => match Arc::try_unwrap(items) {
                 Ok(items) => Ok(items),
@@ -6122,12 +6122,8 @@ impl Evaluator {
             }
             callable; RuntimeOp::EnvList if values.is_empty() => return self.eval_lowered_env_list_values(values, span),
             callable; RuntimeOp::EnvPathList if values.is_empty() => {
-                let paths = self
-                    .lowered_env_path_entries(span)?
-                    .into_iter()
-                    .map(LoweredValue::Path)
-                    .collect();
-                LoweredValue::List(paths)
+                let paths = self.lowered_env_path_entries(span)?;
+                LoweredValue::EnvPathList(super::EnvPathListSnapshot::from_environment(paths))
             }
             callable; RuntimeOp::EnvPathList if values.len() == 1 => return self.eval_lowered_env_path_list_values(values, span),
             internal; RuntimeOp::EnvPathPrepend if values.len() == 1 => {

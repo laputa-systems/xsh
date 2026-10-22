@@ -1,4 +1,5 @@
-use crate::runtime::eval::{Evaluator, FullBuilder, LoweredFunctionKey, CallableKind};
+use crate::runtime::eval::{Evaluator, FullBuilder, LoweredFunctionKey, CallableKind, ValueView, value_matches_static_type, runtime_values_semantically_equal};
+use crate::runtime::eval::lowered_ops::lowered_value_from_runtime_any;
 use crate::runtime::value::{ResultValue, Value};
 use crate::sema::check::Checker;
 use crate::sema::types::Type;
@@ -2731,5 +2732,407 @@ proc escape() [time] -> Result[Stream[Int]] { scoped(rows()) }
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckContextScopeEscape)), "{:?}", checked.diagnostics);
+    });
+}
+
+#[test]
+fn generic_dedicated_path_calls_preserve_trusted_path_values() {
+    on_scoped_body_test_stack(|| {
+        for generic in [false, true] {
+            let annotation = if generic { "" } else { ": Int" };
+            let mut source = format!(r#"
+pure keep(payload{annotation}, text: Str) {{ {{payload, path: Path(text)}} }}
+let actual = keep(7, "a/../b")
+assert actual.payload == 7
+assert actual.path == p"a/../b"
+"#);
+            if generic { source.push_str("let other = keep(\"row\", \"./second\")\nassert other.payload == \"row\"\nassert other.path == p\"./second\"\n"); }
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+                }
+            }
+        }
+    });
+}
+
+fn dedicated_environment_body_case(operation: &str, expected: &str) {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let mut checks = String::from("let actual = keep(7, \"XSH_GENERIC_BUILTIN_PROBE\")?\nassert actual.payload == 7\n");
+        checks.push_str(&format!("assert actual.value == {expected}\n"));
+        if generic { checks.push_str(&format!("let other = keep(\"row\", \"XSH_GENERIC_BUILTIN_PROBE\")?\nassert other.payload == \"row\"\nassert other.value == {expected}\n")); }
+        if operation == "env(name)" { checks.push_str("assert keep(7, \"\")?.value is Err(_)\n"); }
+        let source = format!(r#"
+proc keep(payload{annotation}, name: Str) [env] {{ let _ = name; {{payload, value: {operation}}} }}
+env ({{XSH_GENERIC_BUILTIN_PROBE: "present", PATH: "/xsh/first:/xsh/second"}}) {{
+{checks}
+}}?
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_dedicated_env_calls_preserve_result_data() {
+    on_scoped_body_test_stack(|| dedicated_environment_body_case("env(name)", "Ok(\"present\")"));
+}
+
+#[test]
+fn generic_dedicated_env_literals_preserve_result_data() {
+    on_scoped_body_test_stack(|| dedicated_environment_body_case("e\"XSH_GENERIC_BUILTIN_PROBE\"", "Ok(\"present\")"));
+}
+
+#[test]
+fn generic_dedicated_env_path_views_preserve_entry_membership() {
+    on_scoped_body_test_stack(|| dedicated_environment_body_case("p\"/xsh/first\" in env.PATH", "true"));
+}
+
+#[test]
+fn generic_authored_conversions_preserve_parse_and_bound_failures() {
+    on_scoped_body_test_stack(|| {
+        for generic in [false, true] {
+            let annotation = if generic { "" } else { ": Int" };
+            let mut source = format!(r#"
+type Small = Int range 1..=9
+proc keep(payload{annotation}, text: Str) [error] {{ let number = text as Int; {{payload, number: number as Small}} }}
+let actual = keep(7, "7")?
+assert actual.payload == 7
+assert actual.number == 7
+assert keep(7, "wrong") is Err(_)
+assert keep(7, "-1") is Err(_)
+"#);
+            if generic { source.push_str("let other = keep(\"row\", \"4\")?\nassert other.payload == \"row\"\nassert other.number == 4\n"); }
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_authored_requirements_preserve_success_and_error_data() {
+    on_scoped_body_test_stack(|| {
+        for generic in [false, true] {
+            let annotation = if generic { "" } else { ": Int" };
+            let mut source = format!(r#"
+pure keep(payload{annotation}, value: Any) {{ let _ = payload; value.require(Int) }}
+assert keep(7, 7) == Ok(7)
+assert keep(7, "wrong") is Err(_)
+"#);
+            if generic { source.push_str("assert keep(\"row\", 4) == Ok(4)\nassert keep(\"row\", false) is Err(_)\n"); }
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn ordinary_environment_path_views_preserve_snapshots_and_active_mutations() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+proc snapshot() [env] { {paths: env.PATH} }
+env ({PATH: "/xsh/before"}) {
+  let held = env.PATH
+  let returned = snapshot()?.paths
+  env ({PATH: "/xsh/after"}) {
+    assert p"/xsh/before" in held
+    assert p"/xsh/before" in returned
+    assert p"/xsh/after" not in held
+    assert p"/xsh/after" in env.PATH
+    held.append(p"/xsh/added")?
+    assert p"/xsh/added" in env.PATH
+    assert p"/xsh/added" not in held
+  }?
+  assert p"/xsh/before" in env.PATH
+  assert p"/xsh/after" not in env.PATH
+}?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_environment_path_values_preserve_their_checked_view_domain() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure relay(value) { value }
+assert relay(7) == 7
+assert relay("row") == "row"
+env ({PATH: "/xsh/before"}) {
+  let held = relay(env.PATH)
+  assert p"/xsh/before" in held
+  assert p"/xsh/before" in relay(env.PATH)
+}?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+    });
+}
+
+#[test]
+fn generic_membership_resolves_actual_container_and_needle_contracts() {
+    let source = r#"
+pure relay(value) { value }
+assert "/xsh/before" in relay([p"/xsh/before"])
+assert "/xsh/missing" not in relay([p"/xsh/before"])
+assert relay(p"/xsh/before") in relay([p"/xsh/before"])
+env ({PATH: "/xsh/before"}) {
+  assert "/xsh/before" in relay(env.PATH)
+  assert relay(p"/xsh/before") in relay(env.PATH)
+}?
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    for expression in [
+        "let wrong = \"/xsh/before\"; let _ = wrong in relay([p\"/xsh/before\"])",
+        "let _ = true in relay([1])",
+        "let _ = p\"/xsh/before\" in relay(7)",
+    ] {
+        let source = format!("pure relay(value) {{ value }}\n{expression}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch | crate::diagnostic::DiagnosticCode::CheckMembershipType))), "{source}\n{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
+fn environment_path_any_boundaries_preserve_material_list_observations() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+type PathEnvelope = {paths: List[Path]}
+proc inspect(value: Any) [error] {
+  assert [value is EnvPathList, value is List[Path]] == [false, true]
+  assert value.require(EnvPathList) is Err(_)
+  let paths = value.require(List[Path])?
+  assert paths.len() == 2
+  assert paths[0] == p"/xsh/first"
+  var count = 0
+  for entry in paths { assert entry in [p"/xsh/first", p"/xsh/second"]; count += 1 }
+  assert count == 2
+  if value is List[Path] {
+    assert value.len() == 2
+    assert value[1] == p"/xsh/second"
+    var narrowed_count = 0
+    for entry in value { assert entry in paths; narrowed_count += 1 }
+    assert narrowed_count == 2
+  } else { assert false }
+  match value { selected is List[Path] => { assert selected.len() == 2; assert selected[0] == paths[0] }, _ => assert false }
+  assert value == paths
+  assert paths == value
+  let envelope: Any = {paths: value}
+  let checked = envelope.require(PathEnvelope)?
+  let nested: Any = [value]
+  let nested_paths = nested.require(List[List[Path]])?
+  assert nested_paths[0] == paths
+  let ordinary_record: Any = {items:[7]}
+  assert ordinary_record.require(Map[Str, List[Int]]) is Err(_)
+  assert checked.paths.len() == 2
+  assert checked.paths[0] == paths[0]
+  match envelope { selected is PathEnvelope => { assert selected.paths.len() == 2; assert selected.paths[1] == paths[1] }, _ => assert false }
+  match json.encode(value) {
+    Err(error) => assert error.message == "Path is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly"
+    Ok(_) => assert false
+  }
+}
+env ({PATH:"/xsh/first:/xsh/second"}) { inspect(env.PATH)?; inspect([p"/xsh/first", p"/xsh/second"])? }?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+    });
+}
+
+#[test]
+fn environment_path_any_list_patterns_preserve_material_list_observations() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure pair(value: Any) -> Bool {
+  match value { [_, _] => true, _ => false }
+}
+env ({PATH:"/xsh/first:/xsh/second"}) {
+  assert pair([p"/xsh/first", p"/xsh/second"])
+  assert pair(env.PATH)
+  assert !pair([p"/xsh/first"])
+}?
+let snapshot = env ({PATH:"/xsh/first:/xsh/second"}) { env.PATH }?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+            let (snapshot, target) = program.symbol_owner().with_current(|| {
+                (evaluator.lookup(Name::intern("snapshot")).unwrap().value.clone(), LoweredFunctionKey::Name(Name::intern("pair")))
+            });
+            assert!(matches!(&snapshot, Value::EnvPathList(_)), "actual native snapshot: {snapshot:?}");
+            assert_eq!(evaluator.call_indexed_direct(target, CallableKind::Pure, &[snapshot], Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(true));
+        }
+    });
+}
+
+#[test]
+fn environment_path_validated_list_consumers_preserve_material_list_observations() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure spliced(value: List[Path]) -> List[Path] { [@value] }
+pure left_added(value: List[Path]) -> List[Path] { let empty: List[Path] = []; value + empty }
+pure right_added(value: List[Path]) -> List[Path] { let empty: List[Path] = []; empty + value }
+pure extended(value: List[Path]) -> List[Path] { let empty: List[Path] = []; empty.extend(value) }
+pure flattened(value: List[Path]) -> List[Path] { [1] |> flat-map { |_| value } |> collect() }
+pure set_items(value: List[Path]) -> List[Path] { set.from(value).to_list() }
+let snapshot = env ({PATH:"/xsh/first:/xsh/second"}) { env.PATH }?
+let ordinary = [p"/xsh/first", p"/xsh/second"]
+assert spliced(ordinary) == ordinary
+assert left_added(ordinary) == ordinary
+assert right_added(ordinary) == ordinary
+assert extended(ordinary) == ordinary
+assert flattened(ordinary) == ordinary
+assert set_items(ordinary) == ordinary
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+            let (snapshot, ordinary) = program.symbol_owner().with_current(|| {
+                (evaluator.lookup(Name::intern("snapshot")).unwrap().value.clone(), evaluator.lookup(Name::intern("ordinary")).unwrap().value.clone())
+            });
+            assert!(matches!(&snapshot, Value::EnvPathList(_)), "actual native snapshot: {snapshot:?}");
+            let mut failures = Vec::new();
+            for name in ["spliced", "left_added", "right_added", "extended", "flattened", "set_items"] {
+                let target = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                match evaluator.call_indexed_direct(target, CallableKind::Pure, &[snapshot.clone()], Span::at(source_id, 0)).unwrap() {
+                    Ok(actual) if runtime_values_semantically_equal(&actual, &ordinary) => {}
+                    actual => failures.push(format!("{name}: {actual:?}")),
+                }
+            }
+            assert!(failures.is_empty(), "frames={force_frames}: {failures:?}");
+        }
+    });
+}
+
+#[test]
+fn dynamic_equality_preserves_any_and_optional_null_domains() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure equal(left: Any, right: Any) -> Bool { left == right }
+pure unequal(left: Any, right: Any) -> Bool { left != right }
+pure nullable(value: Int?) -> List[Bool] {
+  let absent = null
+  [value == absent, absent == value, value != absent, absent != value]
+}
+assert !equal(7, "seven")
+assert !equal("seven", 7)
+assert unequal(7, "seven")
+assert unequal("seven", 7)
+assert equal(7, 7)
+assert nullable(null) == [true, true, false, false]
+assert nullable(7) == [false, false, true, true]
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+    });
+}
+
+#[test]
+fn prepared_callable_environment_paths_reject_material_list_forgery() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+pure identity(value) { let _ = value; 7 }
+pure keep(action, value) { let _ = action(value); action }
+pure direct_value(handle: Pure, value: Any) -> Any { handle.call(value) }
+proc cached_value(handle: Pure, value: Any) -> Any { utils.cache(handle, [value]) }
+let pair = env ({PATH:"/xsh/first:/xsh/second"}) { let view = env.PATH; {view, handle: keep(identity, view)} }?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+            }
+            let (view, handle) = program.symbol_owner().with_current(|| {
+                let Value::Record(pair) = &evaluator.lookup(Name::intern("pair")).unwrap().value else { panic!("actual native view and checked instance remain in their returned record") };
+                (pair.get("view").unwrap().clone(), pair.get("handle").unwrap().clone())
+            });
+            let Value::EnvPathList(paths) = &view else { panic!("native output retains sealed snapshot provenance") };
+            assert_eq!(view.type_name(), "List");
+            assert_eq!(lowered_value_from_runtime_any(&view).unwrap().into_value(), view);
+            let forged = Value::List(paths.entries().iter().cloned().map(Value::Path).collect());
+            assert!(runtime_values_semantically_equal(&view, &forged));
+            assert!(!value_matches_static_type(ValueView::Runtime(&forged), &Type::EnvPathList));
+            for (name, kind) in [("direct_value", CallableKind::Pure), ("cached_value", CallableKind::Proc)] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                for _ in 0..2 {
+                    assert_eq!(evaluator.call_indexed_direct(key, kind, &[handle.clone(), view.clone()], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(7));
+                }
+                let error = evaluator.call_indexed_direct(key, kind, &[handle.clone(), forged.clone()], Span::at(source_id, 0)).unwrap().expect_err("material list cannot forge the captured checked view domain, including after a cache hit");
+                assert_eq!(error.kind, "type-error", "{error:?}");
+            }
+        }
     });
 }

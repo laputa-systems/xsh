@@ -357,12 +357,14 @@ fn native_operation_index(op: RuntimeOp) -> Option<&'static NativeOperationContr
             }
         }
         for (receiver, methods) in api_spec().method_entries() {
-            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot) { continue; }
+            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot | MethodReceiver::EnvPathList) { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     let signature = &overload.sig;
                     if signature.binding == ImplBinding::Native {
-                        let signature = if receiver != MethodReceiver::PathConstructor {
+                        let signature = if receiver == MethodReceiver::EnvPathList {
+                            NativeOperationContract::Internal(signature.clone())
+                        } else if receiver != MethodReceiver::PathConstructor {
                             let mut signature = signature.clone();
                             let receiver_ty = overload.receiver_ty.clone().expect("native receiver method has a registered receiver type");
                             signature.params.insert(0, ParamSig { name: "self", ty: receiver_ty, defaulted: false, label: LabelRule::Free });
@@ -380,6 +382,9 @@ fn native_operation_index(op: RuntimeOp) -> Option<&'static NativeOperationContr
         );
         signatures.entry(RuntimeOp::EnvSet).or_default().push(NativeOperationContract::Internal(
             convert_module_fn_sig("env", "set", &assignment)));
+        let path_snapshot = registry::sig(Vec::new(), xsh_registry::types::Type::EnvPathList, false, RuntimeOp::EnvPathList);
+        signatures.entry(RuntimeOp::EnvPathList).or_default().push(NativeOperationContract::Internal(
+            convert_module_fn_sig("env", "PATH", &path_snapshot)));
         for resource in xsh_registry::ManagedResource::ALL {
             let Some(release) = resource.release_op() else { continue };
             let resource_type = convert_type(&resource.resource_type());
@@ -421,16 +426,6 @@ pub(crate) fn native_static_operation_signatures(op: RuntimeOp) -> impl Iterator
 
 pub(crate) fn native_static_operation_requires_producer_proof(op: RuntimeOp) -> bool {
     native_operation_contracts(op).iter().any(|contract| !matches!(contract, NativeOperationContract::Direct(_)))
-}
-
-pub(crate) fn native_internal_operation_return_type(op: RuntimeOp) -> Option<Type> {
-    let mut signatures = native_operation_contracts(op).iter().filter_map(|contract| match contract {
-        NativeOperationContract::Internal(signature) => Some(signature),
-        _ => None,
-    });
-    let signature = signatures.next()?;
-    assert!(signatures.all(|candidate| candidate.return_ty == signature.return_ty), "internal native operation has ambiguous result contracts");
-    Some(signature.return_ty.clone())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -508,7 +503,8 @@ pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceive
     if signature.binding != ImplBinding::Native { return false; }
     if signature.op == RuntimeOp::ProcessCommandArgv { return true; }
     match receiver {
-        None | Some(MethodReceiver::PathConstructor) => native_static_operation_effect_rule(signature.op) == Some(NativeEffectRule::OperandDependent),
+        None | Some(MethodReceiver::PathConstructor | MethodReceiver::EnvPathList) => native_static_operation_requires_producer_proof(signature.op)
+            || native_static_operation_effect_rule(signature.op) == Some(NativeEffectRule::OperandDependent),
         Some(_) => native_method_effect_rules().operand_dependent.contains(&(signature as *const ModuleFnSig as usize)),
     }
 }

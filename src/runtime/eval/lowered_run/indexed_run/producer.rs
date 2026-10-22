@@ -95,7 +95,7 @@ enum DelegatedSource {
 
 impl DelegatedSource {
     fn new(evaluator: &Evaluator, value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
-        match value {
+        match value.materialize_list() {
             LoweredValue::List(items) => Ok(Self::List(DelegatedList::Owned(items.into_iter()))),
             LoweredValue::SharedList(items) => {
                 Ok(Self::List(DelegatedList::Shared { items, next: 0 }))

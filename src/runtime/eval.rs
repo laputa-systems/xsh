@@ -19,7 +19,7 @@ use crate::runtime::signal::{
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
-    CallableValue, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
+    CallableValue, EnvPathListSnapshot, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{BindingId, CheckBundleView, Checker, CompactDeclOutput};
@@ -862,6 +862,7 @@ impl ProducerDemand {
             || Self::instantiated_calls(program, declarations).next().is_some()
             || Self::condition_operations(program, declarations).next().is_some()
             || Self::body_producer_operations(program, declarations).next().is_some()
+            || Self::environment_path_operations(program, declarations).next().is_some()
             || Self::process_operations(program, declarations).next().is_some()
         {
             Self::Needed
@@ -879,6 +880,23 @@ impl ProducerDemand {
             (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Capture(_))
                 || (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::ErrorContext { .. })
                     && stream_return_item(ty).is_some())).then_some(expression.span)
+        })
+    }
+
+    fn environment_path_operations<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(id, ty)| {
+            if ty != &Type::EnvPathList { return None; }
+            let expression = program.arena.expr(*id);
+            let path_view = match expression.kind {
+                crate::syntax::arena::ArenaExprKind::EnvPathList => true,
+                crate::syntax::arena::ArenaExprKind::Field { base, name } => name == "PATH"
+                    && matches!(program.arena.expr(base).kind, crate::syntax::arena::ArenaExprKind::Ident(name) if name == "env"),
+                _ => false,
+            };
+            path_view.then_some(expression.span)
         })
     }
 
@@ -2138,6 +2156,7 @@ enum LoweredValue {
     Regex(Box<RegexValue>),
     Status(Box<ProcessStatus>),
     Path(PathValue),
+    EnvPathList(EnvPathListSnapshot),
     FsEntry(crate::runtime::value::FsEntryValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
@@ -2481,6 +2500,7 @@ impl PartialEq for LoweredValue {
             (Self::Regex(left), Self::Regex(right)) => left == right,
             (Self::Status(left), Self::Status(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::EnvPathList(left), Self::EnvPathList(right)) => left == right,
             (Self::FsEntry(left), Self::FsEntry(right)) => left == right,
             (Self::Command(left), Self::Command(right)) => left == right,
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
@@ -2545,6 +2565,12 @@ pub(in crate::runtime::eval) fn lowered_values_semantically_equal(
     right: &LoweredValue,
 ) -> bool {
     match (left, right) {
+        (LoweredValue::EnvPathList(paths), LoweredValue::List(items)) | (LoweredValue::List(items), LoweredValue::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items).all(|(path, item)| matches!(item, LoweredValue::Path(item) if path == item))
+        }
+        (LoweredValue::EnvPathList(paths), LoweredValue::SharedList(items)) | (LoweredValue::SharedList(items), LoweredValue::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items.iter()).all(|(path, item)| matches!(item, LoweredValue::Path(item) if path == item))
+        }
         (LoweredValue::Float(left), LoweredValue::Float(right)) => left.0 == right.0,
         (LoweredValue::Record(left), LoweredValue::Record(right))
         | (LoweredValue::Module(left), LoweredValue::Module(right)) => {
@@ -2636,6 +2662,9 @@ fn lowered_semantic_map_eq<K: Ord>(
 
 fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
+        (Value::EnvPathList(paths), Value::List(items)) | (Value::List(items), Value::EnvPathList(paths)) => {
+            paths.entries().len() == items.len() && paths.entries().iter().zip(items).all(|(path, item)| matches!(item, Value::Path(item) if path == item))
+        }
         (Value::Float(left), Value::Float(right)) => left.0 == right.0,
         (Value::List(left), Value::List(right)) => {
             left.len() == right.len()
@@ -2734,6 +2763,17 @@ mod semantic_float_equality_tests {
 }
 
 impl LoweredValue {
+    fn materialize_validated_list(self, ty: &Type) -> Self {
+        if matches!(ty.unvalidated(), Type::List(_)) { self.materialize_list() } else { self }
+    }
+
+    fn materialize_list(self) -> Self {
+        match self {
+            Self::EnvPathList(paths) => Self::List(paths.entries().iter().cloned().map(Self::Path).collect()),
+            value => value,
+        }
+    }
+
     fn into_value(self) -> Value {
         match self {
             Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
@@ -2751,6 +2791,7 @@ impl LoweredValue {
             Self::Regex(value) => Value::Regex(*value),
             Self::Status(value) => Value::Status(*value),
             Self::Path(value) => Value::Path(value),
+            Self::EnvPathList(value) => Value::EnvPathList(value),
             Self::FsEntry(value) => Value::FsEntry(value),
             Self::Command(value) => Value::Command(value),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),

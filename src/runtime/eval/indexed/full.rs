@@ -5331,7 +5331,7 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         }
         Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
         Type::Module(_) | Type::DynamicModule => LoweredType::Module,
-        Type::List(_) => LoweredType::List,
+        Type::List(_) | Type::EnvPathList => LoweredType::List,
         Type::Map(_, _) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
@@ -5341,7 +5341,6 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
-        | Type::EnvPathList
         | Type::ErrorFacet(_) => return None,
     })
 }
@@ -5359,8 +5358,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::ErrorFacet(_) => Ok(LoweredType::Error),
         Type::BuiltinParameter(_)
         | Type::Inference(_)
-        | Type::Invalid
-        | Type::EnvPathList => {
+        | Type::Invalid => {
             Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ))
@@ -9840,6 +9838,10 @@ impl<'a> FullDecoder<'a> {
             ));
         };
         let base_type = self.store.semantic.to_type(base_type)?;
+        if base_type == Type::Any
+            && let Some(prefix) = &self.producer_prefix
+            && let Some(narrowed) = prefix.runtime_list_read_type(self, base)?
+        { return Self::checked_index_type(narrowed); }
         Self::checked_index_type(base_type)
     }
 
@@ -9891,8 +9893,9 @@ impl<'a> FullDecoder<'a> {
         if let Some(contract) = crate::stdlib::bridge_contract(op) {
             return Ok(Some(*contract.sig.return_ty));
         }
-        if let Some(result) = crate::modules::signature::native_internal_operation_return_type(op) {
-            return Ok(Some(result));
+        let mut native_contracts = crate::modules::signature::native_static_operation_signatures(op);
+        if let Some(first) = native_contracts.next() {
+            return Ok(native_contracts.all(|contract| contract.return_ty == first.return_ty).then(|| first.return_ty.clone()));
         }
         static RETURN_TYPES:
             std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
@@ -12936,6 +12939,61 @@ impl<'a> FullDecoder<'a> {
             return Err(IrVerifyError::new("argument binding match child belongs to another owner"));
         }
         Ok(Some(IndexedArgumentBinding { instruction, source, pattern: pattern.raw(), slot, result }))
+    }
+
+    fn checked_type_test_contract(
+        &self,
+        mut condition: usize,
+        mut when_true: bool,
+        mut is_boolean: bool,
+        use_site: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        for _ in self.instruction_range.clone() {
+            charge(1)?;
+            if is_boolean {
+                let tag = *self.store.tags.get(condition).ok_or_else(|| IrVerifyError::new("type-test condition is out of bounds"))?;
+                let payload = FullPayload { store: self.store, cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?) };
+                match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                    schema::BoolView::Slot(slot) => {
+                        let Some(prefix) = &self.producer_prefix else { return Ok(None) };
+                        let Some(initializer) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(None) };
+                        (condition, is_boolean) = initializer;
+                        continue;
+                    }
+                    schema::BoolView::Not(value) => {
+                        condition = value.raw() as usize;
+                        when_true = !when_true;
+                        continue;
+                    }
+                    _ => return Ok(None),
+                }
+            }
+            match self.expression_view(condition)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(prefix) = &self.producer_prefix else { return Ok(None) };
+                    let Some(initializer) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(None) };
+                    (condition, is_boolean) = initializer;
+                }
+                schema::ExprView::MatchExpr { value, mut arms, .. } => {
+                    charge(2)?;
+                    if arms.len() != 2 { return Ok(None); }
+                    let (pattern, guard, accepted) = arms.next().unwrap()?;
+                    let (fallback, fallback_guard, rejected) = arms.next().unwrap()?;
+                    if guard.is_some() || fallback_guard.is_some() { return Ok(None); }
+                    let (schema::ExprView::Bool(yes), schema::ExprView::Bool(no)) = (self.expression_view(accepted.raw() as usize)?, self.expression_view(rejected.raw() as usize)?) else { return Ok(None) };
+                    if yes != when_true || yes == no { return Ok(None); }
+                    let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(pattern.raw())? else { return Ok(None) };
+                    if !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
+                        || self.checked_binding_path(value.raw() as usize, charge)?.as_ref() != Some(target)
+                    { return Ok(None); }
+                    return Ok(Some(ty.id));
+                }
+                _ => return Ok(None),
+            }
+        }
+        Err(IrVerifyError::new("type-test condition has a cyclic initializer path"))
     }
 
     fn checked_condition_proves_nonnull(
@@ -19715,6 +19773,7 @@ lowered_value_schema! {
         },
         Self::Digest(_)
         | Self::Status(_)
+        | Self::EnvPathList(_)
         | Self::FsEntry(_)
         | Self::Command(_)
         | Self::ProcessHandle(_)
@@ -39007,6 +39066,119 @@ assert captured(safe, good)? == 7
     }
 
     #[test]
+    fn dynamic_list_iteration_authenticates_type_test_subject_and_item_contract() {
+        run_with_large_stack(|| {
+            for (body, guard_error, item_error) in [
+                ("for entry in value { assert entry in [p\"/xsh/first\"] }", "ground loop source has no item contract", "membership operands have no checked domain"),
+                ("assert value[0] == p\"/xsh/first\"", "callable index producer has no checked collection element type", "equality operands have incompatible checked domains"),
+            ] {
+            let source = format!("proc inspect(value: Any, spare: Any, integers: List[Int]) [error] {{ let _ = spare; let _ = integers; if value is List[Path] {{ {body} }} }}\n");
+            let program = fixture("dynamic-list-iteration.xsh", &source);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "inspect");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ordinary Any-list validation retains its actual ground header") };
+            let (_, integer_list, _) = program.store.semantic.signature_param(signature, 2).unwrap();
+            assert_eq!(program.store.semantic.to_type(integer_list).unwrap(), Type::List(Box::new(Type::Int)));
+            let decoder = return_analysis_decoder(&program, "inspect");
+            let matches = function_instruction_indices(&program, "inspect", FullTag::ExprMatch);
+            assert_eq!(matches.len(), 1);
+            let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(matches[0]).unwrap() else { unreachable!() };
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(0)));
+            let (pattern, guard, yes) = arms.next().unwrap().unwrap();
+            let (fallback, fallback_guard, no) = arms.next().unwrap().unwrap();
+            assert!(guard.is_none() && fallback_guard.is_none());
+            let schema::PatternView::Type { ty, slot: None } = decoder.checked_pattern_view(pattern.raw()).unwrap() else { panic!("actual test has no new bound slot") };
+            assert_eq!(ty.materialize().unwrap(), Type::List(Box::new(Type::Path)));
+            assert!(matches!(decoder.checked_pattern_view(fallback.raw()).unwrap(), schema::PatternView::Wildcard));
+            assert!(matches!(decoder.expression_view(yes.raw() as usize).unwrap(), schema::ExprView::Bool(true)));
+            assert!(matches!(decoder.expression_view(no.raw() as usize).unwrap(), schema::ExprView::Bool(false)));
+
+            let mut other_subject = program.clone();
+            let input = other_subject.store.data[value.raw() as usize].range().bounds(other_subject.store.extra.len()).unwrap().start;
+            assert_eq!(other_subject.store.extra[input], 0);
+            other_subject.store.extra[input] = 1;
+            let failure = FullVerifier::verify(&other_subject).unwrap_err();
+            assert_eq!(failure.message, guard_error);
+
+            let mut wrong_item = program.clone();
+            let input = wrong_item.store.pattern_data[pattern.raw() as usize].range().bounds(wrong_item.store.extra.len()).unwrap().start;
+            assert_eq!(wrong_item.store.extra[input], ty.id.raw());
+            wrong_item.store.extra[input] = integer_list.raw();
+            let failure = FullVerifier::verify(&wrong_item).unwrap_err();
+            assert_eq!(failure.message, item_error);
+
+            let mut inverted_result = program.clone();
+            let success = inverted_result.store.data[yes.raw() as usize].range().bounds(inverted_result.store.extra.len()).unwrap().start;
+            let fallback = inverted_result.store.data[no.raw() as usize].range().bounds(inverted_result.store.extra.len()).unwrap().start;
+            assert_eq!(inverted_result.store.extra[success], 1);
+            assert_eq!(inverted_result.store.extra[fallback], 0);
+            inverted_result.store.extra[success] = 0;
+            inverted_result.store.extra[fallback] = 1;
+            let failure = FullVerifier::verify(&inverted_result).unwrap_err();
+            assert_eq!(failure.message, guard_error);
+            }
+        });
+    }
+
+    #[test]
+    fn environment_path_intrinsics_authenticate_arity_carriers_and_effects() {
+        run_with_large_stack(|| {
+            let program = fixture("environment-path-intrinsics.xsh", concat!(
+                "proc contains(name: Str, spare: Int) [env] -> Bool { let _ = spare; let _ = env.path_list(name); let _ = env.get_or(name, \"fallback\"); p\"/xsh/before\" in env.PATH }\n",
+                "proc zero() [env] -> Bool { p\"/xsh/before\" in env.PATH }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let list = Type::List(Box::new(Type::Path));
+            let result = Type::Result(Box::new(list.clone()), Box::new(Type::Error));
+            assert_eq!(FullDecoder::derive_registered_api_operation_return_type(RuntimeOp::EnvPathList).unwrap(), None);
+            assert_eq!(FullDecoder::checked_module_call_return_type(RuntimeOp::EnvPathList, None, &[], |_| unreachable!()).unwrap(), Some(Type::EnvPathList));
+            assert_eq!(FullDecoder::checked_module_call_return_type(RuntimeOp::EnvPathList, None, &[Some(0)], |_| Ok(Some(Type::Str))).unwrap(), Some(result.clone()));
+            assert_eq!(FullDecoder::checked_module_call_return_type(RuntimeOp::EnvPathList, None, &[Some(0), Some(1)], |_| Ok(Some(Type::Str))).unwrap(), None);
+            let material = Value::List(vec![Value::Path(crate::runtime::value::PathValue::from_text("/xsh/before").unwrap())]);
+            let wrapped = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(material.clone())));
+            use crate::runtime::eval::type_view::{ValueView, value_matches_static_type};
+            assert!(value_matches_static_type(ValueView::Runtime(&material), &list));
+            assert!(value_matches_static_type(ValueView::Runtime(&wrapped), &result));
+            assert!(!value_matches_static_type(ValueView::Runtime(&material), &result));
+            assert!(!value_matches_static_type(ValueView::Runtime(&wrapped), &list));
+            assert!(!value_matches_static_type(ValueView::Runtime(&material), &Type::EnvPathList));
+            let decoder = return_analysis_decoder(&program, "contains");
+            let calls = function_instruction_indices(&program, "contains", FullTag::ExprModuleCall);
+            let single = calls.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: RuntimeOp::EnvPathList, args, .. }) if args.len() == 1)).unwrap();
+            let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(single).unwrap() else { unreachable!() };
+            let input = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(matches!(decoder.expression_view(input).unwrap(), schema::ExprView::Param(0)));
+            let spare = function_instruction_indices(&program, "contains", FullTag::ExprParam).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut wrong_operand = program.clone();
+            wrong_operand.store.data.swap(input, spare);
+            let error = FullVerifier::verify(&wrong_operand).unwrap_err();
+            assert!(error.message.contains("native") && error.message.contains("contract"), "{}", error.message);
+            let double = calls.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: RuntimeOp::EnvGetOr, args, .. }) if args.len() == 2)).unwrap();
+            let payload = program.store.data[double].range().bounds(program.store.extra.len()).unwrap();
+            let operation = program.store.extra[payload.start] as usize;
+            assert_eq!(program.store.runtime_ops[operation], RuntimeOp::EnvGetOr);
+            let mut wrong_arity = program.clone();
+            wrong_arity.store.runtime_ops[operation] = RuntimeOp::EnvPathList;
+            let error = FullVerifier::verify(&wrong_arity).unwrap_err();
+            assert!(error.message.contains("native") && error.message.contains("contract"), "{}", error.message);
+            let owner = scheme_fixture_root_function(&program, "zero");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let mut wrong_effect = program.clone();
+            let mut contract = wrong_effect.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            contract.effects = crate::sema::types::CallableEffects::finite([Effect::Fs]);
+            wrong_effect.store.functions[owner].contract = FullCallableContract::Ground(SemanticPoolBuilder::default().intern_signature(&mut wrong_effect.store.semantic, &contract).unwrap());
+            let error = FullVerifier::verify(&wrong_effect).unwrap_err();
+            assert!(error.message.contains("requires effect env"), "{}", error.message);
+            let mut wrong_kind = program.clone();
+            wrong_kind.store.function_metadata[owner].callable_kind = CallableKind::Pure;
+            wrong_kind.store.function_metadata[owner].flags &= !1;
+            let error = FullVerifier::verify(&wrong_kind).unwrap_err();
+            assert!(error.message.contains("pure executable body contains an impure operation"), "{}", error.message);
+        });
+    }
+
+    #[test]
     fn checked_stream_error_contexts_authenticate_message_and_tail_producers() {
         run_with_large_stack(|| {
             let carrier = "pure carrier(message: Str, items: Stream[Int], spare: Int) -> Stream[Int] { let _ = spare; ctx message { items } }\n";
@@ -45820,12 +45992,13 @@ proc local() [env, error] -> Int {
             Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Receiver),
             inference,
             Type::Invalid,
-            Type::EnvPathList,
         ];
         for ty in unsupported {
             assert_eq!(lowered_type_for_type(&ty), None, "{ty:?}");
             assert!(lowered_type_from_type(&ty).is_err(), "{ty:?}");
         }
+        assert_eq!(lowered_type_for_type(&Type::EnvPathList), Some(LoweredType::List));
+        assert_eq!(lowered_type_from_type(&Type::EnvPathList), Ok(LoweredType::List));
         assert_eq!(
             driver_slot_runtime_kind(&Type::EnvPathList),
             Ok(LoweredType::List)

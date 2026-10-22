@@ -61,6 +61,13 @@ impl<'a> ValueView<'a> {
         Ok(())
     }
 
+    pub(super) fn environment_path_snapshot(self) -> Option<&'a crate::runtime::value::EnvPathListSnapshot> {
+        match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => Some(paths),
+            _ => None,
+        }
+    }
+
     pub(super) fn scalar_type(self) -> Option<Type> {
         Some(match self {
             Self::Int(_) | Self::Key(MapKeyRef::Int(_)) => Type::Int,
@@ -81,7 +88,7 @@ impl<'a> ValueView<'a> {
                 Value::Regex(_) => Type::Regex,
                 Value::Path(_) => Type::Path,
                 Value::Status(_) => Type::Status,
-                Value::EnvPathList => Type::EnvPathList,
+                Value::EnvPathList(_) => return None,
                 Value::Error(_) => Type::Error,
                 Value::RunError(_) => Type::ProcessError,
                 Value::Callable(callable) => Type::Function(callable.kind()),
@@ -106,6 +113,7 @@ impl<'a> ValueView<'a> {
                 LoweredValue::Digest(_) => Type::Digest,
                 LoweredValue::Regex(_) => Type::Regex,
                 LoweredValue::Path(_) => Type::Path,
+                LoweredValue::EnvPathList(_) => return None,
                 LoweredValue::Status(_) => Type::Status,
                 LoweredValue::Error(value) => {
                     if matches!(value.as_ref(), Value::RunError(_)) { Type::ProcessError } else { Type::Error }
@@ -211,6 +219,7 @@ impl<'a> ValueView<'a> {
 
     fn list_len(self) -> Option<usize> {
         match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => Some(paths.entries().len()),
             Self::Runtime(Value::List(items)) => Some(items.len()),
             Self::Lowered(LoweredValue::List(items)) => Some(items.len()),
             Self::Lowered(LoweredValue::SharedList(items)) => Some(items.len()),
@@ -220,6 +229,7 @@ impl<'a> ValueView<'a> {
 
     fn all_list(self, mut accepts: impl FnMut(Self) -> bool) -> bool {
         match self {
+            Self::Runtime(Value::EnvPathList(paths)) | Self::Lowered(LoweredValue::EnvPathList(paths)) => paths.entries().iter().all(|path| accepts(Self::Path(&path.bytes))),
             Self::Runtime(Value::List(items)) => items.iter().all(|item| accepts(Self::Runtime(item))),
             Self::Lowered(LoweredValue::List(items)) => items.iter().all(|item| accepts(Self::Lowered(item))),
             Self::Lowered(LoweredValue::SharedList(items)) => items.iter().all(|item| accepts(Self::Lowered(item))),
@@ -345,6 +355,7 @@ pub(super) enum RetainedValueContract<'a> {
     Callable(CallableContractView<'a>),
     GenericCallable(crate::sema::types::CallableKind),
     Stream(&'a Type),
+    EnvironmentPathList,
 }
 
 #[derive(Clone, Copy)]
@@ -369,10 +380,21 @@ impl CallableContractView<'_> {
 
 pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool {
     value_matches_type_with_contracts(value, ty, &mut |value, contract| match contract {
-        RetainedValueContract::Callable(callable) => callable.kind() != crate::sema::types::CallableKind::Stream && value.scalar_type() == Some(Type::Function(callable.kind())),
-        RetainedValueContract::GenericCallable(_) => false,
-        RetainedValueContract::Stream(_) => value.stream().is_some(),
+        RetainedValueContract::EnvironmentPathList => value.environment_path_snapshot().is_some(),
+        contract => runtime_contract_matches(value, contract),
     })
+}
+
+pub(super) fn value_matches_runtime_type(value: ValueView<'_>, ty: &Type) -> bool {
+    value_matches_type_with_contracts(value, ty, &mut runtime_contract_matches)
+}
+
+fn runtime_contract_matches(value: ValueView<'_>, contract: RetainedValueContract<'_>) -> bool {
+    match contract {
+        RetainedValueContract::Callable(callable) => callable.kind() != crate::sema::types::CallableKind::Stream && value.scalar_type() == Some(Type::Function(callable.kind())),
+        RetainedValueContract::GenericCallable(_) | RetainedValueContract::EnvironmentPathList => false,
+        RetainedValueContract::Stream(_) => value.stream().is_some(),
+    }
 }
 
 pub(super) fn value_matches_type_with_contracts(
@@ -391,8 +413,9 @@ pub(super) fn value_matches_type_with_contracts(
         Type::UInt => value.integer().is_some_and(|value| value >= 0),
         Type::Null | Type::Bool | Type::Int | Type::Float | Type::Duration
         | Type::Str | Type::Bytes | Type::Digest | Type::Regex | Type::Path
-        | Type::Status | Type::EnvPathList | Type::ProcessError | Type::Function(_) | Type::Command | Type::ProcessHandle | Type::NetJob
+        | Type::Status | Type::ProcessError | Type::Function(_) | Type::Command | Type::ProcessHandle | Type::NetJob
         | Type::FsRoot | Type::FsLock | Type::Unit | Type::Tag(_) => value.scalar_type().as_ref() == Some(ty),
+        Type::EnvPathList => accepts_contract(value, RetainedValueContract::EnvironmentPathList),
         Type::List(item) => value.all_list(|value| value_matches_type_with_contracts(value, item, accepts_contract)),
         Type::Map(key, item) => {
             if value.map_fields() {

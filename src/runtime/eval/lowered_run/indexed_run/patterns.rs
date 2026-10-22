@@ -1,7 +1,7 @@
 use super::{
     Arc, Evaluator, FullExecution, LoweredValue, Name, RuntimeError, Span, Value,
     indexed_error, lowered_error_value_has_facet, lowered_record_field,
-    lowered_value_from_runtime_any, ValueView, value_matches_static_type,
+    lowered_value_from_runtime_any, ValueView,
 };
 use crate::runtime::eval::indexed::full::schema::PatternView;
 
@@ -202,6 +202,8 @@ impl Evaluator {
             }
             PatternView::List { elements, rest } => {
                 let count = elements.len();
+                let materialized = matches!(value, LoweredValue::EnvPathList(_)).then(|| value.clone().materialize_list());
+                let value = materialized.as_ref().unwrap_or(value);
                 let items = match value {
                     LoweredValue::List(items) => Some(items.as_slice()),
                     LoweredValue::SharedList(items) => Some(items.as_slice()),
@@ -375,13 +377,13 @@ impl Evaluator {
             }
             PatternView::Type { ty, slot } => {
                 let ty = ty.materialize().map_err(|error| indexed_error(error, span))?;
-                if !value_matches_static_type(ValueView::Lowered(value), &ty) {
+                if !crate::runtime::eval::type_view::value_matches_runtime_type(ValueView::Lowered(value), &ty) {
                     false
                 } else {
                     if let Some(slot) = slot
                         && bind
                     {
-                        slots[slot] = value.clone();
+                        slots[slot] = value.clone().materialize_validated_list(&ty);
                     }
                     true
                 }

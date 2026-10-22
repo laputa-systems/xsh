@@ -27,8 +27,6 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Appends one literal element or the elements of an explicitly spliced list.
-/// Capacity failures retain the splice's source attribution.
 pub(super) fn append_lowered_list_element(
     output: &mut Vec<LoweredValue>,
     value: LoweredValue,
@@ -36,7 +34,7 @@ pub(super) fn append_lowered_list_element(
     span: Span,
 ) -> Result<(), RuntimeError> {
     if splice {
-        let items = match value {
+        let items = match value.materialize_list() {
             LoweredValue::List(items) => items,
             LoweredValue::SharedList(items) => take_shared(items),
             other => {
@@ -204,7 +202,7 @@ pub(super) fn lowered_binary_value(
     if let LoweredValue::Set(elements) = left {
         return super::set::lowered_set_binary_value(op, elements, &right, span);
     }
-    if op == BinaryOp::Add && matches!(left, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
+    if op == BinaryOp::Add && matches!(left, LoweredValue::List(_) | LoweredValue::SharedList(_) | LoweredValue::EnvPathList(_)) {
         return lowered_method_value(left, "extend", vec![right], span);
     }
     if let (Some(left_text), Some(right_text)) =
@@ -331,6 +329,7 @@ pub(super) fn lowered_membership_value(
         return Ok(bytes_contains(container, needle));
     }
     match container {
+        LoweredValue::EnvPathList(paths) => Ok(paths.entries().iter().any(|path| matches!(needle, LoweredValue::Path(needle) if path == needle))),
         LoweredValue::List(items) => Ok(items
             .iter()
             .any(|item| lowered_values_semantically_equal(item, needle))),
@@ -1051,6 +1050,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Record, LoweredValue::StatsBlob(_))
             | (LoweredType::Record, LoweredValue::FsEntry(_))
             | (LoweredType::Module, LoweredValue::Module(_))
+            | (LoweredType::List, LoweredValue::EnvPathList(_))
             | (LoweredType::List, LoweredValue::List(_))
             | (LoweredType::List, LoweredValue::SharedList(_))
             | (LoweredType::Map, LoweredValue::Map(_))
@@ -1134,6 +1134,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
+        (LoweredType::List, Value::EnvPathList(value)) => Some(LoweredValue::EnvPathList(value.clone())),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
         (LoweredType::Set, Value::Set(value)) => Some(LoweredValue::Set(Arc::new(value.clone()))),
@@ -1184,6 +1185,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
         Value::Record(value) => lowered_record_from_runtime(value),
         Value::Module(value) => lowered_module_from_runtime(value),
+        Value::EnvPathList(value) => Some(LoweredValue::EnvPathList(value.clone())),
         Value::List(value) => lowered_list_from_runtime(value),
         Value::Map(value) => lowered_map_from_runtime(value),
         Value::Set(value) => Some(LoweredValue::Set(Arc::new(value.clone()))),
@@ -1202,7 +1204,6 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
                 .collect::<Option<Vec<_>>>()?,
         }))),
         Value::Result(value) => lowered_result_from_runtime(value),
-        _ => None,
     }
 }
 
@@ -1305,7 +1306,7 @@ pub(super) fn lowered_registered_method_value(
             lowered_status_method_value(*value, name, args, span)
         }
         Domain::List | Domain::NonEmpty => {
-            let items = match receiver {
+            let items = match receiver.materialize_list() {
                 LoweredValue::List(items) => items,
                 LoweredValue::SharedList(items) => {
                     if let Some(value) = lowered_list_method_ref(&items, name, args.clone(), span)? { return Ok(value); }
@@ -1342,6 +1343,7 @@ pub(super) fn lowered_method_value(
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    let receiver = receiver.materialize_list();
     let receiver_type = receiver.type_name();
     if matches!(receiver, LoweredValue::Str(_) | LoweredValue::StrView(_)) {
         return lowered_str_method_value(&receiver, name, args, span)
@@ -2491,7 +2493,7 @@ pub(super) fn lowered_index_from_end_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     let out_of_range = || RuntimeError::new("index-out-of-range", "list index").with_span(span);
-    match base {
+    match base.materialize_list() {
         LoweredValue::List(values) => values
             .len()
             .checked_sub(distance)
@@ -2516,7 +2518,7 @@ pub(super) fn lowered_index_value(
     index: LoweredValue,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
-    match (base, index) {
+    match (base.materialize_list(), index) {
         (LoweredValue::Map(values), index) => {
             let key = lowered_map_key_ref(&index, span)?;
             key.get(&values).cloned().ok_or_else(|| {
@@ -2601,7 +2603,7 @@ pub(super) fn lowered_slice_value(
         }
     }
 
-    match base {
+    match base.materialize_list() {
         LoweredValue::List(values) => {
             let len = values.len();
             let start = to_index(start, len, span)?.unwrap_or(0);
@@ -2697,8 +2699,8 @@ pub(super) fn lowered_list_method_value(
         }
         "extend" if args.len() == 1 => {
             let mut items = items;
-            match &args[0] {
-                LoweredValue::List(other) => items.extend(other.iter().cloned()),
+            match args.into_iter().next().unwrap().materialize_list() {
+                LoweredValue::List(other) => items.extend(other),
                 LoweredValue::SharedList(other) => items.extend(other.iter().cloned()),
                 other => {
                     return Err(RuntimeError::new(
@@ -2773,7 +2775,8 @@ pub(super) fn lowered_list_method_ref(
             lowered_join_list(items, &args, span).map(Some)
         }
         "extend" if args.len() == 1 => {
-            let other = match &args[0] {
+            let materialized = args.into_iter().next().unwrap().materialize_list();
+            let other = match &materialized {
                 LoweredValue::List(other) => other.as_slice(),
                 LoweredValue::SharedList(other) => other.as_slice(),
                 other => {

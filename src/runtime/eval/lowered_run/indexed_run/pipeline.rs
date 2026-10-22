@@ -347,7 +347,7 @@ impl Evaluator {
         value: LoweredValue,
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        match value {
+        match value.materialize_list() {
             LoweredValue::List(values) => Ok(values),
             LoweredValue::SharedList(values) => Ok((*values).clone()),
             LoweredValue::Stream(stream) => self

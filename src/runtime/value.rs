@@ -964,7 +964,7 @@ pub enum Value {
     Module(RecordMap),
     Result(ResultValue),
     Status(ProcessStatus),
-    EnvPathList,
+    EnvPathList(EnvPathListSnapshot),
     // Boxed: `RuntimeError` is large (~9 fields); inlining it made every `Value`
     // ~216 bytes, so every move/clone `memmove`d that much. Boxing keeps `Value`
     // small (errors are the cold path).
@@ -1021,6 +1021,19 @@ impl Value {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvPathListSnapshot {
+    entries: Arc<[PathValue]>,
+}
+
+impl EnvPathListSnapshot {
+    pub(crate) fn from_environment(entries: Vec<PathValue>) -> Self {
+        Self { entries: entries.into() }
+    }
+
+    pub(crate) fn entries(&self) -> &[PathValue] { &self.entries }
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -13,10 +13,6 @@ pub(super) enum PreparedSchema {
     Map(Type, Arc<PreparedSchema>),
     Optional(Arc<PreparedSchema>),
     WireEnum(Arc<WireEnumMapping>),
-    /// A union with a member that converts wire strings. Decoding tries the
-    /// member schemas in the order the union lists them and publishes the
-    /// first that accepts. A union no member of which converts is a plain
-    /// `Validate`, which asks the same question without rebuilding the value.
     Union(Type, Vec<Arc<PreparedSchema>>),
     /// A validated type and the schema of its base. Decoding checks the base
     /// first, so a failure inside the value is reported at its own path, and
@@ -46,7 +42,7 @@ impl PreparedSchema {
                     .iter()
                     .map(|member| Self::compile(member, enums))
                     .collect::<Vec<_>>();
-                if schemas.iter().any(|schema| schema.converts_wire()) {
+                if schemas.iter().any(|schema| schema.rebuilds_value()) {
                     Self::Union(ty.clone(), schemas)
                 } else {
                     Self::Validate(ty.clone())
@@ -64,14 +60,22 @@ impl PreparedSchema {
 
     fn converts_wire(&self) -> bool {
         match self {
-            // A list is rebuilt as a set.
             Self::WireEnum(_) | Self::Set(_) => true,
             Self::Record(fields) => fields.iter().any(|(_, schema)| schema.converts_wire()),
-            Self::List(schema)
-            | Self::Map(_, schema)
-            | Self::Optional(schema)
-            | Self::Validated(_, schema) => schema.converts_wire(),
+            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) | Self::Validated(_, schema) => schema.converts_wire(),
             Self::Union(_, members) => members.iter().any(|schema| schema.converts_wire()),
+            Self::Validate(_) => false,
+        }
+    }
+
+    fn rebuilds_value(&self) -> bool {
+        match self {
+            Self::WireEnum(_) | Self::Set(_) | Self::List(_) => true,
+            Self::Record(fields) => fields.iter().any(|(_, schema)| schema.rebuilds_value()),
+            Self::Map(_, schema)
+            | Self::Optional(schema)
+            | Self::Validated(_, schema) => schema.rebuilds_value(),
+            Self::Union(_, members) => members.iter().any(|schema| schema.rebuilds_value()),
             Self::Validate(_) => false,
         }
     }
@@ -175,7 +179,7 @@ impl PreparedSchema {
             Self::Validate(ty) => {
                 if let Some(checked) = require_module_contract(evaluator, &value, ty, path, span) {
                     checked.map(|()| value)
-                } else if super::value_matches_static_type(ValueView::Lowered(&value), ty) {
+                } else if super::type_view::value_matches_runtime_type(ValueView::Lowered(&value), ty) {
                     Ok(value)
                 } else {
                     Err(failure(format!(
@@ -263,7 +267,7 @@ impl PreparedSchema {
                         super::lowered_run::lowered_record_field_value(&value, &field.as_str())
                             .ok_or_else(|| failure(format!("missing required field {field}")))?;
                     let converted = schema.decode(evaluator, selected, &field_path, span)?;
-                    if schema.converts_wire() {
+                    if schema.rebuilds_value() {
                         *super::lowered_ops::lowered_record_field_mut(&mut value, *field, span)? =
                             converted;
                     }
@@ -272,6 +276,7 @@ impl PreparedSchema {
             }
             Self::List(schema) => {
                 let items = match value {
+                    LoweredValue::EnvPathList(paths) => paths.entries().iter().cloned().map(LoweredValue::Path).collect(),
                     LoweredValue::List(items) => items,
                     LoweredValue::SharedList(items) => super::lower::take_shared(items),
                     value => {
@@ -304,6 +309,7 @@ impl PreparedSchema {
                             Err(failure(format!("expected Set[{element_type}]")))
                         };
                     }
+                    LoweredValue::EnvPathList(paths) => paths.entries().iter().cloned().map(LoweredValue::Path).collect(),
                     LoweredValue::List(items) => items,
                     LoweredValue::SharedList(items) => super::lower::take_shared(items),
                     value => {
@@ -417,8 +423,8 @@ pub(super) fn require_value(
         schema.decode(evaluator, value, "$", span)
     } else if let Some(checked) = require_module_contract(evaluator, &value, &check.ty, "$", span) {
         checked.map(|()| value)
-    } else if super::value_matches_static_type(ValueView::Lowered(&value), &check.ty) {
-        Ok(value)
+    } else if super::type_view::value_matches_runtime_type(ValueView::Lowered(&value), &check.ty) {
+        Ok(value.materialize_validated_list(&check.ty))
     } else {
         Err(RuntimeError::new(
             "schema",

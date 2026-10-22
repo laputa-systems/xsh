@@ -122,6 +122,29 @@ impl ProducerPrefixContext<'_> {
             parents: &self.evidence.parents, statements: &self.evidence.statements, children: &self.evidence.children, siblings: &self.evidence.siblings }
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn runtime_list_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("type-test list context disagrees with its owner range"));
+        }
+        let mut charge = |amount| self.evidence.work.borrow_mut().charge(amount);
+        let Some(target) = decoder.checked_binding_path(instruction, &mut charge)? else { return Ok(None) };
+        if decoder.checked_binding_path_type(instruction, &target, &mut charge)? != Some(Type::Any) { return Ok(None); }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
+        let mut matched = None;
+        let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
+            |condition, when_true, is_boolean, _, charge| {
+                matched = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?;
+                Ok(matched.is_some())
+            }, None, &mut charge)?;
+        if !proven { return Ok(None); }
+        let Some(ty) = matched else { return Ok(None) };
+        let mut work = self.evidence.work.borrow_mut();
+        let ty = decoder.store.semantic.to_type_with_budget(ty, &mut work.semantic_types)?;
+        ensure_closed_type(&ty)?;
+        if matches!(ty, Type::List(_)) && super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn snapshot_condition_initializer(&self, decoder: &FullDecoder<'_>,
         condition: usize, slot: usize, use_site: usize, target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
@@ -2415,8 +2438,16 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn need_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        if let Some(ty) = self.declared_type(decoder, instruction)? { return Ok(Some(ty)); }
+        if let Some(ty) = self.declared_type(decoder, instruction)? { return self.declared_read_type(decoder, instruction, ty).map(Some); }
         self.contextual_producer_type(decoder, instruction)
+    }
+
+    fn declared_read_type(&self, decoder: &FullDecoder<'a>, instruction: usize, declared: Arc<Type>) -> Result<Arc<Type>, IrVerifyError> {
+        if declared.as_ref() == &Type::Any
+            && let Some(prefix) = &decoder.producer_prefix
+            && let Some(narrowed) = prefix.runtime_list_read_type(decoder, instruction)?
+        { return Ok(Arc::new(narrowed)); }
+        Ok(declared)
     }
 
     fn contextual_producer_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
@@ -3351,6 +3382,7 @@ impl<'a> ProducerProof<'a> {
             { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) {
                 match actual.unvalidated() {
+                    Type::Any => self.declared_read_type(&decoder, instruction, Arc::clone(actual))?.as_ref() == container,
                     Type::Optional(payload) if payload.matches_expected(container)
                         && super::initializer_type_matches_annotation(payload, container, &mut self.budget, 0)? => self.optional_read_is_narrowed(&decoder, instruction, actual)?,
                     _ => false,
@@ -3515,6 +3547,14 @@ impl<'a> ProducerProof<'a> {
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;
                 let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
+                self.budget.charge_clone(&left_type)?;
+                self.budget.charge_clone(&right_type)?;
+                let left_operand = left_type.equality_operand_type();
+                let right_operand = right_type.equality_operand_type();
+                if left_operand != Type::Any && right_operand != Type::Any
+                    && !left_operand.matches_expected(&right_operand)
+                    && !right_operand.matches_expected(&left_operand)
+                { return Err(IrVerifyError::new("equality operands have incompatible checked domains")); }
                 self.expression(owner, left.raw() as usize, left_type, false);
                 self.expression(owner, right.raw() as usize, right_type, false);
                 Ok(())
@@ -4386,7 +4426,11 @@ impl<'a> ProducerProof<'a> {
     fn operand_context(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<ProducerOperandContext, IrVerifyError> {
         let (ty, binding) = self.declared_type_evidence(decoder, instruction)?;
         Ok(match ty {
-            Some(ty) => ProducerOperandContext::Declared(DeclaredProducerFact { owner: decoder.owner, instruction, ty, binding }),
+            Some(ty) => {
+                let read = self.declared_read_type(decoder, instruction, Arc::clone(&ty))?;
+                if read != ty { ProducerOperandContext::Contextual(Some(read)) }
+                else { ProducerOperandContext::Declared(DeclaredProducerFact { owner: decoder.owner, instruction, ty, binding }) }
+            }
             None => ProducerOperandContext::Contextual(self.contextual_producer_type(decoder, instruction)?),
         })
     }
@@ -5357,6 +5401,12 @@ impl<'a> ProducerProof<'a> {
     fn iteration_item_type_at(&mut self, decoder: &FullDecoder<'a>, instruction: usize, source: &Type) -> Result<Option<Type>, IrVerifyError> {
         self.budget.charge_clone(source)?;
         if let Some(item) = source.iteration_item_type() { return Ok(Some(item)); }
+        if source == &Type::Any {
+            let Some(prefix) = &decoder.producer_prefix else { return Ok(None) };
+            let Some(ty) = prefix.runtime_list_read_type(decoder, instruction)? else { return Ok(None) };
+            self.budget.charge_clone(&ty)?;
+            return Ok(ty.iteration_item_type());
+        }
         let Type::Optional(payload) = source else { return Ok(None) };
         let Some(item) = payload.iteration_item_type() else { return Ok(None) };
         if self.optional_read_is_narrowed(decoder, instruction, source)? { return Ok(Some(item)); }
