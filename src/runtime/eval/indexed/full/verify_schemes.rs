@@ -2545,7 +2545,7 @@ fn verify_instantiated_call_arguments(
     substitution: &CallSubstitution,
     materialization: &mut SchemeInstantiationBudget,
     function_signatures: &Arc<super::FunctionSignatureIndex>,
-) -> Result<Vec<producers::GroundEmptyArgumentRequest>, IrVerifyError> {
+) -> Result<Vec<producers::GroundArgumentRequest>, IrVerifyError> {
     let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
     let view = decoder.expression_view(instruction)?;
     let args = match view {
@@ -2642,10 +2642,13 @@ fn verify_instantiated_call_arguments(
         .ok_or_else(|| {
             IrVerifyError::new("generic call argument has no closed checked type")
         })?;
-        if matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap) {
+        if matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap)
+            || (matches!(actual, CheckedArgumentType::ListItems(_))
+                && matches!(store.tags.get(value.raw() as usize), Some(FullTag::ExprList | FullTag::ExprListBuild)))
+        {
             materialization.charge_clone(&expected)?;
             materialization.charge(1)?;
-            ground_arguments.push(producers::GroundEmptyArgumentRequest {
+            ground_arguments.push(producers::GroundArgumentRequest {
                 owner: decoder.owner, call: instruction, argument: value.raw() as usize, expected: expected.clone(),
             });
         }
