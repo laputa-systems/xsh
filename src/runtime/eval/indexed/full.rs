@@ -42047,8 +42047,11 @@ pure set_scale(callbacks: Map[Str, Scale], alternate: Label) -> Map[Str, Scale] 
                 .clone()
                 .find_map(|instruction| {
                     match decoder.statement_view(instruction).ok()? {
-                        schema::StmtView::Expr { value, .. }
-                        | schema::StmtView::Value { value } if value.raw() as usize == alternate_instruction => {
+                        schema::StmtView::LetRecord {
+                            source,
+                            target: super::decode::CompTargetView::Discard,
+                            ..
+                        } if source.raw() as usize == alternate_instruction => {
                             Some(instruction)
                         }
                         _ => None,
