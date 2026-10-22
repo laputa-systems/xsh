@@ -9977,16 +9977,22 @@ mod checked_control_flow_fact_tests {
 
     #[test]
     fn latent_stream_error_fact_is_owned_by_the_stream_call() {
-        let source = with_unrelated_statement(
+        let rejected_source = with_unrelated_statement(
             "stream failing_rows() [error] -> Stream[Int] { yield 1; let ignored = \"late\".parse_int()? }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }",
         );
-        let checked = CheckedSource::new("latent-stream-flow.xsh", &source);
-        checked.assert_missing_return();
-        checked.assert_fact_changes_lowering(
-            FactCategory::LatentStreamError,
-            "failing_rows()",
-            false,
+        let rejected = CheckedSource::new("rejected-latent-stream-flow.xsh", &rejected_source);
+        rejected.assert_missing_return();
+        assert!(rejected.declarations.bodies.checked_control_flow.latent_stream_error_spans.is_empty());
+        let source = with_unrelated_statement(
+            "stream failing_rows() [error] -> Stream[Int] { yield 1; let ignored = \"late\".parse_int()? }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() }; return 0 }",
         );
+        let checked = CheckedSource::new("latent-stream-flow.xsh", &source);
+        checked.assert_no_errors();
+        let owner = checked.fact_owner(FactCategory::LatentStreamError, "failing_rows()");
+        let unrelated = checked.unrelated_statement_span();
+        assert_ne!(owner, unrelated);
+        assert!(!checked.declarations.bodies.checked_control_flow.latent_stream_error_spans.contains(&unrelated));
+        checked.build(&checked.declarations).unwrap();
     }
 
     #[test]
