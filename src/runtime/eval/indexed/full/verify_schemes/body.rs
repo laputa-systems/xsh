@@ -2792,7 +2792,7 @@ mod tests {
         let words = changed.store.data[call].range().bounds(changed.store.extra.len()).unwrap();
         changed.store.extra[words.start] = IrFunctionId::new(environmental).unwrap().raw();
         changed.store.checked_call_targets.iter_mut().find(|target| target.instruction as usize == call).unwrap().function = IrFunctionId::new(environmental).unwrap();
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, format!("executable operation requires effect env outside its owner contract at callable {owner}, instruction {call} ExprCall"));
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, format!("executable operation requires effect env outside its owner contract: executable operation requires effects outside its owner contract at callable {owner}, instruction {call} ExprCall"));
     }
 
 }

@@ -9636,7 +9636,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
     }
 
     #[test]
-    fn generic_parameter_default_remains_a_lowering_blocker() {
+    fn generic_parameter_default_lowers_from_checked_scheme_facts() {
         let source = concat!(
             "pure defaulted(value, flag = false) { value }\n",
             "let answer = defaulted(false)\n",
@@ -9649,8 +9649,9 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             &checked.source,
         );
         assert_eq!(output.functions, 1);
-        assert_eq!(output.constructed_functions, 0);
-        assert_eq!(output.function_blockers[1], 1);
+        assert_eq!(output.constructed_functions, 1);
+        assert!(output.function_blockers.iter().all(|count| *count == 0));
+        assert!(checked.build(&checked.declarations).is_ok());
     }
 }
 
