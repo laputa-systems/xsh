@@ -1907,8 +1907,14 @@ fn driver_projections_derive_wait_results_from_actual_writers() {
         let source = r#"
 let started = spawn run true
 let child = started?
-let statuses = wait [child]?
-assert statuses[0].ok
+let statuses = {
+    let observed_started = started
+    wait [child]?
+}
+assert {
+    let observed_child = child
+    statuses[0].ok
+}
 "#;
         let mut program = fixture(source);
         FullVerifier::verify(&program).unwrap();
@@ -1986,12 +1992,15 @@ assert kind == state.kind
             program.store.driver_writers[range].iter().any(|writer| writer.binding_identity == alias_identity)
         }).unwrap();
         let range = alias_step.slots.bounds(program.store.driver_slots.len()).unwrap();
-        let read = range.into_iter().find(|slot| program.store.driver_slots[*slot].flags & DRIVER_SLOT_READ != 0).unwrap();
+        let read = range.into_iter().find(|slot| {
+            let row = program.store.driver_slots[*slot];
+            row.flags & DRIVER_SLOT_READ != 0 && program.store.string(row.name).ok() == Some("state")
+        }).unwrap();
         let mut cyclic = program.clone();
         cyclic.store.driver_slots[read].binding_identity = alias_identity;
         cyclic.store.driver_slots[read].name = program.store.binding_identities[alias_identity as usize].name;
         let error = FullVerifier::verify(&cyclic).unwrap_err();
-        assert_eq!(error.message, "driver sync type identities conflict", "{error:?}");
+        assert_eq!(error.message, "driver slot identity is not the currently visible binding", "{error:?}");
         for name in ["change", "project"] {
             let error = FullVerifier::verify(&process_parameter_mutation(&program, name, 0, 1)).unwrap_err();
             assert_eq!(error.message, "ground producer value disagrees with its checked contract", "{name}: {error:?}");

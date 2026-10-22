@@ -21892,6 +21892,7 @@ run true
 
     fn direct_let_use_binding_fixture() -> FullProgram {
         let entry_source = "use model\n\
+                           let observed_args = args\n\
                            let flag = false\n\
                            let checked = model.identity(flag)\n\
                            pure read_flag() -> Bool { flag }\n";
@@ -45119,7 +45120,11 @@ pure apply() -> Int {
         .unwrap();
         FullVerifier::verify(&program).unwrap();
 
-        let (temporary_slot, second_type) = program
+        let second_type = program.store.driver_slots.iter().find(|row| {
+            row.flags & DRIVER_SLOT_TEMPORARY == 0
+                && program.store.string(row.name).ok() == Some("second")
+        }).expect("second call reads its module input").type_id;
+        let temporary_slot = program
             .store
             .driver_steps
             .iter()
@@ -45134,13 +45139,6 @@ pure apply() -> Int {
                             && program.store.string(row.name).ok() == Some("first")
                     })
                     .map(|row| row.type_id)?;
-                let second_type = rows
-                    .iter()
-                    .find(|row| {
-                        row.flags & DRIVER_SLOT_TEMPORARY == 0
-                            && program.store.string(row.name).ok() == Some("second")
-                    })
-                    .map(|row| row.type_id)?;
                 if first_type == second_type
                     || !rows.iter().any(|row| {
                         row.flags & DRIVER_SLOT_TEMPORARY != 0 && row.type_id == first_type
@@ -45151,7 +45149,7 @@ pure apply() -> Int {
                 let temp = rows.iter().position(|row| {
                     row.flags & DRIVER_SLOT_TEMPORARY != 0 && row.type_id == first_type
                 })?;
-                Some((slots_start + temp, second_type))
+                Some(slots_start + temp)
             })
             .expect("named-argument lowering emits a typed temporary module receiver");
         assert!(matches!(
