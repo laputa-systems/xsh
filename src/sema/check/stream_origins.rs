@@ -571,6 +571,75 @@ mod tests {
     }
 
     #[test]
+    fn recursive_record_map_returns_publish_stream_origins() {
+        let source = r#"type Stats = {blanks: Int, code: Int, comments: Int, blobs: Map[Any]}
+pure zero_stats() -> Stats {
+  {blanks: 0, code: 0, comments: 0, blobs: map.empty()}
+}
+pure blob_deep(stats: Stats) -> Stats {
+  var blanks = stats.blanks
+  var code = stats.code
+  var comments = stats.comments
+  for key in stats.blobs.keys() {
+    let nested = {
+      let lookup_receiver = stats.blobs
+      let lookup_index = key
+      let lookup_fallback = zero_stats()
+      lookup_receiver.get(lookup_index) ?? lookup_fallback
+    }.require(Stats) ?? zero_stats()
+    let deep = blob_deep(nested)
+    blanks += deep.blanks
+    code += deep.code
+    comments += deep.comments
+  }
+  {blanks, code, comments, blobs: map.empty()}
+}
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = super::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for declaration in checked.checked_declarations.functions.values() {
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            let summary = &checked.stream_origin_summaries.declarations[&owner];
+            assert!(!summary.returned.has_pending(), "{summary:?}");
+            let super::Type::Record(fields) = &checked.function_return_types[&declaration.body] else { panic!("the recursive result retains its checked Stats shape") };
+            assert_eq!(fields.len(), 4);
+            assert_eq!(fields.get(&crate::symbol::Name::intern("blobs")), Some(&super::Type::Map(Box::new(super::Type::Str), Box::new(super::Type::Any))));
+        }
+    }
+
+    #[test]
+    fn recursive_return_completeness_preserves_authored_and_inferred_domains() {
+        for (source, expected_error, expected_reason) in [
+            ("pure again(value: Any, count: Int) -> Any { if count == 0 { return value }; again(value, count - 1) }", None, None),
+            ("type Row = {value: Int, blobs: Map[Any]}\npure again(count: Int) -> Row { if count == 0 { return {value: \"wrong\", blobs: map.empty()} }; again(count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch), None),
+            ("pure again(value: Any, count: Int) { if count == 0 { return value }; again(value, count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckLocalInference), None),
+            ("pure again(count: Int) { if count == 0 { return [] }; again(count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckLocalInference), Some("material type needs an annotation")),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = super::Checker::check_arena(&parsed.arena, source);
+            if let Some(expected_error) = expected_error {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected_error)), "{source}\n{:?}", checked.diagnostics);
+                if let Some(reason) = expected_reason {
+                    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected_error) && diagnostic.message.contains(reason)), "{source}\n{:?}", checked.diagnostics);
+                } else if expected_error == crate::diagnostic::DiagnosticCode::CheckLocalInference {
+                    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected_error) && diagnostic.message == "generic function body has a type outside its checked scheme"), "{source}\n{:?}", checked.diagnostics);
+                }
+            } else {
+                assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+                let declaration = checked.checked_declarations.functions.values().next().unwrap();
+                assert_eq!(checked.function_return_types[&declaration.body], super::Type::Any);
+                let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+                assert!(!checked.stream_origin_summaries.declarations[&owner].returned.has_pending());
+            }
+        }
+    }
+
+    #[test]
     fn projection_construction_preserves_the_type_depth_bound() {
         let mut value = StreamOrigins::error();
         for _ in 0..crate::sema::constraints::MAX_TYPE_DEPTH { value = value.prefix(StreamProjection::Success).unwrap(); }
