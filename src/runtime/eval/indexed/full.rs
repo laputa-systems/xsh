@@ -21777,6 +21777,57 @@ run true
         )
     }
 
+    #[test]
+    fn generic_proc_return_envelopes_keep_result_data_and_stream_laziness() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "generic-proc-return-envelope.xsh",
+                r#"proc apply(transform, value) {
+  transform(value)
+}
+stream apply_many(transform, value, count) {
+  repeat count times {
+    yield apply(transform, value)
+  }
+}
+pure identity_int(value: Int) -> Int { value }
+pure identity_str(value: Str) -> Str { value }
+proc observe_int(value: Int) [io] -> Int { print "int"; value }
+proc observe_str(value: Str) [io] -> Result[Str] { print "str"; Ok(value) }
+let integers = apply_many(identity_int, 42, 1) |> collect()
+let words = apply_many(identity_str, "demo", 1) |> collect()
+assert integers == [Ok(42)]
+assert words == [Ok("demo")]
+let delayed = apply_many(observe_int, 7, 2)
+print "created"
+let observed_integers = delayed |> collect()
+let observed_words = apply_many(observe_str, "row", 1) |> collect()
+assert observed_integers == [Ok(7), Ok(7)]
+assert observed_words == [Ok("row")]
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+                assert_eq!(evaluator.stdout, b"created\nint\nint\nstr\n");
+            }
+        });
+    }
+
     fn same_named_binding_capture_fixture() -> FullProgram {
         let entry_source = "let flag: Bool = false\n\
                            use model\n\

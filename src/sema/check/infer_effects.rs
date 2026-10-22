@@ -1048,6 +1048,86 @@ mod deferred_invocation_tests {
     }
 
     #[test]
+    fn pending_result_envelope_proof_requires_the_matching_callable_instance() {
+        let span = Span::new(SourceId::new(0), 1, 3);
+        let return_parameter = crate::sema::schemes::SchemeTypeParameterId(0);
+        let result_parameter = crate::sema::schemes::SchemeTypeParameterId(1);
+        let result_type = crate::sema::schemes::SchemeType::Parameter(result_parameter);
+        let return_type = crate::sema::schemes::SchemeType::Parameter(return_parameter);
+        let callback = crate::sema::schemes::SchemeType::Callable {
+            kind: crate::sema::types::CallableKind::Pure,
+            monotype: Arc::new(crate::sema::schemes::CallableMonotype::new(
+                Vec::new(),
+                result_type.clone(),
+                None,
+            )),
+            effects: crate::sema::effects::EffectContract::finite(crate::sema::effects::EffectSet::default()),
+        };
+        let application = crate::sema::callable_application::CallableApplication {
+            callee: callback,
+            arguments: Arc::from([]),
+            result: result_type,
+            effects: crate::sema::effects::EffectContract::finite(crate::sema::effects::EffectSet::default()),
+            proc_returns: Arc::from([crate::sema::callable_application::ProcReturnEnvelope {
+                result: return_type.clone(),
+                propagated_errors: Arc::from([]),
+                span,
+            }]),
+            kind: crate::sema::callable_application::CallableKindRequirement::Effectful,
+            span,
+        };
+        let callable = Arc::new(crate::sema::schemes::CallableScheme::new(
+            vec![return_parameter, result_parameter],
+            Vec::new(),
+            Vec::new(),
+            return_type,
+            None,
+            false,
+            crate::sema::schemes::CallableRequirements {
+                applications: vec![application],
+                ..crate::sema::schemes::CallableRequirements::default()
+            },
+        ).unwrap());
+        let other = Arc::new(crate::sema::schemes::CallableScheme::new(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            crate::sema::schemes::SchemeType::Ground(Type::Str),
+            None,
+            false,
+            crate::sema::schemes::CallableRequirements::default(),
+        ).unwrap());
+        let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+        let raw_return = checker.type_constraints.fresh_at_level(span, 1);
+        let instance = checker.type_constraints.instantiate_callable(
+            &callable,
+            1,
+            span,
+            crate::sema::constraints::CallableApplicationScope::Invocation,
+        ).unwrap();
+        checker.type_constraints.constrain(&raw_return, &instance.return_type, span).unwrap();
+        checker.type_constraints.solve_callable_applications().unwrap();
+        let resolved_return = checker.type_constraints.resolve(&raw_return).unwrap();
+        let resolved_instance_return = checker.type_constraints.resolve(&instance.return_type).unwrap();
+        assert_eq!(resolved_return, resolved_instance_return);
+        assert_ne!(resolved_return, instance.return_type);
+        let proof = (Arc::clone(&callable), instance);
+        assert!(checker.invocation_return_has_checked_result_envelope(Some(&proof), &resolved_return).unwrap());
+        assert!(!checker.invocation_return_has_checked_result_envelope(Some(&proof), &Type::Str).unwrap());
+        assert!(!checker.invocation_return_has_checked_result_envelope(None, &resolved_return).unwrap());
+        let other_instance = checker.type_constraints.instantiate_callable(
+            &other,
+            1,
+            span,
+            crate::sema::constraints::CallableApplicationScope::Invocation,
+        ).unwrap();
+        assert!(!checker.invocation_return_has_checked_result_envelope(
+            Some(&(other, other_instance)),
+            &Type::Str,
+        ).unwrap());
+    }
+
+    #[test]
     fn explicit_recursive_effect_bounds_accept_pure_and_empty_proc_callbacks() {
         let source = concat!(
             "proc left(action, value, count) [] { if count == 0 { return value }; right(action, value, count - 1) }\n",
@@ -1630,6 +1710,18 @@ impl Checker {
         Ok(crate::sema::types::CallableEffects::from_contract(self.type_constraints.resolve_effect(effects.contract())?))
     }
 
+    fn invocation_return_has_checked_result_envelope(
+        &self,
+        instance: Option<&super::PendingCallInstantiation>,
+        resolved_return: &Type,
+    ) -> Result<bool, crate::sema::constraints::ConstraintResolutionError> {
+        let Some((callable, instantiated)) = instance else { return Ok(false); };
+        if self.type_constraints.resolve(&instantiated.return_type)? != *resolved_return { return Ok(false); }
+        Ok(callable.requirements().applications.iter()
+            .flat_map(|application| application.proc_returns.iter())
+            .any(|envelope| &envelope.result == callable.return_type()))
+    }
+
     pub(super) fn validate_deferred_effects(&mut self) {
         if self.deferred_effect_checks.is_empty() {
             return;
@@ -1695,8 +1787,12 @@ impl Checker {
                                 InvocationFlow::Return(return_ty) => match self.invocation_may_error(&effects) {
                                     Ok(false) => {},
                                     Ok(true) => match self.type_constraints.resolve(&return_ty) {
-                                        Ok(return_ty) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
-                                        Ok(_) => self.error(check.span, "invocation return flow has no settled result shape", DiagnosticCode::CheckLocalInference),
+                                        Ok(return_ty) => match self.invocation_return_has_checked_result_envelope(instance.as_ref(), &return_ty) {
+                                            Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
+                                            Ok(true) => {},
+                                            Ok(false) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
+                                            Ok(false) => self.error(check.span, "invocation return flow has no settled result shape", DiagnosticCode::CheckLocalInference),
+                                        },
                                         Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
                                     },
                                     Err(_) => self.error(check.span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference),
