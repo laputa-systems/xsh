@@ -8,11 +8,17 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Provisional assembly `4e90fafe1` passes 623 of 630 selected Rust controls.
-All 625 previous selectors remain selected, alongside five additional Proc
-controls. The Proc repair introduces six regressions in returned-call evidence,
-Result-pattern inference and error flow; the existing nested optional-guard
-failure also remains. These failures block qualification.
+Provisional assembly `8bb093c79` passes 629 of 630 selected Rust controls.
+All 630 selectors remain selected. The sole failure is the existing nested
+optional-guard verification case. Proc repair `7ae893201`, integrated as
+`8bb093c79`, passes all 21 focused controls, including the six regressions
+introduced by `4e90fafe1`. Unit and failure-only completions retain their
+resolved success type and nominal error join. Ready same-file callees reuse
+their canonical origin summary without discarding resource provenance.
+
+The preceding `4e90fafe1` passes 623 of 630 selected Rust controls, with six
+Proc regressions and the nested optional-guard failure. Preserve that failed
+receipt. Neither selected replay qualifies the full suite or campaign.
 
 The preceding `353cf3c8d` passes 624 of 625 selected Rust controls, with only
 the nested optional-guard failure. Preserve both failed-source receipts; neither
@@ -63,21 +69,26 @@ pipeline output from its actual input and stages. Both execution routes pass.
 The Set test now targets the actual dedicated operation instead of assuming an
 empty-list conversion. Its receiver, item, alias and method mutations still reject.
 
-The current lanes repair Proc regressions and nested optional-guard verification,
-and update obsolete native rejection fixtures to the completion contract.
-Proc checkpoint `ba12a82d6`, integrated as `4e90fafe1`, passes fifteen focused
-controls and independent source review before the combined replay exposes the
-six regressions above. Its effectful-body counter performs and publishes one
-check. Direct invocation effects remain deferred; signature reads retain their
-fixed-point dependency. A success-origin shortcut avoids an origin-only retry.
-The combined failures require diagnosis before this checkpoint can qualify.
+The current lanes repair nested optional-record verification and typed callable
+materialization through immutable captured aliases. The original optional-guard
+fixture passes the current isolated candidate, but a nested record-value case
+exceeds its unchanged proof-work bound. The callable candidate passes direct,
+local and driver alias witnesses; its captured-alias witness exposes proof
+ordering that still needs repair. Neither candidate is integrated.
+
+The generic-body fixture now asserts runtime behavior for an independent generic
+value alongside a live ground mutable capture, and for activation-local mutation.
+Commit `ca80a5964`, integrated as `c53e7ac44`, passes both positive selectors and
+the two retained shared-state rejection controls. Matching final-source native
+qualification remains required. Three other native controls retain diagnostic
+or module-verification failures in the earlier product run.
+
 The fixed-Int mutable-capture rejection was already failing on the preceding
-source and conflicts with the charter's independent-variable generalization;
-its corrected positive checks two instantiations while the actual shared-state
+source and conflicts with the charter's independent-variable generalization.
+Its corrected positive checks two instantiations. Actual shared-state
 polymorphism rejection controls remain selected and pass.
-The optional-guard repair must pass the original fixture's unchanged work bound.
-Pyramid remains frozen until inference qualifies. No new full-suite or timing
-gate has started for this assembly.
+Pyramid remains frozen until inference qualifies. No full-suite or timing
+acceptance follows from these focused results.
 
 Earlier assembly `e2b76eaac` passes 584 of 589 selected Rust controls.
 Its five failures belong to the earlier full-library failure set. Every prior
