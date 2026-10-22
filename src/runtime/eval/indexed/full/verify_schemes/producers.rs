@@ -311,6 +311,7 @@ struct ProducerTargets {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum CallableProducer {
+    Binding(u32),
     Expression(usize),
     PipelinePrefix(usize, usize),
 }
@@ -2396,11 +2397,28 @@ impl<'a> ProducerProof<'a> {
         Ok(ty)
     }
 
-    fn binding_initializer(&mut self, binding: u32, purpose: ProducerTargetPurpose) -> Result<(u32, usize), IrVerifyError> {
+    fn binding_producer(&mut self, binding: u32, purpose: ProducerTargetPurpose, path: &mut Vec<FunctionProjection>) -> Result<(u32, CallableProducer), IrVerifyError> {
         let (_, step, _) = self.index.binding_writers.get(binding as usize).and_then(|writer| *writer).ok_or_else(|| IrVerifyError::new("callable capture has no lexical initializer"))?;
         let owner = driver_owner(step).map_err(|_| IrVerifyError::new("callable capture initializer owner is invalid"))?;
         let decoder = self.owner(owner)?;
         let row = self.store.driver_steps[step];
+        if row.tag == super::super::FullDriverTag::Use {
+            let type_id = TypeId::from_raw(row.registered_module_type)
+                .ok_or_else(|| IrVerifyError::new("callable import has no registered module contract"))?;
+            let ty = self.contract_type(type_id)?;
+            let Type::Module(module) = ty.as_ref() else { return Err(IrVerifyError::new("callable import registration is not a module")) };
+            let Some(FunctionProjection::Field(field)) = path.pop() else { return Err(IrVerifyError::new("callable import has no selected export projection")) };
+            if !module.exports.contains_key(&field) { return Err(IrVerifyError::new("callable import projection is absent from its registered module")); }
+            let exports = self.index.module_exports.get(&owner)
+                .ok_or_else(|| IrVerifyError::new("callable import has no verified export census"))?;
+            self.budget.charge(exports.len())?;
+            let mut selected = exports.iter().filter(|(name, _)| *name == field);
+            let export = selected.next().map(|(_, binding)| *binding)
+                .ok_or_else(|| IrVerifyError::new("callable import projection has no value binding"))?;
+            if selected.next().is_some() { return Err(IrVerifyError::new("callable import projection has duplicate value bindings")); }
+            self.binding_writer(binding, ty)?;
+            return Ok((owner, CallableProducer::Binding(export)));
+        }
         if row.tag != super::super::FullDriverTag::Let { return Err(IrVerifyError::new("callable capture initializer is not a value declaration")); }
         let mut cursor = super::super::FullCursor::new(self.store.payload(row.data.range())?);
         let _: Name = super::super::FullCodec::decode(&decoder, &mut cursor)?;
@@ -2409,7 +2427,7 @@ impl<'a> ProducerProof<'a> {
         let _: Option<Type> = super::super::FullCodec::decode(&decoder, &mut cursor)?;
         let mutable: bool = super::super::FullCodec::decode(&decoder, &mut cursor)?;
         if mutable && purpose == ProducerTargetPurpose::Callable { return Err(IrVerifyError::new("callable capture has mutable lexical storage")); }
-        Ok((owner, cursor.raw()? as usize))
+        Ok((owner, CallableProducer::Expression(cursor.raw()? as usize)))
     }
 
     fn callable_assignment_projection(
@@ -2500,6 +2518,11 @@ impl<'a> ProducerProof<'a> {
             if !visited.insert((owner, source, path.clone())) { continue; }
             let decoder = self.owner(owner)?;
             let instruction = match source {
+                CallableProducer::Binding(binding) => {
+                    let (source_owner, source) = self.binding_producer(binding, purpose, &mut path)?;
+                    pending.push((source_owner, source, path));
+                    continue;
+                }
                 CallableProducer::Expression(instruction) => instruction,
                 CallableProducer::PipelinePrefix(pipeline, end) => {
                     if end == 0 {
@@ -2804,8 +2827,7 @@ impl<'a> ProducerProof<'a> {
                             }
                         }
                         ProducerBinding::HeaderCapture(binding) => {
-                            let (source_owner, value) = self.binding_initializer(binding, purpose)?;
-                            pending.push((source_owner, CallableProducer::Expression(value), path));
+                            pending.push((owner, CallableProducer::Binding(binding), path));
                         }
                         ProducerBinding::DriverBinding(slot) => {
                             if let Some(source) = decoder.driver_local_let_source(slot, |amount| self.budget.charge(amount))? {
@@ -2814,8 +2836,7 @@ impl<'a> ProducerProof<'a> {
                                 let step = super::super::driver_owner_index(owner).ok_or_else(|| IrVerifyError::new("callable driver owner is invalid"))?;
                                 let slots = bounded(self.store.driver_steps[step].slots, &self.store.driver_slots, "callable driver binding range is invalid")?;
                                 let binding = slots.iter().find(|binding| binding.slot as usize == slot).ok_or_else(|| IrVerifyError::new("callable driver slot has no lexical identity"))?;
-                                let (source_owner, value) = self.binding_initializer(binding.binding_identity, purpose)?;
-                                pending.push((source_owner, CallableProducer::Expression(value), path));
+                                pending.push((owner, CallableProducer::Binding(binding.binding_identity), path));
                             }
                         }
                     }
