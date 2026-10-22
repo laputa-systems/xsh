@@ -52,11 +52,34 @@ struct SelectedHostMethod {
 }
 
 #[derive(Clone)]
+struct HostCallPhase {
+    position: HostCallPosition,
+    context: super::super::infer_effects::HostMethodContext,
+}
+
+struct HostCallStart {
+    source: HostCallSource,
+    before_arguments: HostCallPhase,
+    name: String,
+    receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
+}
+
+impl HostCallStart {
+    fn finish(self, checker: &mut Checker) -> HostCallContinuation {
+        let after_arguments = checker.reserve_host_call_phase();
+        HostCallContinuation {
+            source: self.source, before_arguments: self.before_arguments, after_arguments,
+            name: self.name, receiver_schema: self.receiver_schema,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct HostCallContinuation {
     source: HostCallSource,
-    position: HostCallPosition,
+    before_arguments: HostCallPhase,
+    after_arguments: HostCallPhase,
     name: String,
-    context: super::super::infer_effects::HostMethodContext,
     receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
 }
 
@@ -78,14 +101,18 @@ struct HostMethodCandidates {
 }
 
 impl HostCallContinuation {
-    fn supports(&self, method: HostMethod, arguments: &[ExpandedArgument]) -> bool {
-        matches!(self.source, HostCallSource::Expression(_))
-            && self.receiver_schema.is_none()
-            && method.signature.sig.arg_check == super::ApiArgCheck::Standard
-            && super::method_with_unique_layout(
-                api_spec().method_overloads(method.receiver, &self.name).expect("a selected host method remains registered"),
-                Some(arguments),
-            ).is_some_and(|selected| std::ptr::eq(selected, method.signature))
+    fn phase(&self, method: HostMethod, arguments: &[ExpandedArgument]) -> Option<&HostCallPhase> {
+        if !matches!(self.source, HostCallSource::Expression(_))
+            || self.receiver_schema.is_some()
+            || method.signature.sig.arg_check != super::ApiArgCheck::Standard
+        { return None; }
+        match super::method_with_unique_layout(
+            api_spec().method_overloads(method.receiver, &self.name).expect("a selected host method remains registered"),
+            Some(arguments),
+        ) {
+            Some(selected) => std::ptr::eq(selected, method.signature).then_some(&self.before_arguments),
+            None => Some(&self.after_arguments),
+        }
     }
 }
 
@@ -192,14 +219,21 @@ impl HostMethodCandidates {
 }
 
 impl Checker {
+    fn reserve_host_call_phase(&mut self) -> HostCallPhase {
+        HostCallPhase {
+            position: self.local_inference.host_obligations.reserve_position(),
+            context: self.host_method_context(),
+        }
+    }
+
     fn reserve_host_call_continuation(
         &mut self,
         source: HostCallSource,
         name: &str,
         receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
-    ) -> HostCallContinuation {
-        let position = self.local_inference.host_obligations.reserve_position();
-        HostCallContinuation { source, position, name: name.to_owned(), context: self.host_method_context(), receiver_schema }
+    ) -> HostCallStart {
+        let before_arguments = self.reserve_host_call_phase();
+        HostCallStart { source, before_arguments, name: name.to_owned(), receiver_schema }
     }
 
     pub(in super::super) fn check_inferred_host_method(
@@ -223,6 +257,7 @@ impl Checker {
             let expected = super::common_method_overload_expected_arena(args, &signatures, index);
             self.check_call_arg_arena(arena, source, &argument.kind, expected.as_ref());
         }
+        let continuation = continuation.finish(self);
         let original_args = match &call_source {
             HostCallSource::Expression(call) => {
                 assert_eq!(arena.arena.expr(*call).span, span);
@@ -241,7 +276,7 @@ impl Checker {
         let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: expected.cloned(), arguments, candidates, span };
         match obligation.select(&mut self.type_constraints) {
             Ok(true) => {
-                if obligation.selected.as_ref().is_some_and(|selected| continuation.supports(selected.method, &obligation.arguments)) {
+                if obligation.selected.as_ref().is_some_and(|selected| continuation.phase(selected.method, &obligation.arguments).is_some()) {
                     return self.finalize_host_obligation(arena, &mut HostObligation { continuation, candidates: obligation });
                 }
                 let receiver = match self.type_constraints.resolve(&receiver) {
@@ -277,9 +312,10 @@ impl Checker {
         assert_eq!(arena.arena.expr(call).span, obligation.candidates.span);
         assert!(matches!(arena.arena.expr(call).kind, crate::syntax::arena::ArenaExprKind::Call { .. }));
         let selected = obligation.candidates.selected.take().expect("a finalized host call retains the committed selection");
+        let phase = continuation.phase(selected.method, &obligation.candidates.arguments).expect("a finalized host call has canonical selection order");
         self.finalize_selected_host_method(
             arena, selected.method.receiver, &continuation.name, selected.method.signature, selected.signature,
-            &obligation.candidates.arguments, selected.binding, &continuation.context, obligation.candidates.span,
+            &obligation.candidates.arguments, selected.binding, &phase.context, obligation.candidates.span,
         )
     }
 
@@ -315,12 +351,15 @@ impl Checker {
                 }
             }
         }
-        pending.sort_by_key(|obligation| obligation.continuation.position);
+        pending.sort_by_key(|obligation| obligation.candidates.selected.as_ref()
+            .and_then(|selected| obligation.continuation.phase(selected.method, &obligation.candidates.arguments))
+            .unwrap_or(&obligation.continuation.before_arguments).position);
         let mut inserted = 0;
         for mut obligation in pending {
-            Self::shift_host_method_context(&mut obligation.continuation.context, inserted);
+            Self::shift_host_method_context(&mut obligation.continuation.before_arguments.context, inserted);
+            Self::shift_host_method_context(&mut obligation.continuation.after_arguments.context, inserted);
             match &obligation.candidates.selected {
-                Some(selected) if obligation.continuation.supports(selected.method, &obligation.candidates.arguments) => {
+                Some(selected) if obligation.continuation.phase(selected.method, &obligation.candidates.arguments).is_some() => {
                     let before = self.diagnostics.len();
                     self.finalize_host_obligation(arena, &mut obligation);
                     inserted += self.diagnostics.len() - before;
@@ -352,7 +391,7 @@ mod tests {
         candidates.arguments = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |_| types.next()).unwrap();
         assert!(types.next().is_none());
         HostObligation {
-            continuation: checker.reserve_host_call_continuation(HostCallSource::Expression(call), name, None),
+            continuation: checker.reserve_host_call_continuation(HostCallSource::Expression(call), name, None).finish(checker),
             candidates,
         }
     }
@@ -553,7 +592,7 @@ mod tests {
             Some(checker.check_expr_arena(&parsed.arena, source, expression, None))
         }).unwrap();
         assert!(matches!(arguments[0].value, crate::sema::arguments::ArgumentValueSource::Expression(_)));
-        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "byte_at", None);
+        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "byte_at", None).finish(&mut checker);
         checker.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: HostMethodCandidates { selected: None,
             receiver: receiver.clone(), result: result.clone(), expected: None, arguments,
             candidates: method_candidates("byte_at"), span,
@@ -588,7 +627,7 @@ mod tests {
         assert!(arguments.iter().all(|argument| matches!(argument.value, crate::sema::arguments::ArgumentValueSource::RecordField { .. })));
         let receiver = checker.type_constraints.fresh(span);
         let result = checker.type_constraints.fresh(span);
-        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "replace", None);
+        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "replace", None).finish(&mut checker);
         checker.local_inference.host_obligations.entries.push(HostObligation {
             continuation,
             candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("replace"), span },
@@ -605,7 +644,10 @@ mod tests {
 
     #[test]
     fn late_host_effects_use_the_original_boundary() {
-        let source = "proc original() { raw.resolve() }\nproc elsewhere() {}\n";
+        for (source, name) in [
+            ("proc original() { raw.resolve() }\nproc elsewhere() {}\n", "resolve"),
+            ("proc original() { raw.write(\"data\") }\nproc elsewhere() {}\n", "write"),
+        ] {
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
@@ -616,10 +658,11 @@ mod tests {
         let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
         let elsewhere = parsed.arena.arena.stmt_ids(parsed.arena.statements).nth(1).unwrap();
         let crate::syntax::arena::ArenaStmtKind::ProcDef(other_definition) = parsed.arena.arena.stmt(elsewhere).kind else { panic!("solver owner") };
-        let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+        let args = parsed.arena.arena.call_args(args);
         let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(callee).kind else { panic!("method receiver") };
         let span = parsed.arena.arena.expr(call).span;
-        let method = &api_spec().method_overloads(MethodReceiver::Path, "resolve").unwrap()[0];
+        let method = &api_spec().method_overloads(MethodReceiver::Path, name).unwrap()[0];
         assert!(!method.sig.pure);
         let required = method.sig.effects.to_vec();
         assert!(!required.is_empty());
@@ -635,14 +678,18 @@ mod tests {
             original.boundary.in_pure = pure;
             original.boundary.current_effects = Some(if allowed { required.clone() } else { Vec::new() });
             let mut delayed = original.clone();
-            original.check_method_dispatch_arena(&parsed.arena, source, HostCallSource::Expression(call), base, Type::Path, "resolve", &[], span, None);
+            original.check_method_dispatch_arena(&parsed.arena, source, HostCallSource::Expression(call), base, Type::Path, name, args, span, None);
             original.validate_deferred_effects();
             let receiver = delayed.type_constraints.fresh(span);
             let result = delayed.type_constraints.fresh(span);
-            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "resolve", None);
+            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), name, None);
+            let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, args, |expression| {
+                Some(delayed.check_expr_arena(&parsed.arena, source, expression, None))
+            }).unwrap();
+            let continuation = continuation.finish(&mut delayed);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments: Vec::new(), candidates: method_candidates("resolve"), span },
+                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
             });
             delayed.boundary.effect_owner = Some(other);
             delayed.boundary.in_pure = false;
@@ -660,6 +707,7 @@ mod tests {
             assert_eq!(actual_graph[&other].effects(), expected_graph[&other].effects());
             assert!(!delayed.boundary.in_pure);
             assert_eq!(delayed.boundary.current_effects, Some(required.clone()));
+        }
         }
     }
 
@@ -679,7 +727,8 @@ mod tests {
         let mut delayed = reference.clone();
         reference.check_expr_arena(&parsed.arena, source, outer, None);
         let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "mkdir", None);
-        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "exists", None);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "exists", None).finish(&mut delayed);
+        let outer_continuation = outer_continuation.finish(&mut delayed);
         for (call, name, continuation, arguments) in [
             (inner, "exists", inner_continuation, Vec::new()),
             (outer, "mkdir", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Bool)).unwrap()),
@@ -698,7 +747,55 @@ mod tests {
     }
 
     #[test]
-    fn late_host_overloaded_nested_calls_retain_canonical_replay() {
+    fn late_host_argument_overloads_publish_the_checked_selection() {
+        for (source, accepted) in [
+            ("p\"output\".write(\"payload\")\n", true),
+            ("p\"output\".write(b\"payload\")\n", true),
+            ("p\"output\".write(false)\n", false),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+            let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
+            let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+            let span = parsed.arena.arena.expr(call).span;
+            let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
+            reference.check_expr_arena(&parsed.arena, source, call, None);
+            let mut delayed = Checker::new(crate::sema::check::CheckOptions::default());
+            let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |expression| {
+                Some(delayed.check_expr_arena(&parsed.arena, source, expression, None))
+            }).unwrap();
+            let receiver = delayed.type_constraints.fresh(span);
+            let result = delayed.type_constraints.fresh(span);
+            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "write", None).finish(&mut delayed);
+            delayed.local_inference.host_obligations.entries.push(HostObligation {
+                continuation,
+                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates("write"), span },
+            });
+            delayed.type_constraints.constrain(&receiver, &Type::Path, span).unwrap();
+            assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
+            if accepted {
+                assert!(reference.diagnostics.is_empty(), "{:?}", reference.diagnostics);
+                assert!(delayed.diagnostics.is_empty(), "{:?}", delayed.diagnostics);
+                let actual = delayed.api_calls.get(&span).expect("argument-selected host call publishes its committed overload");
+                let expected = reference.api_calls.get(&span).unwrap();
+                assert!(std::ptr::eq(actual.sig, expected.sig));
+                assert_eq!(actual.params, expected.params);
+                assert_eq!(actual.argument_slots, expected.argument_slots);
+                assert!(delayed.local_inference.host_obligations.entries.is_empty());
+            } else {
+                assert!(!reference.diagnostics.is_empty());
+                assert!(!delayed.api_calls.contains_key(&span));
+                assert_eq!(delayed.local_inference.host_obligations.entries.len(), 1);
+                assert!(delayed.local_inference.host_obligations.entries[0].candidates.candidates.is_empty());
+                assert!(delayed.local_inference.host_obligations.entries[0].candidates.selected.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn late_host_overloaded_nested_calls_finalize_after_arguments() {
         let source = "p\"outer\".write(p\"inner\".read_text() ?? \"\")\n";
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -713,7 +810,8 @@ mod tests {
         let mut delayed = reference.clone();
         reference.check_expr_arena(&parsed.arena, source, outer, None);
         let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "write", None);
-        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "read_text", None);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "read_text", None).finish(&mut delayed);
+        let outer_continuation = outer_continuation.finish(&mut delayed);
         for (call, name, continuation, arguments) in [
             (inner, "read_text", inner_continuation, Vec::new()),
             (outer, "write", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Str)).unwrap()),
@@ -726,17 +824,18 @@ mod tests {
             });
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
-        let pending = &delayed.local_inference.host_obligations.entries;
-        assert_eq!(pending.len(), 1);
-        assert!(matches!(pending[0].continuation.source, HostCallSource::Expression(call) if call == outer));
-        assert!(pending[0].candidates.selected.is_some());
-        assert!(!delayed.api_calls.contains_key(&parsed.arena.arena.expr(outer).span));
+        assert!(delayed.local_inference.host_obligations.entries.is_empty());
+        let outer_api = delayed.api_calls.get(&parsed.arena.arena.expr(outer).span).unwrap();
+        let reference_api = reference.api_calls.get(&parsed.arena.arena.expr(outer).span).unwrap();
+        assert!(std::ptr::eq(outer_api.sig, reference_api.sig));
+        assert_eq!(outer_api.params, reference_api.params);
+        assert_eq!(outer_api.argument_slots, reference_api.argument_slots);
         assert!(delayed.api_calls.contains_key(&parsed.arena.arena.expr(inner).span));
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span)).collect::<Vec<_>>();
         let reference_order = order(&reference);
         assert_eq!(reference_order.first(), Some(&parsed.arena.arena.expr(inner).span));
         assert!(reference_order.contains(&parsed.arena.arena.expr(outer).span));
-        assert_eq!(order(&delayed), [parsed.arena.arena.expr(inner).span]);
+        assert_eq!(order(&delayed), [parsed.arena.arena.expr(inner).span, parsed.arena.arena.expr(outer).span]);
     }
 
     #[test]
