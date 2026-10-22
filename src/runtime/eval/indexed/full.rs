@@ -34514,14 +34514,36 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
-    fn generic_pure_body_limits_keep_mutation_effects_and_ambiguity_rejected() {
+    fn generic_pure_bodies_preserve_storage_effect_and_ambiguity_boundaries() {
+        run_with_large_stack(|| {
+            for (prefix, body, input) in [
+                ("var marker = 5\npure plus(value: Int, marker: Int) -> Int { value + marker }", "plus(row.value, marker)", 2),
+                ("pure item(value: Int) -> Int { value }", "var copied = row.value; item(copied)", 7),
+            ] {
+                for generic in [false, true] {
+                    let annotation = if generic { "" } else { ": Row" };
+                    let source = format!("type Row = {{value: Int}}\n{prefix}\npure read(row{annotation}) -> Int {{ {body} }}\nlet result = read({{value: {input}}})\n");
+                    let program = Arc::new(fixture("generic-pure-storage-boundaries.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    let _symbols = program.symbol_owner().enter();
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        evaluator.force_frames = force_frames;
+                        for step in 0..program.driver_step_count().unwrap() {
+                            evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                        }
+                        assert_eq!(evaluator.lookup(Name::intern("result")).unwrap().value, Value::Int(7), "{source}");
+                    }
+                }
+            }
+        });
         for (source, expected) in [
+            ("pure item(value: Int) -> Int { value }\npure read(row) -> Int { item(row.value); item(row.value) }\n", crate::diagnostic::DiagnosticCode::CheckIgnoredResult),
+            ("pure read(row) -> Int { var copied: Int = row.value; copied = \"wrong\"; copied }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
             ("pure make(value: Int) -> List[Int] { [value] }\npure read(row) -> List[UInt] { make(row.value) }\n", crate::diagnostic::DiagnosticCode::CheckTypeMismatch),
-            ("var marker = 5\npure plus(value: Int, marker: Int) -> Int { value + marker }\npure read(row) -> Int { plus(row.value, marker) }\n", crate::diagnostic::DiagnosticCode::CheckLocalInference),
-            ("pure item(value: Int) -> Int { value }\npure read(row) -> Int { var copied = row.value; item(copied) }\n", crate::diagnostic::DiagnosticCode::CheckLocalInference),
             ("pure item(value: Path) -> Path { value }\npure read(row) -> Result[Str] { item(row.path).read_text() }\n", crate::diagnostic::DiagnosticCode::CheckPureEffect),
             ("pure read(row) { row.value.byte_at(0) }\nlet caller = read({value: b\"x\"})\n", crate::diagnostic::DiagnosticCode::CheckAmbiguousOverload),
-            ("pure item(value: Int) -> Int { value }\npure read(row) -> Int { item(row.value); item(row.value) }\n", crate::diagnostic::DiagnosticCode::CheckLocalInference),
         ] {
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pure-limit.xsh", crate::loader::entry_source_from_text("generic-pure-limit.xsh", source.to_string()), Vec::new());
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
