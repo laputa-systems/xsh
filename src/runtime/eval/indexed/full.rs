@@ -36179,6 +36179,42 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn ground_nominal_constructor_preserves_checked_identity() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "nominal-type-docs.xsh",
+                include_str!("../../../../docs/snippets/spec/70-nominal-type.xsh"),
+            ));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "resolve")),
+                        CallableKind::Proc,
+                        &[Value::Str(Arc::from(
+                            r#"{"id": "xsh", "version": "1.0"}"#,
+                        ))],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    result,
+                    Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(
+                        Value::Str(Arc::from("xsh-1.0 xsh-2.0 xsh 2.0 xsh 2.1")),
+                    ))),
+                );
+            }
+        });
+    }
+
+    #[test]
     fn prepared_constant_helper_data_keeps_its_verified_work_allowance() {
         run_with_large_stack(|| {
             let values = (0..4096).map(|value| value.to_string()).collect::<Vec<_>>().join(",");

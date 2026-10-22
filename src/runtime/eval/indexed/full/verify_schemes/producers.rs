@@ -4583,10 +4583,12 @@ impl<'a> ProducerProof<'a> {
                 let checked = self.contract_type(check.ty.id)?;
                 if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                let mut checked_record = false;
                 if check.schema.is_none() {
                     let input = value.raw() as usize;
                     if runtime_complete { self.mark_runtime_checked_literal_payloads(&decoder, input)?; }
-                    if !self.checked_record_arguments(&decoder, input, &checked)?
+                    checked_record = self.checked_record_arguments(&decoder, input, &checked)?;
+                    if !checked_record
                         && !self.checked_list_accumulator(&decoder, input, &checked, runtime_complete)?
                     {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
@@ -4624,7 +4626,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 if !runtime_complete {
                     let source = if check.schema.is_none() {
-                        self.need_context(&decoder, value.raw() as usize)?.filter(|source| Self::checked_optional_payload_source(source, &checked)).unwrap_or(checked)
+                        self.need_context(&decoder, value.raw() as usize)?
+                            .filter(|source| Self::checked_optional_payload_source(source, &checked))
+                            .or_else(|| (checked_record && checked.nominal_name().is_some()).then(|| Arc::new(checked.unvalidated().clone())))
+                            .unwrap_or(checked)
                     } else { checked };
                     self.expression(owner, value.raw() as usize, source, false);
                 }
