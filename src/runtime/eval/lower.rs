@@ -6958,7 +6958,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Type::Optional(payload) = stored
             && payload.as_ref() == &checked
         {
-            return Some(if matches!(payload.as_ref(), Type::Record(_))
+            return Some(if matches!(payload.as_ref(), Type::Record(_)) && payload.contains_typed_callable()
                 && !payload.contains_any() && !payload.contains_inference() && !payload.contains_recovery()
             { PhysicalReadContract::Stored(stored) } else { PhysicalReadContract::OptionalPayload(payload) });
         }

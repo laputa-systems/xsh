@@ -345,8 +345,9 @@ Typed callable signatures and nominal payloads retain independent producer proof
 The exact optional-payload carrier preserves the original optional producer for
 those incomplete runtime checks. Closed storage-backed parameter and field reads
 retain the stored declaration type when flow checking removes only optional
-layers. Closed record reads retain their stored optional type. Field projection
-proves that an optional receiver is non-null before reading its payload.
+layers. Closed record reads containing typed callables retain their stored
+optional type. Ordinary record reads retain their presence carriers. Field
+projection proves that an optional receiver is non-null before reading its payload.
 A value consumer that needs a stronger record proves each removed optional layer
 at the actual binding path, including intervening writes.
 Other exact optional-payload reads retain their checked gate, including callable,

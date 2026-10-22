@@ -12178,34 +12178,35 @@ impl<'a> FullDecoder<'a> {
         self.derive_checked_field_type(instruction).map(Some)
     }
 
+    const BINDING_PATH_STEP_LIMIT: usize = 257;
+
     fn checked_binding_path(
         &self,
         instruction: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
-        let mut visited = BTreeSet::new();
-        let mut remaining = self.instruction_range.len().min(257);
-        self.checked_binding_path_with(instruction, charge, &mut visited, &mut remaining)
+        let mut remaining = self.instruction_range.len().min(Self::BINDING_PATH_STEP_LIMIT);
+        self.checked_binding_path_with(instruction, charge, &mut remaining)
     }
 
     fn checked_binding_path_with(
         &self,
         mut instruction: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-        visited: &mut BTreeSet<usize>,
         remaining: &mut usize,
     ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
         charge(1)?;
         let mut fields = Vec::new();
         loop {
-            charge(2)?;
-            if *remaining == 0 { return Ok(None); }
+            charge(1)?;
+            if *remaining == 0 {
+                return if self.instruction_range.len() <= Self::BINDING_PATH_STEP_LIMIT {
+                    Err(IrVerifyError::new("checked binding path is cyclic"))
+                } else { Ok(None) };
+            }
             *remaining -= 1;
             if !self.instruction_range.contains(&instruction) {
                 return Err(IrVerifyError::new("checked binding path leaves its owner instruction range"));
-            }
-            if !visited.insert(instruction) {
-                return Err(IrVerifyError::new("checked binding path is cyclic"));
             }
             match self.expression_view(instruction)? {
                 schema::ExprView::Param(slot) => {
@@ -12220,7 +12221,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => {
                     let source = value.raw() as usize;
-                    let Some(binding) = self.checked_binding_path_with(source, charge, visited, remaining)? else { return Ok(None) };
+                    let Some(binding) = self.checked_binding_path_with(source, charge, remaining)? else { return Ok(None) };
                     let checked = check.ty.materialize()?;
                     if self.checked_value_optional_source_for_binding(instruction, source, check.ty.id, &checked, &binding, charge)?.is_none() {
                         return Ok(None);
@@ -41333,6 +41334,28 @@ pure apply(container: Outer, fallback: RequiredInner) -> Int {
             let program = fixture("optional-record-field-value-transfer.xsh", source);
             FullVerifier::verify(&program).unwrap();
         }
+    }
+
+    #[test]
+    fn dormant_callable_record_fields_require_their_optional_receiver_guard() {
+        let program = fixture("dormant-callable-record-field.xsh", r#"type Holder = {callback: pure(n: Int) -> Int}
+type Container = {holder: Holder}
+pure select(container: Container?, fallback: Holder) -> Holder {
+  return if container != null { container.holder } else { fallback }
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        assert!(!program.store.tags.contains(&FullTag::ExprTypedCall));
+        let owner = scheme_fixture_root_function(&program, "select");
+        let decoder = function_view_decoder(&program.store, owner);
+        let guard = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+            let schema::ExprView::Binary { op: BinaryOp::Ne, .. } = decoder.expression_view(instruction).ok()? else { return None };
+            Some(instruction)
+        }).unwrap();
+        let mut malformed = program.clone();
+        let operation = program.store.extra[program.store.data[guard].range().start as usize] as usize;
+        malformed.store.binary_ops[operation] = BinaryOp::Eq;
+        assert!(FullVerifier::verify(&malformed).is_err());
     }
 
     #[test]
