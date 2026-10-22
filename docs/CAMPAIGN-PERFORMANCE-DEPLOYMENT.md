@@ -8,15 +8,30 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `e8f4a17bf` passes 564 of 570 selected Rust controls.
-Its six failures belong to the earlier full-library failure set. Every prior
-passing control remains selected and passes. Compared with the 569-control
-`1682fc689` boundary, two failed controls and one new regression now pass.
+Runtime assembly `e2b76eaac` passes 584 of 589 selected Rust controls.
+Its five failures belong to the earlier full-library failure set. Every prior
+passing control remains selected and passes. The 570-control `e8f4a17bf`
+boundary and all nineteen added controls remain selected. Nominal callable
+pattern ownership is repaired; generic capture, union method receivers, named
+stage configuration and nested optional-guard verification remain open.
 The assembly includes actual host-call selection publication, ordinary generic
 cleanup, With/Guard scopes and immutable environment-path snapshots. Authored
 recursive records retain their dynamic Map values and settled provenance.
 All three original Tokei regressions pass. Master has documentation-only changes
 after `d2453760a`; the assembly is not qualified for master.
+
+Checker checkpoint `6008d4a79`, integrated as `6a65887ad`, closes original
+collecting owners and retains exact pending-call return-flow tickets. Its first
+merged replay exposed twenty-two previously passing controls. Repair `d6ecf0bc2`,
+integrated as `e2b76eaac`, restores them through canonical constructor roles,
+source-derived child types, owner-scoped host finalization, deferred callable
+compatibility and the original unresolved-return diagnostic. All forty-two
+focused controls and the expanded replay pass their previously passing scope;
+no test assertion changed. Broader single-body authority remains incomplete.
+Nominal-pattern checkpoint `e8a60d2eb`, integrated as `6eadbfc40`, retains
+canonical enum/error payload contracts and exact structured-error projections.
+Thirteen focused controls and the expanded replay preserve actual target,
+parameter-label, nominal-field and source-identity rejection checks.
 
 Ownership-test checkpoint `1015ffd0e` corrects a disproved test premise:
 rejected owners intentionally lose latent Stream facts, while a valid owner
