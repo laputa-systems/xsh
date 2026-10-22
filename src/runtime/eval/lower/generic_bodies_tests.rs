@@ -866,6 +866,23 @@ fn generic_operators_comparison_chains_evaluate_only_reached_operands_once() {
 }
 
 #[test]
+fn recursive_ordering_inference_runs_after_frontend_disposal() {
+    let source = "pure sum_to(value) {\n  if value <= 0 { 0 } else { value + sum_to(value - 1) }\n}\npure even(value) {\n  if value <= 0 { true } else { odd(value - 1) }\n}\npure odd(value) {\n  if value <= 0 { false } else { even(value - 1) }\n}\nassert sum_to(4) == 10\nassert even(6)\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator
+                .eval_indexed_driver_step(step, Span::at(source_id, 0))
+                .unwrap()
+                .unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
 fn generic_operators_unsigned_map_membership_keeps_the_ordinary_validation_boundary() {
     let source = "pure selected(value, key: Int, items: Map[UInt, Int]) { let _ = value; key in items }\npure ordinary(key: Int, items: Map[UInt, Int]) -> Bool { key in items }\npure number(key: Int, items: Map[UInt, Int]) -> Bool { selected(7, key, items) }\npure text(key: Int, items: Map[UInt, Int]) -> Bool { selected(\"value\", key, items) }\n";
     let (program, sources, source_id) = record_form_program(source);

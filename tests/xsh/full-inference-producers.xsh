@@ -163,6 +163,20 @@ print $result
   assert output.stdout == "10\n"
 }
 
+test test_full_inference_ordering_resolves_an_operand_after_the_other_constrains_it { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure nonnegative(value) {
+  value <= 0
+}
+assert nonnegative(3)
+print "checked"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "checked\n"
+}
+
 test test_full_inference_mutual_recursive_returns_are_inferred_per_component { |ctx|
   let output = test.run_xsh(
     ctx,

@@ -3181,10 +3181,20 @@ impl Checker {
         if self.reject_unnarrowed_union(left, "an ordering comparison", left_span) {
             return;
         }
+
+        self.expect_type(left, right, right_span);
+        let Ok(left) = self.resolve_operator_operand(left.clone(), left_span) else {
+            return;
+        };
+        let Ok(_right) = self.resolve_operator_operand(right.clone(), right_span) else {
+            return;
+        };
+        if self.reject_unnarrowed_union(&left, "an ordering comparison", left_span) {
+            return;
+        }
         if !left.can_be_ordering_operand() && !left.is_recovery() {
             self.error(left_span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
         }
-        self.expect_type(left, right, right_span);
     }
 
     fn publish_binary_operator(&mut self, expression: ExprId, operator: BinaryOp, diagnostics: usize) {
