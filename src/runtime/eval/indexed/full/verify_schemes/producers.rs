@@ -4117,6 +4117,8 @@ impl<'a> ProducerProof<'a> {
         }
         self.budget.charge(query.memo.len())?;
         if completes {
+            self.budget.charge(1)?;
+            if decoder.is_empty_list_literal_expression(input.raw() as usize)? { return Ok(()); }
             let source = self.need_context(decoder, input.raw() as usize)?.ok_or_else(|| IrVerifyError::new("captured pipeline input has no executable contract"))?;
             if matches!(source.unvalidated(), Type::Stream(_)) {
                 if !pulls[0].never && self.stream_may_propagate_error(decoder, StreamProducer::Value(input.raw() as usize))? { errors.push(Type::Error); }

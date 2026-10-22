@@ -39294,6 +39294,30 @@ assert context_streams(good, bad)? == 7
     }
 
     #[test]
+    fn try_capture_classifies_empty_pipeline_inputs_without_an_item_type() {
+        run_with_large_stack(|| {
+            for input in ["[]", "[0]"] {
+                let source = format!(r#"
+let failed = try {{ {input} |> range(0, 9223372036854775807) }}
+assert failed is Err(is HostIo)
+if let Err(error) = failed {{ assert error.errno == 12 }} else {{ assert false }}
+let values = {input} |> range(1, 3)
+assert values == [1, 2]
+"#);
+                let program = Arc::new(fixture("capture-empty-pipeline.xsh", &source));
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
     fn try_capture_authenticates_only_demanded_pipeline_errors() {
         run_with_large_stack(|| {
             let mut program = fixture("capture-pipeline.xsh", r#"
