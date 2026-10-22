@@ -121,7 +121,8 @@ impl Checker {
                 }
                 ArenaStmtKind::Let { target, .. }
                 | ArenaStmtKind::Const { target, .. }
-                | ArenaStmtKind::Var { target, .. } => {
+                | ArenaStmtKind::Var { target, .. }
+                | ArenaStmtKind::Guard { target, .. } => {
                     let names = binding_names(program, target)
                         .into_iter()
                         .filter(|name| *name != "_")
@@ -150,7 +151,7 @@ impl Checker {
         let mut binding_indices = BTreeMap::new();
         for (index, declaration) in declarations.iter().enumerate() {
             let target = match program.arena.stmt(declaration.statement).kind {
-                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => target,
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } | ArenaStmtKind::Guard { target, .. } => target,
                 _ => continue,
             };
             let mut pending = vec![(target, declaration.span)];
@@ -239,6 +240,16 @@ impl Checker {
                 let decl = &declarations[index];
                 let Some(id) = decl.definition() else {
                     let kind = program.arena.stmt(decl.statement).kind;
+                    if let ArenaStmtKind::Guard { target, ty, initializer, else_block } = kind {
+                        let before = self.annotation_facts.len();
+                        let reported = self.diagnostics.len();
+                        self.without_pending_call_instantiations(|checker| {
+                            checker.check_guard_arena(program, source, target, ty, initializer, else_block, decl.span);
+                        });
+                        self.diagnostics.truncate(reported);
+                        self.annotation_facts.truncate(before);
+                        continue;
+                    }
                     if let ArenaStmtKind::Let {
                         target,
                         ty,

@@ -2518,6 +2518,32 @@ mod tests {
     }
 
     #[test]
+    fn guarded_bindings_keep_their_lexical_callable_capture_boundary() {
+        use crate::diagnostic::DiagnosticCode;
+        for source in [
+            "guard let selected = Ok(7) else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "let candidate: Int? = 7\nguard let selected = candidate else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "guard let {selected} = Ok({selected: 7}) else { exit 3 }\npure read() -> Int { selected }\nassert read() == 7\n",
+            "stream rows() [] -> Stream[Int] { yield 7 }\nlet initial = rows()\nguard let selected = Ok(initial) else { exit 3 }\npure read() -> Stream[Int] { selected }\n",
+            "stream rows() [] -> Stream[Int] { yield 7 }\nlet initial: Stream[Int]? = rows()\nguard let selected = initial else { exit 3 }\npure read() -> Stream[Int] { selected }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        }
+        for (source, expected) in [
+            ("pure read() -> Int { return selected }\nguard let selected = Ok(7) else { exit 3 }\n", DiagnosticCode::CheckUnresolvedName),
+            ("guard let selected = Ok(7) else { print \"missing\" }\npure read() -> Int { selected }\n", DiagnosticCode::CheckGuardFallthrough),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
     fn invalid_main_parameter_types_produce_ordinary_diagnostics() {
         use crate::diagnostic::DiagnosticCode;
         for (source, expected) in [

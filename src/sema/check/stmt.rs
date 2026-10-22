@@ -4271,7 +4271,7 @@ impl Checker {
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
     }
 
-    fn check_guard_arena(
+    pub(super) fn check_guard_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
