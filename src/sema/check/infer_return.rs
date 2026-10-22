@@ -455,8 +455,11 @@ impl Checker {
                 }
             }
         }
-        for &definition in &definitions {
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
             let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) { continue; }
             let body = program.arena.span(program.arena.block(def.body).span);
             let Some(ty) = self.function_return_types.get(&body) else { continue; };
             let ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
