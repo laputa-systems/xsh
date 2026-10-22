@@ -8,14 +8,28 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `8b44a7615` passes 533 of 541 selected Rust controls.
+Runtime assembly `e53f3e47f` passes 546 of 554 selected Rust controls.
 Its eight failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
-Master remains at `d2453760a`; the assembly is not qualified for master.
+Master has documentation-only changes after `d2453760a`; the assembly is not
+qualified for master. The combined replay retains every prior passing control
+and adds thirteen passing MapKey controls. Its eight failed identities match
+the preceding 541-control boundary.
+
+MapKey checkpoint `8808c9281` retains the existing finite key-domain constraint
+through generalization, imports, callbacks and prepared execution. Empty
+List/Map/Set owners retain their actual solved initializer and binding types.
+Thirteen focused controls pass. The first combined replay exposed unnecessary
+representative lookups and two obsolete verifier-test premises. Repair
+`7707b65f0`, integrated as `e53f3e47f`, restores both original exact alias-work
+assertions, preserves canonical `set.empty()` and empty-list conversion
+mutations, and expects the same List-to-Set forgery's earlier missing-key-bound
+rejection. All seventeen focused controls and the combined replay pass their
+previously passing scope. No work limit or forged-input guard is relaxed.
 
 Scoped-body checkpoint `73596f399` passes seventeen controls and a separate
 symbolic resource control, then the combined replay. Ordinary generic guarded
@@ -54,8 +68,8 @@ cascade with an existing primary error on the same owned recovery-bearing
 expression. Earlier local validation and other scheme failures remain intact.
 The new declaration-order and same-body controls and three existing controls
 pass, followed by the 541-control combined replay. The unchanged List-to-Set
-forgery now expects its earlier declaration/initializer rejection; its original
-source executes on both routes. These changes grant no corpus removal credit.
+forgery at that checkpoint expects its earlier declaration/initializer
+rejection; its original source executes on both routes. These changes grant no corpus removal credit.
 
 Local-fact checkpoint `7351fd426` publishes the original empty-list owner's
 existing inference type to its initializer and binding. Constructor publication
