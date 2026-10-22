@@ -8,7 +8,25 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-The combined unfiltered library replay at `6d67d40f3` selects 2,023 tests:
+The combined unfiltered library replay at `865b8aac2` selects 2,024 tests:
+2,021 pass, zero fail and three are ignored. Matching verification products
+build successfully. The complete native inference family executes 132 selectors
+exactly once: 115 pass, 17 fail and none skip. All previously passing selectors
+remain passing. One failure is a stale recursive-conflict diagnostic expectation:
+the two declaration orders now report operator-type and type-mismatch errors,
+respectively. Keeping both invalid programs and their status-2 assertions, the
+corrected exact selector passes through normal and forced-frame execution.
+That focused result does not replace the complete 115/17 receipt.
+
+The matching practical replay passes all twelve original XSH roots, including
+the previously failing `sort` check. The original Laputa check stops with nine
+diagnostics, beginning with a partial tail `if` incorrectly requiring `else` in
+an inferred Proc. Reduced views, runtime selectors, interfaces and comparisons
+do not run; no migration credit is claimed. The minimal completion repair and
+retained wrapper relationships are the next deliveries. Full qualification,
+performance gates and deployment acceptance remain open.
+
+The preceding unfiltered library replay at `6d67d40f3` selects 2,023 tests:
 2,012 pass, eight fail and three are ignored. Five failures use expectations or
 fixture premises from earlier contracts. Corrections pass all five focused
 controls, retaining forged-input rejection, dynamic-key rejection and concrete
@@ -19,7 +37,7 @@ The other three failures expose an alias initializer probing `env` as a runtime
 module value before ordinary `env.PATH` checking. Repair `1bee8e87f`, integrated
 as `a09ad8b49`, passes those three controls and two retained module/environment
 controls, plus independent review. Standard namespace-as-value rejection remains.
-The combined library replay remains failed; focused repairs do not replace it.
+The subsequent combined replay above covers both repairs without filters.
 
 Iteration evidence repair `42588ef3b`, integrated as `fe094a17c`, passes six
 focused controls and independent review. A checked `List[Any]` source supplies
