@@ -8,13 +8,37 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Matching verification products built from `f8771f5b2`, with corpus assertions
-through `d88180b53`, execute all 113 enumerated full-inference native controls
-and seven changed legacy controls: 87 pass and 33 fail. Every listed selector
-executes exactly once. The preceding `7b57e094d` products with `2aaefda86`
-assertions passed 80 and failed 40. Remaining failures cover structural and
-operator relationships, callable composition, effect propagation and prepared
-verification. These results do not establish full capability completion.
+Matching verification products built from `2137456d9` execute all 113 enumerated
+full-inference native controls and seven changed legacy controls: 95 pass and
+25 fail. Every listed selector executes exactly once. This resolves eight
+failures from the preceding `f8771f5b2` products with assertions through
+`d88180b53` (87 pass, 33 fail), with no passing selector regressing. The earlier
+`7b57e094d` products with `2aaefda86` assertions passed 80 and failed 40.
+Structural and operator relationships and callable composition remain open;
+these results do not establish full capability completion.
+
+Fixture correction `3eb7eda14` passes its exact native selector using the
+`2137456d9` products. Its three explicitly `Int`-returning Proc calls wrongly
+used Result propagation. Direct calls preserve all mutable reassignment,
+effect, runtime value and output assertions. Keep this focused receipt separate
+from the complete 95/25 run.
+
+Imported-callable repair `698e166ca`, integrated as `b5c3c4fd2`, passes four
+focused Rust controls and independent review. Immutable imported aliases resolve
+through the actual Use binding, canonical child namespace and exported function
+contract, without inventing a value binding or an opaque target. Execution after
+frontend disposal covers both routes; existing forged-export and immutable
+alias controls remain. Matching combined native qualification is pending.
+
+Documentation regeneration through the existing `docs.generate` API with
+`2137456d9` tools fails on the unchanged `70-nominal-type.xsh` example: a physical
+record constructor is rechecked as its nominal result. No generated files were
+written. Repair this producer boundary before claiming generated docs current.
+Iteration review also retains two separate open refinement programs: an
+annotated local `RelPath` passed through an inferred iterator, and a grounded
+`List[RelPath]`-to-`List[Path]` helper called with a contextual `p"relative"`
+literal. Both reach producer validation failures; isolating the iteration
+relationship does not qualify these complete programs.
 
 Structural repair `2eda90c75`, integrated as `f8771f5b2`, preserves open-row
 relationships during destructuring and seeds omitted rest parameters as lists
