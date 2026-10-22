@@ -193,33 +193,21 @@ impl Checker {
                             type_program.clone(),
                             &active_records,
                         );
-                        probe
+                        (probe, ())
                     },
                     &summaries,
                     &origin_summaries,
                 );
-                let (effect_graph, root_summaries, root_origins) = match effect_probe {
+                let (mut checker, ()) = match effect_probe {
                     Ok(effects) => effects,
                     Err(failure) => return Self::rejected_file_inference(failure),
                 };
-                let mut checker = Self::session_effect_checker(
-                    record_options,
-                    byte_script_arguments,
-                    &module_signatures,
-                    effect_graph,
-                    summaries,
-                    false,
-                );
-                checker.effect_summaries.extend(root_summaries);
-                checker.stream_origin_inputs = origin_summaries;
-                checker.stream_origin_inputs.extend(root_origins);
-                checker.check_program_arena_with_type_program_and_sources(
-                    view,
-                    source,
-                    type_program,
-                    &active_records,
-                );
                 checker.validate_deferred_effects();
+                checker.validate_stream_expression_origins(program);
+                let resource_check = super::resource::check_root_owner(&checker, view);
+                checker.diagnostics.extend(resource_check.diagnostics);
+                checker.resource_transfers = resource_check.transfers;
+                checker.same_scope_resource_assignments = resource_check.same_scope_assignments;
                 let facts = checker.effect_graph.facts(&checker.effect_summaries);
                 checker.finalize_function_declarations(view.program, &facts);
                 checker.publish_command_binding_sites();
@@ -421,52 +409,27 @@ impl Checker {
                 probe.stream_origin_inputs = dependency_origins.clone();
                 probe.stream_origin_inputs.extend(provisional_origins);
                 record.prepared_facts().install(&mut probe, program);
-                // Keep constructor lookup maps scoped to imports while sharing publication order.
                 probe.record_constructors.replace_instance_facts(
                     &bundle_record.prepared_facts().record_constructors,
                 );
                 probe.diagnostics.clear();
-                probe.check_user_module_arena(
+                let signature = probe.check_user_module_arena(
                     &module_view,
                     record,
                     type_program.clone(),
                     source,
                     module,
                 );
-                probe
+                (probe, signature)
             },
             dependency_summaries,
             dependency_origins,
         );
-        let (effect_graph, local_summaries, local_origins) = match effect_probe {
+        let (mut checker, mut signature) = match effect_probe {
             Ok(effects) => effects,
             Err(failure) => return Self::rejected_file_inference(failure),
         };
 
-        let mut checker = Self::session_effect_checker(
-            options,
-            byte_script_arguments,
-            dependencies,
-            effect_graph,
-            dependency_summaries.clone(),
-            false,
-        );
-        checker.effect_summaries.extend(local_summaries);
-        checker.stream_origin_inputs = dependency_origins.clone();
-        checker.stream_origin_inputs.extend(local_origins);
-        record.prepared_facts().install(&mut checker, program);
-        // Keep constructor lookup maps scoped to imports while sharing publication order.
-        checker.record_constructors.replace_instance_facts(
-            &bundle_record.prepared_facts().record_constructors,
-        );
-        checker.diagnostics.clear();
-        let signature = checker.check_user_module_arena(
-            &module_view,
-            record,
-            type_program,
-            source,
-            module,
-        );
         checker.resolve_checked_types();
         let instances = checker
             .record_constructor_instances
@@ -477,6 +440,7 @@ impl Checker {
             checker.publish_constructor_type_expressions(program, span, &fact);
         }
         checker.validate_deferred_effects();
+        checker.validate_stream_expression_origins(program);
         let mut resource_check = super::resource::check(&checker, &module_view);
         let suppressed_body_transfers =
             std::mem::take(&mut resource_check.suppressed_body_transfers);
@@ -485,7 +449,6 @@ impl Checker {
         checker.same_scope_resource_assignments.extend(resource_check.same_scope_assignments);
         let facts = checker.effect_graph.facts(&checker.effect_summaries);
         checker.finalize_function_declarations(program, &facts);
-        let mut signature = signature;
         checker.finalize_user_module_functions(program, module, &mut signature);
         checker.publish_command_binding_sites();
         checker.record_constructors = record.prepared_facts().record_constructors.clone();
@@ -555,22 +518,18 @@ impl Checker {
         checker
     }
 
-    fn solve_file_effect_probes(
+    fn solve_file_effect_probes<T>(
         mut probe: impl FnMut(
             std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
             super::stream_origins::StreamOriginSummaries,
-        ) -> Self,
+        ) -> (Self, T),
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         external_origins: &super::stream_origins::StreamOriginSummaries,
-    ) -> Result<(
-        EffectGraph,
-        std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-        super::stream_origins::StreamOriginSummaries,
-    ), FileInferenceFailure> {
+    ) -> Result<(Self, T), FileInferenceFailure> {
         let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
         loop {
-            let mut checker = probe(provisional.clone(), provisional_origins.clone());
+            let (mut checker, output) = probe(provisional.clone(), provisional_origins.clone());
             checker.bind_effect_graph()?;
             let solved = checker.effect_graph.solve_with_external(external)?;
             checker.normalize_stream_origin_applications()
@@ -581,7 +540,10 @@ impl Checker {
             if (!checker.provisional_effects_read.get() || solved == provisional)
                 && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
             {
-                return Ok((checker.effect_graph, solved, checker.stream_origin_outputs));
+                checker.effect_summaries.extend(solved);
+                checker.stream_origin_inputs = external_origins.clone();
+                checker.stream_origin_inputs.extend(checker.stream_origin_outputs.clone());
+                return Ok((checker, output));
             }
             provisional = solved;
             provisional_origins = checker.stream_origin_outputs;
@@ -900,6 +862,14 @@ mod tests {
                     )
                 });
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let identity = output.checked_declarations.functions.values()
+                    .find(|declaration| declaration.name.as_str().as_str() == "identity")
+                    .expect("the original identity declaration is published");
+                let scheme = identity.scheme.as_ref().expect("the original body has a checked scheme");
+                assert_eq!(scheme.params()[0].ty, *scheme.return_type());
+                assert!(matches!(scheme.return_type(), SchemeType::Parameter(_)));
+                let body = identity.scheme_body_facts.as_ref().expect("the original body retains its proof");
+                assert!(body.tail_types().values().any(|ty| ty == scheme.return_type()));
                 let body_entries = output.function_body_check_entries;
                 let call_facts = output.call_instantiations.len();
                 let declarations = Checker::compact_declarations(program, output);
@@ -925,6 +895,7 @@ mod tests {
         assert_eq!(many_call_facts, 8);
         assert_eq!(one_body_checks, many_body_checks);
         assert_eq!(one_body_checks, 2);
+        assert_eq!(one_work.function_body_check_entries, 2);
         assert_eq!(
             one_work.function_body_check_entries,
             many_work.function_body_check_entries

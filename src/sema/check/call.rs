@@ -357,6 +357,7 @@ impl Checker {
                     .unwrap()
                     .method_call = true;
             }
+            let mut invocation = None;
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 if self.boundary.in_pure {
                     self.error(
@@ -365,7 +366,7 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_function_invocation_effects(
+                    invocation = self.check_function_invocation_effects(
                         &contract,
                         &alias.name.to_string(),
                         span,
@@ -378,7 +379,7 @@ impl Checker {
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 self.invalidate_mutable_narrowings();
             }
-            self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
+            self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
             return contract.return_ty;
         }
 
@@ -431,6 +432,7 @@ impl Checker {
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
+                let mut invocation = None;
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -438,7 +440,7 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_function_invocation_effects(
+                    invocation = self.check_function_invocation_effects(
                         &sig,
                         &name.as_str(),
                         span,
@@ -449,7 +451,7 @@ impl Checker {
                 );
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
-                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.pures.get(&name).copied()
@@ -459,13 +461,14 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, None);
                 return sig.return_ty;
             }
             if let Some(declaration) = self.streams.get(&name).copied()
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
+                let mut invocation = None;
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -473,7 +476,7 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 } else {
-                    self.check_function_invocation_effects(
+                    invocation = self.check_function_invocation_effects(
                         &sig,
                         &name.as_str(),
                         span,
@@ -482,7 +485,7 @@ impl Checker {
                 self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
                 );
-                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span);
+                self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
             return self.check_constructor_call_arena(
@@ -610,7 +613,7 @@ impl Checker {
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, None);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -618,6 +621,7 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
+                    let mut invocation = None;
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -625,12 +629,12 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
+                        invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if static_namespace
@@ -638,6 +642,7 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
+                    let mut invocation = None;
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -645,12 +650,12 @@ impl Checker {
                             DiagnosticCode::CheckPureEffect,
                         );
                     } else {
-                        self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
+                        invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
                     self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
                     );
-                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span);
+                    self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
                 if module == "Path" {
@@ -1388,7 +1393,7 @@ impl Checker {
             )
         };
         let effects = self.instantiate_invocation_effects(signature.kind(), signature.effect_declaration(),
-            self.declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
+            || self.declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
             .expect("a checked declaration retains its invocation effect scope");
         Some(super::FunctionCallContract {
             params,
@@ -1417,7 +1422,7 @@ impl Checker {
         let call_instantiation = callable.is_quantified()
             .then(|| (callable, instantiated.clone()));
         let effects = self.instantiate_invocation_effects(scheme.kind(), signature.effect_declaration(),
-            super::DeclarationEffects::Checked(scheme.effects().clone()), Some(&instantiated))
+            || super::DeclarationEffects::Checked(scheme.effects().clone()), Some(&instantiated))
             .expect("a checked function scheme retains its invocation effect scope");
         let params = scheme
             .params()

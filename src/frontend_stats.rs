@@ -1800,7 +1800,7 @@ mod tests {
     #[test]
     fn frontend_stats_reports_invocation_checker_body_entries() {
         let file = measure_source("body-check.xsh", "pure identity(value) { value }\n");
-        assert!(file.function_body_check_entries > 1);
+        assert_eq!(file.function_body_check_entries, 1);
         assert!(file_json(&file).contains(&format!(
             "\"function_body_check_entries\":{}",
             file.function_body_check_entries

@@ -360,14 +360,15 @@ impl Checker {
             return_ty: return_ty.clone(), effects: super::InvocationEffects::Checked(effects),
             effect_declaration: None, definition_target: None, instantiation: None,
         };
+        let mut invocation = None;
         if !(callable.kind == crate::sema::types::CallableKind::Pure) {
             if self.boundary.in_pure {
                 self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
-            } else { self.check_function_invocation_effects(&contract, &name, span); }
+            } else { invocation = self.check_function_invocation_effects(&contract, &name, span); }
         }
         self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument);
         if !(callable.kind == crate::sema::types::CallableKind::Pure) { self.invalidate_mutable_narrowings(); }
-        self.record_invocation_propagation(&contract.effects, &return_ty, span);
+        self.record_invocation_propagation(&contract.effects, &return_ty, span, invocation);
         return_ty
     }
 

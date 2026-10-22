@@ -2422,14 +2422,12 @@ impl Checker {
         );
         records.install(self, program);
         let statements = records.root().statements();
-        if !self.collecting_effects {
-            self.diagnostics
-                .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
-                    program,
-                    bundle.root_statements,
-                    source,
-                ));
-        }
+        self.diagnostics
+            .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
+                program,
+                bundle.root_statements,
+                source,
+            ));
         self.module_diagnostic_position = self.diagnostics.len();
         self.collect_type_imports_arena(program, statements.iter().copied());
         self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
@@ -2527,12 +2525,6 @@ impl Checker {
         );
         self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
-        if !self.collecting_effects {
-            let resource_check = resource::check_root_owner(self, bundle);
-            self.diagnostics.extend(resource_check.diagnostics);
-            self.resource_transfers = resource_check.transfers;
-            self.same_scope_resource_assignments = resource_check.same_scope_assignments;
-        }
     }
 
     pub(crate) fn check_public_module_docs(

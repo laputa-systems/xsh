@@ -2,8 +2,8 @@ use super::{BTreeMap, BTreeSet, CheckBundleView, Checker, Diagnostic, Label, Spa
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::constraints::TypeVariableId;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
-    ArenaStmtKind, BindingTargetId, ExprId, ArenaListElementRange, ArenaRecordFieldKind, ArenaSignalHook,
+    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram,
+    ArenaStmtKind, BindingTargetId, ExprId, ArenaListElementRange, ArenaRecordFieldKind,
 };
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ pub(super) struct LocalInference {
     bindings: BTreeMap<Span, LocalBindingInference>,
     nullable_seed_cells: BTreeSet<TypeVariableId>,
     aggregate_scopes: Vec<AggregateSeedScope>,
-    solved_functions: BTreeSet<Span>,
+    fixed_storage_checks: Vec<FixedStorageCheck>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
@@ -30,6 +30,19 @@ struct LocalBindingInference {
     holes: Vec<Type>,
     owner: Option<super::EffectDeclarationId>,
     initializer: Span,
+}
+
+#[derive(Clone)]
+struct FixedStorageCheck {
+    owner: Option<super::EffectDeclarationId>,
+    seed: TypeVariableId,
+    actual: Type,
+    contribution: Span,
+}
+
+pub(super) struct LocalBodyConstraints {
+    collecting: bool,
+    fixed_storage_start: usize,
 }
 
 enum LocalInferenceFailure {
@@ -56,7 +69,7 @@ impl LocalInference {
                 && other.bindings.is_empty()
                 && other.nullable_seed_cells.is_empty()
                 && other.aggregate_scopes.is_empty()
-                && other.solved_functions.is_empty()
+                && other.fixed_storage_checks.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
                 && other.checked_bindings.is_empty()
@@ -286,17 +299,14 @@ impl Checker {
             && matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty())
         {
             self.local_inference.nonmaterial_expressions.insert(program.arena.expr(expression).span);
-            if !self.local_inference.collecting {
-                self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList);
-            }
+            self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyList);
             return;
         }
         if matches!(expression, ArenaExprOrRun::Expr(expression) if self.is_checked_empty_map_constructor(program, expression)) {
             self.local_inference
                 .nonmaterial_expressions
                 .insert(super::expr::expr_or_run_span_arena(program, expression));
-            if !self.local_inference.collecting
-                && let ArenaExprOrRun::Expr(expression) = expression
+            if let ArenaExprOrRun::Expr(expression) = expression
             {
                 self.local_inference.constructor_producers.insert(expression, crate::sema::schemes::NonmaterialConstructor::EmptyMap);
             }
@@ -307,101 +317,49 @@ impl Checker {
         self.local_inference.nonmaterial_expressions.contains(&span)
     }
 
-    pub(super) fn collect_function_local_constraints(
-        &mut self,
-        program: &ArenaProgram,
-        source: &str,
-        definition: &ArenaFunctionDef,
-        pure: bool,
-    ) {
-        self.collect_callable_local_constraints(program, source, definition, pure, false);
-    }
-
-    pub(super) fn collect_stream_local_constraints(
-        &mut self,
-        program: &ArenaProgram,
-        source: &str,
-        definition: &ArenaFunctionDef,
-    ) {
-        self.collect_callable_local_constraints(program, source, definition, false, true);
-    }
-
-    fn collect_callable_local_constraints(
-        &mut self,
-        program: &ArenaProgram,
-        source: &str,
-        definition: &ArenaFunctionDef,
-        pure: bool,
-        stream: bool,
-    ) {
-        if self.local_inference.collecting {
-            return;
-        }
-        let body = program
-            .arena
-            .span(program.arena.block(definition.body).span);
-        if self.local_inference.solved_functions.contains(&body) {
-            return;
-        }
-        let has_seeds = |span: Span| {
-            let start = Span::new(span.source_id, span.start(), span.start());
-            let end = Span::new(span.source_id, span.end(), span.end());
-            self.local_inference.seeds.range(start..end).next().is_some()
+    pub(super) fn begin_local_body_constraints(&mut self) -> LocalBodyConstraints {
+        let enclosing = LocalBodyConstraints {
+            collecting: self.local_inference.collecting,
+            fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
         };
-        let has_local_seeds = has_seeds(body)
-            || program.arena.params(definition.params).iter().filter_map(|parameter| parameter.default)
-                .any(|expression| has_seeds(program.arena.expr(expression).span));
-        let has_unresolved_parameters = pure
-            && program.arena.params(definition.params).iter().any(|parameter| {
-                parameter.annotation.is_none()
-                    && parameter.default.is_none()
-                    && self.checked_parameter_type(program, parameter).is_some_and(|ty| {
-                        self.type_constraints.resolve(&ty)
-                            .is_ok_and(|resolved| resolved.contains_inference())
-                    })
-            });
-        if !has_local_seeds && !has_unresolved_parameters {
-            return;
-        }
-        self.collect_local_body_constraints(program, body, |probe| {
-            if stream {
-                probe.check_stream_function_arena(program, source, definition);
-            } else {
-                probe.check_function_arena(program, source, definition, pure);
-            }
-        });
+        self.local_inference.collecting = true;
+        enclosing
     }
 
-    pub(super) fn collect_signal_hook_local_constraints(
+    pub(super) fn finish_local_body_constraints(
         &mut self,
         program: &ArenaProgram,
-        source: &str,
-        hook: &ArenaSignalHook,
-        span: Span,
+        body: Span,
+        enclosing: LocalBodyConstraints,
     ) {
-        let body = program.arena.span(program.arena.block(hook.body).span);
-        let start = Span::new(body.source_id, body.start(), body.start());
-        let end = Span::new(body.source_id, body.end(), body.end());
-        if self.local_inference.seeds.range(start..end).next().is_some() {
-            self.collect_local_body_constraints(program, body, |probe| {
-                probe.check_signal_hook_arena(program, source, hook, span);
-            });
-        }
-    }
-
-    fn collect_local_body_constraints(&mut self, program: &ArenaProgram, body: Span, check: impl FnOnce(&mut Self)) {
-        if self.local_inference.collecting || self.local_inference.solved_functions.contains(&body) {
-            return;
-        }
-        let mut probe = self.constraint_probe();
-        probe.local_inference.collecting = true;
-        check(&mut probe);
-        if let Err(error) = probe.solve_host_obligations(program) {
+        if let Err(error) = self.solve_host_obligations(program) {
             self.reject_host_inference_resolution(error, body);
         }
-        self.type_constraints = probe.type_constraints;
-        self.local_inference.bindings = probe.local_inference.bindings;
-        self.local_inference.solved_functions.insert(body);
+        let checks = self.local_inference.fixed_storage_checks
+            .drain(enclosing.fixed_storage_start..).collect::<Vec<_>>();
+        for check in checks {
+            assert_eq!(check.owner, self.stream_origin_owner);
+            if let Err(conflict) = self.type_constraints.check_nullable_seed(
+                check.seed, &check.actual, check.contribution,
+            ) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        }
+        self.local_inference.collecting = enclosing.collecting;
+    }
+
+    pub(super) fn record_nullable_storage_check(
+        &mut self,
+        seed: TypeVariableId,
+        actual: &Type,
+        contribution: Span,
+    ) {
+        self.local_inference.fixed_storage_checks.push(FixedStorageCheck {
+            owner: self.stream_origin_owner,
+            seed,
+            actual: actual.clone(),
+            contribution,
+        });
     }
 
     pub(super) fn collecting_local_constraints(&self) -> bool {
@@ -638,7 +596,7 @@ impl Checker {
         origins: &BTreeMap<Span, FreshAggregateOrigin>,
         discarded: bool,
     ) {
-        if self.local_inference.collecting || !origins.contains_key(&program.arena.expr(expression).span) {
+        if !origins.contains_key(&program.arena.expr(expression).span) {
             return;
         }
         let mut candidates = BTreeMap::new();
@@ -867,8 +825,7 @@ impl Checker {
         span: Span,
         ty: &Type,
     ) {
-        if !self.local_inference.collecting
-            && matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_")
+        if matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_")
         {
             self.local_inference
                 .checked_bindings
@@ -949,10 +906,10 @@ impl Checker {
             inference
         };
         let raw = inference.ty;
-        if matches!(seed, LocalSeed::List | LocalSeed::Map | LocalSeed::Set) {
+        if !matches!(seed, LocalSeed::Nullable) {
             self.record_expr_type(inference.initializer, raw.clone());
-            self.local_inference.checked_bindings.insert(span, raw.clone());
         }
+        self.local_inference.checked_bindings.insert(span, raw.clone());
         if matches!(&seed, LocalSeed::Nullable)
             && self.local_inference.seeds.contains(&span)
             && let Type::Optional(inner) = &raw
@@ -1241,7 +1198,7 @@ pub(super) fn finalize_projection(
 mod tests {
     use super::*;
     use crate::source::{SourceId, SourceMap};
-    use crate::syntax::arena::BlockId;
+    use crate::syntax::arena::{ArenaFunctionDef, BlockId};
     use crate::syntax::parser::Parser;
     use std::sync::Arc;
 
@@ -1257,6 +1214,55 @@ mod tests {
         let view = session.view_for_root(arena.statements, source_id);
         let output = session.check_view(&view, super::super::CheckOptions::default());
         check(&output);
+    }
+
+    #[test]
+    fn original_local_body_closes_nullable_writes_before_publication() {
+        let source = "pure sample() -> Int? { var number = null; number = 7; number = 9; number }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let (work, checked) = crate::sema::inference_work::collect(|| {
+            Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution())
+        });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(work.function_body_check_entries, 1);
+        assert!(checked.local_binding_types.values().any(|ty| *ty == Type::Optional(Box::new(Type::Int))));
+        for source in [
+            "pure sample() -> Int? { var number = null; number = 7; number = true; number }\n",
+            "pure sample() -> Unit { var number = null; let _ = number }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn nested_local_body_close_retains_parent_writes_and_rejects_foreign_types() {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "");
+        parsed.arena.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            let origin = Span::new(SourceId::new(0), 0, 1);
+            let parent_write = Span::new(SourceId::new(0), 2, 3);
+            let child_write = Span::new(SourceId::new(0), 4, 5);
+            let Type::Inference(seed) = checker.type_constraints.fresh(origin) else { unreachable!() };
+            checker.type_constraints.constrain_nullable_seed(seed, &Type::Int, origin).unwrap();
+            let parent = checker.begin_local_body_constraints();
+            checker.record_nullable_storage_check(seed, &Type::Int, parent_write);
+            let child = checker.begin_local_body_constraints();
+            let mut foreign = crate::sema::constraints::TypeConstraints::default();
+            checker.record_nullable_storage_check(seed, &foreign.fresh(child_write), child_write);
+            checker.finish_local_body_constraints(&parsed.arena, child_write, child);
+            assert_eq!(checker.diagnostics.len(), 1);
+            assert!(checker.diagnostics[0].labels.iter().any(|label| label.span == child_write));
+            assert_eq!(checker.local_inference.fixed_storage_checks.len(), 1);
+            assert_eq!(checker.local_inference.fixed_storage_checks[0].contribution, parent_write);
+            checker.finish_local_body_constraints(&parsed.arena, origin, parent);
+            assert_eq!(checker.diagnostics.len(), 1);
+            assert!(checker.local_inference.fixed_storage_checks.is_empty());
+            assert!(!checker.collecting_local_constraints());
+        });
     }
 
     #[test]
@@ -1356,7 +1362,7 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution()));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert_eq!(work.function_body_check_entries, 4);
+        assert_eq!(work.function_body_check_entries, 1);
         assert_eq!(checked.function_body_check_entries, 1);
         assert!(checked.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Int))));
     }
@@ -1595,7 +1601,7 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution()));
             assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
-            assert_eq!(work.function_body_check_entries, 4);
+            assert_eq!(work.function_body_check_entries, 1);
             assert_eq!(checked.function_body_check_entries, 1);
         }
     }

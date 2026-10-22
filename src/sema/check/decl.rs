@@ -2340,7 +2340,7 @@ impl Checker {
                 .template_field_types(&arena.arena, def, namespace)
             {
                 Ok(fields) => {
-                    if !self.collecting_effects && let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                    if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
                         for field in arena.arena.schema_fields(schema_fields) {
                             if let Some(ty) = fields.get(&field.name) {
                                 self.resolved_type_expressions.templates.insert((id, field.ty), ty.clone());

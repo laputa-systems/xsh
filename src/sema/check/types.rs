@@ -181,15 +181,14 @@ impl Checker {
         effects: &super::InvocationEffects,
         return_ty: &Type,
         span: Span,
+        ticket: Option<super::infer_effects::DeferredInvocationTicket>,
     ) {
-        if return_ty.is_result() { return; }
-        if self.defer_recursive_stream_error_flow(effects, return_ty, span) { return; }
-        let super::InvocationEffects::Checked(effects) = effects else {
-            if !self.collecting_effects {
-                self.error(span, "invocation error flow has no settled effect contract", DiagnosticCode::CheckLocalInference);
-            }
+        if let super::InvocationEffects::Pending(target) = effects {
+            self.attach_invocation_return(ticket, *target, return_ty, span);
             return;
-        };
+        }
+        if return_ty.is_result() { return; }
+        let super::InvocationEffects::Checked(effects) = effects else { unreachable!() };
         match self.invocation_error_flow(effects, return_ty) {
             Ok(flow) => self.record_callee_error_flow(flow, span),
             Err(_) => {
@@ -296,7 +295,9 @@ impl Checker {
         if let Some(seed) = self.prepared_nullable_seed(expected) {
             if self.collecting_local_constraints() {
                 self.type_constraints
-                    .constrain_nullable_seed(seed, actual, span)
+                    .constrain_nullable_seed(seed, actual, span)?;
+                self.record_nullable_storage_check(seed, actual, span);
+                Ok(())
             } else {
                 self.type_constraints
                     .check_nullable_seed(seed, actual, span)
@@ -309,7 +310,7 @@ impl Checker {
         }
     }
 
-    fn report_inferred_type_conflict(
+    pub(super) fn report_inferred_type_conflict(
         &mut self,
         conflict: crate::sema::constraints::ConstraintConflict,
     ) {
@@ -563,9 +564,7 @@ impl Checker {
 
     pub(super) fn type_from_arena(&mut self, program: &ArenaProgram, type_id: TypeExprId) -> Type {
         let ty = self.resolve_type_expression(program, type_id);
-        if !self.collecting_effects {
-            self.resolved_type_expressions.annotations.insert((self.current_namespace, type_id), ty.clone());
-        }
+        self.resolved_type_expressions.annotations.insert((self.current_namespace, type_id), ty.clone());
         ty
     }
 

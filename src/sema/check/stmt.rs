@@ -4659,7 +4659,7 @@ impl Checker {
         }
         self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
-        self.collect_function_local_constraints(arena, source, def, pure);
+        let local_constraints = self.begin_local_body_constraints();
         let enclosing_boundary = self.enter_callable_boundary();
         let stream_owner = self.effect_declaration_id(arena, def.body);
         let enclosing_stream_owner = self.stream_origin_owner.replace(stream_owner);
@@ -4847,6 +4847,7 @@ impl Checker {
         {
             signature.mark_body_checked();
         }
+        self.finish_local_body_constraints(arena, body_span, local_constraints);
         self.finish_stream_return_summary(arena, def, &return_ty);
         self.stream_origin_owner = enclosing_stream_owner;
         self.scopes = saved_capture_scopes;
@@ -4864,7 +4865,7 @@ impl Checker {
         if self.declaration_inference.pending(declaration).is_some_and(super::PendingFunctionSig::body_checked) { return; }
         self.record_callable_body_check_entry();
         let saved_capture_scopes = self.scopes.clone();
-        self.collect_stream_local_constraints(arena, source, def);
+        let local_constraints = self.begin_local_body_constraints();
         let enclosing_boundary = self.enter_callable_boundary();
         let stream_owner = self.effect_declaration_id(arena, def.body);
         let enclosing_stream_owner = self.stream_origin_owner.replace(stream_owner);
@@ -4954,6 +4955,7 @@ impl Checker {
         if self.boundary.current_effects.as_ref().is_none_or(|effects| effects.contains(&super::Effect::Error)) {
             self.record_stream_producer_error(stream_owner);
         }
+        self.finish_local_body_constraints(arena, body_span, local_constraints);
         self.finish_stream_producer_summary(arena, def, &return_ty);
         if let Some(signature) = self.declaration_inference.pending_mut(declaration) { signature.mark_body_checked(); }
         self.stream_origin_owner = enclosing_stream_owner;
@@ -4969,7 +4971,7 @@ impl Checker {
         hook: &ArenaSignalHook,
         span: Span,
     ) {
-        self.collect_signal_hook_local_constraints(arena, source, hook, span);
+        let local_constraints = self.begin_local_body_constraints();
         if self.options.interactive_commands.is_some() {
             self.error(
                 span,
@@ -5056,6 +5058,7 @@ impl Checker {
         self.boundary.current_effects = Some(arena.arena.effects(hook.effects).collect());
         self.boundary.in_signal_hook = true;
         let ty = self.check_tail_block_arena(arena, source, hook.body, None);
+        self.finish_local_body_constraints(arena, arena.arena.span(body.span), local_constraints);
         self.pop_scope();
         self.scopes = saved_capture_scopes;
         self.boundary = enclosing_boundary;

@@ -198,7 +198,6 @@ impl CheckedDeclarations {
 
 impl Checker {
     pub(super) fn publish_type_declaration(&mut self, program: &ArenaProgram, id: TypeDefId, checked: bool) {
-        if self.collecting_effects { return; }
         let def = program.arena.type_def(id);
         let namespace = self.current_namespace;
         let mut declaration = CheckedTypeDeclaration {
@@ -284,7 +283,6 @@ impl Checker {
     }
 
     pub(super) fn publish_error_declaration(&mut self, program: &ArenaProgram, id: ErrorDefId) {
-        if self.collecting_effects { return; }
         let def = program.arena.error_def(id);
         let variants = program.arena.error_variants(def.variants);
         self.checked_declarations.errors.insert(id, CheckedErrorDeclaration {
@@ -297,7 +295,6 @@ impl Checker {
     pub(super) fn publish_function_declaration(&mut self, program: &ArenaProgram, id: FunctionDefId,
         kind: CheckedFunctionKind, exported: bool, signature: Option<&super::FunctionSig>,
         scheme_body_facts: Option<SchemeBodyFacts>) {
-        if self.collecting_effects { return; }
         let def = program.arena.function_def(id);
         let scheme = signature.map(|sig| std::sync::Arc::clone(sig.scheme()));
         let schema_identities = scheme.as_ref().map(|scheme| self.callable_schema_identities(program, scheme)).unwrap_or_default();

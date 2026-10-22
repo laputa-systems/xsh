@@ -416,6 +416,70 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
+    fn resolved_origin_domains_preserve_resource_dependencies_and_resolution_errors() {
+        use super::super::{CheckBundleView, CheckOptions, Checker, ResolvedBindings};
+        use crate::sema::types::Type;
+        use crate::source::SourceId;
+        use crate::syntax::parser::Parser;
+        use std::sync::Arc;
+
+        for (source, dependency) in [
+            ("pure identity(value) { value }\npure choose() -> Int { identity(7) }\n", false),
+            ("stream values() [] -> Stream[Int] { yield 7 }\nlet items = values()\nlet _ = items.collect()\n", true),
+            ("type Row = {items: Stream[Int]}\npure identity(value) { value }\npure choose(input: Row) -> Row { identity(input) }\n", true),
+            ("pure identity(value) { value }\npure forward(value) { identity(value) }\n", true),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let program = &parsed.arena;
+                let view = CheckBundleView::for_root(program, program.statements, None, Some(SourceId::new(0)));
+                let statements = program.statement_ids().collect::<Vec<_>>();
+                let mut checker = Checker::new(CheckOptions::for_execution());
+                checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+                checker.effect_graph = super::super::infer_effects::EffectGraph::declarations_for_root(&view);
+                checker.authoritative_effect_graph = true;
+                checker.collecting_effects = true;
+                checker.record_effects = true;
+                checker.defer_effect_diagnostics = true;
+                checker.collect_definitions_arena(program, Arc::new(program.clone()), source, statements.iter().copied());
+                checker.infer_default_parameter_types(program, source, &statements);
+                checker.infer_local_pure_returns(&view, source, &statements);
+                for statement in statements { checker.check_stmt_arena(program, source, statement); }
+                assert!(checker.diagnostics.is_empty(), "{source}: {:?}", checker.diagnostics);
+                assert_eq!(checker.provisional_stream_origins_read.get(), dependency, "{source}");
+            });
+        }
+
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "7\n");
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let program = &parsed.arena;
+            let view = CheckBundleView::for_root(program, program.statements, None, Some(SourceId::new(0)));
+            let expression = view.expr_ids().into_iter().next().unwrap();
+            let span = program.arena.expr(expression).span;
+            let mut checker = Checker::new(CheckOptions::for_execution());
+            let actual = checker.type_constraints.fresh(span);
+            checker.type_constraints.constrain(&actual, &Type::Int, span).unwrap();
+            checker.record_checked_stream_origin(program, expression, &actual);
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+            assert_eq!(checker.stream_expr_origins[&span], StreamOrigins::default());
+
+            let mut foreign = crate::sema::constraints::TypeConstraints::default();
+            let variable = foreign.fresh(span);
+            let mut deep = variable.clone();
+            for _ in 0..300 { deep = Type::List(Box::new(deep)); }
+            for actual in [variable, deep] {
+                let mut checker = Checker::new(CheckOptions::for_execution());
+                checker.record_checked_stream_origin(program, expression, &actual);
+                assert_eq!(checker.diagnostics.len(), 1);
+                assert!(checker.diagnostics[0].labels.iter().any(|label| label.span == span));
+                assert_eq!(checker.stream_expr_origins[&span], StreamOrigins::opaque());
+            }
+        });
+    }
+
+    #[test]
     fn rejected_declarations_remove_only_their_stream_facts() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let body = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
@@ -775,6 +839,45 @@ impl Checker {
         for header in self.stream_origin_outputs.loops.values_mut() {
             for origin in header.values_mut() { origin.settle_pending(&declarations); }
         }
+        for origin in self.stream_expr_origins.values_mut() {
+            origin.settle_pending(&declarations);
+        }
+    }
+
+    pub(super) fn validate_stream_expression_origins(&mut self, program: &ArenaProgram) {
+        let mut generalized = BTreeMap::<Span, bool>::new();
+        for (declaration, pending) in self.declaration_inference.pending_entries() {
+            if pending.generalized_body_types().is_none() && pending.generalized_tail_types().is_none() {
+                continue;
+            }
+            let target = pending.definition_target().expect("generalized body facts retain their declaration source");
+            let owner = declaration.effect_declaration();
+            let definition = program.arena.function_def(target.definition);
+            assert_eq!(owner.namespace, target.namespace);
+            assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
+            for (&expression, ty) in pending.generalized_body_types().into_iter().flatten() {
+                let resource = ty.may_hold_resource();
+                generalized.entry(program.arena.expr(expression).span)
+                    .and_modify(|previous| *previous |= resource).or_insert(resource);
+            }
+            for (&statement, ty) in pending.generalized_tail_types().into_iter().flatten() {
+                let resource = ty.may_hold_resource();
+                generalized.entry(program.arena.stmt(statement).span)
+                    .and_modify(|previous| *previous |= resource).or_insert(resource);
+            }
+        }
+        let failures = self.stream_expr_origins.iter().filter_map(|(&span, origin)| {
+            if origin.0.is_empty() { return None; }
+            let resource = self.expr_types.get(&span).map(Type::may_hold_resource)
+                .or_else(|| generalized.get(&span).copied());
+            match resource {
+                Some(resource) if !resource || !origin.has_pending() => None,
+                _ => Some(span),
+            }
+        }).collect::<Vec<_>>();
+        for span in failures {
+            self.error(span, "selected declaration has no settled Stream return provenance", crate::diagnostic::DiagnosticCode::CheckLocalInference);
+        }
     }
 
     fn stream_origin_id(&self, arena: &ArenaProgram, target: super::CheckedFunctionTarget) -> EffectDeclarationId {
@@ -823,6 +926,17 @@ impl Checker {
 
     pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
         let span = arena.arena.expr(expression).span;
+        let resolved = if ty.contains_inference() {
+            match self.type_constraints.resolve(ty) {
+                Ok(ty) => Some(ty),
+                Err(_) => {
+                    self.report_stream_origin_boundary(span);
+                    self.stream_expr_origins.insert(span, StreamOrigins::opaque());
+                    return;
+                }
+            }
+        } else { None };
+        let ty = resolved.as_ref().unwrap_or(ty);
         let result = self.derive_checked_stream_origin(arena, expression, ty);
         let origin = match result {
             Ok(origin) => origin,

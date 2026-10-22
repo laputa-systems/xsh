@@ -809,11 +809,20 @@ pub(super) enum DeferredEffectKind {
     Invocation {
         effects: super::InvocationEffects,
         instance: Option<super::PendingCallInstantiation>,
-        stream_item: Option<Type>,
+        flow: InvocationFlow,
         unknown_chain: Vec<String>,
         name: String,
     },
 }
+
+#[derive(Clone, Debug)]
+pub(super) enum InvocationFlow {
+    EffectsOnly,
+    AwaitingReturn,
+    Return(Type),
+}
+
+pub(super) struct DeferredInvocationTicket(usize);
 
 #[derive(Clone, Debug)]
 struct DeferredEffectContext {
@@ -841,20 +850,189 @@ pub(super) struct HostMethodContext {
     deferred: bool,
 }
 
+#[cfg(test)]
+mod deferred_invocation_tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::arena::ArenaExprKind;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn source_owned_invocation_close_preserves_pending_return_flows() {
+        let source = concat!(
+            "proc scalar() -> Int { assert false; 7 }\n",
+            "proc wrapped() -> Result[Int] { assert false; Ok(7) }\n",
+            "let _ = scalar()\nlet _ = wrapped()\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let program = &parsed.arena;
+            let checked = Checker::check_arena_with_options(program, source, super::super::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let view = super::super::CheckBundleView::for_root(program, program.statements, None, Some(SourceId::new(0)));
+            let statements = program.statement_ids().collect::<Vec<_>>();
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(program));
+            checker.effect_graph = EffectGraph::declarations_for_root(&view);
+            checker.authoritative_effect_graph = true;
+            checker.collecting_effects = true;
+            checker.record_effects = true;
+            checker.defer_effect_diagnostics = true;
+            checker.collect_definitions_arena(program, Arc::new(program.clone()), source, statements.iter().copied());
+            checker.infer_default_parameter_types(program, source, &statements);
+            checker.infer_local_pure_returns(&view, source, &statements);
+            for statement in statements { checker.check_stmt_arena(program, source, statement); }
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+            let call_span = |name: &str| view.expr_ids().into_iter().find_map(|expression| {
+                let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+                matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(actual) if actual == name)
+                    .then_some(program.arena.expr(expression).span)
+            }).expect("the source retains its actual invocation");
+            let scalar = call_span("scalar");
+            let wrapped = call_span("wrapped");
+            assert!(checked.checked_control_flow.propagating_error_spans.contains(&scalar));
+            assert!(!checked.checked_control_flow.propagating_error_spans.contains(&wrapped));
+            for span in [scalar, wrapped] {
+                let checks = checker.deferred_effect_checks.iter().filter(|check| check.span == span
+                    && matches!(check.kind, DeferredEffectKind::Invocation { effects: super::super::InvocationEffects::Pending(_), .. })).count();
+                assert_eq!(checks, 1);
+            }
+            checker.bind_effect_graph().unwrap();
+            checker.effect_summaries.extend(checker.effect_graph.solve_with_external(&BTreeMap::new()).unwrap());
+            checker.validate_deferred_effects();
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+            assert!(checker.propagating_error_spans.contains(&scalar));
+            assert!(!checker.propagating_error_spans.contains(&wrapped));
+            assert!(!checker.latent_stream_error_spans.contains(&scalar));
+            assert!(!checker.latent_stream_error_spans.contains(&wrapped));
+        });
+    }
+
+    #[test]
+    fn pending_invocation_tickets_reject_wrong_occurrences_and_unclosed_returns() {
+        let span = Span::new(SourceId::new(0), 1, 3);
+        let target = EffectDeclarationId { namespace: None, body: span };
+        let other = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 8, 11) };
+        let contract = super::super::FunctionCallContract {
+            params: Vec::new(), return_ty: Type::Int,
+            effects: super::super::InvocationEffects::Pending(target),
+            effect_declaration: Some(target), definition_target: None, instantiation: None,
+        };
+        let setup = || {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            checker.defer_effect_diagnostics = true;
+            checker.effect_summaries.insert(target, EffectSummary {
+                known: EffectExpr::finite(EffectSet::singleton(Effect::Error)),
+                unknown_chain: Vec::new(), scope: CheckedEffectScope::default(),
+            });
+            let ticket = checker.check_function_invocation_effects(&contract, "scalar", span);
+            (checker, ticket)
+        };
+        let (mut valid, ticket) = setup();
+        valid.record_invocation_propagation(&contract.effects, &Type::Int, span, ticket);
+        valid.validate_deferred_effects();
+        assert!(valid.diagnostics.is_empty(), "{:?}", valid.diagnostics);
+        assert!(valid.propagating_error_spans.contains(&span));
+        for mutation in 0..7 {
+            let (mut checker, ticket) = setup();
+            match mutation {
+                0 => checker.attach_invocation_return(None, target, &Type::Int, span),
+                1 => checker.attach_invocation_return(Some(DeferredInvocationTicket(1)), target, &Type::Int, span),
+                2 => checker.attach_invocation_return(ticket, other, &Type::Int, span),
+                3 => checker.attach_invocation_return(ticket, target, &Type::Int, other.body),
+                4 => {
+                    checker.boundary.effect_owner = Some(other);
+                    checker.attach_invocation_return(ticket, target, &Type::Int, span);
+                },
+                5 => {
+                    checker.attach_invocation_return(ticket, target, &Type::Int, span);
+                    checker.attach_invocation_return(Some(DeferredInvocationTicket(0)), target, &Type::Int, span);
+                },
+                6 => {},
+                _ => unreachable!(),
+            }
+            checker.validate_deferred_effects();
+            assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "mutation {mutation}");
+            if mutation != 5 { assert!(!checker.propagating_error_spans.contains(&span), "mutation {mutation}"); }
+        }
+        let (mut checker, ticket) = setup();
+        checker.attach_invocation_return(ticket, target, &Type::Unknown, span);
+        checker.validate_deferred_effects();
+        assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)));
+        assert!(!checker.propagating_error_spans.contains(&span));
+    }
+
+    #[test]
+    fn recursive_proc_callback_flows_keep_actual_peer_instances() {
+        let source = concat!(
+            "proc fail(value: Int) [error] -> Int { assert false; value }\n",
+            "pure pass(value: Int) -> Int { value }\n",
+            "proc left(action, value, count = 1) -> Int { if count > 0 { return right(action, value, count - 1) }; action(value) }\n",
+            "proc right(action, value, count = 1) -> Int { if count > 0 { return left(action, value, count - 1) }; action(value) }\n",
+            "let _ = left(fail, 7, 2)\nlet _ = right(pass, 7, 2)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let mut peer_calls = Vec::new();
+            for declaration in checked.checked_declarations.functions.values().filter(|declaration| matches!(declaration.name.as_str().as_ref(), "left" | "right")) {
+                let scheme = declaration.scheme.as_ref().expect("the recursive callback has a checked scheme");
+                assert!(!scheme.callable().requirements().applications.is_empty());
+                peer_calls.extend(checked.selected_function_calls.iter().filter_map(|(&span, target)| {
+                    (matches!(target.name.as_str().as_ref(), "left" | "right")
+                        && declaration.body.source_id == span.source_id
+                        && declaration.body.start() <= span.start() && span.end() <= declaration.body.end()).then_some(span)
+                }));
+            }
+            assert_eq!(peer_calls.len(), 2);
+            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(span)
+                && checked.checked_control_flow.propagating_error_spans.contains(span)
+                && !checked.checked_control_flow.latent_stream_error_spans.contains(span)));
+            let view = super::super::CheckBundleView::for_root(&parsed.arena, parsed.arena.statements, None, Some(SourceId::new(0)));
+            for (callee_name, propagates) in [("left", true), ("right", false)] {
+                let span = view.expr_ids().into_iter().filter_map(|expression| {
+                    let expr = parsed.arena.arena.expr(expression);
+                    let ArenaExprKind::Call { callee, .. } = expr.kind else { return None; };
+                    let ArenaExprKind::Ident(name) = parsed.arena.arena.expr(callee).kind else { return None; };
+                    (name == callee_name && !peer_calls.contains(&expr.span)).then_some(expr.span)
+                }).next().expect("the source retains its actual root invocation");
+                assert!(checked.call_instantiations.contains_key(&span));
+                assert_eq!(checked.checked_control_flow.propagating_error_spans.contains(&span), propagates);
+            }
+        });
+    }
+
+}
+
+
 impl Checker {
-    pub(super) fn defer_recursive_stream_error_flow(&mut self, effects: &super::InvocationEffects, return_ty: &Type, span: Span) -> bool {
-        let super::InvocationEffects::Pending(target) = effects else { return false; };
-        let Type::Stream(item) = return_ty.unvalidated() else { return false; };
-        if !self.defer_effect_diagnostics { return false; }
-        let Some(&(caller, callee)) = self.provisional_function_calls.get(&span) else { return false; };
-        if Some(caller) != self.stream_origin_owner || callee.effect_declaration() != *target { return false; }
-        let Some(check) = self.deferred_effect_checks.iter_mut().rev().find(|check| {
-            check.span == span && check.context.owner == Some(caller)
-                && matches!(&check.kind, DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), .. } if *owner == *target)
-        }) else { return false; };
-        let DeferredEffectKind::Invocation { stream_item, .. } = &mut check.kind else { unreachable!() };
-        assert!(stream_item.replace(item.as_ref().clone()).is_none(), "a recursive stream call records error flow once");
-        true
+    pub(super) fn attach_invocation_return(
+        &mut self,
+        ticket: Option<DeferredInvocationTicket>,
+        target: EffectDeclarationId,
+        return_ty: &Type,
+        span: Span,
+    ) {
+        let Some(check) = ticket.and_then(|ticket| self.deferred_effect_checks.get_mut(ticket.0)) else {
+            self.error(span, "pending invocation has no owned effect check", DiagnosticCode::CheckLocalInference);
+            return;
+        };
+        if check.span != span || check.context.owner != self.boundary.effect_owner {
+            self.error(span, "pending invocation effect check belongs to another source owner", DiagnosticCode::CheckLocalInference);
+            return;
+        }
+        let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(actual), flow, .. } = &mut check.kind else {
+            self.error(span, "pending invocation effect check has another call contract", DiagnosticCode::CheckLocalInference);
+            return;
+        };
+        if *actual != target || !matches!(flow, InvocationFlow::AwaitingReturn) {
+            self.error(span, "pending invocation return does not match its effect check", DiagnosticCode::CheckLocalInference);
+            return;
+        }
+        *flow = InvocationFlow::Return(return_ty.clone());
     }
 
     pub(super) fn prepare_recursive_stream_error_flows(
@@ -866,14 +1044,14 @@ impl Checker {
         if self.collecting_effects { return Ok(latent); }
         for check in &self.deferred_effect_checks {
             if !check.context.owner.is_some_and(|owner| members.contains_key(&owner)) { continue; }
-            let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(target), stream_item: Some(item), .. } = &check.kind else { continue; };
-            if !members.contains_key(target) { continue; }
+            let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(target), flow: InvocationFlow::Return(return_ty), .. } = &check.kind else { continue; };
+            if !members.contains_key(target) || !matches!(return_ty.unvalidated(), Type::Stream(_)) { continue; }
             let invalid = || (check.span, SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
             let &(caller, callee) = self.provisional_function_calls.get(&check.span).ok_or_else(invalid)?;
             if check.context.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
             let instance = instances.get(&check.span).ok_or_else(invalid)?;
             let effects = self.resolve_invocation_effects(super::InvocationEffects::Pending(*target), Some(instance)).map_err(|error| (check.span, error))?;
-            let flow = self.invocation_error_flow(&effects, &Type::Stream(Box::new(item.clone()))).map_err(|error| (check.span, error.into()))?;
+            let flow = self.invocation_error_flow(&effects, return_ty).map_err(|error| (check.span, error.into()))?;
             if matches!(flow, crate::sema::types::CalleeErrorFlow::Latent) { latent.insert(check.span); }
         }
         Ok(latent)
@@ -951,10 +1129,12 @@ impl Checker {
         }
     }
 
-    fn push_deferred_effect_check(&mut self, span: Span, kind: DeferredEffectKind) {
+    fn push_deferred_effect_check(&mut self, span: Span, kind: DeferredEffectKind) -> usize {
+        let index = self.deferred_effect_checks.len();
         self.deferred_effect_checks.push(DeferredEffectCheck {
             context: self.deferred_effect_context(), span, kind, notes: Vec::new(),
         });
+        index
     }
 
     pub(super) fn host_method_context(&self) -> HostMethodContext {
@@ -1026,7 +1206,7 @@ impl Checker {
         if !self.defer_effect_diagnostics { return; }
         self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
             effects: super::InvocationEffects::Checked(crate::sema::types::CallableEffects::from_clause(contract)),
-            instance: None, stream_item: None, unknown_chain, name: name.to_owned(),
+            instance: None, flow: InvocationFlow::EffectsOnly, unknown_chain, name: name.to_owned(),
         });
     }
 
@@ -1097,13 +1277,13 @@ impl Checker {
         self.constrain_callable_effects(effects, name, span);
         if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
             self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: super::InvocationEffects::Checked(effects.clone()), instance: None, stream_item: None,
+                effects: super::InvocationEffects::Checked(effects.clone()), instance: None, flow: InvocationFlow::EffectsOnly,
                 unknown_chain: Vec::new(), name: name.to_owned(),
             });
         }
     }
 
-    pub(super) fn check_function_invocation_effects(&mut self, contract: &super::FunctionCallContract, name: &str, span: Span) {
+    pub(super) fn check_function_invocation_effects(&mut self, contract: &super::FunctionCallContract, name: &str, span: Span) -> Option<DeferredInvocationTicket> {
         if self.record_effects || self.collecting_effects {
             if let Some(target) = contract.effect_declaration.filter(|target| self.effect_graph.contains(*target)) {
                 self.effect_graph.call(self.boundary.effect_owner, target, self.boundary.retry_attempt_depth > 0, Some(span));
@@ -1116,12 +1296,15 @@ impl Checker {
         let diagnostic_count = self.diagnostics.len();
         if let super::InvocationEffects::Checked(effects) = &contract.effects { self.constrain_callable_effects(effects, name, span); }
         if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
-            self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: contract.effects.clone(), instance: contract.instantiation.clone(), stream_item: None,
+            let pending = matches!(contract.effects, super::InvocationEffects::Pending(_));
+            let index = self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
+                effects: contract.effects.clone(), instance: contract.instantiation.clone(), flow: if pending { InvocationFlow::AwaitingReturn } else { InvocationFlow::EffectsOnly },
                 unknown_chain: contract.effect_declaration.and_then(|owner| self.effect_summaries.get(&owner)).map_or_else(Vec::new, |summary| summary.unknown_chain.clone()),
                 name: name.to_owned(),
             });
+            return pending.then_some(DeferredInvocationTicket(index));
         }
+        None
     }
 
     fn resolve_invocation_effects(&self, effects: super::InvocationEffects, instance: Option<&super::PendingCallInstantiation>) -> Result<crate::sema::types::CallableEffects, SchemeOperationError> {
@@ -1175,11 +1358,17 @@ impl Checker {
                     );
                     self.check_effect_not_excluded(&effect, check.span, &subject);
                 }
-                DeferredEffectKind::Invocation { effects, instance, stream_item, unknown_chain, name } => {
+                DeferredEffectKind::Invocation { effects, instance, flow, unknown_chain, name } => {
                     match self.resolve_invocation_effects(effects, instance.as_ref()) {
                         Ok(effects) => {
-                            if let Some(item) = stream_item {
-                                self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &Type::Stream(Box::new(item)), check.span);
+                            match flow {
+                                InvocationFlow::EffectsOnly => {},
+                                InvocationFlow::AwaitingReturn => self.error(check.span, "pending invocation has no checked return flow", DiagnosticCode::CheckLocalInference),
+                                InvocationFlow::Return(return_ty) => match self.type_constraints.resolve(&return_ty) {
+                                    Ok(return_ty) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
+                                    Ok(_) => self.error(check.span, "invocation return flow has no settled result shape", DiagnosticCode::CheckLocalInference),
+                                    Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
+                                },
                             }
                             self.validate_callable_effects(&effects, &name, check.span);
                             if matches!(effects.contract(), EffectContract::Unknown) && !unknown_chain.is_empty() && self.boundary.current_effects.is_some() {
@@ -1316,13 +1505,13 @@ impl Checker {
         &self,
         kind: crate::sema::types::CallableKind,
         declaration: Option<EffectDeclarationId>,
-        effects: super::DeclarationEffects,
+        effects: impl FnOnce() -> super::DeclarationEffects,
         instance: Option<&crate::sema::constraints::InstantiatedScheme>,
     ) -> Result<super::InvocationEffects, SchemeOperationError> {
         if kind == crate::sema::types::CallableKind::Pure {
             return Ok(super::InvocationEffects::Checked(crate::sema::types::CallableEffects::finite([])));
         }
-        let effects = match effects {
+        let effects = match effects() {
             super::DeclarationEffects::Pending(owner) => return Ok(super::InvocationEffects::Pending(owner)),
             super::DeclarationEffects::Checked(effects) => effects,
         };
