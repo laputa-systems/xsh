@@ -152,11 +152,11 @@ test test_typing_concrete_module_index_beside_generic_export { |ctx|
 }
 
 test test_typing_recursive_parameter_conflicts_in_both_orders { |ctx|
-  for source in [
-    "pure first(value) -> Int { second(\"wrong\") + value }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n",
-    "pure second(value) -> Int { first(value) }\npure first(value) -> Int { second(\"wrong\") + value }\nlet answer = first(1)\n",
+  for case in [
+    {source: "pure first(value) -> Int { second(\"wrong\") + value }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n", diagnostic: "[check.operator-type]"},
+    {source: "pure second(value) -> Int { first(value) }\npure first(value) -> Int { second(\"wrong\") + value }\nlet answer = first(1)\n", diagnostic: "[check.type-mismatch]"},
   ] {
-    test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+    test.expect(ctx, case.source, status: 2, stderr: [case.diagnostic])?
   }
 }
 
