@@ -3237,6 +3237,8 @@ impl<'a> ProducerProof<'a> {
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
             let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && expected_list_item(container, true).is_some();
+            let fresh_comprehension = self.store.tags[instruction] == FullTag::ExprListComp
+                && matches!((actual.unvalidated(), container.unvalidated()), (Type::List(_), Type::List(_)));
             let literal_record = self.store.tags[instruction] == FullTag::ExprRecord
                 && matches!(actual.as_ref(), Type::Record(_) | Type::ErasedRecord) && matches!(container, Type::Record(_));
             let record_branches = actual.as_ref() == &Type::ErasedRecord && matches!(container, Type::Record(_))
@@ -3255,7 +3257,7 @@ impl<'a> ProducerProof<'a> {
                     _ => false,
                 }
             } else { false };
-            if !fits && !narrowed_read && !literal_list && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            if !fits && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())
