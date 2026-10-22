@@ -76,7 +76,7 @@ test test_full_inference_inferred_stream_charges_cleanup_effect_at_creation { |c
   test.expect(
     ctx,
     r"""stream values(value) {
-  defer { print "closed" }
+  defer { let _ = e"XSH_TEST" }
   yield value
 }
 proc forbidden() [] {
@@ -86,6 +86,32 @@ forbidden()
 """,
     status: 2,
     stderr: ["[check.effect-violation]"],
+  )?
+  test.expect(
+    ctx,
+    r"""stream values(value) {
+  defer { let _ = e"XSH_TEST" }
+  yield value
+}
+proc permitted() [env] {
+  let producer = values(7)
+}
+permitted()
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""stream values(value) {
+  defer { print "closed" }
+  yield value
+}
+proc print_only() [] {
+  let producer = values(7)
+}
+print_only()
+""",
+    status: 0,
   )?
 }
 
