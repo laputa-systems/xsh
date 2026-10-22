@@ -8,22 +8,30 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Provisional assembly `dd3f8be86` passes 600 of 607 selected Rust controls.
-The replay retains the previous 589 controls and adds eighteen builtin controls.
-Six failures are existing producer or verifier gaps, including the newly selected
-empty-Set regression. One prior passing inferred-`Any` rejection regresses.
-Repair `276d53bf1` restores that rejection at the recursive return boundary.
-All five focused return controls pass, including authored `Any` and genuine
-generic recursion. The old incidental body-scheme diagnostic becomes the direct
-return-inference diagnostic. Combined qualification remains pending.
+Runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
+Every previous selector remains selected and every prior passing control passes.
+The four remaining failures cover literal record capture, two union receiver
+cases and nested optional-guard verification. Master remains unchanged.
+This selected regression boundary does not qualify the full campaign.
 
-The current lanes finish empty-Set and configured-stage producers, literal record
-capture, union receiver authentication and nested optional-guard verification.
+Builtin assembly `dd3f8be86` first passed 600 of 607 controls and exposed an
+inferred-`Any` return regression. Repair `276d53bf1` rejects the actual dynamic
+return candidate before recursive generalization. All five focused controls pass,
+including authored `Any` and genuine generic recursion. The incidental body-scheme
+diagnostic becomes the direct return-inference diagnostic.
+Result-producer repair `67c1f3f15`, integrated as `fcdf567fd`, passes all four
+focused controls. It specializes the canonical empty-Set constructor and derives
+pipeline output from its actual input and stages. Both execution routes pass.
+The Set test now targets the actual dedicated operation instead of assuming an
+empty-list conversion. Its receiver, item, alias and method mutations still reject.
+
+The current lanes finish literal record capture, union receiver authentication
+and nested optional-guard verification.
 The optional-guard repair must pass the original fixture's unchanged work bound.
 Pyramid remains frozen until inference qualifies. No new full-suite or timing
 gate has started for this assembly.
 
-The last qualified selected boundary, `e2b76eaac`, passes 584 of 589 Rust controls.
+Earlier assembly `e2b76eaac` passes 584 of 589 selected Rust controls.
 Its five failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The 570-control `e8f4a17bf`
 boundary and all nineteen added controls remain selected. Nominal callable
