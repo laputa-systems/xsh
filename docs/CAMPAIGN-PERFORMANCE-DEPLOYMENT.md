@@ -54,8 +54,14 @@ exact empty literals can inherit another literal branch's element type in
 value-producing `if` and `match`, including nested block tails. Ten focused
 controls and the inherited stored-domain control pass. Stored aliases and
 incompatible known element types remain constrained. The SPEC template and
-generated paragraph match. It passes the combined replay; matching practical products and interface
-qualification remain pending.
+generated paragraph match. It passes the combined replay. Matching `6cf8c3a25`
+verification products build without warnings. The guarded practical replay
+passes all twelve XSH and three Laputa source roots, and six exact selectors
+in each view. The earlier `cut` comparison failure does not recur. XSH
+interface qualification stops at `date_parse.xsh::absolute`, whose declaration
+is inconsistent across entry programs. Laputa interfaces, negative controls
+and signatures remain unrun. Source, product and cleanup guards pass. No new
+removal credit is claimed; diagnosis precedes another product build.
 
 Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
 operands from their actual checked AST and flow. Exact empty-list branch tails
@@ -63,9 +69,9 @@ may take a peer list literal's item type; stored aliases keep one shared type.
 The SPEC source and generated paragraph match. Exit publication belongs to
 actual ValueBlock expressions, preserving declaration-body comparison across
 annotation removal. All 45 body-contract controls pass. Nine nullable controls
-pass; the existing extra generalization diagnostic remains a required failure.
-Both families pass their prior controls in the combined replay, with that same
-known diagnostic failure retained. No whole-doc generator was run because its
+pass; the extra generalization diagnostic was still a required failure at
+that checkpoint. Diagnostic repair `2321053f2` subsequently closes it. Both
+families retain their passing controls in the latest combined replay. No whole-doc generator was run because its
 only entry point also builds release products and renders all documents.
 Matching `08e824b91` verification products build without warnings. The guarded
 practical replay passes every source root and behavior selector, then fails at
