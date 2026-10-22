@@ -1481,6 +1481,29 @@ fn callable_kind_stream_delegation_preserves_late_nominal_errors() {
 }
 
 #[test]
+fn callable_kind_stream_delegation_normalizes_late_string_errors() {
+    let source = "var closed = \"\"\nproc close(label: Str) [] -> Unit { closed = closed + label }\nproc fail() [] -> Result[Unit, Str] { Err(\"late failure\") }\nstream child(value) [error] { defer close(\"c\"); yield value; fail()? }\nstream parent(value) [error] { defer close(\"p\"); yield @child(value) }\nproc make() [error] -> Stream[Int] { parent(7) }\nproc observations() [] -> Str { closed }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let span = Span::at(source_id, 0);
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+        let (make, observations) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("observations"))));
+        let Value::Stream(mut stream) = evaluator.call_indexed_direct(make, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("creation retains an unpulled generic delegator") };
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("")));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(7)));
+        let error = evaluator.stream_next(&mut stream, span).unwrap_err();
+        assert_eq!((&*error.family, &*error.variant), ("Error", "stream-stage-error"));
+        assert_eq!(&source[error.span.unwrap().range()], "fail()?");
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cp")));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cp")));
+    }
+}
+
+#[test]
 fn generic_arguments_stream_defaults_keep_pull_and_cleanup_ownership() {
     let source = "var created = 0\nvar pulls = 0\nvar closed = 0\nproc close() [] { closed = closed + 1 }\nstream rows() [error] -> Stream[Int] { defer close(); pulls = pulls + 1; yield 1; pulls = pulls + 100; yield 2 }\nproc make() [error] -> Stream[Int] { created = created + 1; rows() }\nproc supplied() [error] -> Stream[Int] { created = created + 10; rows() }\nproc select(value, items: Stream[Int] = make()) [error] { for item in items { let _ = item; break }; value }\nproc call(value, omitted: Bool) [error] { let result = if omitted { select(value) } else { select(value, supplied()) }; result? }\nproc number(omitted: Bool) [error] { let value = call(7, omitted)?; {value, created, pulls, closed} }\n";
     let (program, sources, source_id) = record_form_program(source);

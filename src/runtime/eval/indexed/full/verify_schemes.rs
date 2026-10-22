@@ -1271,6 +1271,7 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
                 return Err(IrVerifyError::new("stream propagation boundary has no actual producer owner"));
             }
             body_type_matches(error, &SchemeType::Ground(Type::Error), budget)?
+                || body_type_matches(error, &SchemeType::Ground(Type::Str), budget)?
         }
         PropagationBoundary::ProcApplication { owner, errors } => {
             if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Proc) {
