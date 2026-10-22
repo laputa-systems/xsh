@@ -22,8 +22,16 @@ Capture checkpoint `05238aa81`, integrated as `85700af0d`, passes five focused
 controls and independent source review. Actual immutable literal initializers
 qualify record captures, and a separate cold proof checks every writer value.
 The unread-Stream corruption reaches the intended payload rejection. Literal
-computation coverage remains open because frontend constant analysis admits more
-expression forms than the cold literal traversal.
+computation repair `92966b18c`, integrated as `f51af1668`, passes seven focused
+controls across compatible runs. The cold traversal now proves finite literal
+arithmetic, field access and canonical Boolean negation. The next combined
+replay retains all 622 selectors and adds its two new behavior controls.
+
+Native-method demand repair `2ca5a91d4`, provisionally integrated as `f88cb1bfd`,
+passes four focused controls, including a definition without calling code and
+the original receiver mutations. Independent review found that deferred method
+checks discard the return-context flag needed for implicit Result tails. That
+case requires a discriminator and repair before this assembly qualifies.
 
 Earlier runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
 Every previous selector remains selected and every prior passing control passes.
@@ -42,8 +50,11 @@ pipeline output from its actual input and stages. Both execution routes pass.
 The Set test now targets the actual dedicated operation instead of assuming an
 empty-list conversion. Its receiver, item, alias and method mutations still reject.
 
-The current lanes repair native empty-Set demand ordering, literal computations
-in record captures and nested optional-guard verification.
+The current lanes repair native-method return contexts and nested optional-guard
+verification. A separate source investigation identifies the remaining duplicate
+Proc return-shape body check. Ordinary local and generic identity controls
+already demonstrate one performed check per published body; the older four-to-one
+observation does not describe every current inference path.
 The optional-guard repair must pass the original fixture's unchanged work bound.
 Pyramid remains frozen until inference qualifies. No new full-suite or timing
 gate has started for this assembly.
