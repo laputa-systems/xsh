@@ -836,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_callable_contract_instance_reports_unsupported_nested_schema_and_stream() {
+    fn checked_callable_contract_instance_preserves_nested_schema_limit_and_stream_kind() {
         let owner = SymbolOwner::new();
         owner.with_current(|| {
             let callback = |kind, schema| SchemeType::Callable {
@@ -856,10 +856,11 @@ mod tests {
             let schema = make(callback(crate::sema::types::CallableKind::Pure, Some(schema)));
             let stream = make(callback(crate::sema::types::CallableKind::Stream, None));
             assert_eq!(pure.is_instance_of(&pure), Ok(true));
-            for unsupported in [schema, stream] {
-                assert_eq!(unsupported.is_instance_of(&unsupported), Err(ContractComparisonError::UnsupportedContract));
-                assert_eq!(pure.is_instance_of(&unsupported), Err(ContractComparisonError::UnsupportedContract));
-            }
+            assert_eq!(schema.is_instance_of(&schema), Err(ContractComparisonError::UnsupportedContract));
+            assert_eq!(pure.is_instance_of(&schema), Err(ContractComparisonError::UnsupportedContract));
+            assert_eq!(stream.is_instance_of(&stream), Ok(true));
+            assert_eq!(pure.is_instance_of(&stream), Err(ContractComparisonError::CannotEstablishConstraints));
+            assert_eq!(stream.is_instance_of(&pure), Err(ContractComparisonError::CannotEstablishConstraints));
         });
     }
 

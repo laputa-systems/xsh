@@ -17,6 +17,12 @@ are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
 
+A subsequent test-only correction retains nested-schema rejection while checking
+supported closed Stream callable identity and both cross-kind rejections. All
+21 callable-contract controls pass. The old assertion treated Stream projection
+as unsupported, contrary to the implemented callable-kind contract. This
+corrects one remaining test premise; no production admission changes.
+
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
 `ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
 pass, including actual ground and generic Stream exports on both routes,
