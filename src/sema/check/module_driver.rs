@@ -1509,17 +1509,36 @@ mod tests {
         let generic = checked.checked_declarations.functions.values().find(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty())).unwrap();
         assert_eq!(generic.scheme.as_ref().unwrap().effects().concrete().unwrap(), Some(vec![crate::syntax::node::Effect::Io]));
         assert!(generic.scheme_body_facts.is_some());
-        for (source, code) in [
-            (format!("{helper}proc traced(value, label: Str) [] {{ let observed = mark(label); value }}\n"), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
-            ("var shared = 1\nproc capture(value) { let observed = shared; value }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckLocalInference),
-            ("proc invoke(action: Proc) [] -> Int { let observed = action.call(); 42 }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+        let source = "var shared = 1\nproc capture(value) { let observed = shared; value }\nlet integer: Result[Int] = capture(7)\nlet text: Result[Str] = capture(\"word\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let capture = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "capture").unwrap();
+        let scheme = capture.scheme.as_ref().unwrap();
+        assert_eq!(scheme.type_parameters().len(), 1);
+        let facts = capture.scheme_body_facts.as_ref().unwrap();
+        let shared_read = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression| {
+            let node = parsed.arena.arena.expr(expression);
+            node.span.start() == source.find("shared;").unwrap()
+                && matches!(node.kind, crate::syntax::arena::ArenaExprKind::Ident(name) if name == "shared")
+        }).unwrap();
+        assert_eq!(facts.expression_types()[&shared_read].closed_ground_type(), Some(Type::Int));
+        let arguments = checked.call_instantiations.values().flat_map(|instantiation| instantiation.type_arguments().values()).cloned().collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        assert!(arguments.contains(&SchemeType::Ground(Type::Int)));
+        assert!(arguments.contains(&SchemeType::Ground(Type::Str)));
+        for (case, source, code) in [
+            ("explicit effect bound", format!("{helper}proc traced(value, label: Str) [] {{ let observed = mark(label); value }}\n"), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+            ("incompatible callback bound", "proc invoke(action: Proc) [] -> Int { let observed = action.call(); 42 }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena_with_options(&parsed.arena, &source,
                 CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
             assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{case}: {source}: {:?}", checked.diagnostics);
         }
         let source = "proc invoke(value, action: Proc) { let observed = action.call(); value }\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

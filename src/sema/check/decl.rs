@@ -663,7 +663,7 @@ impl Checker {
             return Some(signature.clone());
         }
         let pending = self.declaration_inference.pending(declaration)?;
-        let effects = self.declaration_effects(pending.effect_declaration()).into_checked()?;
+        let effects = self.signature_declaration_effects(pending.effect_declaration()).into_checked()?;
         let inferred_effects = pending
             .effect_declaration()
             .is_some_and(|id| self.effect_graph.is_inferred(id));

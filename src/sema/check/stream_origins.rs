@@ -1086,6 +1086,8 @@ impl Checker {
                     Some(argument.map(|value| self.stream_expr_origin(arena, value)).unwrap_or_default().prefix(StreamProjection::Success)?)
                 } else if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Err) {
                     Some(StreamOrigins::default())
+                } else if Self::opaque_stream_value(ty)?.0.is_empty() {
+                    Some(StreamOrigins::default())
                 } else {
                     let callee_origin = self.stream_expr_origin(arena, callee);
                     let mut targets = callee_origin.targets().collect::<BTreeSet<_>>();

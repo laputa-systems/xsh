@@ -321,6 +321,10 @@ impl Checker {
                             None
                         };
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+                        if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
+                            signature.mark_body_checked();
+                        }
                     }
                     self.check_body_before_callers(program, source, decl, &declarations, def);
                     self.generalize_pending_function(program, id);
@@ -494,9 +498,31 @@ impl Checker {
         }
         if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
             self.reject_recursive_component(program, &definitions);
+            self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
             return;
         }
         self.generalize_recursive_component(program, &definitions);
+        self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
+    }
+
+    fn mark_inferred_proc_component_bodies_checked(
+        &mut self,
+        program: &ArenaProgram,
+        component: &[usize],
+        declarations: &[ReturnDeclaration],
+    ) {
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() != Some(CallableKind::Proc)
+                || !proc_may_return_value(program, def)
+            { continue; }
+            let id = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+            if let Some(signature) = self.declaration_inference.pending_mut(id) {
+                signature.mark_body_checked();
+            }
+        }
     }
 
     fn check_body_before_callers(
@@ -526,10 +552,6 @@ impl Checker {
         self.scopes = visible_scopes;
     }
 
-    /// A speculative value-body check decides the success type; the checker
-    /// keeps only that type. A body whose completions are all Unit-like keeps
-    /// the statement reading and `Result[Unit]`. Once any completion produces a
-    /// value, every completion must join with it.
     fn infer_proc_return(
         &mut self,
         program: &ArenaProgram,
@@ -539,44 +561,69 @@ impl Checker {
         def: &crate::syntax::arena::ArenaFunctionDef,
         boundary: Option<&str>,
     ) {
-        let visible_scopes = self.scopes.clone();
-        for binding in declarations {
-            if binding.function.is_none()
-                && binding.span.source_id == decl.span.source_id
-                && binding.span.start() >= decl.span.start()
-            {
-                for name in &binding.names {
-                    self.current_scope_mut().remove(name);
-                }
-            }
-        }
-        let mut probe = self.constraint_probe();
-        self.scopes = visible_scopes;
-        probe.inferred_returns = Some(Vec::new());
-        probe.inferred_propagations.clear();
-        probe.return_conflicts = Some(Vec::new());
-        probe.inference_reachable = true;
-        probe.boundary.current_return = None;
-        probe.check_function_arena(program, source, def, false);
-        let clean = !probe
-            .diagnostics
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        let provisional = Type::Result(
+            Box::new(self.type_constraints.fresh_at_level(body_span, 1)),
+            Box::new(Type::Error),
+        );
+        self.function_return_types.insert(body_span, provisional.clone());
+        self.update_pending_return_type(program, def, provisional.clone());
+        let diagnostics_before = self.diagnostics.len();
+        self.inferred_returns = Some(Vec::new());
+        self.inferred_propagations.clear();
+        self.return_conflicts = Some(Vec::new());
+        self.inference_reachable = true;
+        let enclosing_return = self.boundary.current_return.take();
+        self.check_body_before_callers(program, source, decl, declarations, def);
+        self.boundary.current_return = enclosing_return;
+        let candidates = self.inferred_returns.take().unwrap_or_default();
+        let conflicts = self.return_conflicts.take().unwrap_or_default();
+        let propagated = std::mem::take(&mut self.inferred_propagations);
+        if self.diagnostics[diagnostics_before..]
             .iter()
-            .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
-        let candidates = probe.inferred_returns.take().unwrap_or_default();
-        let conflicts = probe.return_conflicts.take().unwrap_or_default();
-        let propagated = std::mem::take(&mut probe.inferred_propagations);
+            .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+        {
+            return;
+        }
         if !candidates
             .iter()
             .map(|candidate| &candidate.ty)
             .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
-            .any(produces_value)
+            .any(proc_candidate_produces_value)
+            && conflicts.is_empty()
         {
-            let ty = self.type_from_arena(program, def.return_ty);
+            let mut ty = self.type_from_arena(program, def.return_ty);
+            if !candidates.is_empty() {
+                self.return_conflicts = Some(Vec::new());
+                let owner = self.effect_declaration_id(program, def.body);
+                let actual = self.normalize_inferred_proc_returns(
+                    owner,
+                    candidates,
+                    &propagated,
+                );
+                let conflicts = self.return_conflicts.take().unwrap_or_default();
+                if let Some((left, right, span)) = conflicts.into_iter().next() {
+                    let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
+                    self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message)
+                        .with_code(DiagnosticCode::CheckTypeMismatch)
+                        .with_label(crate::diagnostic::Label::primary(span, &message)));
+                    ty = Type::Invalid;
+                } else {
+                    self.expect_type(&ty, &actual, body_span);
+                }
+            }
+            for (error, span) in propagated {
+                match &ty {
+                    Type::Result(_, expected_error) if error.matches_expected(expected_error) => {}
+                    Type::Result(_, _) => self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError),
+                    _ => self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext),
+                }
+            }
+            self.expect_type(&provisional, &ty, body_span);
+            self.function_return_types.insert(body_span, ty.clone());
             self.update_pending_return_type(program, def, ty);
             return;
         }
-        if !clean { return; }
-        self.type_constraints = probe.type_constraints;
         self.return_conflicts = Some(conflicts);
         let owner = self.effect_declaration_id(program, def.body);
         let schema = Self::common_checked_schema(candidates.iter().map(|candidate| {
@@ -590,7 +637,6 @@ impl Checker {
         let inferred = self.normalize_inferred_proc_returns(owner, candidates, &propagated);
 
         let conflicts = self.return_conflicts.take().unwrap_or_default();
-        let body_span = program.arena.span(program.arena.block(def.body).span);
         if let Some((left, right, span)) = conflicts.into_iter().next() {
             let (left, right) = if produces_value(&left) {
                 (left, right)
@@ -621,6 +667,7 @@ impl Checker {
                 ty => ty,
             }
         };
+        self.expect_type(&provisional, &ty, body_span);
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
         self.update_pending_return_schema(program, def, schema);
@@ -705,6 +752,14 @@ fn produces_value(ty: &Type) -> bool {
         Type::Unit | Type::Unknown | Type::Invalid => false,
         Type::Result(ok, _) => produces_value(ok),
         _ => true,
+    }
+}
+
+fn proc_candidate_produces_value(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown => true,
+        Type::Result(ok, _) if matches!(ok.as_ref(), Type::Unknown) => false,
+        ty => produces_value(ty),
     }
 }
 

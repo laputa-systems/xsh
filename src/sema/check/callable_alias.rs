@@ -219,8 +219,20 @@ impl Checker {
         {
             return Some(alias);
         }
+        if let ArenaExprKind::Ident(name) = program.arena.expr(expression).kind
+            && matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite)
+            && let Some(declaration) = self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name))
+            && !self.local_function_is_alias(*declaration)?
+        {
+            return None;
+        }
         let target = self.resolve_callable_alias_target(program, expression)?;
         target.signature.is_alias.then_some(target)
+    }
+
+    fn local_function_is_alias(&self, declaration: super::FunctionDeclarationId) -> Option<bool> {
+        self.declaration_inference.checked(declaration).map(|signature| signature.is_alias)
+            .or_else(|| self.declaration_inference.pending(declaration).map(|signature| signature.is_alias))
     }
 
     pub(super) fn record_callable_alias(&mut self, span: Span, alias: &CallableAlias) {

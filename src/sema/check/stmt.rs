@@ -4846,10 +4846,6 @@ impl Checker {
                 self.check_value_block_arena(arena, source, def.body, &return_ty);
             }
             self.boundary.result_unit_function_tail = enclosing_tail;
-            // This body was checked against the return type its own tail
-            // gave it. A bare call in place of a tail `let _ =` would be a
-            // different tail and so a different return type; the inference
-            // pass dropped those bindings, and this pass recorded them again.
             if def.return_ty_defaulted && !def.test_declaration {
                 self.forget_discardable_tail_bindings(arena, def.body);
             }
@@ -4869,9 +4865,10 @@ impl Checker {
         if !inferring {
             self.inferred_returns = outer_inference;
         }
-        if let Some(signature) = self.declaration_inference.pending_mut(declaration)
-        {
-            signature.mark_body_checked();
+        if !inferring || pure {
+            if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
+                signature.mark_body_checked();
+            }
         }
         self.finish_local_body_constraints(arena, body_span, local_constraints);
         self.finish_stream_return_summary(arena, def, &return_ty);

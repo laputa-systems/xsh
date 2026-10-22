@@ -1026,7 +1026,7 @@ impl Checker {
         let declaration = named.signature.effect_declaration();
         let effects = self.instantiate_invocation_effects(named.kind, declaration, || {
             if declaration.is_some_and(|owner| self.effect_graph.contains(owner)) {
-                self.declaration_effects(declaration)
+                self.signature_declaration_effects(declaration)
             } else {
                 super::DeclarationEffects::Checked(named.signature.scheme().effects().clone())
             }
@@ -1406,6 +1406,11 @@ impl Checker {
                     }
                 }
                 DeferredEffectKind::Invocation { effects, instance, flow, unknown_chain, name } => {
+                    let unknown_chain = match &effects {
+                        super::InvocationEffects::Pending(owner) => self.effect_summaries.get(owner)
+                            .map_or(unknown_chain, |summary| summary.unknown_chain.clone()),
+                        super::InvocationEffects::Checked(_) => unknown_chain,
+                    };
                     match self.resolve_invocation_effects(effects, instance.as_ref()) {
                         Ok(effects) => {
                             match flow {
@@ -1541,11 +1546,34 @@ impl Checker {
             return super::DeclarationEffects::Checked(CheckedEffects::finite(declared.iter().cloned()));
         }
         if !node.inferred { return super::DeclarationEffects::Checked(CheckedEffects::unknown()); }
-        if self.collecting_effects { self.provisional_effects_read.set(true); }
         match self.effect_summaries.get(&id) {
             Some(summary) => super::DeclarationEffects::Checked(summary.effects()),
             None => super::DeclarationEffects::Pending(id),
         }
+    }
+
+    pub(super) fn invocation_declaration_effects(
+        &self,
+        declaration: Option<EffectDeclarationId>,
+    ) -> super::DeclarationEffects {
+        if self.collecting_effects
+            && let Some(owner) = declaration.filter(|owner| self.effect_graph.is_inferred(*owner))
+        {
+            return super::DeclarationEffects::Pending(owner);
+        }
+        self.declaration_effects(declaration)
+    }
+
+    pub(super) fn signature_declaration_effects(
+        &self,
+        declaration: Option<EffectDeclarationId>,
+    ) -> super::DeclarationEffects {
+        if self.collecting_effects
+            && declaration.is_some_and(|owner| self.effect_graph.is_inferred(owner))
+        {
+            self.provisional_effects_read.set(true);
+        }
+        self.declaration_effects(declaration)
     }
 
     pub(super) fn instantiate_invocation_effects(

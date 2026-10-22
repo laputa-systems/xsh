@@ -1392,7 +1392,7 @@ impl Checker {
             )
         };
         let effects = self.instantiate_invocation_effects(signature.kind(), signature.effect_declaration(),
-            || self.declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
+            || self.invocation_declaration_effects(signature.effect_declaration()), instantiation.as_ref().map(|(_, instance)| instance))
             .expect("a checked declaration retains its invocation effect scope");
         Some(super::FunctionCallContract {
             params,

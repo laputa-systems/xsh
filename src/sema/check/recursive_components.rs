@@ -458,6 +458,24 @@ mod tests {
     }
 
     #[test]
+    fn inferred_unit_proc_completions_match_the_result_unit_contract() {
+        for (source, expected) in [
+            ("error Failure = Lost(message: Str)\nproc only_failure() { Err(Failure.Lost(message: \"lost\")) }\n", None),
+            ("proc invalid() { Err(\"lost\") }\n", Some(DiagnosticCode::CheckTypeMismatch)),
+            ("proc unknown(action: Pure) { action.call() }\n", Some(DiagnosticCode::CheckInferReturn)),
+            ("proc invalid(flag: Bool, value: Result[Int, Str]) { if flag { let ignored = value? } else { let _ = true } }\n", Some(DiagnosticCode::CheckTryError)),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            match expected {
+                Some(code) => assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}: {:?}", checked.diagnostics),
+                None => assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics),
+            }
+        }
+    }
+
+    #[test]
     fn generic_effectful_bodies_keep_checked_command_classes() {
         for command in [
             "print \"checked\"", "eprint \"checked\"",
@@ -469,13 +487,33 @@ mod tests {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
             assert!(parsed.diagnostics.is_empty(), "{command}: {:?}", parsed.diagnostics);
             parsed.arena.symbol_owner().with_current(|| {
-                let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+                let (work, checked) = crate::sema::inference_work::collect(|| {
+                    Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution())
+                });
                 assert!(checked.diagnostics.is_empty(), "{command}: {:?}", checked.diagnostics);
                 let declaration = checked.checked_declarations.functions.values().next().unwrap();
                 assert!(declaration.scheme.as_ref().is_some_and(|scheme| scheme.callable().is_quantified()), "{command}");
                 assert_eq!(checked.call_instantiations.len(), 2, "{command}");
+                assert_eq!(work.function_body_check_entries, checked.function_body_check_entries as u64, "{command}");
             });
         }
+    }
+
+    #[test]
+    fn acyclic_inferred_proc_collects_its_checked_body_once() {
+        let source = "proc sample(payload: Int) { print \"checked\"; return payload }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let (work, checked) = crate::sema::inference_work::collect(|| {
+                Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution())
+            });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            assert_eq!(checked.function_body_check_entries, 1);
+            assert_eq!(work.function_body_check_entries, 1);
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            assert_eq!(checked.function_return_types[&declaration.body], Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+        });
     }
 
     #[test]
