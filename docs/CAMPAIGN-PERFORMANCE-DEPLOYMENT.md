@@ -8,7 +8,7 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `e53f3e47f` passes 546 of 554 selected Rust controls.
+Runtime assembly `1682fc689` passes 561 of 569 selected Rust controls.
 Its eight failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
@@ -16,9 +16,9 @@ binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master has documentation-only changes after `d2453760a`; the assembly is not
-qualified for master. The combined replay retains every prior passing control
-and adds thirteen passing MapKey controls. Its eight failed identities match
-the preceding 541-control boundary.
+qualified for master. The combined replay retains every prior passing control.
+Its eight failed identities match the preceding 554-control boundary; all
+fifteen added controls pass.
 
 MapKey checkpoint `8808c9281` retains the existing finite key-domain constraint
 through generalization, imports, callbacks and prepared execution. Empty
@@ -30,6 +30,21 @@ assertions, preserves canonical `set.empty()` and empty-list conversion
 mutations, and expects the same List-to-Set forgery's earlier missing-key-bound
 rejection. All seventeen focused controls and the combined replay pass their
 previously passing scope. No work limit or forged-input guard is relaxed.
+
+
+Snapshot checkpoint `02a87cb84`, integrated as `1682fc689`, retains immutable
+read-time environment-path entries with a sealed Rust Value payload. Ordinary
+lists cannot forge that retained contract or prime its callable cache. Actual
+Any observations, list consumers and active-environment mutation behavior remain
+unchanged. Authenticated type-test evidence supplies guarded List reads without
+changing the stored Any contract; For and Index source/type/polarity mutations
+remain rejected. Equality reuses the existing concrete-domain rule and retains
+the Any and Optional/Null exceptions. Twenty focused controls and the combined
+569-control replay pass their previously passing scope. The public Rust payload
+change is breaking; XSH syntax and the documented runtime List behavior remain.
+Diagnostic checkpoint `c38df2edc` displays MapKey bounds without producing source
+annotation syntax; its five focused controls and the combined replay pass.
+Dedicated generic Path/env/conversion/require admission remains open.
 
 Scoped-body checkpoint `73596f399` passes seventeen controls and a separate
 symbolic resource control, then the combined replay. Ordinary generic guarded
