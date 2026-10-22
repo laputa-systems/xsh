@@ -2683,6 +2683,31 @@ pub(super) fn patterns_are_exhaustive_arena(
 /// Arena-native mirror of `check_stmt` and the block/binding/assignment
 /// machinery it depends on.
 impl Checker {
+    pub(super) fn record_literal_capture_payload(&mut self, arena: &ArenaProgram, statement: StmtId) {
+        let statement = arena.arena.core_stmt_id(statement);
+        let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = arena.arena.stmt(statement).kind else { return; };
+        let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind else { return; };
+        let Some(id) = self.resolved_bindings.target(target) else { return; };
+        let Some(declaration) = self.resolved_bindings.declarations.get(&id) else { return; };
+        if declaration.namespace != self.current_namespace || declaration.kind != super::BindingKind::Runtime { return; }
+        let Some(binding) = self.current_scope().get(&name) else { return; };
+        if binding.id != Some(id) || binding.mutable || !matches!(&binding.ty, Type::Record(_)) { return; }
+        if !matches!(self.prepared_constants.analyze_expression(&arena.arena, initializer), Some(crate::sema::constants::LiteralConstant::Record(_))) { return; }
+        let namespace = self.current_namespace;
+        self.current_scope_mut().get_mut(&name).expect("the literal payload retains its checked binding").literal_capture_payload = Some(super::LiteralCapturePayload {
+            statement, initializer, namespace,
+        });
+    }
+
+    pub(super) fn has_literal_capture_payload(&self, arena: &ArenaProgram, binding: &Binding) -> bool {
+        let Some(payload) = &binding.literal_capture_payload else { return false; };
+        let Some(id) = binding.id else { return false; };
+        let Some(declaration) = self.resolved_bindings.declarations.get(&id) else { return false; };
+        if binding.mutable || declaration.namespace != payload.namespace || declaration.kind != super::BindingKind::Runtime { return false; }
+        let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = arena.arena.stmt(payload.statement).kind else { return false; };
+        initializer == payload.initializer && self.resolved_bindings.target(target) == Some(id)
+    }
+
     pub(super) fn define_binding_target_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -3167,6 +3192,7 @@ impl Checker {
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         self.check_stmt_arena_inner(arena, source, id);
+        self.record_literal_capture_payload(arena, id);
         self.advance_stream_flow(arena, id);
     }
 
@@ -8521,4 +8547,62 @@ shared = wrapper(failing(initial))
     }
 
 
+}
+
+#[cfg(test)]
+mod literal_capture_tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    #[test]
+    fn immutable_record_capture_requires_its_actual_literal_initializer() {
+        let source = "let marker = {value: 1}\nlet foreign = {value: 2}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+        checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+        for statement in parsed.arena.arena.stmt_ids(parsed.arena.statements) {
+            checker.check_stmt_arena(&parsed.arena, source, statement);
+        }
+        assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+        let marker = checker.current_scope()[&Name::intern("marker")].clone();
+        let foreign = checker.current_scope()[&Name::intern("foreign")].clone();
+        assert!(checker.has_literal_capture_payload(&parsed.arena, &marker));
+        assert!(checker.has_literal_capture_payload(&parsed.arena, &foreign));
+        let mut missing = marker.clone();
+        missing.literal_capture_payload = None;
+        assert!(!checker.has_literal_capture_payload(&parsed.arena, &missing));
+        let mut swapped = marker.clone();
+        swapped.literal_capture_payload = foreign.literal_capture_payload.clone();
+        assert!(!checker.has_literal_capture_payload(&parsed.arena, &swapped));
+        let mut initializer = marker.clone();
+        initializer.literal_capture_payload.as_mut().unwrap().initializer = foreign.literal_capture_payload.unwrap().initializer;
+        assert!(!checker.has_literal_capture_payload(&parsed.arena, &initializer));
+        let mut mutable = marker;
+        mutable.mutable = true;
+        assert!(!checker.has_literal_capture_payload(&parsed.arena, &mutable));
+    }
+
+    #[test]
+    fn generic_record_capture_proves_the_whole_literal_payload() {
+        for (source, accepted) in [
+            ("let marker = {value: 1}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n", true),
+            ("let marker = {value: 1, nested: {items: [2, 3], name: \"kept\"}}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n", true),
+            ("type Marker = {value: Int}\nlet marker: Marker = {value: 1, hidden: range(3)}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n", false),
+            ("var marker = {value: 1}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n", false),
+            ("type Marker = {value: Int}\npure make() -> Marker { {value: 1} }\nlet marker = make()\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n", false),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+            let rejected = checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
+            assert_eq!(!rejected, accepted, "{source}: {:?}", checked.diagnostics);
+            if accepted {
+                assert!(checked.checked_declarations.functions.values().find(|declaration| declaration.name == "read").unwrap().scheme_body_facts.is_some());
+            }
+        }
+    }
 }

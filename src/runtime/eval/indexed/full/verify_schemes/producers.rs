@@ -287,6 +287,7 @@ type FunctionProjection = super::super::CheckedValueProjection;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ProducerTargetPurpose {
+    LiteralPayload,
     Callable,
     Stream,
 }
@@ -778,6 +779,19 @@ impl GroundProducerIndex {
         }
         let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
             || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
+        let mut literal_capture_demand = false;
+        for function in &store.functions {
+            effect_demand_work += 1;
+            if !matches!(function.contract, FullCallableContract::Scheme(_)) { continue; }
+            for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
+                effect_demand_work += 1;
+                if capture.slot_and_flags & (1 << 31) == 0 && store.semantic.type_tag(capture.type_id)? == super::super::super::semantic::TypeTag::Record {
+                    literal_capture_demand = true;
+                    break;
+                }
+            }
+            if literal_capture_demand { break; }
+        }
         let stream_demand = store.functions.iter().enumerate().any(|(index, _)| {
             effect_demand_work += 1;
             store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
@@ -786,7 +800,7 @@ impl GroundProducerIndex {
             effect_demand_work += 1;
             matches!(store.tags.get(call.instruction as usize), Some(FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall))
         });
-        let mut selected_demand = stream_demand || storage_demand || effect_demand || instantiated_call_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        let mut selected_demand = literal_capture_demand || stream_demand || storage_demand || effect_demand || instantiated_call_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
         if !selected_demand {
             for (index, function) in store.functions.iter().enumerate() {
                 effect_demand_work += 1;
@@ -1457,6 +1471,7 @@ enum StorageContractRelation { ReadCompatible, ExactDeclaration }
 
 enum Obligation {
     GroundFunction(usize),
+    LiteralPayload(u32, usize),
     Expression(u32, usize, Arc<Type>, bool, Option<DeclaredProducerFact>),
     Slot(u32, ProducerBinding, usize, Arc<Type>),
     PipelinePrefix(u32, usize, usize, Arc<Type>),
@@ -1580,6 +1595,11 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             let ty = proof.ground_type(capture.type_id)?;
             if capture.slot_and_flags & (1 << 31) != 0 {
                 proof.storage_contract(capture.binding_identity, Arc::clone(&ty), StorageContractRelation::ExactDeclaration)?;
+            }
+            if capture.slot_and_flags & (1 << 31) == 0 && matches!(ty.as_ref(), Type::Record(_)) {
+                let (owner, producer) = proof.binding_producer(capture.binding_identity, ProducerTargetPurpose::LiteralPayload, &mut Vec::new())?;
+                let CallableProducer::Expression(instruction) = producer else { return Err(IrVerifyError::new("generic record capture has no literal lexical initializer")); };
+                proof.pending.push(Obligation::LiteralPayload(owner, instruction));
             }
             proof.slot(decoder.owner, decoder.instruction_range.start, (capture.slot_and_flags & !(1 << 31)) as usize, ty)?;
         }
@@ -2589,6 +2609,7 @@ impl<'a> ProducerProof<'a> {
         let decoder = self.owner(owner)?;
         let row = self.store.driver_steps[step];
         if row.tag == super::super::FullDriverTag::Use {
+            if purpose == ProducerTargetPurpose::LiteralPayload { return Err(IrVerifyError::new("generic record capture has no literal lexical initializer")); }
             let type_id = TypeId::from_raw(row.registered_module_type)
                 .ok_or_else(|| IrVerifyError::new("callable import has no registered module contract"))?;
             let ty = self.contract_type(type_id)?;
@@ -2612,7 +2633,7 @@ impl<'a> ProducerProof<'a> {
         let _: Option<super::super::LoweredTypeCheck> = super::super::FullCodec::decode(&decoder, &mut cursor)?;
         let _: Option<Type> = super::super::FullCodec::decode(&decoder, &mut cursor)?;
         let mutable: bool = super::super::FullCodec::decode(&decoder, &mut cursor)?;
-        if mutable && purpose == ProducerTargetPurpose::Callable { return Err(IrVerifyError::new("callable capture has mutable lexical storage")); }
+        if mutable && matches!(purpose, ProducerTargetPurpose::Callable | ProducerTargetPurpose::LiteralPayload) { return Err(IrVerifyError::new("callable capture has mutable lexical storage")); }
         Ok((owner, CallableProducer::Expression(cursor.raw()? as usize)))
     }
 
@@ -3331,6 +3352,53 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
+    fn verify_literal_payload(&mut self, owner: u32, instruction: usize) -> Result<(), IrVerifyError> {
+        let decoder = self.owner(owner)?;
+        if !decoder.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("literal capture payload escapes its lexical owner")); }
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Null | schema::ExprView::Unit | schema::ExprView::Bool(_)
+            | schema::ExprView::Int(_) | schema::ExprView::UInt(_) | schema::ExprView::Float(_)
+            | schema::ExprView::Str(_) | schema::ExprView::Bytes(_) | schema::ExprView::Duration(_)
+            | schema::ExprView::PreparedRegex(_) | schema::ExprView::Path(_) | schema::ExprView::EmptyMap => {}
+            schema::ExprView::Record(mut entries) => {
+                for entry in &mut entries {
+                    self.budget.charge(1)?;
+                    let value = match entry? {
+                        super::super::decode::RecordEntryView::Field(_, value) | super::super::decode::RecordEntryView::Spread(value) => value,
+                    };
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                }
+            }
+            schema::ExprView::List(mut values) => {
+                for value in &mut values {
+                    self.budget.charge(1)?;
+                    self.pending.push(Obligation::LiteralPayload(owner, value?.raw() as usize));
+                }
+            }
+            schema::ExprView::ListBuild(mut values) => {
+                for value in &mut values {
+                    self.budget.charge(1)?;
+                    let (_, value, _) = value?;
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                }
+            }
+            schema::ExprView::MapLiteral(mut entries) => {
+                for entry in &mut entries {
+                    self.budget.charge(1)?;
+                    let (key, value, _) = entry?;
+                    if let Some(key) = key { self.pending.push(Obligation::LiteralPayload(owner, key.raw() as usize)); }
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                }
+            }
+            schema::ExprView::PreparedConstant(value) => {
+                let work = super::super::prepared_constant_data_work(&value.0, 0).ok_or_else(|| IrVerifyError::new("generic capture literal contains a runtime payload"))?;
+                self.budget.charge(work)?;
+            }
+            _ => return Err(IrVerifyError::new("generic record capture has a nonliteral payload")),
+        }
+        Ok(())
+    }
+
     fn finish(&mut self) -> Result<(), IrVerifyError> {
         loop {
             while let Some(obligation) = self.pending.pop() {
@@ -3349,6 +3417,7 @@ impl<'a> ProducerProof<'a> {
                             self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);
                         }
                     }
+                    Obligation::LiteralPayload(owner, instruction) => self.verify_literal_payload(owner, instruction)?,
                     Obligation::Expression(owner, instruction, expected, returned, fact) => self.verify_expression(owner, instruction, expected, returned, fact)?,
                     Obligation::Slot(owner, binding, slot, expected) => self.verify_slot(owner, binding, slot, expected)?,
                     Obligation::PipelinePrefix(owner, pipeline, end, expected) => self.verify_pipeline_prefix(owner, pipeline, end, expected)?,

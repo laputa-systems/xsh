@@ -1132,7 +1132,8 @@ fn verify_scheme_body_facts(
             let slot = (capture.slot_and_flags & !(1 << 31)) as usize;
             let ty = store.semantic.to_type_with_budget(capture.type_id, &mut budget.semantic_types)?;
             ensure_closed_type(&ty)?;
-            if ty.may_hold_resource() { return Err(IrVerifyError::new("generic body captures resource state")); }
+            if ty.may_hold_resource() && !(capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Record(_))) { return Err(IrVerifyError::new("generic body captures resource state")); }
+            if matches!(&ty, Type::Record(_)) && producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("generic record capture has no mandatory literal payload proof")); }
             if capture.slot_and_flags & (1 << 31) != 0 {
                 if producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("mutable generic capture has no mandatory storage proof")); }
             } else {

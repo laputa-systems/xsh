@@ -34840,6 +34840,150 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
+    fn generic_literal_record_capture_requires_producer_demand_without_host_calls() {
+        run_with_large_stack(|| {
+            let source = "type Marker = {value: Int}\nlet marker = {value: 1}\nlet alternate = false\npure read(row) -> Marker { let ignored = row.anchor; marker }\n";
+            let program = Arc::new(fixture("generic-capture-only-demand.xsh", source));
+            assert!(program.store.registered_calls.is_empty());
+            assert!(program.store.call_instantiations.is_empty());
+            assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(1))]).into()));
+            }
+            let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.tags[integer] = FullTag::ExprBool;
+            forged.store.data[integer] = forged.store.data[boolean];
+            assert!(FullVerifier::verify(&forged).is_err());
+        });
+    }
+
+    #[test]
+    fn generic_record_capture_checks_nested_and_unread_literal_payloads() {
+        run_with_large_stack(|| {
+            let source = "pure factory(lower: Int, upper: Int) -> Stream[Int] { range(lower, upper) }\nlet marker = {value: 1, hidden: [0, 2]}\nlet spare = factory(0, 2)\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\n";
+            let program = Arc::new(fixture("generic-capture-whole-literal.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(value, Value::Int(1));
+            }
+            let read = scheme_fixture_named_function(&program, "read");
+            let capture = program.store.functions[read].captures.bounds(program.store.captures.len()).unwrap().start;
+            let wide = program.store.captures[capture].type_id;
+            let Type::Record(fields) = program.store.semantic.to_type(wide).unwrap() else { unreachable!() };
+            let mut fields = (*fields).clone();
+            assert_eq!(fields.insert(Name::intern("hidden"), Type::Stream(Box::new(Type::Int))), Some(Type::List(Box::new(Type::Int))));
+            let mut forged = (*program).clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let actual = semantic.intern_type(&mut forged.store.semantic, &Type::Record(fields.into())).unwrap();
+            for capture in &mut forged.store.captures { if capture.type_id == wide { capture.type_id = actual; } }
+            for slot in &mut forged.store.driver_slots { if slot.type_id == wide { slot.type_id = actual; } }
+            for sync in &mut forged.store.driver_sync { if sync.type_id == wide { sync.type_id = actual; } }
+            for fact in &mut forged.store.checked_expr_types { if fact.type_id == wide { fact.type_id = actual; } }
+            for fact in &mut forged.store.slot_type_facts { if *fact == wide.raw() { *fact = actual.raw(); } }
+            for ty in &mut forged.store.scheme_types {
+                if ty.tag == FullSchemeTypeTag::Ground && ty.first == wide.raw() { ty.first = actual.raw(); }
+            }
+            let list = program.store.tags.iter().position(|tag| *tag == FullTag::ExprList).expect("the hidden payload is an actual list constructor");
+            let step = (0..program.store.driver_steps.len()).find(|step| program.store.driver_instruction_range(*step).unwrap().contains(&list)).unwrap();
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            let schema::ExprView::List(values) = decoder.expression_view(list).unwrap() else { unreachable!() };
+            let values = values.map(|value| value.unwrap().raw()).collect::<Vec<_>>();
+            assert_eq!(values.len(), 2);
+            let call = program.store.tags.iter().position(|tag| *tag == FullTag::ExprDirectPureCall).unwrap();
+            let call_step = (0..program.store.driver_steps.len()).find(|step| program.store.driver_instruction_range(*step).unwrap().contains(&call)).unwrap();
+            let call_decoder = verify_schemes::decoder_for_driver_step(&program.store, call_step).unwrap();
+            let schema::ExprView::DirectPureCall { args, .. } = call_decoder.expression_view(call).unwrap() else { unreachable!() };
+            assert_eq!(args.count(), 2);
+            let list_block = IrBlockId::from_raw(program.store.payload(program.store.data[list].range()).unwrap()[0]).unwrap();
+            let mut payload = program.store.payload(program.store.data[call].range()).unwrap().to_vec();
+            let mut cursor = FullCursor::new(&payload);
+            let _: LoweredFunctionKey = FullCodec::decode(&call_decoder, &mut cursor).unwrap();
+            let argument_position = cursor.index;
+            let call_block = IrBlockId::from_raw(cursor.raw().unwrap()).unwrap();
+            let mut arguments = program.store.payload(program.store.blocks[call_block.index()].instructions).unwrap().to_vec();
+            assert_eq!(arguments[0], 2);
+            assert_eq!(arguments[1], 0);
+            assert_eq!(arguments[3], 0);
+            arguments[2] = values[0];
+            arguments[4] = values[1];
+            payload[argument_position] = list_block.raw();
+            let range = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRange).unwrap();
+            let range_type = program.store.checked_expr_types.iter().find(|fact| fact.instruction as usize == range && fact.is_contract()).unwrap().type_id;
+            let hidden = program.store.scheme_fields.iter().filter(|field| program.store.string(field.name).unwrap() == "hidden").map(|field| field.ty.index()).collect::<BTreeSet<_>>();
+            assert!(!hidden.is_empty(), "the captured Record retains its structural hidden-field contract");
+            for index in hidden {
+                let node = program.store.scheme_types[index];
+                match node.tag {
+                    FullSchemeTypeTag::List => {
+                        let item = program.store.scheme_types[schemes::SchemeTypeId::from_raw(node.first).unwrap().index()];
+                        assert_eq!(item.tag, FullSchemeTypeTag::Ground);
+                        assert_eq!(program.store.semantic.to_type(TypeId::from_raw(item.first).unwrap()).unwrap(), Type::Int);
+                        forged.store.scheme_types[index].tag = FullSchemeTypeTag::Stream;
+                    }
+                    FullSchemeTypeTag::Ground => {
+                        assert_eq!(program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap(), Type::List(Box::new(Type::Int)));
+                        forged.store.scheme_types[index].first = range_type.raw();
+                    }
+                    _ => panic!("the actual captured hidden field has a closed List[Int] contract"),
+                }
+            }
+            let mut builder = FullBuilder::new(forged.store.source_id);
+            builder.store = forged.store;
+            builder.store.blocks[list_block.index()].instructions = builder.push_extra(&arguments).unwrap();
+            builder.store.tags[list] = FullTag::ExprDirectPureCall;
+            builder.store.data[list] = IrData::from_range(builder.push_extra(&payload).unwrap());
+            for fact in &mut builder.store.checked_expr_types {
+                if fact.instruction as usize == list { fact.type_id = range_type; }
+            }
+            builder.store.driver_steps[step].effects |= program.store.tags[call].effects();
+            assert_eq!(builder.store.driver_programs.len(), 1);
+            let steps = builder.store.driver_programs[0].steps.bounds(builder.store.driver_steps.len()).unwrap();
+            builder.store.driver_regions.clear();
+            builder.store.driver_sync.clear();
+            let mut start = steps.start;
+            while start < steps.end {
+                let mut end = start + 1;
+                if builder.store.driver_steps[start].effects & EFFECT_BOUNDARY_MASK == 0 {
+                    while end < steps.end && builder.store.driver_steps[end].effects & EFFECT_BOUNDARY_MASK == 0 { end += 1; }
+                }
+                builder.push_driver_region(start, end).unwrap();
+                start = end;
+            }
+            builder.store.driver_programs[0].regions = table_range(0, builder.store.driver_regions.len()).unwrap();
+            forged.store = builder.store;
+            let decoder = verify_schemes::decoder_for_driver_step(&forged.store, step).unwrap();
+            let schema::ExprView::DirectPureCall { args, .. } = decoder.expression_view(list).unwrap() else { unreachable!() };
+            let actual = args.map(|argument| match argument.unwrap() {
+                decode::CallArgView::Single(value) => value.raw(),
+                _ => panic!("the actual factory takes two ordinary arguments"),
+            }).collect::<Vec<_>>();
+            assert_eq!(actual, values);
+            assert_eq!(forged.store.blocks[list_block.index()].owner, program.store.blocks[list_block.index()].owner);
+            let error = FullVerifier::verify(&forged).expect_err("an unread stream cannot enter a literal record capture");
+            assert_eq!(error.message, "generic record capture has a nonliteral payload");
+        });
+    }
+
+    #[test]
     fn generic_pure_ground_storage_and_closed_return_composition_keep_their_contracts() {
         run_with_large_stack(|| {
             for source in [

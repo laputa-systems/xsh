@@ -294,6 +294,7 @@ impl Checker {
                             decl.span,
                             &origin,
                         );
+                        self.record_literal_capture_payload(program, decl.statement);
                         if let Some(alias) = alias
                             && let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
                         { self.attach_callable_alias(name, alias, super::expr::expr_or_run_span_arena(program, initializer)); }

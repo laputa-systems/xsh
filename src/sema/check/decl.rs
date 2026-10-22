@@ -452,8 +452,15 @@ impl Checker {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }
                     self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
-                        .filter(|binding| !binding.ty.contains_inference() && !binding.ty.may_hold_resource())
-                        .map(|binding| (id, if binding.mutable { super::scheme_body::CapturedBindingAccess::Writable } else { super::scheme_body::CapturedBindingAccess::ReadOnly }))
+                        .and_then(|binding| {
+                            if binding.ty.contains_inference() { return None; }
+                            let access = if !binding.ty.may_hold_resource() {
+                                if binding.mutable { super::scheme_body::CapturedBindingAccess::Writable } else { super::scheme_body::CapturedBindingAccess::ReadOnly }
+                            } else if matches!(&binding.ty, Type::Record(_)) && self.has_literal_capture_payload(program, binding) {
+                                super::scheme_body::CapturedBindingAccess::ReadOnlyLiteral
+                            } else { return None; };
+                            Some((id, access))
+                        })
                 }).collect::<super::scheme_body::CapturedBindings>();
             if !super::scheme_body::supports_generalized_body(
                 program,

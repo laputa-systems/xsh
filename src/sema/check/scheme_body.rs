@@ -3,7 +3,7 @@ use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum CapturedBindingAccess { ReadOnly, Writable }
+pub(super) enum CapturedBindingAccess { ReadOnly, ReadOnlyLiteral, Writable }
 
 pub(super) type CapturedBindings = std::collections::BTreeMap<BindingId, CapturedBindingAccess>;
 
@@ -221,7 +221,8 @@ fn read_binding_is_available(
     available.contains(binding)
         || (captures.contains_key(binding)
             || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_))))
-            && ty.is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))
+            && ty.is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()
+                || matches!(ty, crate::sema::types::Type::Record(_)) && captures.get(binding) == Some(&CapturedBindingAccess::ReadOnlyLiteral)))
 }
 
 fn declare_target_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, target: crate::syntax::arena::BindingTargetId, available: &mut FxHashSet<BindingId>) -> bool {
