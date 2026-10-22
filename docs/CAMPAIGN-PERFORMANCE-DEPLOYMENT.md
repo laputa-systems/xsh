@@ -8,7 +8,24 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
+Provisional assembly `85700af0d` passes 620 of 622 selected Rust controls.
+Union receiver and literal-record capture controls now pass on the combined
+source. Native-method proof enrollment exposes one previously passing empty-Set
+record-field case. That regression and the existing nested optional-guard failure
+remain open. The replay retains every previous selector and all added controls.
+
+Union checkpoint `af20162d8`, integrated as `1f500a409`, passes fourteen focused
+controls and independent source review. Every native method family requires an
+actual receiver proof. Uniform effects remain unchanged, and exact generic plans
+reuse the mandatory body proof. Completed union-read proofs share owner-local work.
+Capture checkpoint `05238aa81`, integrated as `85700af0d`, passes five focused
+controls and independent source review. Actual immutable literal initializers
+qualify record captures, and a separate cold proof checks every writer value.
+The unread-Stream corruption reaches the intended payload rejection. Literal
+computation coverage remains open because frontend constant analysis admits more
+expression forms than the cold literal traversal.
+
+Earlier runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
 Every previous selector remains selected and every prior passing control passes.
 The four remaining failures cover literal record capture, two union receiver
 cases and nested optional-guard verification. Master remains unchanged.
@@ -25,8 +42,8 @@ pipeline output from its actual input and stages. Both execution routes pass.
 The Set test now targets the actual dedicated operation instead of assuming an
 empty-list conversion. Its receiver, item, alias and method mutations still reject.
 
-The current lanes finish literal record capture, union receiver authentication
-and nested optional-guard verification.
+The current lanes repair native empty-Set demand ordering, literal computations
+in record captures and nested optional-guard verification.
 The optional-guard repair must pass the original fixture's unchanged work bound.
 Pyramid remains frozen until inference qualifies. No new full-suite or timing
 gate has started for this assembly.
