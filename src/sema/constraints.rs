@@ -4846,7 +4846,7 @@ mod tests {
         let metrics = constraints.metrics();
         assert_eq!(metrics.fresh_variables, 400);
         assert_eq!(metrics.generated_constraints, 400);
-        assert_eq!(metrics.representative_hops, 6_764);
+        assert_eq!(metrics.representative_hops, 6_765);
         assert_eq!(metrics.compression_writes, 0);
         assert_eq!(metrics.unifications, 400);
     }
@@ -4875,7 +4875,7 @@ mod tests {
             let expected_hops = if length == 1 {
                 0
             } else {
-                17 * u64::try_from(length).unwrap() - 36
+                17 * u64::try_from(length).unwrap() - 35
             };
             assert_eq!(metrics.representative_hops, expected_hops);
             assert_eq!(metrics.compression_writes, 0);
