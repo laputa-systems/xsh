@@ -8,8 +8,8 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `6cf8c3a25` passes 509 of 523 selected Rust controls.
-Its 14 failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `6f354caab` passes 524 of 534 selected Rust controls.
+Its 10 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
@@ -23,8 +23,31 @@ commands, retry, error contexts and context scopes reuse the existing executor
 and retain actual values, nominal errors, effect boundaries and restoration.
 Known Stream escape remains statically rejected; symbolic output retains the
 runtime escape guard. Equality reads existing resolved operand types without
-relaxing storage. Dedicated Path/env and authored conversion/require forms,
-Stream-carrier producer proof and single-body authority remain open.
+relaxing storage. Dedicated Path/env and authored conversion/require forms
+and single-body authority remain open.
+
+Host checkpoint `3dd1df93f` retains actual checked argument values, binding and
+schema context through canonical method selection. All twenty-three focused
+controls pass, followed by the combined replay. The duplicated inner argument
+effect diagnostic is gone. Original call and named-record-field identities,
+receiver schemas and contextual requirement targets remain authenticated.
+Probe adoption and single-body checking are separate pending work.
+
+Guard checkpoint `b1305521e` prepares earlier Guard success bindings before
+capturing callables through canonical Guard validation. Preparation does not
+advance statement flow. Four focused controls and the combined replay pass,
+including later-binding and fallthrough rejection and the unchanged physical
+capture-writer forgery. Scalar, Optional, destructured and Stream-origin
+captures are checked; no runtime cleanup claim follows from checker controls.
+
+Stream checkpoint `ecfeed5a3` authenticates actual ErrorContext carriers and
+proved noncompleting Capture bodies. Completing captures still need a value
+tail. Its four focused controls pass, including both execution routes and a
+physical false-to-true mutation that removes noncompletion. Parameter checkpoint
+`34f281746` reuses the mandatory checked narrowing at the same ground parameter
+read only when the checked slot matches the declared signature. Five focused
+controls pass; declared call/slot contracts and forged-path guards remain.
+Both checkpoints pass the combined replay without increasing work limits.
 
 Four test-premise corrections pass the combined replay: scalar reads and local
 storage execute against annotated references on both routes; supported default
@@ -129,7 +152,9 @@ The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
 44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
 the combined replay. The two diagnostic cascades are also repaired on
 `2321053f2`. Four further test-premise corrections leave fourteen required
-failures on `6cf8c3a25`. Remaining failures include producer gaps, malformed mutation
+failures on `6cf8c3a25`. Guard scheduling, Stream carriers, parameter narrowing
+and the generic-alias test premise subsequently reduce this to ten on
+`6f354caab`. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
