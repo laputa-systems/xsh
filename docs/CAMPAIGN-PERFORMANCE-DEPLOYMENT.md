@@ -8,11 +8,17 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Provisional assembly `85700af0d` passes 620 of 622 selected Rust controls.
-Union receiver and literal-record capture controls now pass on the combined
-source. Native-method proof enrollment exposes one previously passing empty-Set
-record-field case. That regression and the existing nested optional-guard failure
-remain open. The replay retains every previous selector and all added controls.
+Provisional assembly `353cf3c8d` passes 624 of 625 selected Rust controls.
+Every previously passing selector remains selected and passes. The existing
+nested optional-guard failure is the sole remaining failure in this selected
+boundary. This does not qualify the full suite or the campaign.
+
+The preceding `ec65747bb` replay passed 623 of 625 controls and exposed a
+bounded-work regression in repeated guarded record reads. Repair `ad78fe079`,
+integrated as `353cf3c8d`, reuses normal method proofs and searches for a consumer
+only when its receiver contract remains absent. All six focused controls and
+independent review pass. Unresolved roots still require independent receiver,
+argument, result and effect proof; the mandatory final worklist drain remains.
 
 Union checkpoint `af20162d8`, integrated as `1f500a409`, passes fourteen focused
 controls and independent source review. Every native method family requires an
@@ -27,11 +33,13 @@ controls across compatible runs. The cold traversal now proves finite literal
 arithmetic, field access and canonical Boolean negation. The next combined
 replay retains all 622 selectors and adds its two new behavior controls.
 
-Native-method demand repair `2ca5a91d4`, provisionally integrated as `f88cb1bfd`,
+Native-method demand repair `2ca5a91d4`, integrated as `f88cb1bfd`,
 passes four focused controls, including a definition without calling code and
 the original receiver mutations. Independent review found that deferred method
-checks discard the return-context flag needed for implicit Result tails. That
-case requires a discriminator and repair before this assembly qualifies.
+checks discard the return-context flag needed for implicit Result tails.
+Repair `ac218e8ab`, integrated as `ec65747bb`, passed five focused controls and
+independent review. The final phase-reuse repair preserves that Result-tail
+regression while removing the duplicate method check that caused it.
 
 Earlier runtime assembly `fcdf567fd` passes 604 of 608 selected Rust controls.
 Every previous selector remains selected and every prior passing control passes.
@@ -55,6 +63,12 @@ verification. A separate source investigation identifies the remaining duplicate
 Proc return-shape body check. Ordinary local and generic identity controls
 already demonstrate one performed check per published body; the older four-to-one
 observation does not describe every current inference path.
+The isolated Proc prototype reduces the tested effectful body's performed
+checks from four to two while publishing one body. Its no-caller control
+performs and publishes one check, and five existing recursive/runtime controls
+pass. The desired two-to-one counter assertion remains failing because the
+whole-file effect fixed point still rechecks the body. This prototype is
+uncommitted, isolated and unqualified for integration.
 The optional-guard repair must pass the original fixture's unchanged work bound.
 Pyramid remains frozen until inference qualifies. No new full-suite or timing
 gate has started for this assembly.
