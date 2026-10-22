@@ -8,10 +8,15 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Provisional assembly `353cf3c8d` passes 624 of 625 selected Rust controls.
-Every previously passing selector remains selected and passes. The existing
-nested optional-guard failure is the sole remaining failure in this selected
-boundary. This does not qualify the full suite or the campaign.
+Provisional assembly `4e90fafe1` passes 623 of 630 selected Rust controls.
+All 625 previous selectors remain selected, alongside five additional Proc
+controls. The Proc repair introduces six regressions in returned-call evidence,
+Result-pattern inference and error flow; the existing nested optional-guard
+failure also remains. These failures block qualification.
+
+The preceding `353cf3c8d` passes 624 of 625 selected Rust controls, with only
+the nested optional-guard failure. Preserve both failed-source receipts; neither
+qualifies the full suite or the campaign.
 
 The preceding `ec65747bb` replay passed 623 of 625 controls and exposed a
 bounded-work regression in repeated guarded record reads. Repair `ad78fe079`,
@@ -58,17 +63,18 @@ pipeline output from its actual input and stages. Both execution routes pass.
 The Set test now targets the actual dedicated operation instead of assuming an
 empty-list conversion. Its receiver, item, alias and method mutations still reject.
 
-The current lanes repair native-method return contexts and nested optional-guard
-verification. A separate source investigation identifies the remaining duplicate
-Proc return-shape body check. Ordinary local and generic identity controls
-already demonstrate one performed check per published body; the older four-to-one
-observation does not describe every current inference path.
-The isolated Proc prototype reduces the tested effectful body's performed
-checks from four to two while publishing one body. Its no-caller control
-performs and publishes one check, and five existing recursive/runtime controls
-pass. The desired two-to-one counter assertion remains failing because the
-whole-file effect fixed point still rechecks the body. This prototype is
-uncommitted, isolated and unqualified for integration.
+The current lanes repair Proc regressions and nested optional-guard verification,
+and update obsolete native rejection fixtures to the completion contract.
+Proc checkpoint `ba12a82d6`, integrated as `4e90fafe1`, passes fifteen focused
+controls and independent source review before the combined replay exposes the
+six regressions above. Its effectful-body counter performs and publishes one
+check. Direct invocation effects remain deferred; signature reads retain their
+fixed-point dependency. A success-origin shortcut avoids an origin-only retry.
+The combined failures require diagnosis before this checkpoint can qualify.
+The fixed-Int mutable-capture rejection was already failing on the preceding
+source and conflicts with the charter's independent-variable generalization;
+its corrected positive checks two instantiations while the actual shared-state
+polymorphism rejection controls remain selected and pass.
 The optional-guard repair must pass the original fixture's unchanged work bound.
 Pyramid remains frozen until inference qualifies. No new full-suite or timing
 gate has started for this assembly.
