@@ -3458,3 +3458,25 @@ fn native_readonly_argv_accepts_typed_comprehension_arguments() {
         }
     });
 }
+
+#[test]
+fn producer_context_fresh_comprehensions_preserve_contextual_items() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+type Label = {name: Str?}
+pure clear(items: List[Label]) -> List[Label] { [{...item, name: null} for item in items] }
+let items: List[Label] = [{name: "word"}]
+assert clear(items)[0].name == null
+"#);
+        execute_both(&program);
+        let clear = function(&program, "clear");
+        let null = program.store.function_instruction_range(clear).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprNull).unwrap();
+        let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+        let mut wrong_item = program.clone();
+        wrong_item.store.tags[null] = FullTag::ExprInt;
+        wrong_item.store.data[null] = program.store.data[integer];
+        let error = FullVerifier::verify(&wrong_item).unwrap_err();
+        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+    });
+}
