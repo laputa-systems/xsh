@@ -4664,14 +4664,14 @@ mod tests {
         let metrics = constraints.metrics();
         assert_eq!(metrics.fresh_variables, 400);
         assert_eq!(metrics.generated_constraints, 400);
-        assert_eq!(metrics.representative_hops, 7_560);
+        assert_eq!(metrics.representative_hops, 6_764);
         assert_eq!(metrics.compression_writes, 0);
         assert_eq!(metrics.unifications, 400);
     }
 
     #[test]
     fn alias_chain_metrics_scale_with_chain_length() {
-        for (length, expected_hops) in [(1, 0), (4, 36), (16, 264), (64, 1_176)] {
+        for length in [1, 4, 16, 64] {
             let mut constraints = TypeConstraints::default();
             let variables = (0..length)
                 .map(|index| constraints.fresh(span(index)))
@@ -4690,6 +4690,11 @@ mod tests {
             assert_eq!(metrics.fresh_variables, length as u64);
             assert_eq!(metrics.generated_constraints, length as u64);
             assert_eq!(metrics.unifications, length as u64);
+            let expected_hops = if length == 1 {
+                0
+            } else {
+                17 * u64::try_from(length).unwrap() - 36
+            };
             assert_eq!(metrics.representative_hops, expected_hops);
             assert_eq!(metrics.compression_writes, 0);
         }

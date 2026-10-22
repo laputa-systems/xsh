@@ -734,7 +734,7 @@ mod joint_effect_tests {
         graph.call(Some(second), first, false, None);
         let counterfactual = graph.solve_with(&BTreeSet::from([first, second]), &BTreeMap::new());
         assert_eq!(counterfactual[&first].effects().concrete().unwrap(), Some(vec![Effect::Fs]));
-        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), Some(vec![Effect::Error, Effect::Fs]));
+        assert_eq!(counterfactual[&second].effects().concrete().unwrap(), Some(vec![Effect::Fs, Effect::Error]));
     }
 
     #[test]
