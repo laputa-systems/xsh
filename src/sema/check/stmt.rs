@@ -6869,6 +6869,10 @@ impl Checker {
         let expected = expectation.map(super::types::TypeExpectation::context);
         let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
+        if purpose == TailCheckingPurpose::ProcCompletion && matches!(stmt.kind, ArenaStmtKind::Command(_)) {
+            self.check_stmt_arena(arena, source, id);
+            return Type::Unit;
+        }
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
         if matches!(
@@ -7095,8 +7099,6 @@ impl Checker {
                 } else {
                     self.propagating_statements.remove(&stmt.span);
                 }
-                // A consumed capture tail keeps its output. Unit tails have
-                // already taken the statement path, which discards that output.
                 if let crate::syntax::arena::ArenaCommand::Run(run) = command_stmt.command
                     && super::command::run_capture_result_type_arena(arena, run).is_some()
                 {
@@ -8291,6 +8293,40 @@ mod structural_input_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn command_completions_keep_unit_and_run_returns_check_once() {
+        use crate::sema::types::Type;
+        for (form, success) in [
+            ("run.text /bin/echo fixed ?", Type::Unit),
+            ("if true { run.text /bin/echo fixed ? } else { run.text /bin/echo other ? }", Type::Unit),
+            ("match true { true => { run.text /bin/echo fixed ? }; false => { run.text /bin/echo other ? } }", Type::Unit),
+            ("return run.text /bin/echo fixed ?", Type::Str),
+            ("return (run.text /bin/echo fixed ?)", Type::Str),
+            ("return run.stream --text /bin/echo fixed ?", Type::Stream(Box::new(Type::Str))),
+            ("return (run.stream --text /bin/echo fixed ?)", Type::Stream(Box::new(Type::Str))),
+        ] {
+            let source = format!("proc send(marker) {{ let _ = marker; {form} }}\nlet integer = send(7)\nlet text = send(\"row\")\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena(&parsed.arena, &source));
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            assert_eq!(checked.function_body_check_entries, 1, "{form}");
+            assert_eq!(work.function_body_check_entries, 1, "{form}");
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            let scheme = declaration.scheme.as_ref().unwrap();
+            assert!(scheme.callable().is_quantified());
+            assert!(scheme.callable().requirements().conversion_parameters.is_empty());
+            if matches!(success, Type::Stream(_)) {
+                let crate::syntax::arena::ArenaStmtKind::ProcDef(definition) = parsed.arena.arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind else { unreachable!() };
+                let block = parsed.arena.arena.function_def(definition).body;
+                let returned = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(block).statements).last().unwrap();
+                assert_eq!(checked.resource_transfer(crate::sema::check::ResourceTransferSite::Return(returned)), Some(true), "{form}");
+                assert_eq!(checked.resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block)), Some(false), "{form}");
+            }
+            assert_eq!(checked.function_return_types.get(&declaration.body), Some(&Type::Result(Box::new(success), Box::new(Type::Error))), "{form}");
+        }
+    }
 
     #[test]
     fn destructured_formals_retain_independent_nested_rows_without_body_replay() {

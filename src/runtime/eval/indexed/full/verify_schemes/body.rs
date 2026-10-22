@@ -1190,6 +1190,30 @@ mod tests {
         assert!(FullVerifier::verify(&changed).is_err());
     }
 
+    #[test]
+    fn generic_run_returns_authenticate_output_kind_and_permissions() {
+        let program = prepare("proc send(marker) { let _ = marker; return run.text /bin/echo fixed ? }");
+        let (owner, scheme) = generic_owner(&program);
+        let capture = program.store.function_instruction_range(owner).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == super::super::super::FullTag::ExprRunCapture).unwrap();
+        let words = program.store.data[capture].range().bounds(program.store.extra.len()).unwrap();
+        let mut changed = program.clone();
+        let kind = changed.store.run_kinds.len() as u32;
+        changed.store.run_kinds.push(crate::syntax::node::RunKind::CaptureBytes);
+        changed.store.extra[words.start] = kind;
+        assert!(FullVerifier::verify(&changed).is_err());
+        let effects = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        assert_eq!(effects.len(), 2);
+        for forbidden in [crate::syntax::node::Effect::Process, crate::syntax::node::Effect::Error] {
+            assert!(effects.clone().any(|index| program.store.scheme_effects[index] == forbidden));
+            let remaining = effects.clone().find(|&index| program.store.scheme_effects[index] != forbidden).unwrap();
+            let mut changed = program.clone();
+            changed.store.schemes[scheme.index()].effects.direct = super::super::super::IrRange { start: remaining as u32, len: 1 };
+            let error = FullVerifier::verify(&changed).unwrap_err();
+            assert!(error.message.contains("effect"), "{forbidden:?}: {}", error.message);
+        }
+    }
+
     fn generic_owner(program: &FullProgram) -> (usize, FullSchemeId) {
         program.store.functions.iter().enumerate().find_map(|(owner, function)| match function.contract {
             FullCallableContract::Scheme(scheme) => Some((owner, scheme)),

@@ -39,6 +39,100 @@ assert send({text}) == Ok("{prefix}{text_output}\n")
     }
 }
 
+fn assert_generic_static_run_return(form: &str, expected: Value) {
+    let source = format!("proc send(marker) {{ let _ = marker; {form} }}\nproc number() {{ send(7) }}\nproc text() {{ send(\"row\") }}\n");
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        for name in ["number", "text"] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(expected.clone()))), "{form}: {name}, frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn generic_bare_run_tails_discard_captured_output() {
+    for form in [
+        "run.text /bin/echo fixed ?",
+        "if true { run.text /bin/echo fixed ? } else { run.text /bin/echo other ? }",
+        "match true { true => { run.text /bin/echo fixed ? }; false => { run.text /bin/echo other ? } }",
+    ] { assert_generic_static_run_return(form, Value::Unit); }
+}
+
+#[test]
+fn generic_direct_run_returns_preserve_captured_output() {
+    assert_generic_static_run_return("return run.text /bin/echo fixed ?", Value::Str(Arc::from("fixed\n")));
+}
+
+#[test]
+fn generic_grouped_run_returns_preserve_captured_output() {
+    assert_generic_static_run_return("return (run.text /bin/echo fixed ?)", Value::Str(Arc::from("fixed\n")));
+}
+
+#[test]
+fn generic_run_returns_preserve_early_returns_and_output_kinds() {
+    for form in [
+        "if true { return run.text /bin/echo fixed ? }; return run.text /bin/echo wrong ?",
+        "if false { return run.text /bin/echo wrong ? }; return run.text /bin/echo fixed ?",
+    ] { assert_generic_static_run_return(form, Value::Str(Arc::from("fixed\n"))); }
+    assert_generic_static_run_return("return run.bytes /bin/echo fixed ?", Value::Bytes(b"fixed\n".to_vec()));
+}
+
+#[test]
+fn generic_run_returns_transfer_streams_after_frontend_disposal() {
+    for form in [
+        "return run.stream --text /bin/echo fixed ?",
+        "if true { return run.stream --text /bin/echo fixed ? }; return run.stream --text /bin/echo wrong ?",
+        "return (run.stream --text /bin/echo fixed ?)",
+    ] {
+        let source = format!("proc send(marker) {{ let _ = marker; {form} }}\nassert (send(7)?).collect() == [\"fixed\"]\nassert (send(\"row\")?).collect() == [\"fixed\"]\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{form}: frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_run_returns_preserve_failure_and_cleanup_once() {
+    let directory = tempfile::Builder::new().prefix("generic-run-return-").tempdir_in(".work/tmp").unwrap();
+    let path = directory.path().canonicalize().unwrap().join("trace");
+    for status in [0, 7] {
+        let source = format!(r#"proc send(marker) {{ let _ = marker; defer run /bin/sh -c "printf d >> \"$1\"" cleanup {:?} ?; return run.text /bin/sh -c "printf b >> \"$1\"; printf fixed; exit {status}" body {:?} ? }}
+proc number() {{ send(7) }}
+proc text() {{ send("row") }}
+"#, path.to_str().unwrap(), path.to_str().unwrap());
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            for name in ["number", "text"] {
+                std::fs::write(&path, b"").unwrap();
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                if status == 0 {
+                    assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from("fixed"))))));
+                } else {
+                    let Value::Result(ResultValue::Err(error)) = actual else { panic!("the failed child returns Err") };
+                    let Value::RunError(error) = *error else { panic!("the child failure retains its process status") };
+                    assert_eq!(error.status.as_ref().unwrap().code, Some(status));
+                }
+                assert_eq!(std::fs::read(&path).unwrap(), b"bd", "{name}: status={status}, frames={force_frames}");
+            }
+        }
+    }
+}
+
 #[test]
 fn ordinary_generic_bodies_execute_after_frontend_disposal() {
     for definition in [

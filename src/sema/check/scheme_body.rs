@@ -154,8 +154,10 @@ pub(super) fn supports_generalized_body(
                 if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, condition)
                     || !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, nested_completion) { return false; }
             }
-            ArenaStmtKind::Command(_) | ArenaStmtKind::Defer(ArenaExprOrRun::Run(_), _) => {
+            ArenaStmtKind::Command(_) | ArenaStmtKind::Defer(ArenaExprOrRun::Run(_), _)
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(_))) => {
                 if owner_kind == crate::sema::types::CallableKind::Pure
+                    || matches!(node.kind, ArenaStmtKind::Return(_)) && owner_kind != crate::sema::types::CallableKind::Proc
                     || matches!(node.kind, ArenaStmtKind::Command(_)) && !checked_operations.contains(&node.span)
                 { return false; }
                 let mut children = Vec::new();
@@ -182,6 +184,12 @@ pub(super) fn supports_generalized_body(
             if matches!(completion, BodyCompletion::Procedure) && positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
                 is_proc_completion_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression)
             } else { is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression) }
+        },
+        ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(_)))
+            if matches!(completion, BodyCompletion::Procedure) && owner_kind == crate::sema::types::CallableKind::Proc => {
+            let mut children = Vec::new();
+            program.arena.for_each_stmt_child(tail, crate::syntax::arena::SugarView::Core, |child| children.push(child));
+            command_children_are_available(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, tail_statement.span, children, nested_completion)
         },
         ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
             program.arena.if_branches(branches).iter().all(|branch| {

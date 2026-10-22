@@ -814,8 +814,6 @@ pub(super) fn proc_may_return_value(
 ) -> bool {
     let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(program.arena.core_stmt_id(tail)).kind {
         ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
-        ArenaStmtKind::Command(command) => matches!(program.arena.command_stmt(command).command,
-            crate::syntax::arena::ArenaCommand::Run(run) if super::command::run_capture_result_type_arena(program, run).is_some()),
         _ => false,
     });
     let body = program.arena.span(program.arena.block(def.body).span);
