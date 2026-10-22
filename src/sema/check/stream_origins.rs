@@ -523,6 +523,54 @@ mod tests {
     }
 
     #[test]
+    fn recursive_valueless_procs_keep_their_unit_boundary() {
+        for (inferred, authored) in [
+            ("proc again() [error, io] { if false { again() } }", "proc again() [error, io] -> Result[Unit] { if false { again() } }"),
+            ("proc again(flag: Bool) [error, io] { if flag { again(false) } }", "proc again(flag: Bool) [error, io] -> Result[Unit] { if flag { again(false) } }"),
+            ("proc left(flag: Bool) [error, io] { if flag { right(false) } }\nproc right(flag: Bool) [error, io] { if flag { left(false) } }", "proc left(flag: Bool) [error, io] -> Result[Unit] { if flag { right(false) } }\nproc right(flag: Bool) [error, io] -> Result[Unit] { if flag { left(false) } }"),
+        ] {
+            let check = |source: &str| {
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let _symbols = parsed.arena.symbol_owner().enter();
+                crate::sema::inference_work::collect(|| super::Checker::check_arena(&parsed.arena, source))
+            };
+            let (inferred_work, inferred_output) = check(inferred);
+            let (authored_work, authored_output) = check(authored);
+            assert!(inferred_output.diagnostics.is_empty() && authored_output.diagnostics.is_empty(), "inferred: {inferred}\n{:?}\nauthored: {authored}\n{:?}\nbody entries: {} / {}", inferred_output.diagnostics, authored_output.diagnostics, inferred_work.function_body_check_entries, authored_work.function_body_check_entries);
+            assert_eq!(inferred_work.function_body_check_entries, authored_work.function_body_check_entries);
+            assert!(inferred_work.function_body_check_entries >= inferred_output.checked_declarations.functions.len() as u64);
+            for output in [inferred_output, authored_output] {
+                for declaration in output.checked_declarations.functions.values() {
+                    assert_eq!(output.function_return_types[&declaration.body], super::Type::Result(Box::new(super::Type::Unit), Box::new(super::Type::Error)));
+                    let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+                    assert!(!output.stream_origin_summaries.declarations[&owner].returned.has_pending());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_value_procs_preserve_completion_constraints() {
+        for (source, accepted) in [
+            ("proc count(value: Int) { if value == 0 { return 7 }; count(value - 1) }", true),
+            ("proc count(flag: Bool) { if flag { return 7 }; if false { count(false) } }", false),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = super::Checker::check_arena(&parsed.arena, source);
+            if accepted {
+                assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+                let declaration = checked.checked_declarations.functions.values().next().unwrap();
+                assert_eq!(checked.function_return_types[&declaration.body], super::Type::Result(Box::new(super::Type::Int), Box::new(super::Type::Error)));
+            } else {
+                assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch | crate::diagnostic::DiagnosticCode::CheckIfValueElse))), "{source}\n{:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
     fn projection_construction_preserves_the_type_depth_bound() {
         let mut value = StreamOrigins::error();
         for _ in 0..crate::sema::constraints::MAX_TYPE_DEPTH { value = value.prefix(StreamProjection::Success).unwrap(); }
