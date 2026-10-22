@@ -104,7 +104,7 @@ impl HostCallContinuation {
     fn phase(&self, method: HostMethod, arguments: &[ExpandedArgument]) -> Option<&HostCallPhase> {
         if !matches!(self.source, HostCallSource::Expression(_))
             || self.receiver_schema.is_some()
-            || !matches!(method.signature.sig.arg_check, super::ApiArgCheck::Standard | super::ApiArgCheck::PathLikeSingle)
+            || !matches!(method.signature.sig.arg_check, super::ApiArgCheck::Standard | super::ApiArgCheck::PathLikeSingle | super::ApiArgCheck::ResultContext)
         { return None; }
         match super::method_with_unique_layout(
             api_spec().method_overloads(method.receiver, &self.name).expect("a selected host method remains registered"),
@@ -755,6 +755,65 @@ mod tests {
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).map(|diagnostic| diagnostic.labels.iter().map(|label| label.span).collect::<Vec<_>>()).collect::<Vec<_>>();
         assert_eq!(order(&reference).len(), 2, "{:?}", reference.diagnostics);
         assert_eq!(order(&delayed), order(&reference), "{:?}", delayed.diagnostics);
+    }
+
+    #[test]
+    fn late_result_context_methods_preserve_original_result_contract() {
+        for (arguments_source, accepted) in [
+            ("\"wrapped\"", true),
+            ("\"wrapped\", \"extra\"", true),
+            ("kind: \"wrapped\", message: \"extra\"", true),
+            ("message: \"extra\", kind: \"wrapped\"", true),
+            ("message: \"extra\"", false),
+            ("false", false),
+            ("\"wrapped\", false", false),
+            ("", false),
+            ("\"wrapped\", \"extra\", 7", false),
+        ] {
+            let source = format!("error TestBaseError = Base\nlet raw: Result[Int, TestBaseError] = Err(TestBaseError.Base(\"original\"))\nlet _ = raw.context({arguments_source})\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
+            let crate::syntax::arena::ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(call), .. } = parsed.arena.arena.stmt(statement).kind else { panic!("context call") };
+            let crate::syntax::arena::ArenaExprKind::Call { callee, args } = parsed.arena.arena.expr(call).kind else { panic!("context call") };
+            let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(callee).kind else { panic!("context receiver") };
+            let span = parsed.arena.arena.expr(call).span;
+            let reference = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            let actual_receiver = reference.expr_types[&parsed.arena.arena.expr(base).span].clone();
+            assert!(matches!(&actual_receiver, Type::Result(ok, error) if **ok == Type::Int && **error == Type::ErrorFamily(crate::symbol::Name::intern("TestBaseError"))));
+            let mut delayed = Checker::new(crate::sema::check::CheckOptions::default());
+            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "context", None);
+            let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |expression| {
+                Some(delayed.check_expr_arena(&parsed.arena, &source, expression, Some(&Type::Str)))
+            }).unwrap();
+            let continuation = continuation.finish(&mut delayed);
+            let receiver = delayed.type_constraints.fresh(span);
+            let result = delayed.type_constraints.fresh(span);
+            delayed.local_inference.host_obligations.entries.push(HostObligation {
+                continuation,
+                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("context"), span },
+            });
+            delayed.type_constraints.constrain(&receiver, &actual_receiver, span).unwrap();
+            assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
+            if accepted {
+                assert!(reference.diagnostics.is_empty(), "{source}: {:?}", reference.diagnostics);
+                assert!(delayed.diagnostics.is_empty(), "{source}: {:?}", delayed.diagnostics);
+                assert_eq!(delayed.type_constraints.resolve(&result), Ok(actual_receiver.clone()));
+                assert_eq!(reference.expr_types[&span], actual_receiver);
+                let actual = delayed.api_calls.get(&span).expect("committed context selection publishes its original call");
+                let expected = reference.api_calls.get(&span).unwrap();
+                assert!(std::ptr::eq(actual.sig, expected.sig));
+                assert_eq!(actual.params, expected.params);
+                assert_eq!(actual.argument_slots, expected.argument_slots);
+                assert!(delayed.local_inference.host_obligations.entries.is_empty());
+            } else {
+                assert!(!reference.diagnostics.is_empty(), "{source}");
+                assert!(!delayed.api_calls.contains_key(&span), "{source}");
+                assert_eq!(delayed.local_inference.host_obligations.entries.len(), 1, "{source}");
+                assert!(delayed.local_inference.host_obligations.entries[0].candidates.selected.is_none(), "{source}");
+            }
+        }
     }
 
     #[test]

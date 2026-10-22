@@ -33,6 +33,39 @@ fn execute_both(program: &FullProgram) {
     }
 }
 
+#[test]
+fn result_context_argument_forms_preserve_err_and_ok_values() {
+    let source = |arguments: &str| format!(r#"
+error TestBaseError = Base
+let original: Result[Int, TestBaseError] = Err(TestBaseError.Base("base message"))
+let decorated = original.context({arguments})
+let same_family = match decorated {{
+  Err(TestBaseError.Base) => true
+  _ => false
+}}
+assert same_family
+if let Err(problem) = decorated {{
+  assert "base message" in problem.message
+  assert "extra" in problem.message
+}} else {{ assert false }}
+if let Err(problem) = original {{
+  assert problem.message == "base message"
+}} else {{ assert false }}
+let success: Result[Int, TestBaseError] = Ok(17)
+match success.context({arguments}) {{
+  Ok(value) => assert value == 17
+  _ => assert false
+}}
+"#);
+    let two_arguments = fixture(&source("\"wrapped\", \"extra\""));
+    execute_both(&two_arguments);
+    let rejected = source("\"wrapped\", \"extra\", 7");
+    let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &rejected);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena_with_options(&parsed.arena, &rejected, crate::sema::check::CheckOptions::for_execution());
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckArity)), "{:?}", checked.diagnostics);
+}
+
 fn function(program: &FullProgram, name: &str) -> usize {
     program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap()
 }

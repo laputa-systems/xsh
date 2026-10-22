@@ -651,14 +651,14 @@ impl Checker {
         context: &super::infer_effects::HostMethodContext,
         span: Span,
     ) -> Type {
-        assert!(matches!(method.sig.arg_check, ApiArgCheck::Standard | ApiArgCheck::PathLikeSingle));
+        assert!(matches!(method.sig.arg_check, ApiArgCheck::Standard | ApiArgCheck::PathLikeSingle | ApiArgCheck::ResultContext));
         let diagnostics_before = self.diagnostics.len();
         let deferred_before = self.deferred_effect_checks.len();
         self.finalize_host_method_effects(context, &method.sig, name, span);
         let mut instance = crate::sema::builtin_templates::BuiltinInstantiation { signature };
         instance.resolve(&self.type_constraints);
         match method.sig.arg_check {
-            ApiArgCheck::Standard => self.check_bound_host_arguments(arena, span, arguments, &binding, &instance.signature),
+            ApiArgCheck::Standard | ApiArgCheck::ResultContext => self.check_bound_host_arguments(arena, span, arguments, &binding, &instance.signature),
             ApiArgCheck::PathLikeSingle => {
                 let [argument] = arguments else { panic!("a selected Path-like method retains its single argument") };
                 let actual = self.type_constraints.resolve(&argument.ty).expect("a selected Path-like argument remains in its owning constraints");
@@ -904,7 +904,7 @@ impl Checker {
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
         match method.sig.arg_check {
-            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible => {
+            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible | ApiArgCheck::ResultContext => {
                 if !args_checked {
                     self.check_module_sig_args_with_schema_arena(
                         arena,
@@ -924,9 +924,6 @@ impl Checker {
                     self.check_path_like_arg_arena(arena, source, Some(&arg.kind), span);
                 }
             }
-            ApiArgCheck::ResultContext => {
-                self.check_result_context_args_arena(arena, source, args, span);
-            }
             ApiArgCheck::HashVerifyFile => {
                 if !args_checked {
                     self.check_module_sig_args_with_schema_arena(
@@ -942,41 +939,6 @@ impl Checker {
         }
     }
 
-    fn check_result_context_args_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-        span: Span,
-    ) {
-        if args.is_empty() {
-            self.error(span, "context requires a kind", DiagnosticCode::CheckArity);
-        }
-        if let Some(arg) = args.first() {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
-            self.expect_type(&Type::Str, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        if let Some(arg) = args.get(1) {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
-            self.expect_type(&Type::Str, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        for arg in args.iter().skip(2) {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, None);
-            if actual == Type::Any {
-                self.reject_dynamic_use(
-                    "a context value",
-                    None,
-                    call_arg_span_arena(arena, &arg.kind),
-                );
-            } else if !actual.can_display() && !matches!(actual, Type::Unknown) {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "context values must be displayable",
-                    DiagnosticCode::CheckDisplayConversion,
-                );
-            }
-        }
-    }
 }
 
 /// The candidate closest to a misspelled name, if any is near enough to be
