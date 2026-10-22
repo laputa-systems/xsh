@@ -4,6 +4,9 @@ Status: planned, 2026-10-21. Execute after `full-inference-campaign.md` is
 complete and its accepted source is integrated. This plan grants no execution
 permissions. It does not replace the active campaign's remaining gates.
 
+No pyramid implementation is provisional or accepted. The next milestone is P0
+after full-inference acceptance and a separate execution grant.
+
 For a change, select the smallest declared verification scope, explain each
 selection, prepare only its required products, and report what the result
 establishes. Keep comprehensive verification behind explicit manual requests.
@@ -25,9 +28,17 @@ Deliver:
 
 Follow `orchestrate` and its campaign reference for workstreams, integration,
 and worktree lifecycle. Keep four lanes active when four disjoint assignments
-are ready, with a ceiling of six including the coordinator. Replace or resume
-stopped lanes in the same turn. Overlap integration and the next tranche.
+are ready and review and verification capacity can accept them. Keep a ceiling
+of six including the coordinator. Replace or resume stopped lanes in the same
+turn when that capacity is available. Overlap integration and the next tranche.
 Parallelize verification only on disjoint inputs and output directories.
+
+Apply the parent steering checkpoint after each validation wave, on resume,
+and after repeated failures or queue growth. Record the accepted result,
+provisional work, limiting stage and next substantive milestone here. Keep at
+most one unqualified checkpoint per lane. Reduce active writers when review or
+verification cannot consume their output. Revise agent-chosen methods within
+the grant without weakening deliverables, acceptance or permission boundaries.
 
 Use `.work/wt/pyramid-<lane>` and each checkout's `.work/tmp`; first confirm
 `.work/` is ignored through `.git/info/exclude`. State that must survive the
