@@ -12,6 +12,30 @@ use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 mod host_obligations;
 pub(super) use host_obligations::HostObligations;
 
+#[derive(Clone)]
+pub(super) enum HostCallSource {
+    Expression(crate::syntax::arena::ExprId),
+    Callback {
+        callee: crate::syntax::arena::ExprId,
+        argument: Type,
+        argument_span: Span,
+    },
+}
+
+pub(super) fn method_with_unique_layout<'a>(
+    overloads: &'a [MethodSig],
+    arguments: Option<&[crate::sema::arguments::ExpandedArgument]>,
+) -> Option<&'a MethodSig> {
+    if let [method] = overloads { return Some(method); }
+    let arguments = arguments?;
+    let mut eligible = overloads.iter().filter(|method| {
+        let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
+        crate::sema::arguments::bind_static_arguments(&params, arguments).is_ok()
+    });
+    let first = eligible.next()?;
+    eligible.next().is_none().then_some(first)
+}
+
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
 impl Checker {
@@ -35,6 +59,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call_source: HostCallSource,
         base: crate::syntax::arena::ExprId,
         base_ty: Type,
         name: &str,
@@ -47,7 +72,7 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         };
         if matches!(base_ty, Type::Inference(_)) {
-            return self.check_inferred_host_method(arena, source, base, base_ty, name, args, span, expected);
+            return self.check_inferred_host_method(arena, source, call_source, base, base_ty, name, args, span, expected);
         }
         if (name == "contains" && matches!(base_ty, Type::Str | Type::Bytes | Type::List(_)))
             || (name == "has"
@@ -105,7 +130,7 @@ impl Checker {
             }
             let base_ty = validated.base().clone();
             return self.check_method_dispatch_arena(
-                arena, source, base, base_ty, name, args, span, expected,
+                arena, source, call_source, base, base_ty, name, args, span, expected,
             );
         }
         if base_ty == Type::Any {
@@ -614,8 +639,51 @@ impl Checker {
         instance.signature.return_ty
     }
 
-    /// Publishes the selected overload's binding for lowering. Spread and
-    /// splice entries have no static plan and lower through their own paths.
+    pub(super) fn finalize_selected_host_method(
+        &mut self,
+        arena: &ArenaProgram,
+        receiver: MethodReceiver,
+        name: &str,
+        method: &'static MethodSig,
+        mut signature: ModuleFnSig,
+        arguments: &[crate::sema::arguments::ExpandedArgument],
+        binding: crate::sema::arguments::StaticArgumentBinding,
+        context: &super::infer_effects::HostMethodContext,
+        span: Span,
+    ) -> Type {
+        assert_eq!(method.sig.arg_check, ApiArgCheck::Standard);
+        let diagnostics_before = self.diagnostics.len();
+        let deferred_before = self.deferred_effect_checks.len();
+        self.finalize_host_method_effects(context, &method.sig, name, span);
+        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation { signature };
+        instance.resolve(&self.type_constraints);
+        self.check_bound_host_arguments(arena, span, arguments, &binding, &instance.signature);
+        if let Some(key) = instance.invalid_map_key() {
+            self.error(span, &format!("unsupported Map key type {key}"), DiagnosticCode::CheckMapKey);
+            self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+            return Type::Invalid;
+        }
+        signature = instance.signature;
+        self.publish_bound_api_call(span, Some(receiver), &method.sig, &signature, binding);
+        if matches!(name, "collect" | "to_list" | "to_set") {
+            self.cardinality_preserving_collection_calls.insert(span);
+        }
+        self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
+        signature.return_ty
+    }
+
+    pub(super) fn publish_bound_api_call(
+        &mut self,
+        span: Span,
+        receiver: Option<MethodReceiver>,
+        sig: &'static ModuleFnSig,
+        concrete: &ModuleFnSig,
+        binding: crate::sema::arguments::StaticArgumentBinding,
+    ) {
+        let params = crate::sema::builtin_templates::callable_parameters(concrete).into_iter().map(|parameter| parameter.ty).collect();
+        self.api_calls.insert(span, super::CheckedApiCall { receiver, sig, params, argument_slots: binding.argument_slots });
+    }
+
     pub(super) fn publish_api_call(
         &mut self,
         arena: &ArenaProgram,
@@ -633,16 +701,7 @@ impl Checker {
         let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded) else {
             return;
         };
-        let params = params.into_iter().map(|param| param.ty).collect();
-        self.api_calls.insert(
-            span,
-            super::CheckedApiCall {
-                receiver,
-                sig,
-                params,
-                argument_slots: binding.argument_slots,
-            },
-        );
+        self.publish_bound_api_call(span, receiver, sig, concrete, binding);
     }
 
     pub(super) fn publish_api_call_with_checked_argument(
@@ -741,22 +800,8 @@ impl Checker {
         overloads: &'a [MethodSig],
         span: Span,
     ) -> (&'a MethodSig, bool) {
-        if overloads.len() == 1 {
-            return (&overloads[0], false);
-        }
-        let eligible = overloads
-            .iter()
-            .filter(|method| {
-                let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
-                let Ok(expanded) =
-                    crate::sema::arguments::expand_named_arguments(arena, args, |_| None)
-                else {
-                    return false;
-                };
-                crate::sema::arguments::bind_static_arguments(&params, &expanded).is_ok()
-            })
-            .collect::<Vec<_>>();
-        if let [method] = eligible.as_slice() {
+        let expanded = crate::sema::arguments::expand_named_arguments(arena, args, |_| None);
+        if let Some(method) = method_with_unique_layout(overloads, expanded.as_deref().ok()) {
             return (method, false);
         }
 

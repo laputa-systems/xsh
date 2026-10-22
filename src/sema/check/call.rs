@@ -254,20 +254,14 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call: ExprId,
         callee: ExprId,
         args_range: ArenaRange,
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
         self.check_call_arena_with_arguments(
-            arena,
-            source,
-            callee,
-            arena.arena.call_args(args_range),
-            Some(args_range),
-            None,
-            span,
-            expected_context,
+            arena, source, callee, arena.arena.call_args(args_range), Some(args_range), None, super::method::HostCallSource::Expression(call), span, expected_context,
         )
     }
 
@@ -287,6 +281,7 @@ impl Checker {
             &[],
             None,
             Some(argument),
+            super::method::HostCallSource::Callback { callee, argument: argument.ty.clone(), argument_span: argument.span },
             span,
             expected_context,
         )
@@ -301,6 +296,7 @@ impl Checker {
         args: &[ArenaCallArg],
         args_range: Option<ArenaRange>,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+        call_source: super::method::HostCallSource,
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
@@ -361,6 +357,7 @@ impl Checker {
                 arena,
                 source,
                 callee,
+                call_source,
                 args_range.expect("source call arguments retain their arena range"),
                 span,
                 expected_context,
@@ -753,6 +750,7 @@ impl Checker {
             return self.check_receiver_method_call_arena(
                 arena,
                 source,
+                call_source,
                 callee,
                 base,
                 base_ty,
@@ -804,6 +802,7 @@ impl Checker {
             let return_ty = self.check_receiver_method_call_arena(
                 arena,
                 source,
+                call_source,
                 callee,
                 base,
                 inner_ty,
@@ -845,6 +844,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        call_source: super::method::HostCallSource,
         callee: ExprId,
         base: ExprId,
         base_ty: Type,
@@ -982,6 +982,7 @@ impl Checker {
         self.check_method_dispatch_arena(
             arena,
             source,
+            call_source,
             base,
             base_ty,
             &canonical_name.as_str(),
@@ -1071,6 +1072,7 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         callee: ExprId,
+        call_source: super::method::HostCallSource,
         args_range: ArenaRange,
         span: Span,
         expected_context: Option<&Type>,
@@ -1340,7 +1342,7 @@ impl Checker {
             assert!(previous.is_none(), "a spread call prepares one signature");
         }
         let result =
-            self.check_call_arena(&temporary, source, callee, args, span, expected_context);
+            self.check_call_arena_with_arguments(&temporary, source, callee, temporary.arena.call_args(args), Some(args), None, call_source, span, expected_context);
         for id in projections {
             self.argument_projection_types.remove(&id);
             self.argument_projection_sources.remove(&id);

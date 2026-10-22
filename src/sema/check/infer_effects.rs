@@ -815,16 +815,29 @@ pub(super) enum DeferredEffectKind {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct DeferredEffectCheck {
+struct DeferredEffectContext {
     position: usize,
     owner: Option<EffectDeclarationId>,
     caller: Option<Vec<Effect>>,
-    span: Span,
-    kind: DeferredEffectKind,
-    notes: Vec<String>,
     excluded: Vec<ExcludedEffect>,
     in_pure: bool,
     retry_attempt_depth: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct DeferredEffectCheck {
+    context: DeferredEffectContext,
+    span: Span,
+    kind: DeferredEffectKind,
+    notes: Vec<String>,
+}
+
+#[derive(Clone)]
+pub(super) struct HostMethodContext {
+    effect: DeferredEffectContext,
+    recording: bool,
+    collecting: bool,
+    deferred: bool,
 }
 
 impl Checker {
@@ -835,7 +848,7 @@ impl Checker {
         let Some(&(caller, callee)) = self.provisional_function_calls.get(&span) else { return false; };
         if Some(caller) != self.stream_origin_owner || callee.effect_declaration() != *target { return false; }
         let Some(check) = self.deferred_effect_checks.iter_mut().rev().find(|check| {
-            check.span == span && check.owner == Some(caller)
+            check.span == span && check.context.owner == Some(caller)
                 && matches!(&check.kind, DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), .. } if *owner == *target)
         }) else { return false; };
         let DeferredEffectKind::Invocation { stream_item, .. } = &mut check.kind else { unreachable!() };
@@ -851,12 +864,12 @@ impl Checker {
         let mut latent = BTreeSet::new();
         if self.collecting_effects { return Ok(latent); }
         for check in &self.deferred_effect_checks {
-            if !check.owner.is_some_and(|owner| members.contains_key(&owner)) { continue; }
+            if !check.context.owner.is_some_and(|owner| members.contains_key(&owner)) { continue; }
             let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(target), stream_item: Some(item), .. } = &check.kind else { continue; };
             if !members.contains_key(target) { continue; }
             let invalid = || (check.span, SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
             let &(caller, callee) = self.provisional_function_calls.get(&check.span).ok_or_else(invalid)?;
-            if check.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
+            if check.context.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
             let instance = instances.get(&check.span).ok_or_else(invalid)?;
             let effects = self.resolve_invocation_effects(super::InvocationEffects::Pending(*target), Some(instance)).map_err(|error| (check.span, error))?;
             let flow = self.invocation_error_flow(&effects, &Type::Stream(Box::new(item.clone()))).map_err(|error| (check.span, error.into()))?;
@@ -926,18 +939,86 @@ impl Checker {
         }
     }
 
-    fn push_deferred_effect_check(&mut self, span: Span, kind: DeferredEffectKind) {
-        self.deferred_effect_checks.push(DeferredEffectCheck {
+    fn deferred_effect_context(&self) -> DeferredEffectContext {
+        DeferredEffectContext {
             position: self.diagnostics.len(),
             owner: self.boundary.effect_owner,
             caller: self.boundary.current_effects.clone(),
-            span,
-            kind,
-            notes: Vec::new(),
             excluded: self.boundary.excluded_effects.clone(),
             in_pure: self.boundary.in_pure,
             retry_attempt_depth: self.boundary.retry_attempt_depth,
+        }
+    }
+
+    fn push_deferred_effect_check(&mut self, span: Span, kind: DeferredEffectKind) {
+        self.deferred_effect_checks.push(DeferredEffectCheck {
+            context: self.deferred_effect_context(), span, kind, notes: Vec::new(),
         });
+    }
+
+    pub(super) fn host_method_context(&self) -> HostMethodContext {
+        HostMethodContext {
+            effect: self.deferred_effect_context(),
+            recording: self.record_effects,
+            collecting: self.collecting_effects,
+            deferred: self.defer_effect_diagnostics,
+        }
+    }
+
+    pub(super) fn finalize_host_method_effects(
+        &mut self,
+        context: &HostMethodContext,
+        signature: &super::ModuleFnSig,
+        name: &str,
+        span: Span,
+    ) {
+        let saved_owner = std::mem::replace(&mut self.boundary.effect_owner, context.effect.owner);
+        let saved_caller = std::mem::replace(&mut self.boundary.current_effects, context.effect.caller.clone());
+        let saved_excluded = std::mem::replace(&mut self.boundary.excluded_effects, context.effect.excluded.clone());
+        let saved_pure = std::mem::replace(&mut self.boundary.in_pure, context.effect.in_pure);
+        let saved_retry_depth = std::mem::replace(&mut self.boundary.retry_attempt_depth, context.effect.retry_attempt_depth);
+        let saved_recording = self.record_effects;
+        let saved_collecting = self.collecting_effects;
+        let saved_deferred = self.defer_effect_diagnostics;
+        self.record_effects = context.recording;
+        self.collecting_effects = context.collecting;
+        self.defer_effect_diagnostics = context.deferred;
+        if self.boundary.in_pure && !signature.pure {
+            self.error(span, "effectful method is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
+        }
+        for required in signature.effects {
+            self.require_effect(required.clone(), span, &format!("method `{name}`"));
+        }
+        self.boundary.effect_owner = saved_owner;
+        self.boundary.current_effects = saved_caller;
+        self.boundary.excluded_effects = saved_excluded;
+        self.boundary.in_pure = saved_pure;
+        self.boundary.retry_attempt_depth = saved_retry_depth;
+        self.record_effects = saved_recording;
+        self.collecting_effects = saved_collecting;
+        self.defer_effect_diagnostics = saved_deferred;
+    }
+
+    pub(super) fn finish_host_method_diagnostics(
+        &mut self,
+        context: &HostMethodContext,
+        diagnostics_before: usize,
+        deferred_before: usize,
+    ) {
+        let generated = self.diagnostics.drain(diagnostics_before..).collect::<Vec<_>>();
+        let insertion = context.effect.position.min(self.diagnostics.len());
+        for (index, check) in self.deferred_effect_checks.iter_mut().enumerate() {
+            if index >= deferred_before {
+                check.context.position = insertion + check.context.position.saturating_sub(diagnostics_before);
+            } else if check.context.position >= insertion {
+                check.context.position += generated.len();
+            }
+        }
+        self.diagnostics.splice(insertion..insertion, generated);
+    }
+
+    pub(super) fn shift_host_method_context(context: &mut HostMethodContext, offset: usize) {
+        context.effect.position += offset;
     }
 
     pub(super) fn defer_callable_effects(&mut self, contract: Option<Vec<Effect>>, unknown_chain: Vec<String>, name: &str, span: Span) {
@@ -1060,7 +1141,8 @@ impl Checker {
         if self.deferred_effect_checks.is_empty() {
             return;
         }
-        let checks = std::mem::take(&mut self.deferred_effect_checks);
+        let mut checks = std::mem::take(&mut self.deferred_effect_checks);
+        checks.sort_by_key(|check| check.context.position);
         let mut inserted = 0;
         for check in checks {
             let start = self.diagnostics.len();
@@ -1070,11 +1152,11 @@ impl Checker {
             let saved_collecting = self.collecting_effects;
             let saved_recording = self.record_effects;
             let saved_deferred = self.defer_effect_diagnostics;
-            self.boundary.current_effects = self.caller_effect_contract(check.owner, &check.caller);
-            self.boundary.effect_owner = check.owner;
-            self.boundary.excluded_effects = check.excluded;
-            self.boundary.in_pure = check.in_pure;
-            self.boundary.retry_attempt_depth = check.retry_attempt_depth;
+            self.boundary.current_effects = self.caller_effect_contract(check.context.owner, &check.context.caller);
+            self.boundary.effect_owner = check.context.owner;
+            self.boundary.excluded_effects = check.context.excluded;
+            self.boundary.in_pure = check.context.in_pure;
+            self.boundary.retry_attempt_depth = check.context.retry_attempt_depth;
             self.collecting_effects = false;
             self.record_effects = false;
             self.defer_effect_diagnostics = false;
@@ -1126,7 +1208,7 @@ impl Checker {
             for diagnostic in &mut generated {
                 diagnostic.notes.extend(notes.iter().cloned());
             }
-            let insertion = check.position.saturating_add(inserted).min(self.diagnostics.len());
+            let insertion = check.context.position.saturating_add(inserted).min(self.diagnostics.len());
             inserted += generated.len();
             self.diagnostics.splice(insertion..insertion, generated.drain(..));
         }

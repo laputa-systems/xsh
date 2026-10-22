@@ -679,8 +679,50 @@ impl Checker {
                 return;
             }
         };
-        // A spread supplies several values from one entry, so the rule reads
-        // the expanded values, each beside the parameter it reached.
+        self.check_bound_api_argument_labels(arena, span, &expanded, &binding, sig);
+        if let Some(argument) = checked_argument {
+            if let Some(&slot) = binding.argument_slots.first() {
+                let expected = self
+                    .type_constraints
+                    .resolve(&params[slot].ty)
+                    .unwrap_or_else(|_| params[slot].ty.clone());
+                let previous_schema = self.boundary.expected_schema.clone();
+                self.boundary.expected_schema = schemas
+                    .get(slot)
+                    .cloned()
+                    .flatten()
+                    .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+                let actual = argument.ty;
+                self.boundary.expected_schema = previous_schema;
+                self.expect_api_argument(&expected, actual, argument.span);
+            }
+            return;
+        }
+        for (arg, slot) in args.iter().zip(binding.argument_slots) {
+            let expected = self
+                .type_constraints
+                .resolve(&params[slot].ty)
+                .unwrap_or_else(|_| params[slot].ty.clone());
+            let previous_schema = self.boundary.expected_schema.clone();
+            self.boundary.expected_schema = schemas
+                .get(slot)
+                .cloned()
+                .flatten()
+                .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
+            self.boundary.expected_schema = previous_schema;
+            self.expect_api_argument(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+        }
+    }
+
+    fn check_bound_api_argument_labels(
+        &mut self,
+        arena: &ArenaProgram,
+        span: Span,
+        expanded: &[crate::sema::arguments::ExpandedArgument],
+        binding: &crate::sema::arguments::StaticArgumentBinding,
+        sig: &ModuleFnSig,
+    ) {
         for (value, &slot) in expanded.iter().zip(&binding.argument_slots) {
             if value.name.is_some()
                 || sig.params[slot].label != crate::modules::signature::LabelRule::Required
@@ -700,8 +742,6 @@ impl Checker {
                     "`{label}:` says which operand this is, so two operands of one type cannot be swapped unnoticed"
                 ));
             if let crate::sema::arguments::ArgumentValueSource::Expression(expression) = value.value {
-                // Grouping spans are separate from expression spans. Insert
-                // the label before the outer group, never inside parentheses.
                 let start = arena.paren_groups.iter()
                     .filter(|(candidate, group)| *candidate == expression
                         && group.source_id == value.span.source_id
@@ -716,50 +756,28 @@ impl Checker {
             }
             self.diagnostics.push(diagnostic);
         }
-        if let Some(argument) = checked_argument {
-            if let Some(&slot) = binding.argument_slots.first() {
-                let expected = self
-                    .type_constraints
-                    .resolve(&params[slot].ty)
-                    .unwrap_or_else(|_| params[slot].ty.clone());
-                let previous_schema = self.boundary.expected_schema.clone();
-                self.boundary.expected_schema = schemas
-                    .get(slot)
-                    .cloned()
-                    .flatten()
-                    .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
-                let actual = argument.ty;
-                self.boundary.expected_schema = previous_schema;
-                if expected == Type::Path && is_path_like_type(actual) {
-                    return;
-                }
-                if expected.accepts_readonly_argv_argument(actual) {
-                    return;
-                }
-                self.expect_type(&expected, actual, argument.span);
-            }
-            return;
-        }
-        for (arg, slot) in args.iter().zip(binding.argument_slots) {
-            let expected = self
-                .type_constraints
-                .resolve(&params[slot].ty)
-                .unwrap_or_else(|_| params[slot].ty.clone());
-            let previous_schema = self.boundary.expected_schema.clone();
-            self.boundary.expected_schema = schemas
-                .get(slot)
-                .cloned()
-                .flatten()
-                .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
-            self.boundary.expected_schema = previous_schema;
-            if expected == Type::Path && is_path_like_type(&actual) {
-                continue;
-            }
-            if expected.accepts_readonly_argv_argument(&actual) {
-                continue;
-            }
-            self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+    }
+
+    fn expect_api_argument(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if expected == &Type::Path && is_path_like_type(actual) || expected.accepts_readonly_argv_argument(actual) { return; }
+        self.expect_type(expected, actual, span);
+    }
+
+    pub(super) fn check_bound_host_arguments(
+        &mut self,
+        arena: &ArenaProgram,
+        span: Span,
+        arguments: &[crate::sema::arguments::ExpandedArgument],
+        binding: &crate::sema::arguments::StaticArgumentBinding,
+        signature: &ModuleFnSig,
+    ) {
+        assert_eq!(arguments.len(), binding.argument_slots.len());
+        self.check_bound_api_argument_labels(arena, span, arguments, binding, signature);
+        for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
+            let parameter = &signature.params[slot];
+            let expected = self.type_constraints.resolve(&parameter.ty).unwrap_or_else(|_| parameter.ty.clone());
+            let actual = self.type_constraints.resolve(&argument.ty).unwrap_or_else(|_| argument.ty.clone());
+            self.expect_api_argument(&expected, &actual, argument.span);
         }
     }
 
