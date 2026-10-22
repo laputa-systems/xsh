@@ -24834,7 +24834,7 @@ assert observed.scoped == Ok(8)
                 .find(|ty| forged.store.scheme_types[ty.index()].tag == schema::FullSchemeTypeTag::List).unwrap();
             forged.store.scheme_types[list.index()].tag = schema::FullSchemeTypeTag::Set;
             let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains("generic list producer has no item contract"), "{}", error.message);
+            assert_eq!(error.message, "generic declaration disagrees with its initializer");
             let program = Arc::new(program);
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
