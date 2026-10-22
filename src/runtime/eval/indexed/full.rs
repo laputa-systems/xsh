@@ -11583,10 +11583,19 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
             }
-            schema::ExprView::Capture { body, .. } => {
+            schema::ExprView::Capture { mut body, .. } => {
                 let Type::Result(ok, _) = &ty else { return Err(IrVerifyError::new("checked stream capture has no Result contract")); };
                 if crate::runtime::eval::stream_return_item(ok).is_none() { return reject_producer(); }
-                self.checked_block_tail_matches_type(body, ok)?;
+                match self.checked_value_block_result(&mut body)? {
+                    CheckedValueBlockResult::Tail(value) => require_child(value, ok)?,
+                    CheckedValueBlockResult::DoesNotComplete => {}
+                    CheckedValueBlockResult::Unit => return Err(IrVerifyError::new("checked stream capture completes without a value tail")),
+                }
+            }
+            schema::ExprView::ErrorContext { message, body, .. } => {
+                if crate::runtime::eval::stream_return_item(&ty).is_none() { return reject_producer(); }
+                require_child(message.raw() as usize, &Type::Str)?;
+                self.checked_block_tail_matches_type(body, &ty)?;
             }
             schema::ExprView::ValueBlock { body, .. } => {
                 self.checked_block_tail_matches_type(body, &ty)?;
@@ -11747,7 +11756,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::SpawnRun(_)
             | schema::ExprView::SpawnCommand { .. }
             | schema::ExprView::Wait { .. }
-            | schema::ExprView::ErrorContext { .. }
             | schema::ExprView::Retry { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
@@ -38999,6 +39007,37 @@ assert captured(safe, good)? == 7
     }
 
     #[test]
+    fn checked_stream_error_contexts_authenticate_message_and_tail_producers() {
+        run_with_large_stack(|| {
+            let carrier = "pure carrier(message: Str, items: Stream[Int], spare: Int) -> Stream[Int] { let _ = spare; ctx message { items } }\n";
+            let program = fixture("checked-context-stream-carrier.xsh", carrier);
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "carrier");
+            let reads = function_instruction_indices(&program, "carrier", FullTag::ExprParam);
+            let message = reads.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let item = reads.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let spare = reads.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            for read in [message, item] {
+                let mut forged = program.clone();
+                forged.store.data.swap(read, spare);
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("contract") || error.message.contains("type") || error.message.contains("producer"), "{}", error.message);
+            }
+            let source = format!("{carrier}stream safe() [] -> Stream[Int] {{ yield 7 }}\nproc make() [] -> Stream[Int] {{ carrier(\"rows\", safe(), 0) }}\n");
+            let program = Arc::new(fixture("checked-context-stream-runtime.xsh", &source));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let span = Span::at(program.store.source_id, 0);
+                let Value::Stream(mut stream) = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "make")), CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("the context forwards the actual stream") };
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(7)));
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+            }
+        });
+    }
+
+    #[test]
     fn try_capture_preserves_stream_body_carriers() {
         run_with_large_stack(|| {
             let mut program = fixture("capture-stream-bodies.xsh", r#"
@@ -39024,6 +39063,15 @@ assert nested_streams(good, bad)? == 7
 assert context_streams(good, bad)? == 7
 "#);
             FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "blocked_stream_rows");
+            let condition = function_instruction_indices(&program, "blocked_stream_rows", FullTag::ExprBool)
+                .into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Bool(false)))).unwrap();
+            let mut completing = program.clone();
+            let payload = completing.store.data[condition].range().bounds(completing.store.extra.len()).unwrap();
+            assert_eq!(&completing.store.extra[payload.clone()], &[0]);
+            completing.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&completing).unwrap_err();
+            assert!(error.message.contains("completes without a value tail"), "{}", error.message);
             program.store.checked_expr_types.retain(|fact| fact.is_contract());
             FullVerifier::verify(&program).unwrap();
             let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
