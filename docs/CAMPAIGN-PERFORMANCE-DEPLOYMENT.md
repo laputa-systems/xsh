@@ -59,6 +59,29 @@ retaining its value assertions. Bare capturing-command tails and direct run
 returns remain separate mandatory gaps. Generated SPEC output and combined
 full Rust/native qualification of this assembly are pending.
 
+The unfiltered library replay at `0b78c8d9f` selects 1,972 tests: 1,957 pass,
+twelve fail and three are ignored. Ten failures expect later verifier rejection
+messages; the actual structural producer/receiver checks reject the unchanged
+mutations earlier. All ten corrected controls pass focused rechecks, preserving
+the strict multiple-parent assertion. The other two count one additional alias
+hop for the unary conversion guard; their exact counts pass at `11ebd4ced`, with
+the original linear slope and zero compression writes. This failed unfiltered
+receipt remains distinct from the focused corrections.
+
+Storage repair `40fac80ec`, integrated as `4e6260b6c`, verifies unannotated
+initializers under an authenticated read contract when no initializer context
+exists. Exact declaration checks remain unchanged. Both capture and Map
+comprehension controls pass; disabling the repair reproduces the Map failure,
+and mutating its actual iterator item is rejected. Imported generic-callable
+source proof remains separate and open.
+
+Command-return repair `e2d3d39f0`, integrated as `feea025ba`, passes all twelve
+focused controls and independent review. Bare command tails complete with Unit;
+explicit run returns retain captured output and use the checker's actual Return
+resource-transfer fact. Coverage includes nested completion, early returns,
+Bytes, Stream ownership, failure cleanup and cold output/permission corruption
+on both execution routes. Combined native qualification remains pending.
+
 Stream repair `c2149de8e`, integrated as `deb26fe9e`, retains the authenticated
 stream owner and admits the runtime's existing `Str`-to-`Error` return-boundary
 conversion. A small script reproduces the original rejection. All five focused
