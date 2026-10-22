@@ -2936,7 +2936,7 @@ pure make(stored: List[Any], wrong: Bool) -> Int {
     let _ = "is_empty"
     let spare = [wrong]
     let _ = spare
-    count({values: set.empty()})
+    count({values: set.empty()}) + count({values: [].to_set()})
 }
 assert make([true], false) == 0
 "#);
@@ -2946,6 +2946,8 @@ assert make([true], false) == 0
     let owner = function(&program, "make");
     let range = program.store.function_instruction_range(owner).unwrap();
     let decoder = function_view_decoder(&program.store, owner);
+    assert!(range.clone().any(|instruction| matches!(decoder.expression_view(instruction),
+        Ok(schema::ExprView::ModuleCall { op: xsh_registry::RuntimeOp::SetEmpty, .. }))));
     let (method, receiver) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
         Ok(schema::ExprView::Method { receiver, name: "to_set", .. }) => Some((instruction, receiver.raw() as usize)),
         _ => None,

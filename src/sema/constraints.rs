@@ -3269,9 +3269,9 @@ impl TypeConstraints {
             }
             for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
                 if let Type::Inference(id) = variable
-                    && self.map_key_requirement(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some()
                     && !matches!(value, Type::Inference(_))
                     && !value.is_map_key()
+                    && self.map_key_requirement(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some()
                 {
                     return Err((expected.clone(), actual.clone(), None));
                 }
