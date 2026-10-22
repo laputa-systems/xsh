@@ -102,10 +102,12 @@ impl Checker {
         self.expr_types.insert(span, ty);
     }
 
-    /// Canonicalize the expression facts that still carry inference identities.
-    /// A fact that remains unsolved becomes a recovery fact.
-    pub(super) fn publish_unresolved_expr_types(&mut self) {
-        for span in std::mem::take(&mut self.local_inference.unresolved_expr_types) {
+    pub(super) fn unresolved_expression_boundary(&self) -> usize {
+        self.local_inference.unresolved_expr_types.len()
+    }
+
+    pub(super) fn publish_unresolved_expr_types(&mut self, start: usize) {
+        for span in self.local_inference.unresolved_expr_types.drain(start..) {
             if let Some(ty) = self.expr_types.get_mut(&span)
                 && ty.contains_inference()
             {
@@ -908,6 +910,10 @@ impl Checker {
             inference
         };
         let raw = inference.ty;
+        if matches!(seed, LocalSeed::List) {
+            self.record_expr_type(inference.initializer, raw.clone());
+            self.local_inference.checked_bindings.insert(span, raw.clone());
+        }
         if matches!(&seed, LocalSeed::Nullable)
             && self.local_inference.seeds.contains(&span)
             && let Type::Optional(inner) = &raw
@@ -1212,6 +1218,121 @@ mod tests {
         let view = session.view_for_root(arena.statements, source_id);
         let output = session.check_view(&view, super::super::CheckOptions::default());
         check(&output);
+    }
+
+    #[test]
+    fn collected_empty_list_locals_publish_solved_material_facts() {
+        for source in [
+            "pure sample() -> Unit { var items = []; items = items.push(7); let _ = items }\n",
+            "pure sample() -> Unit { var numbers = []; var words = []; numbers = numbers.push(7); words = words.push(\"kept\"); let _ = numbers; let _ = words }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+                ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
+            }).expect("the parsed source owns a Pure body");
+            let definition = parsed.arena.arena.function_def(definition);
+            let (work, checker) = crate::sema::inference_work::collect(|| {
+                let mut checker = Checker::new(super::super::CheckOptions::default());
+                checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+                let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+                checker.record_constructors = super::super::RecordConstructors::collect_declarations_bundle(&view);
+                checker.collect_definitions_arena(&parsed.arena, Arc::new(parsed.arena.clone()), source, parsed.arena.arena.stmt_ids(parsed.arena.statements));
+                checker.local_inference = LocalInference::prepare(&view);
+                checker.local_inference.collecting = true;
+                checker.check_function_arena(&parsed.arena, source, definition, true);
+                checker.solve_host_obligations(&parsed.arena).unwrap();
+                let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
+                assert!(checker.validate_local_inference(owner, &BTreeSet::from([owner]), &[]));
+                checker.resolve_checked_types();
+                checker
+            });
+            assert!(checker.diagnostics.is_empty(), "{source}: {:?}", checker.diagnostics);
+            assert_eq!(work.function_body_check_entries, 1);
+            for statement in parsed.arena.arena.stmt_ids(parsed.arena.arena.block(definition.body).statements) {
+                let statement = parsed.arena.arena.stmt(statement);
+                let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = statement.kind else { continue };
+                let ArenaBindingTargetKind::Name(name) = parsed.arena.arena.binding_target(target).kind else { panic!("the local seed has its actual named target") };
+                assert!(matches!(parsed.arena.arena.expr(initializer).kind, ArenaExprKind::List(elements) if elements.is_empty()));
+                assert!(checker.resolved_bindings.declaration_sites.contains_key(&(statement.span, name)));
+                let expected = Type::List(Box::new(if name == "words" { Type::Str } else { Type::Int }));
+                let origin = parsed.arena.arena.expr(initializer).span;
+                assert_eq!(checker.expr_types.get(&origin), Some(&expected), "{source}: original empty-list constructor");
+                assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected), "{source}: original seeded declaration");
+                let inference = &checker.local_inference.bindings[&statement.span];
+                assert_eq!(inference.owner, Some(checker.effect_declaration_id(&parsed.arena, definition.body)));
+                assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected));
+            }
+        }
+    }
+
+    #[test]
+    fn constructor_publication_preserves_open_local_list_relations() {
+        for (declarations, construction, expected_constructors, rejected) in [
+            ("type Marker[T] = {name: Str}\n", "let marker: Marker[Int] = Marker(name: \"kept\"); let _ = marker", 1, false),
+            ("type Inner[T] = {value: T}\ntype Outer[T] = {inner: Inner[T]}\n", "let marker: Outer[Int] = Outer(inner: Inner(value: 7)); let _ = marker", 2, false),
+            ("type Marker[T] = {name: Str}\ntype Wrong = {name: Int}\n", "let wrong: Wrong = Marker(name: \"bad\"); let marker: Marker[Int] = Marker(name: \"kept\"); let _ = marker; let _ = wrong", 1, true),
+            ("type Marker[T] = {name: Str}\n", "let marker = Marker(name: \"unanchored\"); let _ = marker", 0, true),
+        ] {
+            let source = format!("{declarations}pure sample() -> Unit {{ var items = []; let _ = items; {construction}; items = items.push(7); let _ = items }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+                ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
+            }).unwrap();
+            let definition = parsed.arena.arena.function_def(definition);
+            let statements = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(definition.body).statements).collect::<Vec<_>>();
+            let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(read), .. } = parsed.arena.arena.stmt(statements[1]).kind else { panic!("the original early list read") };
+            let (work, checker) = crate::sema::inference_work::collect(|| {
+                let mut checker = Checker::new(super::super::CheckOptions::default());
+                checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+                let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+                checker.record_constructors = super::super::RecordConstructors::collect_declarations_bundle(&view);
+                checker.collect_definitions_arena(&parsed.arena, Arc::new(parsed.arena.clone()), &source, parsed.arena.arena.stmt_ids(parsed.arena.statements));
+                checker.local_inference = LocalInference::prepare(&view);
+                checker.local_inference.collecting = true;
+                checker.check_function_arena(&parsed.arena, &source, definition, true);
+                checker.solve_host_obligations(&parsed.arena).unwrap();
+                let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
+                assert!(checker.validate_local_inference(owner, &BTreeSet::from([owner]), &[]));
+                checker.resolve_checked_types();
+                checker
+            });
+            assert_eq!(checker.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), rejected, "{source}: {:?}", checker.diagnostics);
+            assert_eq!(work.function_body_check_entries, 1);
+            assert_eq!(checker.constructor_group_depth, 0);
+            assert!(checker.pending_record_constructors.is_empty());
+            assert_eq!(checker.record_constructor_instances.len(), expected_constructors, "{source}");
+            assert!(checker.record_constructor_instances.values().all(|constructor| constructor.instance.arguments == [Type::Int]), "{source}");
+            assert_eq!(checker.expr_types.get(&parsed.arena.arena.expr(read).span), Some(&Type::List(Box::new(Type::Int))));
+        }
+    }
+
+    #[test]
+    fn empty_list_local_completion_preserves_total_body_work() {
+        let source = "pure sample() -> Unit { var items = []; items = items.push(7); let _ = items }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution()));
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(work.function_body_check_entries, 4);
+        assert_eq!(checked.function_body_check_entries, 1);
+        assert!(checked.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Int))));
+    }
+
+    #[test]
+    fn empty_list_local_completion_keeps_stored_and_material_domains_strict() {
+        for source in [
+            "pure sample() -> Unit { var items = []; items = items.push(7); items = items.push(\"wrong\"); let _ = items }\n",
+            "pure sample() -> Unit { let stored: List[Str] = [\"kept\"]; var items = stored; items = [7]; let _ = items }\n",
+            "pure sample() -> Unit { let items = []; let _ = items }\n",
+        ] {
+            with_checked_local_source(source, |checked| {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}: {:?}", checked.diagnostics);
+            });
+        }
     }
 
     #[test]
