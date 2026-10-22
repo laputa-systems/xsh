@@ -1744,7 +1744,12 @@ impl Checker {
                 }
                 let success = match expected_context {
                     Some(Type::Result(success, _)) => (**success).clone(),
-                    Some(Type::Inference(_)) => self.type_constraints.fresh_at_level(span, 1),
+                    Some(Type::Inference(_)) => {
+                        let level = self.boundary.proc_completion.as_ref()
+                            .and_then(|completion| self.declaration_inference.pending(super::FunctionDeclarationId::new(completion.owner)))
+                            .map_or(1, super::PendingFunctionSig::solver_level);
+                        self.type_constraints.fresh_at_level(span, level)
+                    }
                     _ => Type::Unknown,
                 };
                 Type::Result(Box::new(success), Box::new(outer))

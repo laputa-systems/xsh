@@ -425,9 +425,9 @@ mod tests {
 
         for (source, dependency) in [
             ("pure identity(value) { value }\npure choose() -> Int { identity(7) }\n", false),
-            ("stream values() [] -> Stream[Int] { yield 7 }\nlet items = values()\nlet _ = items.collect()\n", true),
-            ("type Row = {items: Stream[Int]}\npure identity(value) { value }\npure choose(input: Row) -> Row { identity(input) }\n", true),
-            ("pure identity(value) { value }\npure forward(value) { identity(value) }\n", true),
+            ("stream values() [] -> Stream[Int] { yield 7 }\nlet items = values()\nlet _ = items.collect()\n", false),
+            ("type Row = {items: Stream[Int]}\npure identity(value) { value }\npure choose(input: Row) -> Row { identity(input) }\n", false),
+            ("pure identity(value) { value }\npure forward(value) { identity(value) }\n", false),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
@@ -447,6 +447,37 @@ mod tests {
                 checker.infer_local_pure_returns(&view, source, &statements);
                 for statement in statements { checker.check_stmt_arena(program, source, statement); }
                 assert!(checker.diagnostics.is_empty(), "{source}: {:?}", checker.diagnostics);
+                if source.starts_with("stream values()") {
+                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
+                        crate::syntax::arena::ArenaStmtKind::StreamDef(definition) => Some(program.arena.function_def(definition)),
+                        _ => None,
+                    }).expect("the checked stream declaration exists");
+                    let owner = checker.effect_declaration_id(program, definition.body);
+                    let summary = checker.stream_origin_outputs.declarations.get(&owner).expect("the checked stream publishes its canonical summary");
+                    assert!(summary.returned.0.is_empty());
+                    assert!(summary.output.paths.contains(&super::ProjectionPath::default().append(&[StreamProjection::Element]).unwrap()));
+                }
+                if source.starts_with("type Row =") || source.starts_with("pure identity(value) { value }\npure forward") {
+                    let name = if source.starts_with("type Row =") { "choose" } else { "forward" };
+                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
+                        crate::syntax::arena::ArenaStmtKind::PureDef(definition) => {
+                            let definition = program.arena.function_def(definition);
+                            (definition.name.as_str().as_str() == name).then_some(definition)
+                        }
+                        _ => None,
+                    }).expect("the checked generic forwarding declaration exists");
+                    let owner = checker.effect_declaration_id(program, definition.body);
+                    let summary = checker.stream_origin_outputs.declarations.get(&owner).expect("the checked forwarder publishes its canonical summary");
+                    assert!(summary.returned.0.iter().any(|(_, origin)| matches!(origin,
+                        super::StreamOrigin::Formal { owner: source, parameter: 0, .. }
+                        | super::StreamOrigin::OpaqueFormal { owner: source, parameter: 0, .. }
+                        if *source == owner
+                    )), "{source}: {summary:?}");
+                    if name == "choose" {
+                        let items = crate::symbol::Name::intern("items");
+                        assert!(summary.output.paths.contains(&super::ProjectionPath::default().append(&[StreamProjection::Field(items)]).unwrap()));
+                    }
+                }
                 assert_eq!(checker.provisional_stream_origins_read.get(), dependency, "{source}");
             });
         }
@@ -1086,8 +1117,6 @@ impl Checker {
                     Some(argument.map(|value| self.stream_expr_origin(arena, value)).unwrap_or_default().prefix(StreamProjection::Success)?)
                 } else if self.result_constructors.get(&span) == Some(&CheckedResultConstructor::Err) {
                     Some(StreamOrigins::default())
-                } else if Self::opaque_stream_value(ty)?.0.is_empty() {
-                    Some(StreamOrigins::default())
                 } else {
                     let callee_origin = self.stream_expr_origin(arena, callee);
                     let mut targets = callee_origin.targets().collect::<BTreeSet<_>>();
@@ -1100,8 +1129,14 @@ impl Checker {
                     if targets.is_empty() { None } else {
                         let mut origin = if !self.selected_function_calls.contains_key(&span) && callee_origin.has_unknown_callable() { Self::opaque_stream_value(ty)? } else { StreamOrigins::default() };
                         for target in targets {
-                            if target.namespace == self.current_namespace { self.provisional_stream_origins_read.set(true); }
-                            if let Some(summary) = self.stream_origin_inputs.declarations.get(&target) {
+                            let same_namespace = target.namespace == self.current_namespace;
+                            let current_summary = same_namespace
+                                .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
+                                .flatten()
+                                .and_then(super::PendingFunctionSig::generalized)
+                                .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+                            if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
+                            if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
                                 let instances = self.pending_call_instantiations.get(&span).map(|(_, instance)| instance.applications.as_slice());
                                 let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));

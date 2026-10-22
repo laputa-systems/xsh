@@ -23,6 +23,7 @@ pub(super) struct InferredReturn {
     pub(super) span: Span,
     pub(super) origin: super::stream_origins::StreamOrigins,
     pub(super) schema: Option<crate::sema::constants::SchemaExpectation>,
+    pub(super) failure_only_result: bool,
 }
 
 struct ReturnDeclaration {
@@ -87,6 +88,17 @@ impl ReturnInferenceIndex {
 }
 
 impl Checker {
+    pub(super) fn failure_only_proc_unit_envelope(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+    ) -> Type {
+        match self.type_from_arena(program, def.return_ty) {
+            Type::Result(_, error) => Type::Result(Box::new(Type::Unit), error),
+            ty => ty,
+        }
+    }
+
     pub(super) fn infer_local_pure_returns(
         &mut self,
         view: &CheckBundleView<'_>,
@@ -320,7 +332,14 @@ impl Checker {
                         } else {
                             None
                         };
+                        let diagnostics_before = self.diagnostics.len();
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        if !self.diagnostics[diagnostics_before..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                            let body = program.arena.span(program.arena.block(def.body).span);
+                            if let Some(return_ty) = self.function_return_types.get(&body).cloned().filter(|ty| *ty != Type::Invalid) {
+                                self.finish_stream_return_summary(program, def, &return_ty);
+                            }
+                        }
                         let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
                         if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
                             signature.mark_body_checked();
@@ -501,6 +520,23 @@ impl Checker {
             self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
             return;
         }
+        for &index in component {
+            let declaration = &declarations[index];
+            let Some(definition) = declaration.definition() else { continue; };
+            let def = program.arena.function_def(definition);
+            if !def.return_ty_defaulted || declaration.kind() != Some(CallableKind::Proc)
+                || !proc_may_return_value(program, def)
+            { continue; }
+            let body = program.arena.span(program.arena.block(def.body).span);
+            let Some(return_ty) = self.function_return_types.get(&body).cloned() else { continue; };
+            let return_ty = self.type_constraints.resolve(&return_ty).unwrap_or(Type::Invalid);
+            self.finish_stream_return_summary(program, def, &return_ty);
+        }
+        if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+            self.reject_recursive_component(program, &definitions);
+            self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
+            return;
+        }
         self.generalize_recursive_component(program, &definitions);
         self.mark_inferred_proc_component_bodies_checked(program, component, declarations);
     }
@@ -562,12 +598,6 @@ impl Checker {
         boundary: Option<&str>,
     ) {
         let body_span = program.arena.span(program.arena.block(def.body).span);
-        let provisional = Type::Result(
-            Box::new(self.type_constraints.fresh_at_level(body_span, 1)),
-            Box::new(Type::Error),
-        );
-        self.function_return_types.insert(body_span, provisional.clone());
-        self.update_pending_return_type(program, def, provisional.clone());
         let diagnostics_before = self.diagnostics.len();
         self.inferred_returns = Some(Vec::new());
         self.inferred_propagations.clear();
@@ -585,15 +615,11 @@ impl Checker {
         {
             return;
         }
-        if !candidates
-            .iter()
-            .map(|candidate| &candidate.ty)
-            .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
-            .any(proc_candidate_produces_value)
-            && conflicts.is_empty()
+        if !candidates.iter().any(proc_candidate_produces_value) && conflicts.is_empty()
         {
             let mut ty = self.type_from_arena(program, def.return_ty);
             if !candidates.is_empty() {
+                let failure_only = candidates.iter().any(|candidate| candidate.failure_only_result);
                 self.return_conflicts = Some(Vec::new());
                 let owner = self.effect_declaration_id(program, def.body);
                 let actual = self.normalize_inferred_proc_returns(
@@ -609,7 +635,16 @@ impl Checker {
                         .with_label(crate::diagnostic::Label::primary(span, &message)));
                     ty = Type::Invalid;
                 } else {
+                    if failure_only {
+                        ty = self.failure_only_proc_unit_envelope(program, def);
+                    }
+                    let validation_start = self.diagnostics.len();
                     self.expect_type(&ty, &actual, body_span);
+                    if failure_only {
+                        ty = if self.diagnostics[validation_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                            Type::Invalid
+                        } else { actual };
+                    }
                 }
             }
             for (error, span) in propagated {
@@ -619,7 +654,6 @@ impl Checker {
                     _ => self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext),
                 }
             }
-            self.expect_type(&provisional, &ty, body_span);
             self.function_return_types.insert(body_span, ty.clone());
             self.update_pending_return_type(program, def, ty);
             return;
@@ -667,7 +701,6 @@ impl Checker {
                 ty => ty,
             }
         };
-        self.expect_type(&provisional, &ty, body_span);
         self.function_return_types.insert(body_span, ty.clone());
         self.update_pending_return_type(program, def, ty);
         self.update_pending_return_schema(program, def, schema);
@@ -686,6 +719,13 @@ impl Checker {
         for candidate in candidates {
             let applications = candidate.origin.return_applications();
             let retain_applications = !applications.contains(&None);
+            let candidate_ty = match self.type_constraints.resolve(&candidate.ty) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    self.error(candidate.span, &format!("proc completion constraint resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            };
             for application in applications {
                 let ty = if let Some(reference) = application {
                     let Some(level) = level else {
@@ -711,7 +751,7 @@ impl Checker {
                             return Type::Invalid;
                         }
                     }
-                } else { inferred_proc_return_envelope(candidate.ty.clone(), &errors) };
+                } else { inferred_proc_return_envelope(candidate_ty.clone(), &errors) };
                 inferred = Some(match inferred {
                     None => ty,
                     Some(previous) => self.unify_inferred_returns(previous, ty, candidate.span),
@@ -755,7 +795,11 @@ fn produces_value(ty: &Type) -> bool {
     }
 }
 
-fn proc_candidate_produces_value(ty: &Type) -> bool {
+pub(super) fn proc_candidate_produces_value(candidate: &InferredReturn) -> bool {
+    !candidate.failure_only_result && proc_candidate_produces_value_type(&candidate.ty)
+}
+
+fn proc_candidate_produces_value_type(ty: &Type) -> bool {
     match ty {
         Type::Unknown => true,
         Type::Result(ok, _) if matches!(ok.as_ref(), Type::Unknown) => false,

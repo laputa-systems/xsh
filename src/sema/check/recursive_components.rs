@@ -459,19 +459,38 @@ mod tests {
 
     #[test]
     fn inferred_unit_proc_completions_match_the_result_unit_contract() {
-        for (source, expected) in [
-            ("error Failure = Lost(message: Str)\nproc only_failure() { Err(Failure.Lost(message: \"lost\")) }\n", None),
-            ("proc invalid() { Err(\"lost\") }\n", Some(DiagnosticCode::CheckTypeMismatch)),
-            ("proc unknown(action: Pure) { action.call() }\n", Some(DiagnosticCode::CheckInferReturn)),
-            ("proc invalid(flag: Bool, value: Result[Int, Str]) { if flag { let ignored = value? } else { let _ = true } }\n", Some(DiagnosticCode::CheckTryError)),
+        for (source, expected, expected_return) in [
+            ("error Failure = Lost(message: Str)\nproc only_failure() { Err(Failure.Lost(message: \"lost\")) }\n", None, Some("Lost")),
+            ("error Failure = Lost(message: Str)\nproc only_failure() { return Err(Failure.Lost(message: \"lost\")) }\n", None, Some("Lost")),
+            ("error Failure = Lost(message: Str)\nproc main() { Err(Failure.Lost(message: \"lost\")) }\n", None, Some("Lost")),
+            ("error Failure = Lost(message: Str) | Missing(path: Path)\nproc only_failure(flag: Bool) { if flag { Err(Failure.Lost(message: \"lost\")) } else { Err(Failure.Missing(p\"missing\")) } }\n", None, Some("Family")),
+            ("error Failure = Lost(message: Str)\nproc mixed(flag: Bool) { if flag { Err(Failure.Lost(message: \"lost\")) } else { let _ = true } }\n", None, Some("Error")),
+            ("proc invalid() { Err(\"lost\") }\n", Some(DiagnosticCode::CheckTypeMismatch), None),
+            ("proc unknown(action: Pure) { action.call() }\n", Some(DiagnosticCode::CheckInferReturn), None),
+            ("proc invalid(flag: Bool, value: Result[Int, Str]) { if flag { let ignored = value? } else { let _ = true } }\n", Some(DiagnosticCode::CheckTryError), None),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
-            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
-            match expected {
-                Some(code) => assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}: {:?}", checked.diagnostics),
-                None => assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics),
-            }
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+                match expected {
+                    Some(code) => assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}: {:?}", checked.diagnostics),
+                    None => {
+                        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+                        let declaration = checked.checked_declarations.functions.values().next().unwrap();
+                        let family = crate::symbol::Name::intern("Failure");
+                        let expected_return = match expected_return.unwrap() {
+                            "Lost" => Type::ErrorVariant { family, variant: crate::symbol::Name::intern("Lost") },
+                            "Family" => Type::ErrorFamily(family),
+                            "Error" => Type::Error,
+                            _ => unreachable!(),
+                        };
+                        let expected_return = Type::Result(Box::new(Type::Unit), Box::new(expected_return));
+                        assert_eq!(checked.function_return_types[&declaration.body], expected_return, "{source}");
+                        assert_eq!(declaration.scheme.as_ref().unwrap().return_type().closed_ground_type(), Some(expected_return), "{source}");
+                    }
+                }
+            });
         }
     }
 

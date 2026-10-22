@@ -4705,6 +4705,8 @@ impl Checker {
         let inferred_proc_return = (!pure && def.return_ty_defaulted && !inferring)
             .then(|| self.function_return_types.get(&body_span).cloned())
             .flatten();
+        let inferred_proc_completion = (!pure && inferring)
+            .then(|| self.function_return_types.get(&body_span).cloned().unwrap_or_else(|| self.type_from_arena(arena, def.return_ty)));
         let return_ty = if inferring {
             Type::Unknown
         } else {
@@ -4725,9 +4727,9 @@ impl Checker {
             .flatten();
         self.boundary.expected_schema = self.boundary.return_schema.clone();
         self.boundary.current_return = Some(super::ReturnContext::Function(if checking_application_return { Type::Unknown } else { return_ty.clone() }));
-        self.boundary.proc_completion = checking_application_return.then(|| super::ProcCompletionBoundary {
+        self.boundary.proc_completion = (checking_application_return || inferred_proc_completion.is_some()).then(|| super::ProcCompletionBoundary {
             owner: stream_owner,
-            return_ty: return_ty.clone(),
+            return_ty: inferred_proc_completion.unwrap_or_else(|| return_ty.clone()),
         });
         self.boundary.in_pure = pure;
         self.boundary.current_effects = if pure {
@@ -4820,10 +4822,15 @@ impl Checker {
             if tail != Type::Unknown {
                 let origin = self.stream_block_origin(arena, def.body);
                 let schema = self.checked_block_schema(arena, def.body);
+                let failure_only_result = body_tail.is_some_and(|tail| {
+                    let statement = arena.arena.stmt(tail);
+                    matches!(statement.kind, ArenaStmtKind::Expr(expression)
+                        if self.result_constructors.get(&arena.arena.expr(expression).span) == Some(&super::CheckedResultConstructor::Err))
+                });
                 self.inferred_returns
                     .as_mut()
                     .unwrap()
-                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin, schema });
+                    .push(super::infer_return::InferredReturn { ty: tail, span: body_span, origin, schema, failure_only_result });
             }
             if checking_application_return {
                 let candidates = self.inferred_returns.take().unwrap();
@@ -4861,6 +4868,20 @@ impl Checker {
                 ty: return_ty.clone(),
             });
         }
+        if inferring {
+            let failure_only_candidates = self.inferred_returns.as_ref().and_then(|candidates| {
+                (!candidates.is_empty()
+                    && candidates.iter().all(|candidate| !super::infer_return::proc_candidate_produces_value(candidate)))
+                    .then(|| candidates.iter().filter(|candidate| candidate.failure_only_result)
+                        .map(|candidate| (candidate.ty.clone(), candidate.span)).collect::<Vec<_>>())
+            });
+            if let Some(candidates) = failure_only_candidates.filter(|candidates| !candidates.is_empty()) {
+                let expected = self.failure_only_proc_unit_envelope(arena, def);
+                for (actual, span) in candidates {
+                    self.expect_type(&expected, &actual, span);
+                }
+            }
+        }
         self.pop_scope();
         if !inferring {
             self.inferred_returns = outer_inference;
@@ -4871,7 +4892,9 @@ impl Checker {
             }
         }
         self.finish_local_body_constraints(arena, body_span, local_constraints);
-        self.finish_stream_return_summary(arena, def, &return_ty);
+        if !inferring || pure {
+            self.finish_stream_return_summary(arena, def, &return_ty);
+        }
         self.stream_origin_owner = enclosing_stream_owner;
         self.scopes = saved_capture_scopes;
         self.boundary = enclosing_boundary;
@@ -5787,6 +5810,13 @@ impl Checker {
             self.boundary.expected_schema = previous_schema;
             return;
         }
+        let inferred_expected = if expected == Type::Unknown
+            && self.inferred_returns.is_some()
+            && let Some(ArenaExprOrRun::Expr(expression)) = value
+        {
+            self.inferred_err_completion_hole(arena, expression)
+        } else { None };
+        let expected = inferred_expected.as_ref().unwrap_or(&expected);
         if value.is_none() && expected.is_result_unit() {
             return;
         }
@@ -5808,7 +5838,11 @@ impl Checker {
                 Some(ArenaExprOrRun::Expr(expression)) => self.checked_schema_for_expr(arena, expression),
                 _ => None,
             };
-            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema });
+            let failure_only_result = match value {
+                Some(ArenaExprOrRun::Expr(expression)) => self.result_constructors.get(&arena.arena.expr(expression).span) == Some(&super::CheckedResultConstructor::Err),
+                _ => false,
+            };
+            self.inferred_returns.as_mut().unwrap().push(super::infer_return::InferredReturn { ty: actual.clone(), span, origin, schema, failure_only_result });
         }
         if !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
@@ -5863,13 +5897,18 @@ impl Checker {
                 actual
             }
             _ => {
+                let inferred_expectation = if collecting && expectation.is_none() {
+                    self.inferred_err_completion_hole(arena, expression)
+                } else { None };
+                let expectation = expectation.or_else(|| inferred_expectation.as_ref().map(super::types::TypeExpectation::Required));
                 let actual = self.check_expr_with_expectation_arena(arena, source, expression, expectation);
                 let actual = if collecting { actual } else {
                     self.resolve_local_tail_type_with_expectation(actual, expectation, node.span)
                 };
                 let origin = self.stream_expr_origin(arena, expression);
                 let schema = self.checked_schema_for_expr(arena, expression);
-                self.record_proc_completion(super::infer_return::InferredReturn { ty: actual.clone(), span: node.span, origin, schema });
+                let failure_only_result = self.result_constructors.get(&node.span) == Some(&super::CheckedResultConstructor::Err);
+                self.record_proc_completion(super::infer_return::InferredReturn { ty: actual.clone(), span: node.span, origin, schema, failure_only_result });
                 return if collecting { Type::Unknown } else { actual };
             }
         };
@@ -5895,6 +5934,17 @@ impl Checker {
         } else if !tail_type_matches_expected(&expected, &candidate.ty) {
             self.expect_type(&expected, &candidate.ty, candidate.span);
         }
+    }
+
+    fn inferred_err_completion_hole(&mut self, arena: &ArenaProgram, expression: ExprId) -> Option<Type> {
+        let node = arena.arena.expr(expression);
+        let ArenaExprKind::Call { callee, .. } = node.kind else { return None; };
+        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err") { return None; }
+        if self.inferred_returns.is_none() { return None; }
+        let owner = self.boundary.proc_completion.as_ref()?.owner;
+        if self.boundary.effect_owner != Some(owner) { return None; }
+        let level = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))?.solver_level();
+        Some(self.type_constraints.fresh_at_level(node.span, level))
     }
 
     fn check_yield_delegation_arena(
@@ -6530,7 +6580,12 @@ impl Checker {
             let origin = self.stream_block_origin(arena, block_id);
             let schema = self.checked_block_schema(arena, block_id);
             let collecting = self.inferred_returns.is_some();
-            self.record_proc_completion(super::infer_return::InferredReturn { ty: result.clone(), span, origin, schema });
+            let failure_only_result = stmt_ids.last().is_some_and(|tail| {
+                let statement = arena.arena.stmt(*tail);
+                matches!(statement.kind, ArenaStmtKind::Expr(expression)
+                    if self.result_constructors.get(&arena.arena.expr(expression).span) == Some(&super::CheckedResultConstructor::Err))
+            });
+            self.record_proc_completion(super::infer_return::InferredReturn { ty: result.clone(), span, origin, schema, failure_only_result });
             if collecting { Type::Unknown } else { result }
         } else {
             result
@@ -6857,7 +6912,9 @@ impl Checker {
                 if purpose == TailCheckingPurpose::ProcCompletion {
                     let origin = self.stream_expr_origin(arena, expr_id);
                     let schema = self.checked_schema_for_expr(arena, expr_id);
-                    self.record_proc_completion(super::infer_return::InferredReturn { ty: actual.clone(), span: arena.arena.expr(expr_id).span, origin, schema });
+                    let expr_span = arena.arena.expr(expr_id).span;
+                    let failure_only_result = self.result_constructors.get(&expr_span) == Some(&super::CheckedResultConstructor::Err);
+                    self.record_proc_completion(super::infer_return::InferredReturn { ty: actual.clone(), span: expr_span, origin, schema, failure_only_result });
                 }
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() && expected.is_some_and(Type::is_result_unit) {
@@ -6895,6 +6952,12 @@ impl Checker {
                 Type::Unit
             }
             ArenaStmtKind::Expr(expr_id) => {
+                let inferred_completion_hole = if purpose == TailCheckingPurpose::ProcCompletion
+                    && self.inferred_returns.is_some()
+                    && expectation.is_none()
+                {
+                    self.inferred_err_completion_hole(arena, expr_id)
+                } else { None };
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit()) {
                     self.statement_expression_spans
                         .insert(arena.arena.expr(expr_id).span);
@@ -6908,7 +6971,7 @@ impl Checker {
                     ArenaExprKind::ValueBlock(_) => expected.cloned(),
                     _ => tail_expr_context_arena(arena, expr_id, expected),
                 };
-                let expr_expectation = expectation.and_then(|expectation| {
+                let expr_expectation = inferred_completion_hole.as_ref().map(super::types::TypeExpectation::Required).or_else(|| expectation.and_then(|expectation| {
                     ctx.as_ref().map(|context| match expectation {
                         super::types::TypeExpectation::Required(_) => {
                             super::types::TypeExpectation::Required(context)
@@ -6922,7 +6985,7 @@ impl Checker {
                             super::types::TypeExpectation::Required(context)
                         }
                     })
-                });
+                }));
                 let previous = std::mem::replace(&mut self.boundary.context_scope_tail_value, true);
                 let schema = self.boundary.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _)))
