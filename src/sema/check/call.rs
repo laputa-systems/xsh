@@ -872,8 +872,7 @@ impl Checker {
                         return Type::Invalid;
                     }
                     let callable = Arc::new(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() });
-                    self.expr_types.insert(arena.arena.expr(callee).span, Type::Callable(Arc::clone(&callable)));
-                    return self.check_typed_callable_call_with_checked_argument(
+                    return self.check_callable_contract_call_with_checked_argument(
                         arena, source, callee, args, &callable, span, checked_argument,
                     );
                 }
