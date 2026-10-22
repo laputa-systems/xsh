@@ -20,6 +20,13 @@ qualified for master. The combined replay retains every prior passing control.
 Its eight failed identities match the preceding 554-control boundary; all
 fifteen added controls pass.
 
+Ownership-test checkpoint `1015ffd0e` corrects one of those eight test premises.
+Rejected owners intentionally lose latent Stream facts; a valid owner retains
+the unique call fact. A fallback return makes that valid fixture independent
+of the fact for builder acceptance. The corrected ownership test and three
+existing Stream capture mutation controls pass. The combined 569-control
+boundary above predates this correction and has not been rerun.
+
 MapKey checkpoint `8808c9281` retains the existing finite key-domain constraint
 through generalization, imports, callbacks and prepared execution. Empty
 List/Map/Set owners retain their actual solved initializer and binding types.
