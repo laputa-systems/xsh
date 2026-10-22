@@ -8,14 +8,19 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `0cc8dc0ff` passes all 305 focused controls without
+Current inference assembly `c1c7ed1a3` passes all 306 focused controls without
 failures or ignores. The combined group covers type, scheme, semantic-codec,
 Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
 products, with source and product guards intact. Matching `0cc8dc0ff` products
-build cleanly. The full XSH Rust library suite is running. The broader check
-covers callers of the shared type and producer helpers beyond the focused group.
+build cleanly. Its full XSH Rust library suite finishes with 1,754 passes,
+44 failures and three existing ignores. The failures include stale unsupported
+policy assertions, malformed mutation fixtures, missing producer demand and
+Stream provenance failures. Each requires a scoped repair or demonstrated
+correction of its former premise. No full-suite pass follows from the focused
+group. The slow binding-fact corpus test passes, but needs a bounded loop repair.
+Matching `c1c7ed1a3` products are rebuilding.
 Master remains at `d2453760a`.
 
 The practical four-return paired gate on `28436de64` passes the original-view
@@ -30,8 +35,12 @@ readonly argv mismatch between checker and native verification. Repair
 producer types. Its eight controls pass. Both repairs are integrated into
 `0cc8dc0ff`. Its unchanged paired replay stops during the original XSH root
 check: `sort` and `system-report` report a ground producer contract mismatch.
-The preceding `28436de64` root checks pass. Minimal reproduction and repair
-are assigned before another paired run. Source and product post-guards pass.
+The preceding `28436de64` root checks pass. Repair `795f3d3be` preserves the
+actual comprehension contract and checks fresh elements against contextual item
+types. Eight focused controls pass, including malformed elements and invariant
+stored lists. It is integrated into `c1c7ed1a3` and its combined 306 controls.
+The unchanged paired replay awaits matching products. Source and product
+post-guards pass on the failed run.
 Reduced-view checks, later behavior tests, interfaces, negative controls and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
@@ -70,7 +79,11 @@ The candidate remains unintegrated. Two additional controls pass for generic
 Range execution and authenticated UInt driver aliases. Forged validation
 metadata and missing gates reject. Negative UInt values fail the actual runtime
 gate before storage on both execution routes. The bounded combined runtime
-checkpoint remains pending.
+checkpoint passes all 57 selected controls. Final review then reproduces a
+separate dynamic-module target defect in the existing host adapter. Ordinary
+script calls and cache execution pass. The actual adapter keeps the qualified
+alias after switching programs and cannot find the exported target. Its repair
+and signature-checking sibling remain under review before the runtime commit.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
