@@ -1572,10 +1572,20 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instruction)?;
         proof.verify_condition(owner, instruction, role)?;
     }
+    let mut deferred_method_roots = Vec::new();
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
         if proof.scheme_applications.contains(&(owner, instruction)) || proof.scheme_captures.contains(&(owner, instruction)) { continue; }
         if store.tags[instruction] == FullTag::ExprMethod && store.registered_calls.contains_key(&(instruction as u32)) { continue; }
+        if store.tags[instruction] == FullTag::ExprMethod {
+            proof.budget.charge(1)?;
+            deferred_method_roots.push((owner, instruction));
+            if let Some((call, expected)) = proof.ground_call_argument_ancestor(owner, instruction)? {
+                proof.budget.charge(1)?;
+                proof.expression(owner, call, expected, false);
+            }
+            continue;
+        }
         if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand
             | FullTag::ExprWait | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder)
         { proof.producer_owner_contract(owner)?; }
@@ -1665,6 +1675,44 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let decoder = proof.owner(iteration.owner)?;
         if proof.stream_may_propagate_error(&decoder, iteration.source)? {
             super::body_propagated_error_matches_owner(store, &crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.boundary, &mut proof.budget)?;
+        }
+    }
+    proof.finish()?;
+    for (owner, instruction) in deferred_method_roots {
+        proof.budget.charge(1)?;
+        proof.budget.charge(proof.expressions.get(&(owner, instruction)).map_or(0, Vec::len))?;
+        let contexts = proof.expressions.get(&(owner, instruction)).cloned().unwrap_or_default();
+        let mut concrete: Vec<Arc<Type>> = Vec::new();
+        for (expected, _) in contexts {
+            proof.budget.charge(1)?;
+            if matches!(expected.unvalidated(), Type::Any) { continue; }
+            let mut duplicate = false;
+            for previous in &concrete {
+                proof.budget.charge(1)?;
+                if **previous == *expected {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if duplicate { continue; }
+            proof.budget.charge(1)?;
+            concrete.push(expected);
+        }
+        let decoder = proof.owner(owner)?;
+        let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else {
+            return Err(IrVerifyError::new("deferred method root changed instruction kind"));
+        };
+        let receiver = receiver.raw() as usize;
+        let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+        proof.budget.charge(arguments.len())?;
+        if concrete.is_empty() {
+            proof.budget.charge(1)?;
+            proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &Type::Any)?;
+        } else {
+            for expected in concrete {
+                proof.budget.charge(1)?;
+                proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &expected)?;
+            }
         }
     }
     proof.finish()?;
@@ -4845,7 +4893,7 @@ impl<'a> ProducerProof<'a> {
                     }
                     if unresolved.remove(&value) {
                         let ty = expected.get(&name).ok_or_else(|| IrVerifyError::new("checked record field has no producer contract"))?;
-                        if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord) {
+                        if !contextual && !matches!(self.store.tags[value], FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprRecord | FullTag::ExprMethod) {
                             return Err(IrVerifyError::new("checked record field has no producer contract"));
                         }
                         self.budget.charge_clone(ty)?;
@@ -5186,6 +5234,35 @@ impl<'a> ProducerProof<'a> {
         let result = decoder.checked_method_return_type(&receiver_type, name, &arguments)?;
         if result.as_ref() != Some(expected) { return Ok(None); }
         Ok(Some(receiver_type))
+    }
+
+    fn ground_call_argument_ancestor(&mut self, owner: u32, instruction: usize) -> Result<Option<(usize, Arc<Type>)>, IrVerifyError> {
+        let decoder = self.owner(owner)?;
+        let mut child = instruction;
+        let mut parent = decoder.instruction_parent_of(instruction)?;
+        let mut remaining = decoder.instruction_range.len();
+        while let Some(ancestor) = parent {
+            if !decoder.instruction_range.contains(&ancestor) || remaining == 0 {
+                return Err(IrVerifyError::new("ground call argument parent chain exceeds its owner range"));
+            }
+            remaining -= 1;
+            self.budget.charge(1)?;
+            if decoder.store.tags[ancestor].kind() != schema::InstructionKind::Expr { return Ok(None); }
+            if matches!(decoder.store.tags[ancestor], FullTag::ExprCall | FullTag::ExprDirectPureCall) {
+                let (function, arguments) = call_parts(&decoder, ancestor)?;
+                self.budget.charge(arguments.len())?;
+                if arguments.iter().any(|argument| matches!(argument, ProducerArgument::Single(value) | ProducerArgument::Splice(value) if *value == child))
+                    && let FullCallableContract::Ground(signature) = self.store.functions[function].contract
+                {
+                    let return_type = self.store.semantic.signature_return_type(signature)?;
+                    let expected = self.contract_type(return_type)?;
+                    return Ok(Some((ancestor, expected)));
+                }
+            }
+            child = ancestor;
+            parent = decoder.instruction_parent_of(ancestor)?;
+        }
+        Ok(None)
     }
 
     fn checked_empty_set_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {

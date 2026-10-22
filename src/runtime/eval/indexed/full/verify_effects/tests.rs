@@ -2928,7 +2928,7 @@ assert view.roles[0] == null
 
 #[test]
 fn empty_set_record_fields_authenticate_fresh_receivers() {
-    let mut program = fixture(r#"
+    let definitions = r#"
 type Box = {values: Set[Str]}
 pure count(value: Box) -> Int { value.values.len() }
 pure make(stored: List[Any], wrong: Bool) -> Int {
@@ -2938,8 +2938,8 @@ pure make(stored: List[Any], wrong: Bool) -> Int {
     let _ = spare
     count({values: set.empty()}) + count({values: [].to_set()})
 }
-assert make([true], false) == 0
-"#);
+"#;
+    let mut program = fixture(&format!("{definitions}\nassert make([true], false) == 0"));
     program.store.checked_expr_types.retain(|fact| fact.is_contract());
     FullVerifier::verify(&program).unwrap();
     execute_both(&program);
@@ -2982,6 +2982,10 @@ assert make([true], false) == 0
     assert!(matches!(function_view_decoder(&wrong_method.store, owner).expression_view(method).unwrap(), schema::ExprView::Method { name: "is_empty", .. }));
     let error = FullVerifier::verify(&wrong_method).unwrap_err();
     assert!(error.message.contains("contract"), "{error:?}");
+
+    let mut definition_only = fixture(definitions);
+    definition_only.store.checked_expr_types.retain(|fact| fact.is_contract());
+    FullVerifier::verify(&definition_only).unwrap();
 }
 
 #[test]
