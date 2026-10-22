@@ -39627,6 +39627,39 @@ proc captured(value: Result[Int, CaptureFailure]) [error] -> Result[Int, Capture
     }
 
     #[test]
+    fn try_capture_propagates_comprehension_result_errors_and_cleans_streams() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("captured-comprehension-result-error.xsh", r#"
+error IterationFailure = Stopped
+pure captured(values) { try { [value for value in values] } }
+stream source() [io] -> Stream[Int] {
+    defer { print "source-closed" }
+    yield 1
+}
+let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped())
+let stopped_units: Result[List[Unit], IterationFailure] = Err(IterationFailure.Stopped())
+assert captured([1, 2]) == Ok([1, 2])
+assert captured(stopped) == stopped
+let interrupted = try { [item for item in source() for _ in stopped_units] }
+assert interrupted == stopped
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(
+                        step,
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("driver step is executable").expect("driver step executes");
+                }
+                assert_eq!(evaluator.stdout, b"source-closed\n");
+            }
+        });
+    }
+
+    #[test]
     fn try_capture_authenticates_stream_errors_only_when_consumed() {
         run_with_large_stack(|| {
             let mut program = fixture("capture-stream.xsh", r#"

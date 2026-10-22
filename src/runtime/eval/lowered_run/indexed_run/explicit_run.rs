@@ -9911,6 +9911,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 active,
                 next,
             } => match value {
+                FrameValue::Value(value @ LoweredValue::ResultErr(_)) => {
+                    let Err(value) = self.evaluator.indexed_question_value(value, active.span)? else {
+                        unreachable!("a Result error retains its propagation");
+                    };
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
                 FrameValue::Value(value) => {
                     let iterable = lowered_comp_iterable(value, active.span)?;
                     let iterable = match LoweredScalarCursor::try_new(iterable) {
