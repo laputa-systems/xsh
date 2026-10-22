@@ -14,7 +14,11 @@ full-inference native controls and eight changed legacy controls: 110 pass and
 selector regressing. Constant-key module projections and their legacy witness
 also pass through forced frames. Stream iteration cleanup passes; the caught
 iteration-error control reaches execution but lets the error escape its `try`.
-That runtime propagation failure remains open.
+Repair `e20fe99e4`, integrated as `30e2f6ac7`, routes comprehension Result errors
+through the existing checked propagation flow. Its focused Rust regression
+fails before the repair and passes afterward on both runtime routes, preserving
+nominal error identity and stream cleanup. Independent review is clear; matching
+native qualification remains pending.
 
 The practical four-return comparison with these products passes its source,
 product and view guards, then stops in the original XSH check at
@@ -30,8 +34,11 @@ runs, plus independent review. Sealed input/result relationships survive
 generalization, forwarding and cold verification without runtime inference.
 Directional list refinements and fresh Set-key obligations retain rollback
 proof. Encoded requirements occupy 16 bytes and bindings 8 bytes; scheme and
-call-instantiation rows each grow by 8 bytes. Matching native and resource
-qualification remain pending.
+call-instantiation rows each grow by 8 bytes. With matching `f8d7ffb16`
+verification products, all five arithmetic
+native selectors pass on both runtime routes: ten exact executions, including
+the two original failures. Documentation regeneration also passes. Memory and
+binary-size acceptance remain pending.
 
 Matching verification products built from `e885b64c5` execute all 121 enumerated
 full-inference native controls and seven changed legacy controls: 105 pass and
