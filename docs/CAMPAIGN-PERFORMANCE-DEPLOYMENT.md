@@ -32,8 +32,19 @@ Cold alias authentication is iterative and retains every physical type claim,
 owner check and cycle guard. The controls include the original 400-alias case
 and 64/128/256/512-link cold verification and execution on both routes. No work
 limit or stack size increases. The rejected post-encoding compaction mode is
-absent. The combined unfiltered library replay is running; broader acceptance
-remains open.
+absent. The combined unfiltered library replay at `82914c14d` selects 1,957 tests:
+1,947 pass, seven fail and three are ignored. Four failures are stale mutation
+fixture assumptions corrected by `c85e728fe`, integrated as `b0f8a8c88`; all four
+focused controls pass. Three optional-receiver producer controls remain open.
+These three passed on the earlier `c21be8076` source, so they remain regressions
+to diagnose rather than preexisting failures. Broader acceptance remains open.
+
+Stream repair `c2149de8e`, integrated as `deb26fe9e`, retains the authenticated
+stream owner and admits the runtime's existing `Str`-to-`Error` return-boundary
+conversion. A small script reproduces the original rejection. All five focused
+Rust controls pass, including late failure and exactly-once nested cleanup on
+both execution routes, nominal-error preservation and forged consumer-boundary
+rejections. This does not establish other raw-error conversion domains.
 
 Fixture repairs `51d41a12e` and `071787144` pass all five focused native
 executions. Three corpus controls needed required public documentation and
