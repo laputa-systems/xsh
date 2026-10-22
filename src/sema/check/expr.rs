@@ -2456,7 +2456,7 @@ impl Checker {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
                     let iter_ty = self.resolve_iteration_source_type(iter_ty, arena.arena.expr(iter).span).unwrap_or(Type::Unknown);
                     self.check_iteration_propagation_arena(arena, iter, &iter_ty);
-                    let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
+                    let item_ty = self.checked_iteration_item(&iter_ty, arena.arena.expr(iter).span).unwrap_or_else(|| {
                         if iter_ty == Type::Any {
                             self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);
                             Type::Unknown

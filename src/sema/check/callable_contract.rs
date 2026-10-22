@@ -357,6 +357,16 @@ impl BoundEquivalence<'_> {
                             && left.propagated_errors.iter().zip(right.propagated_errors.iter()).all(|(left, right)| self.ty(left, right))
                     })
             })
+            && left.iteration_parameters.len() == right.iteration_parameters.len()
+            && left.iteration_parameters.iter().all(|(source, iteration)| {
+                let Some(mapped) = self.types.get(source) else { return false };
+                let Some(other) = right.iteration_parameters.get(mapped) else { return false };
+                iteration.source_kind == other.source_kind && self.ty(&iteration.item, &other.item) && match (&iteration.failure, &other.failure) {
+                    (crate::sema::schemes::IterationFailure::Infallible, crate::sema::schemes::IterationFailure::Infallible) => true,
+                    (crate::sema::schemes::IterationFailure::Propagates(left), crate::sema::schemes::IterationFailure::Propagates(right)) => self.ty(left, right),
+                    _ => false,
+                }
+            })
             && left.effect_predicates.iter().zip(&right.effect_predicates).all(|(left, right)| {
                 left.try_map_contracts(|contract| contract.substitute(|id| self.effects.get(id).copied()
                     .map(crate::sema::effects::EffectContract::variable).ok_or(()))).is_ok_and(|left| &left == right)
@@ -649,6 +659,15 @@ mod tests {
             assert!(!first.equivalent_to(&second));
             assert_ne!(first.to_string(), second.to_string());
         });
+    }
+
+    #[test]
+    fn checked_callable_contract_retains_iteration_relationships_from_callback_results() {
+        let first = root_schema_contract("pure describe(factory) { [value for value in factory()] }\n");
+        let renamed = root_schema_contract("pure unrelated(value) { value }\npure describe(factory) { [item for item in factory()] }\n");
+        assert!(first.to_string().contains("iterable("), "{first}");
+        assert_eq!(first.to_string(), renamed.to_string());
+        assert!(first.equivalent_to(&renamed));
     }
 
     #[test]

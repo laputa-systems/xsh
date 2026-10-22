@@ -844,9 +844,10 @@ impl TypeConstraints {
             generalization.applications.insert(id, u32::try_from(applications.len()).expect("application ordinals fit their existing source range"));
             applications.push(self.generalize_callable_application(id, environment_level, generalization)?);
         }
+        let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
         Ok(crate::sema::schemes::CallableRequirements {
-            applications, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
+            iteration_parameters, applications, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
             map_key_parameters: self.generalized_map_keys(generalization)?,
             conversion_parameters: self.generalized_conversions(generalization)?,
         })

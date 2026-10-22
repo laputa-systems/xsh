@@ -891,6 +891,20 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn generic_iteration_input_relationship_accepts_independent_collection_domains() {
+        accepts("pure collect(values) { [value for value in values] }", "let numbers: List[Int] = collect([1, 2])\nlet words: List[Str] = collect([\"a\"])\nlet letters: List[Str] = collect(\"ab\")");
+    }
+
+    #[test]
+    fn generic_iteration_input_relationship_rejects_an_unsupported_instance() {
+        let source = "pure collect(values) { [value for value in values] }\nlet rejected = collect(7)";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn generic_iteration_list_items_retain_the_payload_binder() {
         accepts("pure keep(value) { var result = value; for item in [value] { result = item }; result }", "let number: Int = keep(7)\nlet text: Str = keep(\"value\")");
     }

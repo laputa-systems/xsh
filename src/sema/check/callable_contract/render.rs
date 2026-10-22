@@ -28,6 +28,10 @@ impl BinderNames {
             names.visit_scheme_type(&parameter.ty);
         }
         names.visit_scheme_type(scheme.return_type());
+        for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
+            names.visit_scheme_type(&SchemeType::Parameter(*source));
+            for ty in iteration.types() { names.visit_scheme_type(ty); }
+        }
         names
     }
 
@@ -158,6 +162,18 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     ));
     if let Some(schema) = scheme.return_schema() {
         parts.push(format!("return-schema={}", render_schema(schema, identities)));
+    }
+    for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
+        let item = render_scheme_type(&iteration.item, names, identities);
+        let failure = match &iteration.failure {
+            crate::sema::schemes::IterationFailure::Infallible => "infallible".to_owned(),
+            crate::sema::schemes::IterationFailure::Propagates(error) => format!("error={}", render_scheme_type(error, names, identities)),
+        };
+        let source_kind = match iteration.source_kind {
+            crate::sema::schemes::IterationSourceKind::Direct => "direct-iterable",
+            crate::sema::schemes::IterationSourceKind::DirectOrResult => "iterable",
+        };
+        parts.push(format!("{source_kind}({}, item={item}, {failure})", names.type_name(*source)));
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     parts.join(" ")

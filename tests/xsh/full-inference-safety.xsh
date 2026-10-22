@@ -239,3 +239,133 @@ let result = descend(42, 2)
     stderr: ["[check.type-mismatch]"],
   )?
 }
+
+test test_full_inference_iteration_input_relationship_preserves_collection_domains { |ctx|
+  test.expect(
+    ctx,
+    r"""pure collect(values) { [value for value in values] }
+assert collect([1, 2]) == [1, 2]
+assert collect(["a"]) == ["a"]
+assert collect("ab") == ["a", "b"]
+assert collect(b"ab") == [97, 98]
+assert collect({1, 2}) == [1, 2]
+assert collect({["key"]: 7}) == [{key: "key", value: 7}]
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_iteration_input_relationship_rejects_noniterable_instance { |ctx|
+  test.expect(
+    ctx,
+    r"""pure collect(values) { [value for value in values] }
+let rejected = collect(7)
+""",
+    status: 2,
+  )?
+}
+
+test test_full_inference_iteration_result_domains_preserve_grounded_behavior { |ctx|
+  test.expect(
+    ctx,
+    r"""proc collect(values) [error] {
+  var output = []
+  for value in values { output = output.push(value) }
+  output
+}
+stream items() [] -> Stream[Int] { yield 4; yield 8 }
+let list: Result[List[Int]] = Ok([1, 2])
+let text: Result[Str] = Ok("ab")
+let bytes: Result[Bytes] = Ok(b"ab")
+let map: Result[Map[Str, Int]] = Ok({["key"]: 7})
+let producer: Result[Stream[Int]] = Ok(items())
+assert collect(list)? == [1, 2]
+assert collect(text)? == ["a", "b"]
+assert collect(bytes)? == [97, 98]
+assert collect(map)? == [{key: "key", value: 7}]
+assert collect(producer)? == [4, 8]
+assert collect(items())? == [4, 8]
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_iteration_stream_failure_preserves_pull_order_and_cleanup { |ctx|
+  test.expect(
+    ctx,
+    r"""error IterationFailure = Stopped
+stream values() [io, error] -> Stream[Int] {
+  defer { print "stream-closed" }
+  print "pulled"
+  yield 1
+  let stopped: Result[Int, IterationFailure] = Err(IterationFailure.Stopped)
+  yield stopped?
+}
+proc collect(values) [io, error] {
+  defer { print "collect-closed" }
+  var output = []
+  for value in values { output = output.push(value) }
+  output
+}
+let source: Result[Stream[Int]] = Ok(values())
+print "created"
+let result = try { collect(source)? }
+assert match result { Ok(_) => false, Err(_) => true }
+print "caught"
+let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped)
+let rejected = try { collect(stopped)? }
+assert match rejected { Ok(_) => false, Err(_) => true }
+print "input-caught"
+""",
+    status: 0,
+    stdout: ["created\npulled\nstream-closed\ncollect-closed\ncaught\ncollect-closed\ninput-caught\n"],
+  )?
+}
+
+test test_full_inference_iteration_rejects_nested_result_sources { |ctx|
+  test.expect(
+    ctx,
+    r"""proc collect(values) [error] { [value for value in values] }
+let nested: Result[Result[List[Int]]] = Ok(Ok([1]))
+let rejected = collect(nested)
+""",
+    status: 2,
+  )?
+}
+
+test test_full_inference_iteration_relationship_follows_callback_results_and_caught_errors { |ctx|
+  test.expect(
+    ctx,
+    r"""error IterationFailure = Stopped
+pure from_factory(factory) { [value for value in factory()] }
+pure numbers() { [1, 2] }
+pure words() { ["a", "b"] }
+pure captured(values) { try { [value for value in values] } }
+assert from_factory(numbers) == [1, 2]
+assert from_factory(words) == ["a", "b"]
+assert captured([1, 2]) == Ok([1, 2])
+let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped)
+assert match captured(stopped) { Ok(_) => false, Err(_) => true }
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_iteration_respects_an_explicit_empty_effect_bound { |ctx|
+  test.expect(
+    ctx,
+    r"""proc collect(values) [] { [value for value in values] }
+assert collect([1, 2])? == [1, 2]
+assert collect("ab")? == ["a", "b"]
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""proc collect(values) [] { [value for value in values] }
+stream values() [error] -> Stream[Int] { yield 1 }
+let rejected = collect(values())
+""",
+    status: 2,
+  )?
+}

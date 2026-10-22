@@ -235,9 +235,28 @@ pub(super) struct FullSchemeApplicationReturn {
 pub(super) struct FullSchemeTypeParameter {
     pub(super) id: u32,
     pub(super) binder: u32,
+    pub(super) iteration_item: u32,
+    pub(super) iteration_error: u32,
     pub(super) map_key: bool,
     pub(super) conversions: u8,
-    pub(super) reserved: [u8; 2],
+    pub(super) iteration_source_kind: crate::sema::schemes::IterationSourceKind,
+    pub(super) reserved: [u8; 1],
+}
+
+impl FullSchemeTypeParameter {
+    pub(super) fn iteration(self) -> Result<Option<crate::sema::schemes::IterationRequirement<SchemeTypeId>>, super::IrVerifyError> {
+        use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind};
+        if self.iteration_item == IR_NONE {
+            if self.iteration_error != IR_NONE || self.iteration_source_kind != IterationSourceKind::Direct {
+                return Err(super::IrVerifyError::new("scheme iteration requirement has no source item"));
+            }
+            return Ok(None);
+        }
+        let item = SchemeTypeId::from_raw(self.iteration_item)?;
+        let failure = if self.iteration_error == IR_NONE { IterationFailure::Infallible }
+            else { IterationFailure::Propagates(SchemeTypeId::from_raw(self.iteration_error)?) };
+        Ok(Some(IterationRequirement { item, failure, source_kind: self.iteration_source_kind }))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -545,14 +564,28 @@ impl FullBuilder {
         let effect_parameters_range = super::table_range(effect_parameters_start, self.store.scheme_effect_parameters.len())?;
         let type_parameters_start = self.store.scheme_type_parameters.len();
         for (binder, id) in scheme.type_parameters().iter().copied().enumerate() {
+            let iteration = scheme.callable().requirements().iteration_parameters.get(&id).map(|iteration| {
+                let item = self.intern_scheme_type(&iteration.item, &type_parameters, &row_parameters, &effect_parameters)?;
+                let failure = match &iteration.failure {
+                    crate::sema::schemes::IterationFailure::Infallible => crate::sema::schemes::IterationFailure::Infallible,
+                    crate::sema::schemes::IterationFailure::Propagates(error) => crate::sema::schemes::IterationFailure::Propagates(self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters)?),
+                };
+                Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, failure, source_kind: iteration.source_kind })
+            }).transpose()?;
             self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
                 id: id.0,
                 binder: u32::try_from(binder).map_err(|_| {
                     IrBuildError::format("scheme_type_binder_overflow", None, 0, 0)
                 })?,
+                iteration_item: iteration.map_or(IR_NONE, |iteration| iteration.item.raw()),
+                iteration_error: iteration.map_or(IR_NONE, |iteration| match iteration.failure {
+                    crate::sema::schemes::IterationFailure::Infallible => IR_NONE,
+                    crate::sema::schemes::IterationFailure::Propagates(error) => error.raw(),
+                }),
+                iteration_source_kind: iteration.map_or(crate::sema::schemes::IterationSourceKind::Direct, |iteration| iteration.source_kind),
                 map_key: scheme.callable().requirements().map_key_parameters.contains(&id),
                 conversions: scheme.callable().requirements().conversion_parameters.get(&id).copied().unwrap_or_default().bits(),
-                reserved: [0; 2],
+                reserved: [0; 1],
             });
         }
         let type_parameters_range = super::table_range(

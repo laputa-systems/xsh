@@ -71,6 +71,9 @@ impl TypeConstraints {
                 let root = self.representative_root(id)?;
                 if !variables.types.insert(root) { continue; }
                 let Some(Variable::Representative(variable)) = self.variables.get(&root) else { unreachable!() };
+                if let Some(iteration) = &variable.iteration {
+                    for ty in iteration.types() { pending.push((self.resolve(ty)?, depth + 1)); }
+                }
                 match &variable.binding {
                     Some(Binding::Type { ty, .. }) => pending.push((self.resolve(ty)?, depth)),
                     Some(Binding::Record(record)) => {

@@ -27,6 +27,9 @@ pub(crate) use map_key_constraints::MapKeyConstraintError;
 mod conversion_constraints;
 pub(crate) use conversion_constraints::ConversionConstraintError;
 
+#[path = "constraints/iteration.rs"]
+mod iteration_constraints;
+
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
 #[cfg(test)]
@@ -115,6 +118,7 @@ struct Representative {
     annotation: bool,
     map_key: Option<Span>,
     conversions: super::schemes::ValueConversionSet,
+    iteration: Option<Box<super::schemes::IterationRequirement<Type>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -714,6 +718,7 @@ impl TypeConstraints {
                 annotation: false,
                 map_key: None,
                 conversions: super::schemes::ValueConversionSet::default(),
+                iteration: None,
             }),
         );
         self.counters.fresh_variables.fetch_add(1, Ordering::Relaxed);
@@ -815,6 +820,7 @@ impl TypeConstraints {
             .iter()
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
+        let iteration_parameters = self.generalized_iterations(environment_level, &mut generalization)?;
         let map_key_parameters = self.generalized_map_keys(&generalization)?;
         let conversion_parameters = self.generalized_conversions(&generalization)?;
         Ok(GeneralizedTypes {
@@ -827,7 +833,7 @@ impl TypeConstraints {
             },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
-            requirements: CallableRequirements { map_key_parameters, conversion_parameters, effect_parameters: generalization.effect_parameters.clone(), ..CallableRequirements::default() },
+            requirements: CallableRequirements { iteration_parameters, map_key_parameters, conversion_parameters, effect_parameters: generalization.effect_parameters.clone(), ..CallableRequirements::default() },
         })
     }
 
@@ -1123,6 +1129,9 @@ impl TypeConstraints {
         if self.generalized_conversions(&generalization)? != callable.requirements().conversion_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::Conversion));
         }
+        if self.generalized_iterations(0, &mut generalization)? != callable.requirements().iteration_parameters {
+            return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+        }
         for &(ordinal, id) in &applications {
             let application = self.generalize_callable_application(id, 0, &mut generalization)?;
             if callable.requirements().applications.get(ordinal as usize) != Some(&application) {
@@ -1176,6 +1185,15 @@ impl TypeConstraints {
             for conversion in super::schemes::ValueConversion::ALL {
                 if conversions.contains(conversion) { self.require_conversion(ty, conversion, origin).map_err(SchemeOperationError::from)?; }
             }
+        }
+        for (parameter, iteration) in &callable.requirements().iteration_parameters {
+            let source = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            let item = self.instantiate_scheme_type(&iteration.item, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
+            let failure = match &iteration.failure {
+                super::schemes::IterationFailure::Infallible => super::schemes::IterationFailure::Infallible,
+                super::schemes::IterationFailure::Propagates(error) => super::schemes::IterationFailure::Propagates(self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?),
+            };
+            self.require_iteration(source, &super::schemes::IterationRequirement { item, failure, source_kind: iteration.source_kind }, origin).map_err(SchemeOperationError::Constraint)?;
         }
         let params = callable
             .params()
@@ -2143,6 +2161,7 @@ impl TypeConstraints {
         let root = self
             .representative(id, Some(changes))
             .map_err(|error| (Type::Inference(id), row_type(shape), Some(error)))?;
+        if self.iteration_requirement(root).map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?.is_some() { return Err((Type::Inference(root), row_type(shape), None)); }
         if self.map_key_requirement(root).map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?.is_some() {
             return Err((Type::Inference(root), row_type(shape), None));
         }
@@ -2599,7 +2618,7 @@ impl TypeConstraints {
         id
     }
 
-    fn type_level(&self, id: TypeVariableId) -> Result<u32, ConstraintResolutionError> {
+    pub(crate) fn type_level(&self, id: TypeVariableId) -> Result<u32, ConstraintResolutionError> {
         let root = self.representative_root(id)?;
         let Some(Variable::Representative(variable)) = self.variables.get(&root) else {
             unreachable!("representative lookup returns a root");
@@ -2671,6 +2690,9 @@ impl TypeConstraints {
                                 }
                                 _ => unreachable!("representative lookup returns a root"),
                             };
+                            if let Some(iteration) = self.iteration_requirement(root)? {
+                                pending.extend(iteration.types().cloned().map(|ty| LevelNode::Type(ty, depth + 1)));
+                            }
                             if old_level <= level {
                                 continue;
                             }
@@ -3343,8 +3365,10 @@ impl TypeConstraints {
                     {
                         return Err((expected, actual, None));
                     }
+                    let iteration = self.iteration_requirement(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
                     self.bind(*id, value.clone(), contribution, annotation, changes)
-                        .map_err(|error| (expected, actual, Some(error)))?;
+                        .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                    if let Some(iteration) = iteration { self.require_iteration_inner(value, &iteration, contribution, depth + 1, changes)?; }
                 }
                 (Type::Optional(_), Type::Null) => {}
                 (Type::Optional(left), Type::Optional(right))
@@ -4213,6 +4237,10 @@ impl TypeConstraints {
         if map_key.is_some() && (left_binding.is_some() || right_binding.is_some()) {
             return Err(None);
         }
+        let left_iteration = self.iteration_requirement(left_root).map_err(Some)?;
+        let right_iteration = self.iteration_requirement(right_root).map_err(Some)?;
+        let iteration = left_iteration.clone().or_else(|| right_iteration.clone());
+        if iteration.is_some() && (left_binding.is_some() || right_binding.is_some()) { return Err(None); }
         let canonical = left_canonical.min(right_canonical);
         let origin = if left_canonical <= right_canonical {
             left_origin
@@ -4248,7 +4276,18 @@ impl TypeConstraints {
             root_value.annotation = annotation;
             root_value.map_key = map_key;
             root_value.conversions = conversions;
+            root_value.iteration = iteration.clone().map(Box::new);
             root_value.binding = binding.clone();
+        }
+        if let (Some(first), Some(second)) = (left_iteration, right_iteration) {
+            let merged = self.merge_iteration(&first, &second, origin, 0, changes).map_err(|error| error.2)?;
+            let root = self.representative(root, Some(changes)).map_err(Some)?;
+            self.record(root, changes);
+            let Some(Variable::Representative(variable)) = self.variables.get_mut(&root) else { unreachable!() };
+            variable.iteration = Some(Box::new(merged));
+        }
+        if let Some(iteration) = iteration {
+            for ty in iteration.types() { self.lower_levels_in_type(ty, level, changes).map_err(Some)?; }
         }
         match binding {
             Some(Binding::Type { ty, .. }) => self.lower_levels_in_type(&ty, level, changes),
@@ -4265,10 +4304,16 @@ impl TypeConstraints {
 #[cfg(test)]
 fn variable_owned_payload_bytes(variable: &Variable) -> usize {
     match variable {
-        Variable::Representative(representative) => match &representative.binding {
-            Some(Binding::Type { ty, .. }) => type_owned_payload_bytes(ty),
-            Some(Binding::Record(record)) => row_shape_owned_payload_bytes(&record.shape),
-            Some(Binding::Rigid { .. }) | None => 0,
+        Variable::Representative(representative) => {
+            let binding = match &representative.binding {
+                Some(Binding::Type { ty, .. }) => type_owned_payload_bytes(ty),
+                Some(Binding::Record(record)) => row_shape_owned_payload_bytes(&record.shape),
+                Some(Binding::Rigid { .. }) | None => 0,
+            };
+            binding.saturating_add(representative.iteration.as_ref().map_or(0, |iteration| {
+                std::mem::size_of::<super::schemes::IterationRequirement<Type>>()
+                    .saturating_add(iteration.types().map(type_owned_payload_bytes).sum::<usize>())
+            }))
         },
         Variable::Parent(_) => 0,
     }

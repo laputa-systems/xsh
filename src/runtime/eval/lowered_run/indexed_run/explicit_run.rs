@@ -9159,6 +9159,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Value(value) => {
                     let value = match value {
+                        LoweredValue::ResultOk(value) => *value,
+                        value => value,
+                    };
+                    let value = match value {
                         LoweredValue::Stream(stream)
                             if stream.source.is_some() || stream.script().is_some() =>
                         {

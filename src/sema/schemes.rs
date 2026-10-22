@@ -56,10 +56,40 @@ impl ValueConversionSet {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IterationFailure<T> {
+    Infallible,
+    Propagates(T),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(crate) enum IterationSourceKind {
+    Direct,
+    DirectOrResult,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct IterationRequirement<T> {
+    pub(crate) item: T,
+    pub(crate) failure: IterationFailure<T>,
+    pub(crate) source_kind: IterationSourceKind,
+}
+
+impl<T> IterationRequirement<T> {
+    pub(crate) fn types(&self) -> impl Iterator<Item = &T> {
+        std::iter::once(&self.item).chain(match &self.failure {
+            IterationFailure::Infallible => None,
+            IterationFailure::Propagates(error) => Some(error),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CallableRequirements {
     pub(crate) map_key_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) conversion_parameters: BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
+    pub(crate) iteration_parameters: BTreeMap<SchemeTypeParameterId, IterationRequirement<SchemeType>>,
     pub(crate) effect_parameters: Vec<SchemeEffectParameterId>,
     pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
@@ -407,6 +437,12 @@ impl CallableScheme {
             &mut row_requirements,
         )?;
         if let Some(schema) = &return_schema { validate_schema_ground_types(schema)?; }
+        for (parameter, iteration) in &requirements.iteration_parameters {
+            if !type_ids.contains(parameter) { return Err(SchemeBuildError::UnboundTypeParameter); }
+            for ty in iteration.types() {
+                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
+            }
+        }
         for application in &requirements.applications {
             for ty in std::iter::once(&application.callee)
                 .chain(application.arguments.iter().map(|argument| &argument.ty))
@@ -539,6 +575,10 @@ impl CallableRequirements {
             .saturating_add(self.effect_parameters.capacity() * size_of::<SchemeEffectParameterId>())
             .saturating_add(self.effect_predicates.capacity() * size_of::<EffectPredicate<SchemeEffectParameterId>>())
             .saturating_add(self.applications.capacity() * size_of::<CallableApplication<SchemeType, SchemeEffectParameterId>>());
+        bytes = bytes.saturating_add(self.iteration_parameters.len() * size_of::<(SchemeTypeParameterId, IterationRequirement<SchemeType>)>());
+        for iteration in self.iteration_parameters.values() {
+            for ty in iteration.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
+        }
         for predicate in &self.effect_predicates {
             for contract in predicate.contracts() {
                 bytes = bytes.saturating_add(contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
@@ -562,6 +602,10 @@ impl CallableRequirements {
 
     fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
         let mut mapped = self.clone();
+        for iteration in mapped.iteration_parameters.values_mut() {
+            iteration.item.map_ground_types(map);
+            if let IterationFailure::Propagates(error) = &mut iteration.failure { error.map_ground_types(map); }
+        }
         for application in &mut mapped.applications {
             application.callee.map_ground_types(map);
             application.result.map_ground_types(map);
@@ -1415,6 +1459,7 @@ mod tests {
                 map_key_parameters: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![effect],
+                iteration_parameters: BTreeMap::new(),
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
                 applications: vec![CallableApplication {
                     callee: SchemeType::Parameter(f),

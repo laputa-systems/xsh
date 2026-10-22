@@ -4125,6 +4125,32 @@ impl Checker {
         })
     }
 
+    pub(super) fn checked_iteration_item(&mut self, ty: &Type, span: Span) -> Option<Type> {
+        let Type::Inference(variable) = ty else { return ty.iteration_item_type() };
+        use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind};
+        let level = self.type_constraints.type_level(*variable).expect("a resolved iteration source belongs to its inference problem");
+        let item = self.type_constraints.fresh_at_level(span, level);
+        let failure = if self.boundary.retry_attempt_depth > 0 {
+            IterationFailure::Propagates(Type::Error)
+        } else if self.boundary.current_effects.as_ref().is_some_and(|effects| !Self::effects_covers(effects, &super::Effect::Error)) {
+            IterationFailure::Infallible
+        } else {
+            match &self.boundary.current_return {
+                Some(super::ReturnContext::Function(Type::Result(_, error))) => IterationFailure::Propagates((**error).clone()),
+                Some(super::ReturnContext::Producer) | None => IterationFailure::Propagates(Type::Error),
+                Some(super::ReturnContext::Function(Type::Unknown)) if !self.boundary.in_pure => IterationFailure::Propagates(Type::Error),
+                Some(super::ReturnContext::Function(_)) => IterationFailure::Infallible,
+            }
+        };
+        if let IterationFailure::Propagates(error) = &failure {
+            self.check_propagation(&Type::Result(Box::new(Type::Unit), Box::new(error.clone())), span);
+        }
+        match self.type_constraints.require_iteration(ty, &IterationRequirement { item: item.clone(), failure, source_kind: IterationSourceKind::DirectOrResult }, span) {
+            Ok(()) => Some(self.type_constraints.resolve(&item).expect("a checked iteration item has a resolvable relationship")),
+            Err(_) => None,
+        }
+    }
+
     pub(super) fn check_iteration_propagation_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4165,8 +4191,7 @@ impl Checker {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
         let iter_ty = self.resolve_iteration_source_type(iter_ty, arena.arena.expr(iter).span).unwrap_or(Type::Unknown);
         self.check_iteration_propagation_arena(arena, iter, &iter_ty);
-        let item_ty = iter_ty
-            .iteration_item_type()
+        let item_ty = self.checked_iteration_item(&iter_ty, arena.arena.expr(iter).span)
             .unwrap_or_else(|| match iter_ty {
                 Type::Any => {
                     self.reject_dynamic_use("an iteration source", None, arena.arena.expr(iter).span);

@@ -233,6 +233,24 @@ pub(super) fn extend_ground_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
+    for parameter in bounded(scheme.type_parameters, &store.scheme_type_parameters, "scheme type parameter range is invalid")? {
+        let Some(iteration) = parameter.iteration()? else { continue };
+        budget.charge(1)?;
+        let ordinal = outputs.len();
+        let mut output = BTreeSet::new();
+        for root in iteration.types() {
+            let (types, rows) = scheme_type_binders(store, *root, budget)?;
+            budget.charge(types.len() + rows.len())?;
+            output.extend(types.into_iter().map(|id| (false, id)));
+            output.extend(rows.into_iter().map(|id| (true, id)));
+        }
+        let source = parameter.binder as usize;
+        let missing = usize::from(!evidence.types.contains(&source));
+        if missing != 0 { watchers.entry((false, source)).or_default().push(ordinal); }
+        remaining.push(missing);
+        outputs.push(output);
+        if missing == 0 { ready.push(ordinal); }
+    }
     while let Some(ordinal) = ready.pop() {
         budget.charge(1)?;
         for key @ (row, binder) in std::mem::take(&mut outputs[ordinal]) {
@@ -320,7 +338,7 @@ mod tests {
         }).collect();
         let callable = CallableScheme::new(parameters.clone(), Vec::new(), params,
             SchemeType::Parameter(parameters[2]), None, false,
-            CallableRequirements { map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: effects.into(), effect_predicates: Vec::new(), applications }).unwrap();
+            CallableRequirements { iteration_parameters: BTreeMap::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: effects.into(), effect_predicates: Vec::new(), applications }).unwrap();
         TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap()
     }
 
@@ -375,7 +393,7 @@ mod tests {
                 schema_expectation: None, defaulted: false, rest: false,
             }).collect();
             let callable = CallableScheme::new(parameters, Vec::new(), params, SchemeType::Parameter(SchemeTypeParameterId(13)),
-                None, false, CallableRequirements { map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: Vec::new(), effect_predicates: Vec::new(), applications }).unwrap();
+                None, false, CallableRequirements { iteration_parameters: BTreeMap::new(), map_key_parameters: Vec::new(), conversion_parameters: BTreeMap::new(), effect_parameters: Vec::new(), effect_predicates: Vec::new(), applications }).unwrap();
             let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
             let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
             let id = builder.intern_scheme(&scheme).unwrap();

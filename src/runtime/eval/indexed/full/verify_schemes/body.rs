@@ -295,9 +295,16 @@ fn project(ty: &SchemeType, projection: super::super::CheckedValueProjection, bu
     }
 }
 
-fn iteration_item(store: &FullStore, source: &SchemeType, instruction: usize, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
+fn iteration_item(store: &FullStore, scheme_scope: &SchemeScope, source: &SchemeType, instruction: usize, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(SchemeType, Option<super::producers::StreamProducer>), IrVerifyError> {
     budget.charge(1)?;
     match source {
+        SchemeType::Parameter(_) => {
+            let iteration = iteration_contract(store, source, scheme_scope, budget)?;
+            if let crate::sema::schemes::IterationFailure::Propagates(error) = &iteration.failure {
+                body_propagated_error_matches_owner(store, error, boundary, budget)?;
+            }
+            Ok((iteration.item, None))
+        }
         SchemeType::Result(ok, error) => {
             body_propagated_error_matches_owner(store, error, boundary, budget)?;
             direct_iteration_item(ok, super::producers::StreamProducer::ResultSuccess(instruction), budget)
@@ -308,7 +315,7 @@ fn iteration_item(store: &FullStore, source: &SchemeType, instruction: usize, bo
             budget.charge_clone(ok)?;
             direct_iteration_item(&SchemeType::Ground((**ok).clone()), super::producers::StreamProducer::ResultSuccess(instruction), budget)
         }
-        SchemeType::Validated(_, source) => iteration_item(store, source, instruction, boundary, budget),
+        SchemeType::Validated(_, source) => iteration_item(store, scheme_scope, source, instruction, boundary, budget),
         _ => direct_iteration_item(source, super::producers::StreamProducer::Value(instruction), budget),
     }
 }
@@ -346,7 +353,7 @@ fn target_bindings(target: super::super::decode::CompTargetView<'_>, source: &Sc
 }
 
 fn comprehension_scope(
-    store: &FullStore, types: &BTreeMap<usize, SchemeType>,
+    store: &FullStore, types: &BTreeMap<usize, SchemeType>, scheme_scope: &SchemeScope,
     mut qualifiers: super::super::decode::ListView<'_, crate::runtime::eval::LoweredCompQualifier>,
     scope: &LexicalScope, scopes: &mut LexicalScopes, slot_count: usize,
     writers: &mut BTreeMap<usize, SchemeType>,
@@ -365,7 +372,7 @@ fn comprehension_scope(
                 let instruction = iter.raw() as usize;
                 let source = expression_type(types, instruction, budget)?;
                 if count == 1 { mapped_validation = BodyTypeRef::Scheme(&source).validation().filter(|validation| validation.survives_mapping()); }
-                let (item, stream_source) = iteration_item(store, &source, instruction, propagation_boundary(&current, scopes), budget)?;
+                let (item, stream_source) = iteration_item(store, scheme_scope, &source, instruction, propagation_boundary(&current, scopes), budget)?;
                 if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, propagation_boundary(&current, scopes).clone())); }
                 pending.push(Obligation::Expression(instruction, current));
                 let bindings = target_bindings(target, &item, budget)?;
@@ -687,7 +694,7 @@ pub(super) fn verify_body(
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
-                        let (inner, mapped_validation) = comprehension_scope(store, types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, mapped_validation) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
                         if let Some(validation) = BodyTypeRef::Scheme(&claimed).validation()
                             && Some(validation) != mapped_validation
                         { return Err(IrVerifyError::new("generic comprehension cannot establish its claimed validation")); }
@@ -702,7 +709,7 @@ pub(super) fn verify_body(
                         let domain = expected_key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map comprehension key domain is unresolved"))?;
                         if !domain.is_map_key() { return Err(IrVerifyError::new("generic map comprehension key domain is invalid")); }
                         let item = item.materialize(budget)?;
-                        let (inner, _) = comprehension_scope(store, types, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
+                        let (inner, _) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, budget)?;
                         if !body_type_matches(&expression_type(types, key.raw() as usize, budget)?, &expected_key, budget)? { return Err(IrVerifyError::new("generic comprehension key disagrees with its map domain")); }
                         if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &item, budget)? { return Err(IrVerifyError::new("generic comprehension value disagrees with its item domain")); }
                         pending.push(Obligation::Expression(value.raw() as usize, inner));
@@ -1052,7 +1059,7 @@ pub(super) fn verify_body(
                     }
                     schema::StmtView::ForRecord { target, iter, body, .. } => {
                         let source = expression_type(types, iter.raw() as usize, budget)?;
-                        let (item, stream_source) = iteration_item(store, &source, iter.raw() as usize, propagation_boundary(&scope, &scopes), budget)?;
+                        let (item, stream_source) = iteration_item(store, scheme_scope, &source, iter.raw() as usize, propagation_boundary(&scope, &scopes), budget)?;
                         if let Some(source) = stream_source { budget.charge(1)?; stream_iterations.push((source, propagation_boundary(&scope, &scopes).clone())); }
                         let bindings = target_bindings(target, &item, budget)?;
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
@@ -2525,6 +2532,61 @@ mod tests {
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, source, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn generic_iteration_input_relationship_preserves_item_refinements() {
+        prepare("pure paths(values: List[RelPath]) -> List[Path] { [value for value in values] }\npure check_paths(relative: RelPath) { let copied = paths([relative]); copied[0] == relative }");
+        let program = prepare("pure paths(values) -> List[Path] { [value for value in values] }\npure check_paths(relative: RelPath) { let copied = paths([relative]); copied[0] == relative }");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let parameters = bounded(scheme.type_parameters, &program.store.scheme_type_parameters, "type parameters").unwrap();
+        let source = parameters.iter().find(|parameter| parameter.iteration_item != IR_NONE).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let scope = scopes[scheme_id.index()].as_ref().unwrap();
+        let calls = program.store.call_instantiations.iter().filter(|call| program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        let arguments = bounded(calls[0].type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
+        let source = arguments.iter().find(|argument| argument.binder == source.id).unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        assert_eq!(decode_scheme_type(&program.store, scope, source.ty, &mut budget, 0).unwrap().closed_ground_type(), Some(Type::List(Box::new(Type::rel_path()))));
+    }
+
+    #[test]
+    fn generic_iteration_input_relationship_authenticates_the_item_binder() {
+        let program = prepare("pure copy(values, other) { [item for item in values] }");
+        let (_, scheme) = generic_owner(&program);
+        let mut changed = program.clone();
+        let scheme = changed.store.scheme(scheme).unwrap();
+        let parameters = scheme.type_parameters.bounds(changed.store.scheme_type_parameters.len()).unwrap();
+        let other = bounded(scheme.params, &changed.store.scheme_params, "parameters").unwrap()[1].ty;
+        let parameter = changed.store.scheme_type_parameters[parameters.clone()].iter().position(|parameter| parameter.iteration_item != IR_NONE).unwrap() + parameters.start;
+        changed.store.scheme_type_parameters[parameter].iteration_item = other.raw();
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
+    fn generic_iteration_input_relationship_authenticates_the_result_domain() {
+        let program = prepare("error Narrow = Failed\nproc copy(values, boundary: Result[Int, Narrow]) [error] { [item for item in values] }\nlet values: Result[List[Int]] = Ok([1])\nlet selected = copy(values, Ok(0))?");
+        let (_, scheme) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme).unwrap();
+        let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        let parameter = program.store.scheme_type_parameters[parameters.clone()].iter().position(|parameter| parameter.iteration_item != IR_NONE).unwrap() + parameters.start;
+        for mode in [0, 1] {
+            let mut changed = program.clone();
+            if mode == 0 { changed.store.scheme_type_parameters[parameter].iteration_source_kind = crate::sema::schemes::IterationSourceKind::Direct; }
+            else {
+                let params = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+                let boundary = program.store.scheme_types[program.store.scheme_params[params.start + 1].ty.index()];
+                assert_eq!(boundary.tag, FullSchemeTypeTag::Result);
+                let narrow = program.store.scheme_types[boundary.second as usize];
+                assert_eq!(narrow.tag, FullSchemeTypeTag::Ground);
+                let error = changed.store.scheme_type_parameters[parameter].iteration_error as usize;
+                assert_eq!(changed.store.scheme_types[error].tag, FullSchemeTypeTag::Ground);
+                changed.store.scheme_types[error].first = narrow.first;
+            }
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic substitution violates its iteration relationship");
+        }
     }
 
     #[test]
