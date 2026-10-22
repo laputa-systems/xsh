@@ -162,15 +162,26 @@ enum TransferKind { Return, BlockValue, Break, Assignment, Yield }
 enum OperandType {
     Ground(Type),
     Scheme { ty: SchemeType, owner: Arc<TypeScheme> },
+    EmptyList(Box<Self>),
+    Diverges,
     Missing,
 }
 
 impl OperandType {
+    fn is_list(&self) -> bool {
+        match self {
+            Self::Ground(Type::List(item)) => **item == Type::Unknown
+                || (!item.contains_recovery() && !item.contains_inference()),
+            Self::Scheme { ty: SchemeType::List(_), .. } => true,
+            _ => false,
+        }
+    }
+
     fn ground(&self) -> Option<Type> {
         match self {
             Self::Ground(ty) => Some(ty.clone()),
             Self::Scheme { ty, .. } => ty.closed_ground_type(),
-            Self::Missing => None,
+            Self::EmptyList(_) | Self::Diverges | Self::Missing => None,
         }
     }
 
@@ -184,6 +195,9 @@ impl OperandType {
             (Self::Scheme { .. }, Self::Ground(right)) => self.ground().as_ref() == Some(right),
             (Self::Scheme { ty: left, owner: left_owner }, Self::Scheme { ty: right, owner: right_owner }) =>
                 same_bound_operand(left, left_owner, right, right_owner, left_schemas, right_schemas),
+            (Self::EmptyList(left), Self::EmptyList(right)) => left.empty_list_preserved_by(
+                right, instance, left_schemas, right_schemas),
+            (Self::Diverges, Self::Diverges) => true,
             _ => false,
         }
     }
@@ -192,8 +206,18 @@ impl OperandType {
         match self {
             Self::Ground(ty) => Some(ty.clone()),
             Self::Scheme { ty, owner } => instance.specialize(ty, owner),
-            Self::Missing => None,
+            Self::EmptyList(_) | Self::Diverges | Self::Missing => None,
         }
+    }
+
+    fn empty_list_preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>,
+        left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
+    {
+        self.preserved_by(candidate, instance, left_schemas, right_schemas)
+            || matches!(self.ground(), Some(Type::List(item)) if *item == Type::Unknown)
+                && candidate.ground().or_else(|| instance.and_then(|instance| candidate.specialized(instance))).is_some_and(|ty| {
+                    matches!(ty, Type::List(item) if !item.contains_recovery() && !item.contains_inference() && !item.contains_any())
+                })
     }
 }
 
@@ -508,8 +532,21 @@ impl PendingBodyContracts {
 
 impl Capture<'_> {
     fn expression_type(&self, expression: ExprId) -> OperandType {
-        self.operand_expressions.get(&expression).cloned().unwrap_or_else(||
-            self.span_operand(self.program.arena.expr(expression).span))
+        let checked_type = self.operand_expressions.get(&expression).cloned().unwrap_or_else(||
+            self.span_operand(self.program.arena.expr(expression).span));
+        match self.program.arena.expr(expression).kind {
+            ArenaExprKind::List(items) if items.is_empty() && checked_type.is_list() => {
+                OperandType::EmptyList(Box::new(checked_type))
+            }
+            ArenaExprKind::ValueBlock(block)
+                if matches!(&checked_type, OperandType::Ground(Type::Unknown))
+                    && self.checked.definitely_exiting_block_spans.contains(
+                        &self.program.arena.span(self.program.arena.block(block).span)) =>
+            {
+                OperandType::Diverges
+            }
+            _ => checked_type,
+        }
     }
 
     fn expression_operand(&self, expression: ExprId) -> TransferOperand {
@@ -1080,6 +1117,10 @@ mod tests {
         snapshots(source).into_iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap()
     }
 
+    fn entry(source: &str) -> SemanticBodyContract {
+        snapshots(source).into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap()
+    }
+
     #[test]
     fn checked_body_contract_resource_specialization_requires_same_header_binders_and_operand_roles() {
         let (_, _, old_checked) = checked("pure choose(first: Int, second: Str) -> Int { first }\n");
@@ -1645,6 +1686,129 @@ mod tests {
         }).unwrap();
         shifted.binary_operators.insert(literal, super::super::CheckedBinaryOperator { operator: BinaryOp::Eq });
         assert!(matches!(PendingBodyContracts::capture(&shifted, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
+    }
+
+    #[test]
+    fn checked_body_contract_empty_list_requires_checked_ast_witness() {
+        let source = "let value = 1\nlet spare = 0\nlet found = value in []\n";
+        let original = entry(source);
+        let operation = original.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert!(matches!(&operation.right, OperandType::EmptyList(_)));
+        assert!(original.preserved_by(&entry(source)));
+
+        let mut specialized = original.clone();
+        specialized.selections.values_mut().find_map(|selection| selection.binary.as_mut()).unwrap().right =
+            OperandType::EmptyList(Box::new(OperandType::Ground(Type::List(Box::new(Type::Bytes)))));
+        assert!(original.preserved_by(&specialized));
+        assert!(!specialized.preserved_by(&original));
+
+        let mut changed_domain = specialized.clone();
+        changed_domain.selections.values_mut().find_map(|selection| selection.binary.as_mut()).unwrap().right =
+            OperandType::EmptyList(Box::new(OperandType::Ground(Type::List(Box::new(Type::Int)))));
+        assert!(!specialized.preserved_by(&changed_domain));
+
+        let mut unqualified = specialized.clone();
+        unqualified.selections.values_mut().find_map(|selection| selection.binary.as_mut()).unwrap().right =
+            OperandType::Ground(Type::List(Box::new(Type::Bytes)));
+        assert!(!original.preserved_by(&unqualified));
+
+        let stored_source = "let value = 1\nlet values = []\nlet found = value in values\n";
+        let (program, sources, stored) = checked(stored_source);
+        let stored_operation_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression|
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::Binary { op: BinaryOp::In, .. })
+                .then_some(program.arena.expr(expression).span)).unwrap();
+        assert!(matches!(PendingBodyContracts::capture(&stored, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == stored_operation_span));
+
+        let (program, sources, mut intentional_any) = checked(source);
+        let empty_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty()))
+            .map(|expression| program.arena.expr(expression).span).unwrap();
+        intentional_any.expr_types.insert(empty_span, Type::List(Box::new(Type::Any)));
+        let any_list = PendingBodyContracts::capture(&intentional_any, &program, &sources).unwrap()
+            .into_contracts().into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap();
+        assert!(matches!(&any_list.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap().right,
+            OperandType::EmptyList(_)));
+        assert!(!original.preserved_by(&any_list));
+
+        let (program, sources, mut wrong_type) = checked(source);
+        let empty = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty())).unwrap();
+        let empty_span = program.arena.expr(empty).span;
+        wrong_type.expr_types.insert(empty_span, Type::Int);
+        let wrong = PendingBodyContracts::capture(&wrong_type, &program, &sources).unwrap().into_contracts()
+            .into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap();
+        assert!(!original.preserved_by(&wrong));
+
+        let (program, sources, mut nested_recovery) = checked(source);
+        let empty_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find(|&expression|
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::List(items) if items.is_empty()))
+            .map(|expression| program.arena.expr(expression).span).unwrap();
+        let binary_span = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression|
+            matches!(program.arena.expr(expression).kind, ArenaExprKind::Binary { op: BinaryOp::In, .. })
+                .then_some(program.arena.expr(expression).span)).unwrap();
+        nested_recovery.expr_types.insert(empty_span,
+            Type::List(Box::new(Type::List(Box::new(Type::Invalid)))));
+        assert!(matches!(PendingBodyContracts::capture(&nested_recovery, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
+
+        let (program, sources, mut missing_type) = checked(source);
+        missing_type.expr_types.remove(&empty_span);
+        assert!(matches!(PendingBodyContracts::capture(&missing_type, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
+    }
+
+    #[test]
+    fn checked_body_contract_divergence_requires_exiting_block_witness() {
+        let source = "pure choose(result: Result[Int, Error]) -> Int { result ?? { |_| return 0 } }\n";
+        let original = declaration(source);
+        let operation = original.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert!(matches!(&operation.right, OperandType::Diverges));
+
+        let completing = declaration("pure choose(result: Result[Int, Error]) -> Int { result ?? 0 }\n");
+        assert!(!original.preserved_by(&completing));
+        let mixed = declaration("pure choose(result: Result[Int, Error], flag: Bool) -> Int { result ?? { |_| if flag { return 0 } else { 1 } } }\n");
+        let mixed_operation = mixed.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert!(!matches!(&mixed_operation.right, OperandType::Diverges));
+        assert!(!original.preserved_by(&mixed));
+
+        let conditional_exit_source = "pure choose(result: Result[Int, Error], flag: Bool) -> Int { result ?? { |_| if flag { return 0 } else { return 1 } } }\n";
+        let conditional_exit = declaration(conditional_exit_source);
+        let exit_operation = conditional_exit.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert!(matches!(&exit_operation.right, OperandType::Diverges));
+
+        let (program, sources, checked) = checked(source);
+        let (block_expression, block_span, binary_span) = program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression| {
+            let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, right, .. } = program.arena.expr(expression).kind else { return None; };
+            let ArenaExprKind::ValueBlock(block) = program.arena.expr(right).kind else { return None; };
+            Some((right, program.arena.span(program.arena.block(block).span), program.arena.expr(expression).span))
+        }).unwrap();
+
+        let mut wrong_result = checked.clone();
+        wrong_result.expr_types.insert(program.arena.expr(block_expression).span, Type::Int);
+        let candidate = PendingBodyContracts::capture(&wrong_result, &program, &sources).unwrap()
+            .into_contracts().into_iter()
+            .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+        let operation = candidate.selections.values().find_map(|selection| selection.binary.as_ref()).unwrap();
+        assert!(!matches!(&operation.right, OperandType::Diverges));
+        assert!(!original.preserved_by(&candidate));
+
+        let mut recovery_result = checked.clone();
+        recovery_result.expr_types.insert(program.arena.expr(block_expression).span, Type::Invalid);
+        assert!(matches!(PendingBodyContracts::capture(&recovery_result, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
+
+        let mut inference_result = checked.clone();
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        inference_result.expr_types.insert(program.arena.expr(block_expression).span,
+            constraints.fresh(program.arena.expr(block_expression).span));
+        assert!(matches!(PendingBodyContracts::capture(&inference_result, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
+
+        let mut missing_exit = checked;
+        assert!(missing_exit.definitely_exiting_block_spans.remove(&block_span));
+        assert!(matches!(PendingBodyContracts::capture(&missing_exit, &program, &sources),
+            Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
     }
 
     #[test]
