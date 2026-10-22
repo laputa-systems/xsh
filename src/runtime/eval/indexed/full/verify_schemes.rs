@@ -3198,7 +3198,11 @@ fn verify_scheme_list_shape(store: &FullStore, id: SchemeTypeId) -> Result<(), I
 }
 
 enum ArgumentAliasCheck {
-    DriverValidatedAnnotation(TypeId),
+    DriverValidatedAnnotation {
+        type_id: TypeId,
+        step: usize,
+        initializer: usize,
+    },
     Annotation(TypeId),
     Declared(TypeId),
 }
@@ -3263,7 +3267,11 @@ fn checked_argument_type(
                     store, source.runtime_type, source.validation_type, &annotated, &checked, materialization,
                 )?;
                 checks.push(if source.validation_type.is_some() {
-                    ArgumentAliasCheck::DriverValidatedAnnotation(annotation)
+                    ArgumentAliasCheck::DriverValidatedAnnotation {
+                        type_id: annotation,
+                        step: source.step,
+                        initializer: source.initializer,
+                    }
                 } else {
                     ArgumentAliasCheck::Annotation(annotation)
                 });
@@ -3309,22 +3317,31 @@ fn checked_argument_type(
         return Ok(None);
     };
     for check in checks.into_iter().rev() {
-        let type_id = match check {
-            ArgumentAliasCheck::DriverValidatedAnnotation(type_id)
+        let type_id = match &check {
+            ArgumentAliasCheck::DriverValidatedAnnotation { type_id, .. }
             | ArgumentAliasCheck::Annotation(type_id)
-            | ArgumentAliasCheck::Declared(type_id) => type_id,
+            | ArgumentAliasCheck::Declared(type_id) => *type_id,
         };
         let declared = store.semantic.to_type_with_budget(
             type_id, &mut materialization.semantic_types,
         )?;
         actual = match check {
-            ArgumentAliasCheck::DriverValidatedAnnotation(_) => {
-                if !runtime_complete_value_check_type(&declared, materialization, 0)? {
-                    return Err(IrVerifyError::new("driver annotation has no complete runtime validation"));
-                }
+            ArgumentAliasCheck::DriverValidatedAnnotation {
+                step,
+                initializer,
+                ..
+            } => {
                 if let CheckedArgumentType::Known(input) = &actual {
+                    ensure_closed_type(input)?;
                     if !input.matches_expected(&declared) {
-                        return Err(IrVerifyError::new("local initializer disagrees with its declaration annotation"));
+                        if !driver_rel_path_literal_matches_annotation(
+                            store,
+                            (step, initializer),
+                            input,
+                            &declared,
+                        )? {
+                            return Err(IrVerifyError::new("local initializer disagrees with its declaration annotation"));
+                        }
                     }
                     materialization.charge_clone(&declared)?;
                     CheckedArgumentType::Known(declared)
@@ -3355,6 +3372,27 @@ fn checked_argument_type(
         };
     }
     Ok(Some(actual))
+}
+
+fn driver_rel_path_literal_matches_annotation(
+    store: &FullStore,
+    (step, initializer): (usize, usize),
+    actual: &Type,
+    annotation: &Type,
+) -> Result<bool, IrVerifyError> {
+    if actual != &Type::Path || annotation != &Type::rel_path() {
+        return Ok(false);
+    }
+    let decoder = decoder_for_driver_step(store, step)?;
+    if !decoder.instruction_range.contains(&initializer) {
+        return Err(IrVerifyError::new(
+            "driver local initializer belongs to another step",
+        ));
+    }
+    Ok(matches!(
+        decoder.expression_view(initializer)?,
+        schema::ExprView::Path(path) if crate::sema::validated::is_rel_path(path)
+    ))
 }
 
 fn closed_literal_argument_type(actual: CheckedArgumentType, materialization: &mut SchemeInstantiationBudget) -> Result<Option<Type>, IrVerifyError> {

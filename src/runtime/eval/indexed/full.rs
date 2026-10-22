@@ -21707,8 +21707,10 @@ run true
     }
 
     fn fixture(name: &str, source: &str) -> FullProgram {
-        // Prepare through the loader so embedded standard-library
-        // implementations are attached, exactly as the script runner does.
+        fixture_result(name, source).unwrap()
+    }
+
+    fn fixture_result(name: &str, source: &str) -> Result<FullProgram, IrBuildError> {
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
             name,
             crate::loader::entry_source_from_text(name, source.to_string()),
@@ -21742,7 +21744,6 @@ run true
             Arc::new(sources),
             source_id,
         )
-        .unwrap()
     }
 
     fn same_named_binding_capture_fixture() -> FullProgram {
@@ -46349,6 +46350,167 @@ assert check_paths(p"relative")
             assert_eq!(
                 FullVerifier::verify(&forged).unwrap_err().message,
                 "ground producer value disagrees with its checked contract"
+            );
+        });
+    }
+
+    #[test]
+    fn generic_driver_aliases_verify_incomplete_annotation_producers() {
+        run_with_large_stack(|| {
+            let path_source = r#"pure paths(values) -> List[Path] { [value for value in values] }
+let relative: RelPath = p"relative"
+let copied = paths([relative])
+assert copied[0] == relative
+"#;
+            let stream_source = r#"stream values() [] -> Stream[Int] { yield 1 }
+stream other_values() [] -> Stream[Str] { yield "wrong" }
+proc collect(values) [error] {
+  var output = []
+  for value in values { output = output.push(value) }
+  output
+}
+let source: Result[Stream[Int]] = Ok(values())
+let result = collect(source)
+"#;
+            let error_family_source = r#"error IterationFailure = Stopped(value: Int)
+error OtherFailure = Changed(value: Str)
+pure captured(values) { try { [value for value in values] } }
+pure stopped_value(value: Int, other: Str) -> Result[List[Int], IterationFailure] {
+  let _ = OtherFailure.Changed(value: other)
+  Err(IterationFailure.Stopped(value: value))
+}
+let stopped: Result[List[Int], IterationFailure] = stopped_value(1, "bad")
+let rejected = captured(stopped)
+"#;
+
+            let path = fixture_result("generic-local-relpath.xsh", path_source);
+            let stream = fixture_result("annotated-stream-alias.xsh", stream_source);
+            let error_family =
+                fixture_result("annotated-error-family-alias.xsh", error_family_source);
+            assert!(
+                path.is_ok() && stream.is_ok() && error_family.is_ok(),
+                "path: {path:?}; stream: {stream:?}; error family: {error_family:?}"
+            );
+
+            let path = Arc::new(path.unwrap());
+            let stream = Arc::new(stream.unwrap());
+            let error_family = Arc::new(error_family.unwrap());
+            FullVerifier::verify(&path).unwrap();
+            FullVerifier::verify(&stream).unwrap();
+            FullVerifier::verify(&error_family).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*path.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&path));
+                for step in 0..path.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(step, Span::at(path.store.source_id, 0))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+
+            let mut absolute_path = (*path).clone();
+            let decoder = stage_view_decoder(&absolute_path.store);
+            let literal = (0..absolute_path.store.tags.len())
+                .find(|instruction| {
+                    matches!(
+                        decoder.expression_view(*instruction),
+                        Ok(schema::ExprView::Path(path)) if path == b"relative"
+                    )
+                })
+                .expect("the annotated path initializer is present");
+            let payload = absolute_path
+                .store
+                .payload(absolute_path.store.data[literal].range())
+                .unwrap();
+            let byte_id = super::super::IrBytesId::from_raw(payload[0])
+                .expect("the literal has a byte pool ID");
+            let byte_range = absolute_path.store.bytes[byte_id.index()];
+            absolute_path.store.byte_data[byte_range.start as usize] = b'/';
+            let error = FullVerifier::verify(&absolute_path).unwrap_err();
+            assert_eq!(
+                error.message,
+                "local initializer disagrees with its declaration annotation"
+            );
+
+            let mut wrong_stream = (*stream).clone();
+            let values = function_instruction_indices(
+                &stream,
+                "values",
+                FullTag::ExprInt,
+            )
+            .into_iter()
+            .find(|&instruction| {
+                matches!(
+                    stage_view_decoder(&stream.store).expression_view(instruction),
+                    Ok(schema::ExprView::Int(1))
+                )
+            })
+            .expect("the Int stream has its checked item");
+            let other_value = function_instruction_indices(
+                &stream,
+                "other_values",
+                FullTag::ExprStr,
+            )
+            .into_iter()
+            .find(|&instruction| {
+                matches!(
+                    stage_view_decoder(&stream.store).expression_view(instruction),
+                    Ok(schema::ExprView::Str("wrong"))
+                )
+            })
+            .expect("the Str stream has its forged item control");
+            wrong_stream.store.tags.swap(values, other_value);
+            wrong_stream.store.data.swap(values, other_value);
+            let error = FullVerifier::verify(&wrong_stream).unwrap_err();
+            assert!(
+                error.message.contains("producer") || error.message.contains("contract"),
+                "{error:?}"
+            );
+
+            let mut wrong_error_family = (*error_family).clone();
+            let stopped_decoder = return_analysis_decoder(&error_family, "stopped_value");
+            let stopped_error = function_instruction_indices(
+                &error_family,
+                "stopped_value",
+                FullTag::ExprError,
+            )
+            .into_iter()
+                .find(|&instruction| {
+                    matches!(
+                        stopped_decoder.expression_view(instruction),
+                        Ok(schema::ExprView::Error(super::ErrorExprView::Structured {
+                            family_identity,
+                            ..
+                        })) if family_identity.contains("IterationFailure")
+                    )
+                })
+                .expect("the error family has a physical constructor");
+            let other_error = function_instruction_indices(
+                &error_family,
+                "stopped_value",
+                FullTag::ExprError,
+            )
+            .into_iter()
+                .find(|&instruction| {
+                    matches!(
+                        stopped_decoder.expression_view(instruction),
+                        Ok(schema::ExprView::Error(super::ErrorExprView::Structured {
+                            family_identity,
+                            ..
+                        })) if family_identity.contains("OtherFailure")
+                    )
+                })
+                .expect("the control family has a physical constructor");
+            wrong_error_family.store.data.swap(stopped_error, other_error);
+            let error = FullVerifier::verify(&wrong_error_family).unwrap_err();
+            assert!(
+                error.message.contains("producer")
+                    || error.message.contains("contract")
+                    || error.message.contains("structured-error identity"),
+                "{error:?}"
             );
         });
     }

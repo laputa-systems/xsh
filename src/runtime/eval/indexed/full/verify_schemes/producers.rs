@@ -6277,6 +6277,7 @@ impl<'a> ProducerProof<'a> {
                 let source_owner = driver_owner(source.step).map_err(|_| IrVerifyError::new("ground driver initializer owner is invalid"))?;
                 if let Some(validation) = source.validation_type
                     && *self.ground_type(validation)? == *expected
+                    && super::runtime_complete_value_check_type(&expected, &mut self.budget, 0)?
                 {
                     return Ok(());
                 }
