@@ -1337,12 +1337,12 @@ fn verify_body_expression(
         schema::ExprView::Bytes(_) => SchemeType::Ground(Type::Bytes),
         schema::ExprView::Duration(_) => SchemeType::Ground(Type::Duration),
         schema::ExprView::PreparedRegex(_) => SchemeType::Ground(Type::Regex),
-        schema::ExprView::FunctionRef { function, pure } => {
-            let (target, _, target_pure) = decoder.function_reference_target(function)?;
-            let kind = store.function_metadata[target.index()].callable_kind;
-            match (ty, pure, target_pure, kind) {
-                (SchemeType::Ground(Type::Function(crate::sema::types::CallableKind::Pure)), true, true, crate::sema::types::CallableKind::Pure)
-                | (SchemeType::Ground(Type::Function(crate::sema::types::CallableKind::Proc)), false, false, crate::sema::types::CallableKind::Proc) => ty.clone(),
+        schema::ExprView::FunctionRef { function, kind } => {
+            let (target, _, target_kind) = decoder.function_reference_target(function)?;
+            let metadata_kind = store.function_metadata[target.index()].callable_kind;
+            match ty {
+                SchemeType::Ground(Type::Function(expected_kind))
+                    if *expected_kind == kind && target_kind == kind && metadata_kind == kind => ty.clone(),
                 _ => return Err(IrVerifyError::new("generic function value disagrees with its ground executable target")),
             }
         }

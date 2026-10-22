@@ -34242,7 +34242,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*derivable.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&derivable));
                     evaluator.force_frames = force_frames;
-                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(derivable.store.source_id, 0, 0)).unwrap().unwrap();
                     assert_eq!(result, Value::Int(2));
                 }
             }

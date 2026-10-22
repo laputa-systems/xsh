@@ -149,8 +149,8 @@ mod tests {
         let fact = program.store.scheme_body_facts.iter().find(|fact| fact.kind() == FullSchemeBodyFactKind::RecordProducer).unwrap();
         let decoder = function_view_decoder(&program.store, fact.function.index());
         let mut range = program.store.function_instruction_range(fact.function.index()).unwrap();
-        let reference = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { pure: true, .. }))).unwrap();
-        let wrong = range.find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { pure: false, .. }))).unwrap();
+        let reference = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { kind: crate::sema::types::CallableKind::Pure, .. }))).unwrap();
+        let wrong = range.find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FunctionRef { kind: crate::sema::types::CallableKind::Proc, .. }))).unwrap();
         let mut wrong_kind = program.clone();
         wrong_kind.store.data[reference] = program.store.data[wrong];
         assert!(FullVerifier::verify(&wrong_kind).is_err());

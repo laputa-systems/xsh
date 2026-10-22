@@ -2321,7 +2321,7 @@ fn generic_nonmaterial_function_shorthand_preserves_selected_ground_value() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, expected, "{name} frames={force_frames}");
         }
     }
