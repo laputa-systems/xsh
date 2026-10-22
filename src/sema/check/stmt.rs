@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::TagVariantInfo;
-use super::expr::expr_or_run_span_arena;
+use super::expr::{expr_or_run_span_arena, list_literal_is_empty};
 use super::{
     AnnotationFact, AnnotationFactKind, BinaryOp, Checker, Diagnostic, FixHint, FxHashSet, Label,
     Name, Span, Type, UnaryOp, command_stmt_asserts_success_arena, command_ty_auto_propagates,
@@ -9,6 +9,7 @@ use super::{
 };
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
 use crate::diagnostic::DiagnosticCode;
+use crate::sema::types::merge_list_literal_item_ty;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun,
     ArenaFunctionDef, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
@@ -27,6 +28,14 @@ pub(super) use super::proof::{ConditionNarrowings, Narrowing};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum TailCheckingPurpose { Value, ProcCompletion }
+
+fn tail_block_list_literal_is_empty(arena: &ArenaProgram, block: BlockId) -> Option<bool> {
+    let tail = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
+    match arena.arena.stmt(arena.arena.core_stmt_id(tail)).kind {
+        ArenaStmtKind::Expr(expression) => list_literal_is_empty(arena, expression),
+        _ => None,
+    }
+}
 
 pub(super) fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     matches!(
@@ -6997,6 +7006,7 @@ impl Checker {
                 }
                 let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
                 let mut inferred = None;
+                let mut inferred_from_empty_list = true;
                 let mut previous_failure = Vec::new();
                 for branch in arena.arena.if_branches(branches) {
                     self.push_scope();
@@ -7023,6 +7033,10 @@ impl Checker {
                         branch_expectation,
                         purpose,
                     );
+                    let empty_list = tail_block_list_literal_is_empty(arena, branch.block)
+                        == Some(true)
+                        && actual == Type::List(Box::new(Type::Unknown))
+                        && self.diagnostics.len() == diagnostics_before;
                     self.pop_scope();
                     if !infer_branches {
                         self.check_unit_branch_completion(
@@ -7039,11 +7053,18 @@ impl Checker {
                             && !infer_branches
                         {
                             inferred.as_ref().and_then(|previous| {
-                                super::types::merge_checked_branches(
-                                    branch_expectation,
-                                    previous,
-                                    &actual,
-                                )
+                                if inferred_from_empty_list
+                                    && tail_block_list_literal_is_empty(arena, branch.block).is_some()
+                                    && matches!(actual, Type::List(_))
+                                {
+                                    merge_list_literal_item_ty(previous, &actual)
+                                } else {
+                                    super::types::merge_checked_branches(
+                                        branch_expectation,
+                                        previous,
+                                        &actual,
+                                    )
+                                }
                             })
                         } else {
                             None
@@ -7058,6 +7079,7 @@ impl Checker {
                             inferred.unwrap_or(actual)
                         });
                     }
+                    inferred_from_empty_list &= empty_list;
                     previous_failure.extend(narrowings.when_false);
                     self.pop_scope();
                 }
@@ -7094,11 +7116,18 @@ impl Checker {
                             && !infer_branches
                         {
                             inferred.as_ref().and_then(|previous| {
-                                super::types::merge_checked_branches(
-                                    else_expectation,
-                                    previous,
-                                    &actual,
-                                )
+                                if inferred_from_empty_list
+                                    && tail_block_list_literal_is_empty(arena, block).is_some()
+                                    && matches!(actual, Type::List(_))
+                                {
+                                    merge_list_literal_item_ty(previous, &actual)
+                                } else {
+                                    super::types::merge_checked_branches(
+                                        else_expectation,
+                                        previous,
+                                        &actual,
+                                    )
+                                }
                             })
                         } else {
                             None
@@ -7185,6 +7214,7 @@ impl Checker {
         let arm_list = arena.arena.match_arms(arms);
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
         let mut inferred: Option<Type> = None;
+        let mut inferred_from_empty_list = true;
         let initial_stream_state = self.stream_mutable_state();
         let mut stream_failure = initial_stream_state.clone();
         let mut stream_reaching = Vec::new();
@@ -7211,17 +7241,30 @@ impl Checker {
             let arm_expectation = if infer_branches { None } else { super::types::next_branch_expectation(expectation, inferred.as_ref()) };
             let diagnostics_before = self.diagnostics.len();
             let arm_ty = self.check_tail_block_for_purpose_arena(arena, source, arm.block, arm_expectation, purpose);
+            let empty_list = tail_block_list_literal_is_empty(arena, arm.block) == Some(true)
+                && arm_ty == Type::List(Box::new(Type::Unknown))
+                && self.diagnostics.len() == diagnostics_before;
             if !infer_branches {
                 self.check_unit_branch_completion(arena, arm.block, arm_expectation.map(super::types::TypeExpectation::context).cloned(), &arm_ty);
             }
             if arm_ty != Type::Unknown {
                 let merged = if !infer_branches && self.diagnostics.len() == diagnostics_before {
-                    inferred.as_ref().and_then(|previous| super::types::merge_checked_branches(arm_expectation, previous, &arm_ty))
+                    inferred.as_ref().and_then(|previous| {
+                        if inferred_from_empty_list
+                            && tail_block_list_literal_is_empty(arena, arm.block).is_some()
+                            && matches!(arm_ty, Type::List(_))
+                        {
+                            merge_list_literal_item_ty(previous, &arm_ty)
+                        } else {
+                            super::types::merge_checked_branches(arm_expectation, previous, &arm_ty)
+                        }
+                    })
                 } else { None };
                 inferred = Some(if infer_branches {
                     inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span)))
                 } else { merged.or(inferred).unwrap_or(arm_ty) });
             }
+            inferred_from_empty_list &= empty_list;
             if self.stream_block_may_complete(arena, arm.block) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();
         }

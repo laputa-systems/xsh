@@ -1121,6 +1121,21 @@ mod tests {
         snapshots(source).into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap()
     }
 
+    fn local_binding_type(checked: &CheckOutput, sources: &SourceMap, name: &str) -> Type {
+        let prefix = format!("let {name} =");
+        checked.local_binding_types.iter().find_map(|(span, ty)| {
+            sources.span_text(*span).filter(|text| text.starts_with(&prefix)).map(|_| ty.clone())
+        }).unwrap_or_else(|| panic!("missing checked type for `{name}`"))
+    }
+
+    fn list_item_length_receiver(program: &ArenaProgram) -> ExprId {
+        program.arena.source_rows().expr_ids(SourceId::new(0)).find_map(|expression| {
+            let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+            let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else { return None; };
+            (name.as_str() == "len").then_some(base)
+        }).expect("list item length receiver")
+    }
+
     #[test]
     fn checked_body_contract_resource_specialization_requires_same_header_binders_and_operand_roles() {
         let (_, _, old_checked) = checked("pure choose(first: Int, second: Str) -> Int { first }\n");
@@ -1756,6 +1771,73 @@ mod tests {
         missing_type.expr_types.remove(&empty_span);
         assert!(matches!(PendingBodyContracts::capture(&missing_type, &program, &sources),
             Err(BodyContractError::UnsupportedSelection(span)) if span == binary_span));
+    }
+
+    #[test]
+    fn checked_body_contract_captures_statement_tail_empty_list_refinement() {
+        let source = "proc observe(data: Bytes, choose: Bool) { let records = if choose { if data.is_empty() { [] } else { [data] } } else { [data] }; for line in records { let end = line.len(); if 0 < end { let _ = end } } }\n";
+        let (program, sources, checked) = checked(source);
+        let receiver = list_item_length_receiver(&program);
+        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
+            .map(PendingBodyContracts::into_contracts).unwrap();
+        assert!(contracts.iter().flat_map(|body| body.operations.values())
+            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+    }
+
+    #[test]
+    fn statement_tail_empty_list_branches_remain_underconstrained_when_all_empty() {
+        let source = "proc observe(choose: Bool) { let rows = if choose { if choose { [] } else { [] } } else { [] }; for row in rows { let _ = row } }\n";
+        let (_, sources, checked) = checked(source);
+        assert_eq!(local_binding_type(&checked, &sources, "rows"), Type::List(Box::new(Type::Unknown)));
+    }
+
+    #[test]
+    fn statement_tail_empty_list_keeps_stored_alias_type_shared() {
+        let source = "proc observe(data: Bytes, choose: Bool) { let empty = []; let rows = if choose { if data.is_empty() { empty } else { [data] } } else { [data] }; let ints: List[Int] = empty }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)),
+            "one stored empty-list binding was independently specialized: {:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn statement_tail_match_empty_list_refines_from_an_exact_list_literal() {
+        let source = "proc observe(data: Bytes, choose: Bool) { let rows = match choose { true => { [] }; false => { [data] } }; for line in rows { let end = line.len(); if 0 < end { let _ = end } } }\n";
+        let (program, sources, checked) = checked(source);
+        assert_eq!(local_binding_type(&checked, &sources, "rows"), Type::List(Box::new(Type::Bytes)));
+        let receiver = list_item_length_receiver(&program);
+        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
+            .map(PendingBodyContracts::into_contracts).unwrap();
+        assert!(contracts.iter().flat_map(|body| body.operations.values())
+            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+    }
+
+    #[test]
+    fn match_expression_empty_list_refines_from_an_exact_list_literal() {
+        let source = "proc observe(data: Bytes, choose: Bool) { let rows = match choose { true => []; false => [data] }; for line in rows { let end = line.len(); if 0 < end { let _ = end } } }\n";
+        let (program, sources, checked) = checked(source);
+        assert_eq!(local_binding_type(&checked, &sources, "rows"), Type::List(Box::new(Type::Bytes)));
+        let receiver = list_item_length_receiver(&program);
+        assert_eq!(checked.expr_types.get(&program.arena.expr(receiver).span), Some(&Type::Bytes));
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
+            .map(PendingBodyContracts::into_contracts).unwrap();
+        assert!(contracts.iter().flat_map(|body| body.operations.values())
+            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+    }
+
+    #[test]
+    fn statement_tail_empty_list_refinement_keeps_known_domains_invariant() {
+        let source = "proc observe(choose: Bool) { let rows = if choose { if choose { [] } else { [1] } } else { [b\"value\"] } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)),
+            "incompatible List[Int] and List[Bytes] branches were accepted: {:?}", checked.diagnostics);
     }
 
     #[test]
