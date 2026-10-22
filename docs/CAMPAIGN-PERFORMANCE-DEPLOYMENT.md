@@ -8,6 +8,30 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Matching verification products for provisional source `7b57e094d`, with the
+corpus assertions committed at `2aaefda86`, run all 113 enumerated full-inference
+native controls and seven changed legacy controls: 80 pass and 40 fail. Every
+listed selector executes exactly once. This wider boundary exposes unfinished
+declaration-side structural and operator relationships, callable composition,
+effect propagation, and prepared verification. One cleanup-effect rejection
+incorrectly succeeds; it remains a required safety repair. The previous selected
+Rust results do not establish full capability completion.
+
+Static literal-splice repair `10fce8c8d`, integrated as `c06d930d0`, passes the
+matching native source-order/refinement selector, rest-element rejection and
+default controls. Independent review is clear. Iterator-source repair
+`c024801ea`, integrated as `7b57e094d`, resolves established cells before loop
+and comprehension item projection. Ten Rust controls and its native rejection
+pass; the public positive still fails at downstream prepared storage proof.
+Keep that unchanged positive mandatory.
+
+The flat 400-alias diagnostic reaches 81,003 driver-slot rows for 403 driver
+steps. Its first producer-index charge requests 81,411 units against a natural
+6,636-unit budget, before alias traversal. No work limit is increased. An
+experimental post-encoding compaction mode is rejected after review finds an
+omitted-input fallback. The repair now targets allocation of unnecessary inputs
+before lowering, preserving one prepared metadata contract.
+
 Provisional assembly `e0a97e754` passes 662 of 670 selected Rust controls.
 The replay preserves all 668 preceding selectors and adds named-spread Stream
 provenance and dormant callable-record guard controls. Eight failures remain:
