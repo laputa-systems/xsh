@@ -2547,6 +2547,31 @@ mod tests {
     }
 
     #[test]
+    fn rejected_interfaces_preserve_independent_generalization_diagnostics() {
+        use crate::diagnostic::{DiagnosticCode, LabelStyle};
+        let independent = "pure empty() { let state = {items: []}; state.items }\n";
+        for (rejected, expected) in [
+            ("pure rejected(value: Missing) -> Int { 0 }\n", DiagnosticCode::CheckUnknownType),
+            ("pure rejected(flag: Bool, value: Any) { if flag { null } else { value } }\n", DiagnosticCode::CheckInferReturn),
+        ] {
+            for reversed in [false, true] {
+                let source = if reversed { format!("{independent}{rejected}") } else { format!("{rejected}{independent}") };
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena(&parsed.arena, &source);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{:?}", checked.diagnostics);
+                let start = source.find(independent).unwrap();
+                let end = start + independent.len();
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                        && diagnostic.labels.iter().any(|label| label.style == LabelStyle::Primary
+                            && label.span.start() >= start && label.span.end() <= end)
+                }), "independent generic inference diagnostic is retained: {:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
     fn cached_module_facts_match_fresh_checks_for_every_option_order() {
         let mut sources = SourceMap::new();
         let root_text = "use shared\nproc main(value: Int) {}\n";
