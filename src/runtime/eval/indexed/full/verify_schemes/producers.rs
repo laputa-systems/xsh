@@ -920,37 +920,46 @@ impl GroundProducerIndex {
             { checked_producers.push(index); }
         }
         let mut effect_demand_work = 0usize;
-        let mut effect_demand = false;
-        if store.registered_calls.is_empty() && checked_producers.is_empty() {
+        let mut selected_demand = !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        if !selected_demand {
+            selected_demand = store.call_instantiations.iter().any(|call| {
+                effect_demand_work += 1;
+                matches!(store.tags.get(call.instruction as usize), Some(FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall))
+            });
+        }
+        if !selected_demand {
             for instruction in 0..store.tags.len() {
                 effect_demand_work += 1;
-                if has_condition_inputs(store.tags[instruction]) || super::super::verify_effects::needs_operand_proof(store, instruction)? { effect_demand = true; break; }
-            }
-        }
-        let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
-            || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
-        let mut literal_capture_demand = false;
-        for function in &store.functions {
-            effect_demand_work += 1;
-            if !matches!(function.contract, FullCallableContract::Scheme(_)) { continue; }
-            for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
-                effect_demand_work += 1;
-                if capture.slot_and_flags & (1 << 31) == 0 && store.semantic.type_tag(capture.type_id)? == super::super::super::semantic::TypeTag::Record {
-                    literal_capture_demand = true;
+                if has_condition_inputs(store.tags[instruction]) || super::super::verify_effects::needs_operand_proof(store, instruction)? {
+                    selected_demand = true;
                     break;
                 }
             }
-            if literal_capture_demand { break; }
         }
-        let stream_demand = store.functions.iter().enumerate().any(|(index, _)| {
-            effect_demand_work += 1;
-            store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
-        });
-        let instantiated_call_demand = store.call_instantiations.iter().any(|call| {
-            effect_demand_work += 1;
-            matches!(store.tags.get(call.instruction as usize), Some(FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall))
-        });
-        let mut selected_demand = literal_capture_demand || stream_demand || storage_demand || effect_demand || instantiated_call_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        if !selected_demand {
+            selected_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
+                || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
+        }
+        if !selected_demand {
+            for function in &store.functions {
+                effect_demand_work += 1;
+                if !matches!(function.contract, FullCallableContract::Scheme(_)) { continue; }
+                for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
+                    effect_demand_work += 1;
+                    if capture.slot_and_flags & (1 << 31) == 0 && store.semantic.type_tag(capture.type_id)? == super::super::super::semantic::TypeTag::Record {
+                        selected_demand = true;
+                        break;
+                    }
+                }
+                if selected_demand { break; }
+            }
+        }
+        if !selected_demand {
+            selected_demand = store.functions.iter().enumerate().any(|(index, _)| {
+                effect_demand_work += 1;
+                store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
+            });
+        }
         if !selected_demand {
             for (index, function) in store.functions.iter().enumerate() {
                 effect_demand_work += 1;

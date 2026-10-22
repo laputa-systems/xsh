@@ -66,6 +66,20 @@ IDs, and references, then derives the marks used by the in-place evaluator.
 Other instructions use the explicit frame scheduler. Runtime decoders rely on
 the verified representation.
 
+Driver lowering selects immutable input bindings from resolved reads before
+reserving slots. Each step allocates a dense frame for those inputs and its
+locals; unused known bindings allocate no slot or type-fact row. Every mutable
+binding remains available for root synchronization, and signal hooks retain all
+known lexical slots. Resolved expression, shorthand, command, and tail reads
+preserve binding identity when selecting inputs. Missing binding identities
+conservatively retain their slots. The indexed schema and runtime slot checks
+use this same dense frame layout.
+
+Immutable driver writer aliases are authenticated iteratively. Each link keeps
+its lexical owner and physical input header, and exact type comparison unwinds
+after the terminal writer is proved. The shared cycle guard is released on
+success and error, so later proofs can reuse the decoder safely.
+
 Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.

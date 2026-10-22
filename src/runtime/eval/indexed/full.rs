@@ -6127,6 +6127,11 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     verified: bool,
 }
 
+enum CheckedBindingWriterType {
+    Resolved(Option<TypeId>),
+    Alias { binding: u32, owner: u32, expected: TypeId },
+}
+
 #[derive(Clone, Copy)]
 enum LocalImmutableLetWriter {
     Expression(usize),
@@ -6947,36 +6952,49 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_binding_identity_type(
         &self,
-        binding_identity: u32,
-        owner: u32,
-        expected_type_id: TypeId,
+        mut binding_identity: u32,
+        mut owner: u32,
+        mut expected_type_id: TypeId,
     ) -> Result<Option<TypeId>, IrVerifyError> {
-        let identity = self
-            .store
-            .binding_identities
-            .get(binding_identity as usize)
-            .ok_or_else(|| IrVerifyError::new("binding identity is out of bounds"))?;
-        if identity.flags & 1 != 0 {
-            return Ok(None);
+        let mut entered = Vec::new();
+        let result = (|| {
+            let mut result = loop {
+                let identity = self.store.binding_identities.get(binding_identity as usize)
+                    .ok_or_else(|| IrVerifyError::new("binding identity is out of bounds"))?;
+                if identity.flags & 1 != 0 { break None; }
+                if identity.owner != owner {
+                    return Err(IrVerifyError::new("binding identity owner differs from its capture origin"));
+                }
+                if !self.binding_identity_stack().borrow_mut().insert(binding_identity) {
+                    return Err(IrVerifyError::new("binding writer type proof contains a cycle"));
+                }
+                entered.push((binding_identity, expected_type_id));
+                match self.checked_binding_identity_writer_type(binding_identity, owner, expected_type_id)? {
+                    CheckedBindingWriterType::Resolved(ty) => break ty,
+                    CheckedBindingWriterType::Alias { binding, owner: next_owner, expected } => {
+                        binding_identity = binding;
+                        owner = next_owner;
+                        expected_type_id = expected;
+                    }
+                }
+            };
+            for links in entered.windows(2).rev() {
+                result = match result {
+                    Some(actual) => {
+                        if actual != links[1].1 {
+                            return Err(IrVerifyError::new("driver slot type differs from its defining binding writer"));
+                        }
+                        (self.store.semantic.to_type(links[0].1)? == self.store.semantic.to_type(actual)?)
+                            .then_some(links[0].1)
+                    }
+                    None => None,
+                };
+            }
+            Ok(result)
+        })();
+        for (binding, _) in entered {
+            self.binding_identity_stack().borrow_mut().remove(&binding);
         }
-        if identity.owner != owner {
-            return Err(IrVerifyError::new(
-                "binding identity owner differs from its capture origin",
-            ));
-        }
-        if !self.binding_identity_stack().borrow_mut().insert(binding_identity) {
-            return Err(IrVerifyError::new(
-                "binding writer type proof contains a cycle",
-            ));
-        }
-        let result = self.checked_binding_identity_writer_type(
-            binding_identity,
-            owner,
-            expected_type_id,
-        );
-        self.binding_identity_stack()
-            .borrow_mut()
-            .remove(&binding_identity);
         result
     }
 
@@ -6985,7 +7003,7 @@ impl<'a> FullDecoder<'a> {
         binding_identity: u32,
         program_owner: u32,
         expected_type_id: TypeId,
-    ) -> Result<Option<TypeId>, IrVerifyError> {
+    ) -> Result<CheckedBindingWriterType, IrVerifyError> {
         let mut writer = None;
         for program in &self.store.driver_programs {
             if program.owner != program_owner {
@@ -7013,11 +7031,11 @@ impl<'a> FullDecoder<'a> {
             }
         }
         let Some((step_index, writer_slot)) = writer else {
-            return Ok(None);
+            return Ok(CheckedBindingWriterType::Resolved(None));
         };
         let step = self.store.driver_steps[step_index];
         if step.tag == FullDriverTag::Use {
-            return Ok(TypeId::from_raw(step.registered_module_type));
+            return Ok(CheckedBindingWriterType::Resolved(TypeId::from_raw(step.registered_module_type)));
         }
         let slots = step
             .slots
@@ -7025,7 +7043,7 @@ impl<'a> FullDecoder<'a> {
             .ok_or_else(|| IrVerifyError::new("binding writer slot range is invalid"))?;
         let driver_slots = &self.store.driver_slots[slots];
         if step.tag != FullDriverTag::Let && step.tag != FullDriverTag::LetRecord {
-            return Ok(None);
+            return Ok(CheckedBindingWriterType::Resolved(None));
         }
         if step.tag == FullDriverTag::LetRecord {
             if writer_slot == IR_NONE
@@ -7040,10 +7058,10 @@ impl<'a> FullDecoder<'a> {
                         driver_slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE) != 0
                     })
             {
-                return Ok(None);
+                return Ok(CheckedBindingWriterType::Resolved(None));
             }
         } else if writer_slot != IR_NONE {
-            return Ok(None);
+            return Ok(CheckedBindingWriterType::Resolved(None));
         }
         let instruction_range = self.store.driver_instruction_range(step_index)?;
         let owner = driver_owner(step_index)
@@ -7095,7 +7113,24 @@ impl<'a> FullDecoder<'a> {
                 let _: Span = FullCodec::decode(&decoder, &mut payload)?;
                 payload.finish()?;
                 if mutable {
-                    return Ok(None);
+                    return Ok(CheckedBindingWriterType::Resolved(None));
+                }
+                if validation.is_none() && ty != Some(LoweredType::Any)
+                    && decoder.checked_expression_type_id(value_instruction)?.is_none()
+                    && let schema::ExprView::Param(slot) = decoder.expression_view(value_instruction)?
+                    && let Some(source) = driver_slots.iter().find(|source| source.slot as usize == slot)
+                    && source.flags & (DRIVER_SLOT_MUTABLE | DRIVER_SLOT_TEMPORARY | DRIVER_SLOT_DEFINITION) == 0
+                    && source.binding_identity != IR_NONE
+                {
+                    let identity = self.store.binding_identities.get(source.binding_identity as usize)
+                        .ok_or_else(|| IrVerifyError::new("driver slot binding identity is invalid"))?;
+                    if identity.flags & 1 == 0 {
+                        return Ok(CheckedBindingWriterType::Alias {
+                            binding: source.binding_identity,
+                            owner: identity.owner,
+                            expected: source.type_id,
+                        });
+                    }
                 }
                 let actual_type = match validation {
                     Some(validation) => {
@@ -7111,12 +7146,12 @@ impl<'a> FullDecoder<'a> {
                     None => decoder.derive_checked_expression_type(value_instruction)?,
                 };
                 let Some(actual_type) = actual_type else {
-                    return Ok(None);
+                    return Ok(CheckedBindingWriterType::Resolved(None));
                 };
                 if self.store.semantic.to_type(expected_type_id)? == actual_type {
-                    Ok(Some(expected_type_id))
+                    Ok(CheckedBindingWriterType::Resolved(Some(expected_type_id)))
                 } else {
-                    Ok(None)
+                    Ok(CheckedBindingWriterType::Resolved(None))
                 }
             }
             FullDriverTag::LetRecord => {
@@ -7134,7 +7169,7 @@ impl<'a> FullDecoder<'a> {
                 let _: Span = FullCodec::decode(&decoder, &mut payload)?;
                 payload.finish()?;
                 if mutable {
-                    return Ok(None);
+                    return Ok(CheckedBindingWriterType::Resolved(None));
                 }
                 let field_type = decoder
                     .checked_driver_record_output_types(source.raw() as usize, target)?
@@ -7143,9 +7178,9 @@ impl<'a> FullDecoder<'a> {
                     binding_identity,
                     driver_slots,
                     field_type.map(|field| field.unvalidated().clone()),
-                )
+                ).map(CheckedBindingWriterType::Resolved)
             }
-            _ => Ok(None),
+            _ => Ok(CheckedBindingWriterType::Resolved(None)),
         }
     }
 
@@ -25490,6 +25525,57 @@ assert observed.scoped == Ok(8)
     }
 
     #[test]
+    fn driver_input_headers_follow_used_aliases() {
+        run_with_large_stack(|| {
+            for count in [64, 128, 256, 512] {
+                let mut source = String::from("pure identity(value) { value }\nlet a0 = false\n");
+                for index in 1..=count {
+                    source.push_str(&format!("let a{index} = a{}\n", index - 1));
+                }
+                source.push_str(&format!("let result: Bool = identity(a{count})\n"));
+                let program = fixture("driver-used-alias-inputs.xsh", &source);
+                assert_eq!(program.store.driver_slots.len(), count + 1);
+                let final_step = program.store.driver_steps.last().unwrap();
+                assert_eq!(final_step.slot_count, 1);
+                assert_eq!(final_step.slots.len, 1);
+                assert_eq!(program.store.driver_slots.last().unwrap().slot, 0);
+                FullVerifier::verify(&program).unwrap();
+                let program = Arc::new(program);
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                    }
+                    assert_eq!(evaluator.lookup(Name::intern("result")).unwrap().value, Value::Bool(false));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn full_verifier_rejects_omitted_driver_input_reads() {
+        let program = fixture(
+            "omitted-driver-input.xsh",
+            "let unused = false\nlet used = true\nlet result = used\n",
+        );
+        let step = program.store.driver_steps.len() - 1;
+        let row = program.store.driver_steps[step];
+        assert_eq!(row.slot_count, 1);
+        assert_eq!(row.slots.len, 1);
+        assert_eq!(program.store.driver_slots[row.slots.start as usize].slot, 0);
+        let read = program.store.driver_instruction_range(step).unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprParam)
+            .unwrap();
+        let mut forged = program.clone();
+        let payload = forged.store.data[read].range();
+        forged.store.extra[payload.start as usize] = 1;
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "slot is out of bounds");
+    }
+
+    #[test]
     fn full_verifier_rejects_cyclic_generic_argument_aliases() {
         let program = fixture(
             "generic-local-alias-cycle.xsh",
@@ -27013,11 +27099,8 @@ assert observed.scoped == Ok(8)
             .slots
             .bounds(program.store.driver_slots.len())
             .unwrap();
-        let previous_binding_slot = program.store.driver_slots[after_range.clone()]
-            .iter()
-            .position(|slot| slot.binding_identity == selected_identity)
-            .expect("post-shadow step has the earlier selected slot");
-        let removed_slot = after_range.start + previous_binding_slot;
+        assert!(!program.store.driver_slots[after_range]
+            .iter().any(|slot| slot.binding_identity == selected_identity));
 
         let selected_payload_name = Name::intern(program.store.string(selected_name).unwrap())
             .symbol()
@@ -27029,14 +27112,6 @@ assert observed.scoped == Ok(8)
         for slot in &mut program.store.driver_slots {
             if slot.binding_identity == later_identity {
                 slot.name = selected_name;
-            }
-        }
-        program.store.driver_slots.remove(removed_slot);
-        for (step_index, step) in program.store.driver_steps.iter_mut().enumerate() {
-            if step_index == after_step {
-                step.slots.len = step.slots.len.checked_sub(1).unwrap();
-            } else if step_index > after_step {
-                step.slots.start = step.slots.start.checked_sub(1).unwrap();
             }
         }
         let mut sync_rows = Vec::new();
@@ -27912,7 +27987,7 @@ assert observed.scoped == Ok(8)
                 | DRIVER_SLOT_DEFINITION;
         assert_eq!(
             FullVerifier::verify(&stray_definition).unwrap_err().message,
-            "driver definition slot is read before initialization"
+            "driver effects are not exact"
         );
 
         let mut writer_range = step
@@ -28177,6 +28252,7 @@ pure invoke(n: Int) -> Int { f(n) }
         let program = Arc::new(fixture(
             "script-args-capture.xsh",
             "let numbers: List[Int] = []\n\
+             let direct_args = args\n\
              pure read_args() { args }\n",
         ));
         FullVerifier::verify(&program).unwrap();
@@ -28971,6 +29047,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
                       let number = 1\n\
                       let flag: Bool = false\n\
                       let erased: Any = 42\n\
+                      let erased_copy = erased\n\
                       let empty_result = identity(empty)\n\
                       let number_result = identity(number)\n\
                       let flag_result = identity(flag)\n";
@@ -44932,6 +45009,7 @@ pure apply() -> Int {
             "let first = args\nlet second = first\npure read() -> List[Str] { second }\n",
         );
         FullVerifier::verify(&program).unwrap();
+        let valid = program.clone();
         let second = program.store.binding_identities.iter()
             .position(|identity| program.store.string(identity.name).unwrap() == "second")
             .unwrap() as u32;
@@ -44949,6 +45027,9 @@ pure apply() -> Int {
         let error = decoder.checked_binding_identity_type(second, IR_NONE, type_id)
             .unwrap_err();
         assert_eq!(error.message, "binding writer type proof contains a cycle");
+        let mut recovered = unverified_return_analysis_decoder(&valid, "read");
+        recovered.binding_identity_stack = OnceCell::from(Rc::clone(decoder.binding_identity_stack()));
+        assert_eq!(recovered.checked_binding_identity_type(second, IR_NONE, type_id).unwrap(), Some(type_id));
     }
 
     #[test]
@@ -45348,7 +45429,8 @@ pure apply() -> Int {
                let retained = second\n\
                first.handler(value)\n\
              }\n\
-             print first.handler(1)\n",
+             let observed = {retained: second, value: first.handler(1)}\n\
+             print $observed.value\n",
         )
         .unwrap();
 
