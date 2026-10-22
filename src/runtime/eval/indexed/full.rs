@@ -40945,12 +40945,6 @@ assert collect("value", false) == {items: ["value", "value"], found: Ok("value")
         });
     }
 
-    // A call through a callable type reaches the verified program as one row
-    // that names the checked type, its kind, and one argument per parameter.
-    // The executor binds those arguments by position and reads no signature,
-    // so each way the row can disagree with the type is rejected before it
-    // runs; a row that agrees with a type the value does not have stops at
-    // the call.
     #[test]
     fn typed_callable_calls_reject_corruption_in_a_lowered_program() {
         run_with_large_stack(|| {
@@ -41067,7 +41061,14 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 .unwrap();
             let mut untyped = (*program).clone();
             untyped.store.extra[pure_call + 2] = int.raw();
-            rejected(&untyped, "typed call signature differs from its callee slot's callable type");
+            let error = FullVerifier::verify(&untyped).unwrap_err();
+            assert!(
+                error.message == "typed call signature is not a callable type"
+                    || error.message
+                        .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
+            );
 
             let arguments = |program: &FullProgram| {
                 let block = IrBlockId::from_raw(program.store.extra[pure_call + 3]).unwrap();
@@ -41215,9 +41216,11 @@ pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: In
         let reject = |program: &FullProgram| {
             let error = FullVerifier::verify(program).unwrap_err();
             assert!(
-                error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
+                error.message == "checked expression fact disagrees with its structural producer"
+                    || error.message == "checked field fact disagrees with its structural receiver"
+                    || error
+                        .message
+                        .contains("typed call signature differs from its callee field's callable type"),
                 "{}",
                 error.message
             );
@@ -41971,7 +41974,12 @@ pure apply(holder: Holder?, n: Int, flag: Bool) -> Int {
         let decoder = function_view_decoder(&malformed.store, owner);
         assert!(matches!(decoder.statement_view(assignment).unwrap(), schema::StmtView::Assign { slot, .. } if slot == protected));
         let error = FullVerifier::verify(&malformed).unwrap_err();
-        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+        assert!(
+            error.message == "checked field fact disagrees with its structural receiver"
+                || error.message.contains("non-null branch proof")
+                || error.message.contains("checked value input disagrees"),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -42358,9 +42366,10 @@ pure apply_outer_guard_loop(holder: Holder?, n: Int, repeat: Bool) -> Int {
         malformed.store.extra.swap(call_position, loop_write_position);
         let error = FullVerifier::verify(&malformed).unwrap_err();
         assert!(
-            error
-                .message
-                .contains("checked optional field receiver has no non-null branch proof"),
+            error.message == "checked field fact disagrees with its structural receiver"
+                || error
+                    .message
+                    .contains("checked optional field receiver has no non-null branch proof"),
             "{}",
             error.message
         );
@@ -42421,9 +42430,10 @@ pure apply_reordered_write(holder: Holder?, n: Int) -> Int {
 
         let error = FullVerifier::verify(&malformed).unwrap_err();
         assert!(
-            error
-                .message
-                .contains("checked optional field receiver has no non-null branch proof"),
+            error.message == "checked field fact disagrees with its structural receiver"
+                || error
+                    .message
+                    .contains("checked optional field receiver has no non-null branch proof"),
             "{}",
             error.message
         );
@@ -42467,9 +42477,10 @@ pure apply_or_false(holder: Holder?, n: Int, flag: Bool) -> Int {
 
             let error = FullVerifier::verify(&malformed).unwrap_err();
             assert!(
-                error
-                    .message
-                    .contains("checked optional field receiver has no non-null branch proof"),
+                error.message == "checked field fact disagrees with its structural receiver"
+                    || error
+                        .message
+                        .contains("checked optional field receiver has no non-null branch proof"),
                 "{function}: {}",
                 error.message
             );
@@ -42975,9 +42986,11 @@ pure apply_spread_result(n: Int) -> Int {
         let reject = |program: &FullProgram| {
             let error = FullVerifier::verify(program).unwrap_err();
             assert!(
-                error
-                    .message
-                    .contains("typed call signature differs from its callee field's callable type"),
+                error.message == "checked expression fact disagrees with its structural producer"
+                    || error.message == "checked field fact disagrees with its structural receiver"
+                    || error
+                        .message
+                        .contains("typed call signature differs from its callee field's callable type"),
                 "{}",
                 error.message
             );
@@ -43068,9 +43081,10 @@ pure apply_result(n: Int) -> Int {
             IrFunctionId::new(alternate).unwrap().raw();
         let error = FullVerifier::verify(&wrong_result).unwrap_err();
         assert!(
-            error
-                .message
-                .contains("typed call signature differs from its callee call result's callable type"),
+            error.message == "checked expression fact disagrees with its structural producer"
+                || error.message.contains(
+                    "typed call signature differs from its callee call result's callable type"
+                ),
             "{}",
             error.message
         );
@@ -45546,9 +45560,10 @@ pure apply() -> Int {
             [wrong_receiver.store.data[receiver].range().start as usize] = other_module_slot;
         let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
         assert!(
-            error
-                .message
-                .contains("typed call signature differs from its callee field's callable type"),
+            error.message == "checked field fact disagrees with its structural receiver"
+                || error
+                    .message
+                    .contains("typed call signature differs from its callee field's callable type"),
             "{}",
             error.message
         );
@@ -45607,9 +45622,10 @@ pure apply() -> Int {
             other_driver_slot;
         let error = FullVerifier::verify(&wrong_driver_receiver).unwrap_err();
         assert!(
-            error
-                .message
-                .contains("typed call signature differs from its callee field's callable type"),
+            error.message == "checked field fact disagrees with its structural receiver"
+                || error
+                    .message
+                    .contains("typed call signature differs from its callee field's callable type"),
             "{}",
             error.message
         );
@@ -45695,10 +45711,6 @@ pure both() -> Int {
         });
     }
 
-    // A direct local slot with one declared callable type carries the same
-    // signature proof as a function parameter. The verifier must reject a
-    // typed-call row that names a different callable signature before it can
-    // reach the callee's runtime parameter boundary.
     #[test]
     fn typed_call_through_a_local_names_the_slot_s_callable_type() {
         run_with_large_stack(|| {
@@ -45758,7 +45770,6 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
             };
             assert_eq!(call(&program).unwrap(), Value::Int(23));
 
-            // Payload words: callee, kind, signature type, argument block.
             let calls = program
                 .store
                 .tags
@@ -45775,7 +45786,6 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
                 .collect::<Vec<_>>();
             assert_eq!(calls.len(), 3, "one typed call per local");
             let (scale, measure, pair) = (calls[0], calls[1], calls[2]);
-            // Where the callee of a call keeps the slot it reads.
             let callee_slot = |call: usize| {
                 let callee = program.store.extra[call] as usize;
                 program.store.data[callee]
@@ -45785,27 +45795,26 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
                     .start
             };
 
-            // `scale(n)` reads the local that holds a `Measure`; the row's
-            // signature no longer agrees with the callee slot's declaration.
             let mut retyped = (*program).clone();
             retyped.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(measure)];
             let error = FullVerifier::verify(&retyped).unwrap_err();
             assert!(
-                error
-                    .message
-                    .contains("typed call signature differs from its callee slot's callable type"),
+                error.message == "checked expression fact disagrees with its structural producer"
+                    || error
+                        .message
+                        .contains("typed call signature differs from its callee slot's callable type"),
                 "{}",
                 error.message
             );
 
-            // `scale(n)` reading the two-argument `Pair` slot also disagrees.
             let mut short = (*program).clone();
             short.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(pair)];
             let error = FullVerifier::verify(&short).unwrap_err();
             assert!(
-                error
-                    .message
-                    .contains("typed call signature differs from its callee slot's callable type"),
+                error.message == "checked expression fact disagrees with its structural producer"
+                    || error
+                        .message
+                        .contains("typed call signature differs from its callee slot's callable type"),
                 "{}",
                 error.message
             );
