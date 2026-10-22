@@ -8,7 +8,7 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `2321053f2` passes 479 of 497 selected Rust controls.
+Runtime assembly `b9294922e` passes 481 of 499 selected Rust controls.
 Its 18 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
@@ -27,6 +27,20 @@ interfaces. Both original regression assertions pass unchanged. Independent
 inference errors remain visible in both declaration orders, and genuine
 output-only and unresolved-call controls pass. Five focused controls pass
 before the combined replay. No global error suppression is introduced.
+
+Result-context checkpoint `9f1d5939b` retains the documented one- or
+two-argument contract, selected receiver and error family, defaults and effect
+ownership. Twenty focused controls pass, followed by the combined replay.
+Three arguments now receive the existing arity diagnostic instead of reaching
+an unsupported lowering boundary. No runtime or registry signature changes.
+
+Fresh-list checkpoint `8479c7d45` repairs the diagnosed statement-tail join:
+exact empty literals can inherit another literal branch's element type in
+value-producing `if` and `match`, including nested block tails. Ten focused
+controls and the inherited stored-domain control pass. Stored aliases and
+incompatible known element types remain constrained. The SPEC template and
+generated paragraph match. It is locally integrated; combined qualification
+and matching practical products remain pending.
 
 Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
 operands from their actual checked AST and flow. Exact empty-list branch tails
