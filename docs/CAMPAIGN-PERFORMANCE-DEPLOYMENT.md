@@ -30,6 +30,21 @@ contract, without inventing a value binding or an opaque target. Execution after
 frontend disposal covers both routes; existing forged-export and immutable
 alias controls remain. Matching combined native qualification is pending.
 
+Iteration repair `728ddc1e3`, integrated as `44fc9212c`, passes eleven distinct
+focused Rust controls across compatible runs and independent review. Source,
+item and error relationships survive schemes and cold verification. The review
+reproduced a rollback leak and verified its repair without increasing budgets.
+Representative storage grows from 128 to 136 bytes; encoded type-parameter rows
+grow from 12 to 20 bytes. Seven new native controls await matching products.
+Ordering repair `c97388857`, integrated as `4e6f3d4b0`, passes four focused Rust
+controls. Ordering constrains and resolves operands before checking their
+domains. Polymorphic arithmetic remains open.
+
+Nominal producer repair `73ce589a9`, integrated as `54f03d86d`, passes three
+focused Rust controls and independent review. The unchanged nominal example
+verifies and executes through both routes. Forged nominal targets remain
+rejected. Documentation regeneration still needs matching rebuilt products.
+
 Documentation regeneration through the existing `docs.generate` API with
 `2137456d9` tools fails on the unchanged `70-nominal-type.xsh` example: a physical
 record constructor is rechecked as its nominal result. No generated files were

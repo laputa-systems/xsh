@@ -3105,6 +3105,13 @@ the ordinary item order and snapshot behavior. Result sources propagate their
 actual error family. Stream sources remain lazy, and leaving a loop releases
 its source through ordinary cleanup. The enclosing result contract must admit
 both source errors and errors from pulling a stream.
+An inferred iteration parameter retains the relationship between its source and
+item types. Independent calls may supply a `List`, `Set`, `Map`, `Str`, `Bytes`,
+`Stream`, or one `Result` around those sources. A map yields records with `key`
+and `value` fields; text yields `Str` items, and bytes yield `Int` items.
+Source and stream errors must fit the enclosing error boundary and effect
+contract. An explicit empty effect clause still excludes fallible iteration.
+Nested `Result` sources are not supported.
 List and map comprehensions retain the item or value relationship to quantified
 parameters. Set comprehensions require a checked scalar key domain. Qualifiers
 keep their ordinary sequential scope, lazy source evaluation, filter behavior,
