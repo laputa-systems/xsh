@@ -3351,8 +3351,11 @@ that function's full signature (labels, defaults, return type, and effects):
 
 An alias to a quantified pure function can be a direct call target. This includes
 an unannotated immutable alias to a known module export, such as
-`let identity = utilities.identity`. Each call instantiates the function's
-scheme independently. The immutable alias remains quantified and cannot itself
+`let identity = utilities.identity`. Required exports from a statically known
+module also retain their schemes through a constant string index or a constant
+string `.get(key)?`. Dynamic keys and optional generic exports do not establish
+a callable scheme. Each call instantiates the function's scheme independently.
+The immutable alias remains quantified and cannot itself
 be stored as a polymorphic first-class callable value. When a function or
 immutable alias is assigned to a concrete callable type, the checker selects
 one instance that fits the target. For example, two targets can select

@@ -18,6 +18,27 @@ validation failures. Keep those focused receipts separate from the complete run.
 The existing invalid-comparison-domain control also passes with these products.
 Documentation regeneration succeeds through the existing checked generator.
 
+The unfiltered Rust library replay at `92e7cabf6` selects 1,998 tests: 1,992 pass,
+three fail and three are ignored. Two exact alias-work counters omit the new
+iteration guard's constant representative lookup. Corrected counters pass both
+focused controls, retaining the linear slope, zero compression writes and all
+constraint counts. The remaining failure exposes lost explicit-Any provenance
+through a generic relay. Iteration over that result reports unresolved inference
+instead of the required dynamic boundary. This production class remains open.
+
+Driver-source repair `9631019d8`, integrated as `92e7cabf6`, passes four focused
+Rust controls and independent review. Incomplete runtime annotations require
+proof of the exact initializer. The original local `RelPath`, annotated Stream
+and nominal error-family programs build; forged path bytes, stream items and
+same-owner error constructors are rejected. The combined library replay covers
+the final budget-check ordering change. Native cleanup qualification is pending.
+
+Static module projection repair `6ec8a0d52`, integrated as `6a0497396`, passes
+three focused Rust controls and independent review. Constant-key Get and Index
+retain the imported generic callable's scheme and authenticate its source through
+the existing export proof. Get preserves its registered Result error type.
+Runtime qualification on both routes awaits matching products.
+
 The preceding verification products built from `2137456d9` execute all 113 enumerated
 full-inference native controls and seven changed legacy controls: 95 pass and
 25 fail. Every listed selector executes exactly once. This resolves eight
@@ -45,7 +66,9 @@ focused Rust controls across compatible runs and independent review. Source,
 item and error relationships survive schemes and cold verification. The review
 reproduced a rollback leak and verified its repair without increasing budgets.
 Representative storage grows from 128 to 136 bytes; encoded type-parameter rows
-grow from 12 to 20 bytes. Seven new native controls await matching products.
+grow from 12 to 20 bytes. Five new native controls pass across compatible runs;
+two expose the driver-source failures addressed above. Their matching runtime
+qualification remains pending.
 Ordering repair `c97388857`, integrated as `4e6f3d4b0`, passes four focused Rust
 controls. Ordering constrains and resolves operands before checking their
 domains. Polymorphic arithmetic remains open.
@@ -60,11 +83,15 @@ Documentation regeneration through the existing `docs.generate` API with
 record constructor is rechecked as its nominal result. No generated files were
 written. The nominal repair above resolves this failure, and regeneration passes
 with `e885b64c5` products.
-Iteration review also retains two separate open refinement programs: an
-annotated local `RelPath` passed through an inferred iterator, and a grounded
+Iteration review exposed two separate refinement programs: an annotated local
+`RelPath` passed through an inferred iterator, and a grounded
 `List[RelPath]`-to-`List[Path]` helper called with a contextual `p"relative"`
-literal. Both reach producer validation failures; isolating the iteration
-relationship does not qualify these complete programs.
+literal. Repairs `df8a204b9` and `92e7cabf6` now verify and execute these programs
+on both routes, with physical literal-forgery rejection.
+
+Open-row record spreads remain unsupported. Their result must retain unknown
+input fields while later explicit fields replace colliding labels. Resolving
+only the currently known fields would erase that relationship.
 
 Structural repair `2eda90c75`, integrated as `f8771f5b2`, preserves open-row
 relationships during destructuring and seeds omitted rest parameters as lists

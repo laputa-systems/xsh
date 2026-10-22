@@ -119,19 +119,17 @@ test test_typing_generic_module_alias_preserves_independent_instances { |ctx|
 
   let projected = test.run_xsh(
     ctx,
-    "use model\nlet identity = model.get(\"identity\")?\n",
+    "use model\nlet identity = model.get(\"identity\")?\nassert identity(42) == 42\nassert identity(\"demo\") == \"demo\"\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert projected.status == 2, projected.stderr
-  assert "[check.module-member]" in projected.stderr, projected.stderr
+  assert projected.success, projected.stderr
 
   let indexed = test.run_xsh(
     ctx,
-    "use model\nlet identity = model[\"identity\"]\n",
+    "use model\nlet identity = model[\"identity\"]\nassert identity(42) == 42\nassert identity(\"demo\") == \"demo\"\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert indexed.status == 2, indexed.stderr
-  assert "[check.module-member]" in indexed.stderr, indexed.stderr
+  assert indexed.success, indexed.stderr
 }
 
 test test_typing_concrete_module_index_beside_generic_export { |ctx|
