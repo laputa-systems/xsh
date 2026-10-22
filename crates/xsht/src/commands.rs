@@ -513,6 +513,18 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 description: "Match FILTER exactly",
             },
             OptionSpec {
+                names: &["--exact-id"],
+                arg: OptionArg::value("ID"),
+                repeatable: true,
+                description: "Select an exact test ID (repeatable; cannot combine with FILTER or --exact)",
+            },
+            OptionSpec {
+                names: &["--events-jsonl"],
+                arg: OptionArg::value("PATH"),
+                repeatable: false,
+                description: "Create a schema-1 test lifecycle event stream",
+            },
+            OptionSpec {
                 names: &["--cov"],
                 arg: OptionArg::Flag,
                 repeatable: false,

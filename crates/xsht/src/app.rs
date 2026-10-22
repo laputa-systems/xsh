@@ -383,6 +383,14 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
         }
         let list = parsed.flag("--list");
         let exact = parsed.flag("--exact");
+        let exact_ids = parsed.values("--exact-id").into_iter().map(str::to_owned).collect::<Vec<_>>();
+        if !exact_ids.is_empty() && (filter.is_some() || exact) {
+            return Err("`--exact-id` cannot combine with FILTER or `--exact`".to_string());
+        }
+        let events_jsonl = parsed.value("--events-jsonl").map(std::path::PathBuf::from);
+        if list && events_jsonl.is_some() {
+            return Err("`--events-jsonl` cannot combine with `--list`".to_string());
+        }
         if exact && filter.is_none() {
             return Err("`--exact` requires FILTER".to_string());
         }
@@ -391,6 +399,8 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
                 filter,
                 list,
                 exact,
+                exact_ids,
+                events_jsonl,
                 nocapture: parsed.flag("--nocapture"),
                 fail_fast: parsed.flag("--fail-fast"),
                 keep_temp: parsed.flag("--keep-temp"),

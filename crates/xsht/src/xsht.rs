@@ -35,6 +35,8 @@ pub(crate) mod test {
         pub(crate) filter: Option<String>,
         pub(crate) list: bool,
         pub(crate) exact: bool,
+        pub(crate) exact_ids: Vec<String>,
+        pub(crate) events_jsonl: Option<std::path::PathBuf>,
         pub(crate) nocapture: bool,
         pub(crate) fail_fast: bool,
         pub(crate) keep_temp: bool,
