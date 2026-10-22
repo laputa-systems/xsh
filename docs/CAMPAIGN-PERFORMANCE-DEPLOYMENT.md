@@ -8,29 +8,33 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `a5c3260f1` passes 379 of 406 selected Rust controls.
-Its 27 failures belong to the earlier full-library failure set. Every prior
-passing control remains selected and passes. Authored recursive records now
-retain their declared dynamic Map values and settled provenance. All three
-original Tokei regressions pass on this combined source.
+Runtime assembly `f9350b320` passes 385 of 411 selected Rust controls.
+Its 26 failures belong to the earlier full-library failure set. Every prior
+passing control remains selected and passes. Authored recursive records retain
+their declared dynamic Map values and settled provenance. All three original
+Tokei regressions pass on this combined source.
 Master remains at `d2453760a`; the assembly is not qualified for master.
-
-Provisional export assembly `1255cf0d3` passes 383 of 411 selected Rust controls.
-The canonical export checkpoint adds five passing controls and repairs the old
-forged-export fixture. Two previously passing dynamic module-call tests now
-fail cold verification with no resolved lexical callable identity. Repair those
-regressions before accepting this assembly. Both libraries compile; this run
-selects XSH tests and does not establish XSHT test coverage.
 
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
 `ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
 pass, including actual ground and generic Stream exports on both routes,
 owner and signature mutations, strict codecs, and existing module contracts.
-The integration failures remain separate required evidence.
+Initial assembly `1255cf0d3` exposed two dynamic module-call regressions.
+Repair `3ef7f5532` preserves common checking while publishing typed-value facts
+only for typed-value calls. All ten focused controls pass, including the
+unchanged purity mutation. Both regressions pass in the combined replay.
+Both libraries compile; this run selects XSH tests and establishes no XSHT
+test coverage.
+
+Test-first checkpoint `06a950205` preserves the earlier parked terminal Proc
+command control in committed source. Its current single-test replay fails at
+generic body admission. The body lane owns that required repair. The completed
+export checkout is retired from the active path and Git registration. Its
+scratch and generated artifacts remain in the ignored retired-lane archive.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
-44 failures and three existing ignores. Seventeen failures are repaired in the
-`a5c3260f1` replay. Remaining failures include producer gaps, malformed mutation
+44 failures and three existing ignores. Eighteen failures are repaired in the
+`f9350b320` replay. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
@@ -71,9 +75,9 @@ The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
 Five generic-body admission classes and single-body checking authority remain
-open, alongside 27 baseline failures and two export integration regressions. The next lanes own ordinary body
-forms, recursive provenance, canonical Stream module exports and paired
-interface completion. Full Rust, native, memory, performance and inherited
+open, alongside 26 baseline failures and the committed terminal-command
+control. The next lanes own ordinary body forms, canonical host-call
+continuations and paired interface completion. Full Rust, native, memory, performance and inherited
 Laputa acceptance remain pending. The last matching native replay is the earlier
 `7f4dccc80` pair: 27 passes with unchanged source and product guards.
 
