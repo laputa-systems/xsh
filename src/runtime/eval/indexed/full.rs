@@ -46301,6 +46301,59 @@ pure checked(number: Int) -> Result[Port] {
     }
 
     #[test]
+    fn grounded_path_producer_preserves_validated_list_items() {
+        run_with_large_stack(|| {
+            let source = r#"pure paths(values: List[RelPath]) -> List[Path] { [value for value in values] }
+pure check_paths(relative: RelPath) { let copied = paths([relative]); copied[0] == relative }
+assert check_paths(p"relative")
+"#;
+            let program = Arc::new(fixture("grounded-path-producer.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let call = |raw: &str| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "check_paths")),
+                    CallableKind::Pure,
+                    &[Value::Path(
+                        crate::runtime::value::PathValue::from_text(raw).unwrap(),
+                    )],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+            };
+            assert!(matches!(call("relative"), Some(Ok(Value::Bool(true)))));
+            assert!(matches!(call("dir/../relative"), Some(Ok(Value::Bool(true)))));
+            assert!(!matches!(call("/absolute"), Some(Ok(_))));
+            assert!(!matches!(call("../outside"), Some(Ok(_))));
+
+            let mut forged = (*program).clone();
+            let decoder = stage_view_decoder(&forged.store);
+            let literal = (0..forged.store.tags.len())
+                .find(|instruction| {
+                    matches!(
+                        decoder.expression_view(*instruction),
+                        Ok(schema::ExprView::Path(path)) if path == b"relative"
+                    )
+                })
+                .expect("the path literal is present");
+            let payload = forged
+                .store
+                .payload(forged.store.data[literal].range())
+                .unwrap();
+            let byte_id = super::super::IrBytesId::from_raw(payload[0])
+                .expect("the literal has a byte pool ID");
+            let byte_range = forged.store.bytes[byte_id.index()];
+            forged.store.byte_data[byte_range.start as usize] = b'/';
+            assert_eq!(
+                FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract"
+            );
+        });
+    }
+
+    #[test]
     fn inferred_require_targets_survive_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source =
