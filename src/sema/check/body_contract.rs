@@ -151,7 +151,7 @@ struct Operation {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum ControlFact {
     NonnullFallback, PropagatingStatement, DiscardableBinding, PropagatingCondition, RedundantConditionPropagation,
-    ExitingBlock, PathLiteral, OptionalBinding, BuiltinRange, CardinalityPreserving, PropagatingError,
+    ExitingBlock, PathLiteral, OptionalBinding, Builtin(super::CheckedBuiltinCall), CardinalityPreserving, PropagatingError,
     LatentStreamError, FallibleStage, PropagatingStageCallback, ExhaustiveMatch,
 }
 
@@ -932,6 +932,7 @@ impl Capture<'_> {
         let facts = &checked.checked_control_flow;
         let mut control = BTreeSet::new();
         for (kind, spans) in control_sets(checked) { if spans.contains(&span) { control.insert(kind); } }
+        if let Some(&kind) = facts.builtin_calls.get(&span) { control.insert(ControlFact::Builtin(kind)); }
         let selection = NodeSelection {
             binary: None,
             requirement: checked.requirement_targets.get(&span).cloned(),
@@ -1012,7 +1013,7 @@ impl Capture<'_> {
         for span in spans.filter(|span| relevant(span)) {
             if !self.seen_spans.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
         }
-        for span in control_sets(checked).into_iter().flat_map(|(_, spans)| spans).chain(checked.checked_control_flow.result_constructors.keys())
+        for span in control_sets(checked).into_iter().flat_map(|(_, spans)| spans).chain(checked.checked_control_flow.result_constructors.keys()).chain(checked.checked_control_flow.builtin_calls.keys())
             .filter(|span| relevant(span))
         {
             if !self.seen_spans.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
@@ -1033,7 +1034,7 @@ impl Capture<'_> {
     }
 }
 
-fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 15] {
+fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 14] {
     let facts = &checked.checked_control_flow;
     [
             (ControlFact::NonnullFallback, &checked.proven_nonnull_fallback_receivers),
@@ -1044,7 +1045,6 @@ fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 15] {
             (ControlFact::ExitingBlock, &checked.definitely_exiting_block_spans),
             (ControlFact::PathLiteral, &checked.path_literals),
             (ControlFact::OptionalBinding, &checked.optional_binding_spans),
-            (ControlFact::BuiltinRange, &facts.builtin_range_calls),
             (ControlFact::CardinalityPreserving, &facts.cardinality_preserving_collection_calls),
             (ControlFact::PropagatingError, &facts.propagating_error_spans),
             (ControlFact::LatentStreamError, &facts.latent_stream_error_spans),

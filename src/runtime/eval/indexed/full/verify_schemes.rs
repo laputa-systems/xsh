@@ -1123,6 +1123,7 @@ fn verify_scheme_body_facts(
         }
         let mut decoder = decoder_for_function(store, function_index)?;
         decoder.function_signature_index = Some(Arc::clone(function_signatures));
+        decoder.producer_demand = producer_index.demand();
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
             slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false });
@@ -1655,9 +1656,16 @@ fn verify_body_expression(
         }
         schema::ExprView::Require { value, check, .. } => {
             let actual = child(value, budget)?;
-            let expected = check.ty.materialize()?;
-            if check.schema.is_some() || expected.contains_any() || expected.contains_inference() || expected.contains_recovery() || expected.may_hold_resource() || !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic storage check has an invalid ground contract")); }
+            let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;
+            ensure_closed_type(&expected)?;
+            if check.schema.is_some() && expected.contains_typed_callable() && !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic runtime requirement cannot establish a callable signature")); }
+            if check.schema.is_none() && (expected.contains_any() || expected.may_hold_resource() || !body_type_matches_ground(&actual, &expected)) { return Err(IrVerifyError::new("generic storage check has an invalid ground contract")); }
             SchemeType::Result(Box::new(SchemeType::Ground(expected)), Box::new(SchemeType::Ground(Type::Error)))
+        }
+        schema::ExprView::PathFrom { value, .. } => {
+            let actual = child(value, budget)?;
+            if !body_type_matches_ground(&actual, &Type::Str) { return Err(IrVerifyError::new("generic path constructor has no actual text contract")); }
+            SchemeType::Ground(Type::Path)
         }
         schema::ExprView::Range { start, end, .. } => {
             for value in [start, end] {
@@ -1675,10 +1683,12 @@ fn verify_body_expression(
             };
             let owner_required = if let schema::ExprView::Require { value: input, check, .. } = decoder.expression_view(value.raw() as usize)? {
                 let required = check.ty.materialize()?;
-                if check.schema.is_some() || required.may_hold_resource() || error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
-                let actual_input = types.get(&(input.raw() as usize)).ok_or_else(|| IrVerifyError::new("generic requirement has no checked input contract"))?;
-                !body_type_matches(actual_input, &SchemeType::Ground(required), budget)?
-                    && matches!(boundary, PropagationBoundary::ResultError(_))
+                if check.schema.is_none() {
+                    if required.may_hold_resource() || error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
+                    let actual_input = types.get(&(input.raw() as usize)).ok_or_else(|| IrVerifyError::new("generic requirement has no checked input contract"))?;
+                    !body_type_matches(actual_input, &SchemeType::Ground(required), budget)?
+                        && matches!(boundary, PropagationBoundary::ResultError(_))
+                } else { true }
             } else { true };
             if owner_required { body_propagated_error_matches_owner(store, &error, boundary, budget)?; }
             ok
@@ -1687,12 +1697,13 @@ fn verify_body_expression(
             let receiver = child(receiver, budget)?;
             let mut arguments = Vec::new();
             for argument in args { arguments.push(Some(child(argument?, budget)?)); }
-            let plan = store.registered_calls.get(&(instruction as u32)).ok_or_else(|| IrVerifyError::new("generic host method has no selected registry plan"))?;
-            if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
-            let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
-            if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver), &references, ty) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
-            registered_coverage.insert(instruction as u32);
-            ty.clone()
+            if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
+                if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
+                let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
+                if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver), &references, ty) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
+                registered_coverage.insert(instruction as u32);
+                ty.clone()
+            } else { SchemeType::Ground(commands::nullary_method(&receiver, name, &arguments, budget)?) }
         }
         schema::ExprView::RunCapture(run) => {
             commands::operands(run.operands, &mut child, budget)?;
@@ -1731,7 +1742,7 @@ fn verify_body_expression(
                 registered_coverage.insert(instruction as u32);
                 ty.clone()
             } else if call_plan.is_none() {
-                SchemeType::Ground(commands::native_call(op, &arguments, budget)?)
+                SchemeType::Ground(commands::native_call(decoder, op, &arguments, budget)?)
             } else {
                 return Err(IrVerifyError::new("generic module call has no selected registry plan"));
             }

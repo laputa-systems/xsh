@@ -50,10 +50,13 @@ pub(super) fn operands<'a>(
 }
 
 pub(super) fn native_call(
+    decoder: &super::FullDecoder<'_>,
     op: crate::modules::RuntimeOp, arguments: &[Option<SchemeType>],
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<Type, IrVerifyError> {
-    if crate::modules::signature::native_static_operation_requires_producer_proof(op) { return Err(IrVerifyError::new("generic native operation requires its selected producer proof")); }
+    if crate::modules::signature::native_static_operation_requires_producer_proof(op)
+        && decoder.producer_demand != crate::runtime::eval::ProducerDemand::Needed
+    { return Err(IrVerifyError::new("generic native operation requires its selected producer proof")); }
     let mut result = None;
     for signature in crate::modules::signature::native_static_operation_signatures(op) {
         budget.charge(1 + signature.params.len())?;
@@ -75,4 +78,24 @@ pub(super) fn native_call(
         result = Some(signature.return_ty.clone());
     }
     result.ok_or_else(|| IrVerifyError::new("generic native operation disagrees with its canonical contract"))
+}
+
+pub(super) fn nullary_method(
+    receiver: &SchemeType, name: &str, arguments: &[Option<SchemeType>], budget: &mut SchemeInstantiationBudget,
+) -> Result<Type, IrVerifyError> {
+    if !arguments.is_empty() { return Err(IrVerifyError::new("generic intrinsic method has unexpected arguments")); }
+    budget.charge_scheme_clone(receiver)?;
+    let receiver = receiver.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic intrinsic method has no closed receiver contract"))?;
+    let signatures = super::FullDecoder::registered_method_signatures(&receiver, name)?.ok_or_else(|| IrVerifyError::new("generic intrinsic method has no canonical receiver contract"))?;
+    let mut result = None;
+    for signature in signatures {
+        budget.charge(1 + signature.params.len())?;
+        if signature.params.iter().any(|parameter| !parameter.defaulted)
+            || signature.return_ty.contains_builtin_parameter()
+        { continue; }
+        super::ensure_closed_type(&signature.return_ty)?;
+        if result.as_ref().is_some_and(|previous| previous != &signature.return_ty) { return Err(IrVerifyError::new("generic intrinsic method has ambiguous closed contracts")); }
+        result = Some(signature.return_ty);
+    }
+    result.ok_or_else(|| IrVerifyError::new("generic intrinsic method disagrees with its canonical arity"))
 }

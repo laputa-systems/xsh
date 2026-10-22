@@ -963,7 +963,7 @@ impl Checker {
 
     fn derive_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
         let span = arena.arena.expr(expression).span;
-        if !ty.may_hold_resource() || self.builtin_range_calls.contains(&span) { return Ok(StreamOrigins::default()); }
+        if !ty.may_hold_resource() || self.builtin_calls.get(&span) == Some(&super::CheckedBuiltinCall::Range) { return Ok(StreamOrigins::default()); }
         let application_scope = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         if let Some(reference) = self.type_constraints.source_callable_application_reference(application_scope, span).map_err(|_| StreamOriginBoundaryError)? {
             return Ok(StreamOrigins::application(reference));

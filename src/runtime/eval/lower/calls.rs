@@ -2374,8 +2374,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     && self
                         .bodies
                         .checked_control_flow
-                        .builtin_range_calls
-                        .contains(&span)
+                        .builtin_calls
+                        .get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Range)
                     && let Some(positional) = positional.as_ref()
                 {
                     let (start, end) = match positional.as_slice() {
@@ -2391,6 +2391,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(self.lower_range_values(start, end, span).0);
                 }
                 if name == "Path"
+                    && self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Path)
                     && let Some(positional) = positional.as_ref()
                 {
                     let [value] = positional.as_slice() else {
@@ -2406,6 +2407,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "env"
+                    && self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Environment)
                     && let Some(positional) = positional.as_ref()
                 {
                     let [value] = positional.as_slice() else {

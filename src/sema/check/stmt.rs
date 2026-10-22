@@ -68,7 +68,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
         expression_types_by_id: Some(expression_types),
         tag_variants: Some(tag_variants),
         conversions_by_id: Some(conversions),
-        builtin_range_calls: Some(&checked_control_flow.builtin_range_calls),
+        builtin_calls: Some(&checked_control_flow.builtin_calls),
         cardinality_preserving_collection_calls: Some(
             &checked_control_flow.cardinality_preserving_collection_calls,
         ),
@@ -104,7 +104,7 @@ struct FlowFacts<'a> {
     tag_variants: Option<&'a FxHashMap<Name, TagVariantInfo>>,
     conversions: Option<&'a BTreeMap<Span, super::Conversion>>,
     conversions_by_id: Option<&'a FxHashMap<ExprId, super::Conversion>>,
-    builtin_range_calls: Option<&'a BTreeSet<Span>>,
+    builtin_calls: Option<&'a BTreeMap<Span, super::CheckedBuiltinCall>>,
     cardinality_preserving_collection_calls: Option<&'a BTreeSet<Span>>,
     argument_bindings: Option<&'a BTreeMap<Span, super::CheckedArguments>>,
     propagating_error_spans: Option<&'a BTreeSet<Span>>,
@@ -125,7 +125,7 @@ impl FlowFacts<'static> {
         tag_variants: None,
         conversions: None,
         conversions_by_id: None,
-        builtin_range_calls: None,
+        builtin_calls: None,
         cardinality_preserving_collection_calls: None,
         argument_bindings: None,
         propagating_error_spans: None,
@@ -1643,8 +1643,8 @@ fn expression_cardinality_uncached(
             if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range") =>
         {
             if facts
-                .builtin_range_calls
-                    .is_some_and(|calls| calls.contains(&arena.arena.expr(expr).span))
+                .builtin_calls
+                    .is_some_and(|calls| calls.get(&arena.arena.expr(expr).span) == Some(&super::CheckedBuiltinCall::Range))
             {
                 range_cardinality(arena, args)
             } else {
@@ -1912,7 +1912,7 @@ fn expr_control_flow(arena: &ArenaProgram, id: ExprId, facts: &FlowFacts<'_>) ->
     let builtin_range_can_fail = match expr.kind {
         ArenaExprKind::Call { callee, args }
             if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range")
-                && facts.builtin_range_calls.is_some_and(|calls| calls.contains(&expr.span)) =>
+                && facts.builtin_calls.is_some_and(|calls| calls.get(&expr.span) == Some(&super::CheckedBuiltinCall::Range)) =>
         {
             range_cardinality(arena, args) != StreamCardinality::Empty
         }
@@ -2315,7 +2315,7 @@ impl Checker {
             tag_variants: Some(&self.tag_variants),
             conversions: Some(&self.conversions),
             conversions_by_id: None,
-            builtin_range_calls: Some(&self.builtin_range_calls),
+            builtin_calls: Some(&self.builtin_calls),
             cardinality_preserving_collection_calls: Some(
                 &self.cardinality_preserving_collection_calls,
             ),

@@ -401,7 +401,7 @@ impl Checker {
                         .copied()
                 })
                 .collect::<super::FxHashSet<_>>();
-            let mut checked_calls = generalized_body_types.keys().filter_map(|&expression| {
+            let mut checked_operations = generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
@@ -420,11 +420,13 @@ impl Checker {
                     && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
-            checked_calls.extend(generalized.requirements.applications.iter()
+            checked_operations.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
-            checked_calls.extend(self.builtin_range_calls.iter().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(self.conversions.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(self.requirement_targets.keys().filter(|span| expression_spans.contains(span)).copied());
             if matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream) {
-                checked_calls.extend(local_statements.iter().filter_map(|&statement| {
+                checked_operations.extend(local_statements.iter().filter_map(|&statement| {
                     let node = program.arena.stmt(statement);
                     let ArenaStmtKind::Command(command) = node.kind else { return None; };
                     match program.arena.command_stmt(command).command {
@@ -435,7 +437,7 @@ impl Checker {
             }
             let reference_start = Span::at(body_span.source_id, body_span.start());
             let reference_end = Span::at(body_span.source_id, body_span.end());
-            checked_calls.extend(self.selected_function_calls.range(reference_start..reference_end).filter_map(|(&span, target)| {
+            checked_operations.extend(self.selected_function_calls.range(reference_start..reference_end).filter_map(|(&span, target)| {
                 if span.source_id != body_span.source_id || span.start() < body_span.start() || span.end() > body_span.end()
                     || !matches!(self.expr_types.get(&span), Some(Type::Function(crate::sema::types::CallableKind::Pure | crate::sema::types::CallableKind::Proc)))
                 { return None; }
@@ -464,7 +466,7 @@ impl Checker {
                 &captures,
                 &generalized_tail_types,
                 &self.statement_positions,
-                &checked_calls,
+                &checked_operations,
                 &registered_calls,
                 &generalized_body_types,
                 &constructor_producers,
@@ -472,7 +474,7 @@ impl Checker {
                 match pending.kind() { crate::sema::types::CallableKind::Stream => super::scheme_body::BodyCompletion::Producer, crate::sema::types::CallableKind::Proc => super::scheme_body::BodyCompletion::Procedure, crate::sema::types::CallableKind::Pure => super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, pending.kind(), &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
-                &generalized_tail_types, &self.statement_positions, &checked_calls, &registered_calls,
+                &generalized_tail_types, &self.statement_positions, &checked_operations, &registered_calls,
                 &generalized_body_types, &constructor_producers, &self.result_constructors, value,
             )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";

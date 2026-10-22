@@ -4034,6 +4034,56 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(match selected { Selected::Scheme(ty) => ty.clone(), Selected::Ground(ty) => SchemeType::Ground(ty.clone()) })
     }
 
+    fn lower_conversion_value(
+        &mut self, conversion: Conversion, value: BuildExprId, target: TypeExprId, span: Span,
+        mut record: impl FnMut(BuildExprId, Type),
+    ) -> Option<BuildExprId> {
+        let target_type = match conversion.target() {
+            Some(ty) => ty,
+            None => checked_type_annotation(self.declarations, self.current_namespace, target)?.clone(),
+        };
+        let method = |name: &str| BuildExprRow::Method { receiver: value, name: Name::intern(name).as_str(), args: Vec::new(), span };
+        let path_from_bytes = |bytes| BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::PathParseBytes, args: vec![Some(bytes)], span };
+        let operation = match conversion {
+            Conversion::TextToInt => method("parse_int"),
+            Conversion::TextToUInt => method("parse_uint"),
+            Conversion::TextToFloat => method("parse_float"),
+            Conversion::BytesToText => method("utf8"),
+            Conversion::BytesToPath => path_from_bytes(value),
+            Conversion::TextToPath => {
+                let bytes = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::BytesFromText, args: vec![Some(value)], span });
+                record(bytes, Type::Bytes);
+                path_from_bytes(bytes)
+            }
+            Conversion::IntToUInt | Conversion::IntToBounded => BuildExprRow::Require {
+                value,
+                check: LoweredTypeCheck {
+                    schema: Some(self.prepared_schema(target_type.clone())), ty: target_type.clone(),
+                    name: match conversion { Conversion::IntToUInt => Arc::from("UInt"), _ => compact_type_expr_name(&self.program.arena, target) },
+                }, span,
+            },
+        };
+        let operation = push_build_row!(self, expr, operation);
+        record(operation, Type::Result(Box::new(target_type.clone()), Box::new(Type::Error)));
+        let value = push_build_row!(self, expr, BuildExprRow::Try { value: operation, span });
+        record(value, target_type);
+        Some(value)
+    }
+
+    fn lower_requirement_check(&mut self, expression: ExprId, schema: Option<TypeExprId>) -> Option<LoweredTypeCheck> {
+        let (ty, name) = match schema {
+            Some(schema) => {
+                lowered_arena_type(schema, self.declarations, self.current_namespace)?;
+                (checked_type_annotation(self.declarations, self.current_namespace, schema)?.clone(), compact_type_expr_name(&self.program.arena, schema))
+            }
+            None => {
+                let target = self.bodies.requirement_targets.get(&expression)?;
+                (target.ty.clone(), target.name.clone())
+            }
+        };
+        Some(LoweredTypeCheck { schema: Some(self.prepared_schema(ty.clone())), ty, name })
+    }
+
     fn lower_scheme_expression(
         &mut self,
         expression: ExprId,
@@ -4143,6 +4193,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
+            ArenaExprKind::EnvString(name) => {
+                let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
+                lowered_types.insert(name, SchemeType::Ground(Type::Str));
+                push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::EnvGet, args: vec![Some(name)], span })
+            }
+            ArenaExprKind::EnvPathList => push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::EnvPathList, args: Vec::new(), span }),
+            ArenaExprKind::Field { base, name } if name == "PATH"
+                && matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "env")
+                && ty.closed_ground_type() == Some(Type::EnvPathList) => {
+                if facts.expression_types().contains_key(&base) { visited.insert(base); }
+                push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::EnvPathList, args: Vec::new(), span })
+            }
+            ArenaExprKind::Convert { value, target } => {
+                let conversion = *self.bodies.conversions.get(&expression)?;
+                let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
+                self.lower_conversion_value(conversion, value, target, span, |value, ty| { lowered_types.insert(value, SchemeType::Ground(ty)); })?
+            }
+            ArenaExprKind::Require { value, schema } => {
+                let check = self.lower_requirement_check(expression, schema)?;
+                let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
+                push_build_row!(self, expr, BuildExprRow::Require { value, check, span })
+            }
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
                 let mut source = lowered_types.get(&base)?;
@@ -4450,7 +4522,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } => {
-                if self.bodies.checked_control_flow.builtin_range_calls.contains(&span) {
+                if let Some(kind @ (crate::sema::check::CheckedBuiltinCall::Path | crate::sema::check::CheckedBuiltinCall::Environment)) = self.bodies.checked_control_flow.builtin_calls.get(&span).copied() {
+                    let expected_name = match kind { crate::sema::check::CheckedBuiltinCall::Path => "Path", _ => "env" };
+                    if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == expected_name) { return self.block_scheme_lowering_expr(expression); }
+                    let arguments = self.program.arena.call_args(args).to_vec();
+                    let [argument] = arguments.as_slice() else { return self.block_scheme_lowering_expr(expression) };
+                    let ArenaCallArgKind::Positional(input) = argument.kind else { return self.block_scheme_lowering_expr(expression) };
+                    let value = self.lower_scheme_expression(input, slots, current_function, facts, visited, lowered_types, body)?;
+                    let value = match kind {
+                        crate::sema::check::CheckedBuiltinCall::Path => push_build_row!(self, expr, BuildExprRow::PathFrom { value, span }),
+                        _ => push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::EnvGet, args: vec![Some(value)], span }),
+                    };
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
+                if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Range) {
                     if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range") { return self.block_scheme_lowering_expr(expression); }
                     let mut bounds = Vec::new();
                     for argument in self.program.arena.call_args(args).to_vec() {
@@ -7458,107 +7543,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 ))
             }
-            // Each conversion is an operation the language already has,
-            // under `?`. The checker chose which; an expression it published
-            // no conversion for was rejected and is not lowered.
             ArenaExprKind::Convert { value, target } => {
                 let conversion = *self.bodies.conversions.get(&id)?;
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
-                let method = |name: &str| BuildExprRow::Method {
-                    receiver: value,
-                    name: Name::intern(name).as_str(),
-                    args: Vec::new(),
-                    span,
-                };
-                let path_from_bytes = |bytes| BuildExprRow::ModuleCall {
-                    call_plan: None,
-                    op: RuntimeOp::PathParseBytes,
-                    args: vec![Some(bytes)],
-                    span,
-                };
-                let operation = match conversion {
-                    Conversion::TextToInt => method("parse_int"),
-                    Conversion::TextToUInt => method("parse_uint"),
-                    Conversion::TextToFloat => method("parse_float"),
-                    Conversion::BytesToText => method("utf8"),
-                    Conversion::BytesToPath => path_from_bytes(value),
-                    Conversion::TextToPath => path_from_bytes(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::ModuleCall {
-                            call_plan: None,
-                            op: RuntimeOp::BytesFromText,
-                            args: vec![Some(value)],
-                            span,
-                        }
-                    )),
-                    Conversion::IntToUInt => BuildExprRow::Require {
-                        value,
-                        check: LoweredTypeCheck {
-                            schema: Some(self.prepared_schema(Type::UInt)),
-                            ty: Type::UInt,
-                            name: Arc::from("UInt"),
-                        },
-                        span,
-                    },
-                    Conversion::IntToBounded => {
-                        let ty = checked_type_annotation(
-                            self.declarations,
-                            self.current_namespace,
-                            target,
-                        )?
-                        .clone();
-                        BuildExprRow::Require {
-                            value,
-                            check: LoweredTypeCheck {
-                                schema: Some(self.prepared_schema(ty.clone())),
-                                ty,
-                                name: compact_type_expr_name(&self.program.arena, target),
-                            },
-                            span,
-                        }
-                    }
-                };
-                let operation = push_build_row!(self, expr, operation);
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Try {
-                        value: operation,
-                        span
-                    }
-                ))
+                self.lower_conversion_value(conversion, value, target, span, |_, _| {})
             }
             ArenaExprKind::Require { value, schema } => {
-                let (ty, name) = if let Some(schema) = schema {
-                    lowered_arena_type(schema, self.declarations, self.current_namespace)?;
-                    (
-                        checked_type_annotation(
-                            self.declarations,
-                            self.current_namespace,
-                            schema,
-                        )?
-                        .clone(),
-                        compact_type_expr_name(&self.program.arena, schema),
-                    )
-                } else {
-                    let target = self.bodies.requirement_targets.get(&id)?;
-                    (target.ty.clone(), target.name.clone())
-                };
-                let prepared = self.prepared_schema(ty.clone());
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Require {
-                        value: self.lower_expr(value, slots, current_function, item_slot)?,
-                        check: LoweredTypeCheck {
-                            schema: Some(prepared),
-                            ty,
-                            name
-                        },
-                        span,
-                    }
-                ))
+                let check = self.lower_requirement_check(id, schema)?;
+                Some(push_build_row!(self, expr, BuildExprRow::Require {
+                    value: self.lower_expr(value, slots, current_function, item_slot)?, check, span,
+                }))
             }
             // `0 - x` is only right for Int: a Float operand took the Int
             // fast path inside loops ("lowered expression expected Int") and
@@ -9710,23 +9704,23 @@ mod checked_control_flow_fact_tests {
     }
 
     impl FactCategory {
-        fn spans(self, facts: &CheckedControlFlowFacts) -> &BTreeSet<Span> {
+        fn spans(self, facts: &CheckedControlFlowFacts) -> BTreeSet<Span> {
             match self {
-                Self::BuiltinRange => &facts.builtin_range_calls,
+                Self::BuiltinRange => facts.builtin_calls.iter().filter_map(|(&span, &kind)| (kind == crate::sema::check::CheckedBuiltinCall::Range).then_some(span)).collect(),
                 Self::CollectionCardinality => {
-                    &facts.cardinality_preserving_collection_calls
+                    facts.cardinality_preserving_collection_calls.clone()
                 }
-                Self::PropagatingError => &facts.propagating_error_spans,
-                Self::LatentStreamError => &facts.latent_stream_error_spans,
-                Self::FalliblePipelineStage => &facts.fallible_pipeline_stage_spans,
-                Self::PropagatingStageCallback => &facts.propagating_stage_callback_spans,
-                Self::ExhaustiveMatch => &facts.exhaustive_match_spans,
+                Self::PropagatingError => facts.propagating_error_spans.clone(),
+                Self::LatentStreamError => facts.latent_stream_error_spans.clone(),
+                Self::FalliblePipelineStage => facts.fallible_pipeline_stage_spans.clone(),
+                Self::PropagatingStageCallback => facts.propagating_stage_callback_spans.clone(),
+                Self::ExhaustiveMatch => facts.exhaustive_match_spans.clone(),
             }
         }
 
         fn spans_mut(self, facts: &mut CheckedControlFlowFacts) -> &mut BTreeSet<Span> {
             match self {
-                Self::BuiltinRange => &mut facts.builtin_range_calls,
+                Self::BuiltinRange => unreachable!(),
                 Self::CollectionCardinality => {
                     &mut facts.cardinality_preserving_collection_calls
                 }
@@ -9737,6 +9731,17 @@ mod checked_control_flow_fact_tests {
                 Self::ExhaustiveMatch => &mut facts.exhaustive_match_spans,
             }
         }
+
+        fn remove(self, facts: &mut CheckedControlFlowFacts, span: &Span) -> bool {
+            if matches!(self, Self::BuiltinRange) { facts.builtin_calls.remove(span).is_some() }
+            else { self.spans_mut(facts).remove(span) }
+        }
+
+        fn insert(self, facts: &mut CheckedControlFlowFacts, span: Span) -> bool {
+            if matches!(self, Self::BuiltinRange) { facts.builtin_calls.insert(span, crate::sema::check::CheckedBuiltinCall::Range).is_none() }
+            else { self.spans_mut(facts).insert(span) }
+        }
+
     }
 
     struct CheckedSource {
@@ -9838,13 +9843,10 @@ mod checked_control_flow_fact_tests {
 
             let actual = self.build(&self.declarations);
             let mut omitted = self.declarations.clone();
-            assert!(category
-                .spans_mut(&mut omitted.bodies.checked_control_flow)
-                .remove(&owner));
+            assert!(category.remove(&mut omitted.bodies.checked_control_flow, &owner));
             let mut misowned = self.declarations.clone();
-            let spans = category.spans_mut(&mut misowned.bodies.checked_control_flow);
-            assert!(spans.remove(&owner));
-            assert!(spans.insert(unrelated));
+            assert!(category.remove(&mut misowned.bodies.checked_control_flow, &owner));
+            assert!(category.insert(&mut misowned.bodies.checked_control_flow, unrelated));
 
             if actual_builds {
                 assert!(actual.is_ok(), "{actual:?}");
@@ -9890,13 +9892,10 @@ mod checked_control_flow_fact_tests {
                 "{actual:?}"
             );
             let mut omitted = self.declarations.clone();
-            assert!(category
-                .spans_mut(&mut omitted.bodies.checked_control_flow)
-                .remove(&owner));
+            assert!(category.remove(&mut omitted.bodies.checked_control_flow, &owner));
             let mut misowned = self.declarations.clone();
-            let spans = category.spans_mut(&mut misowned.bodies.checked_control_flow);
-            assert!(spans.remove(&owner));
-            assert!(spans.insert(unrelated));
+            assert!(category.remove(&mut misowned.bodies.checked_control_flow, &owner));
+            assert!(category.insert(&mut misowned.bodies.checked_control_flow, unrelated));
 
             for mutated in [&omitted, &misowned] {
                 let build = self.build(mutated);
@@ -9936,6 +9935,31 @@ mod checked_control_flow_fact_tests {
 
     fn with_unrelated_statement(source: &str) -> String {
         format!("{source}\npure unrelated() -> Int {{ let unrelated = 0; return unrelated }}\n")
+    }
+
+    #[test]
+    fn dedicated_builtin_facts_select_actual_path_and_environment_calls() {
+        for (definition, operation, kind, wrong) in [
+            ("pure keep(payload, text: Str) { {payload, value: Path(text)} }", "Path(text)", crate::sema::check::CheckedBuiltinCall::Path, crate::sema::check::CheckedBuiltinCall::Environment),
+            ("proc keep(payload, name: Str) [env] { {payload, value: env(name)} }", "env(name)", crate::sema::check::CheckedBuiltinCall::Environment, crate::sema::check::CheckedBuiltinCall::Path),
+        ] {
+            let checked = CheckedSource::new("dedicated-builtin-facts.xsh", definition);
+            checked.assert_no_errors();
+            checked.build(&checked.declarations).unwrap();
+            let entries = checked.declarations.bodies.checked_control_flow.builtin_calls.iter()
+                .filter(|(span, _)| checked.sources.span_text(**span) == Some(operation)).collect::<Vec<_>>();
+            assert_eq!(entries.len(), 1);
+            let (&span, &actual) = entries[0];
+            assert_eq!(actual, kind);
+            let mut missing = checked.declarations.clone();
+            assert_eq!(missing.bodies.checked_control_flow.builtin_calls.remove(&span), Some(kind));
+            let failure = checked.build(&missing).unwrap_err();
+            assert_eq!(failure.construct, "full_ir_function_blocker", "{failure:?}");
+            let mut mismatched = checked.declarations.clone();
+            assert_eq!(mismatched.bodies.checked_control_flow.builtin_calls.insert(span, wrong), Some(kind));
+            let failure = checked.build(&mismatched).unwrap_err();
+            assert_eq!(failure.construct, "full_ir_function_blocker", "{failure:?}");
+        }
     }
 
     #[test]

@@ -24309,6 +24309,192 @@ assert order == "LU123"
     }
 
     #[test]
+    fn generic_dedicated_builtins_authenticate_actual_operands_and_effects() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-fixed-builtins.xsh", concat!(
+                "pure build_path(payload, text: Str, wrong: Int) { let _ = wrong; {payload, value: Path(text)} }\n",
+                "proc lookup(payload, name: Str, wrong: Int) [env] { let _ = wrong; {payload, value: env(name)} }\n",
+                "proc snapshot(payload) [env] { {payload, value: env.PATH} }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            assert_eq!(verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+            for (name, tag, rejection) in [
+                ("build_path", FullTag::ExprPathFrom, "generic path constructor has no actual text contract"),
+                ("lookup", FullTag::ExprModuleCall, "generic native operation disagrees with its canonical contract"),
+            ] {
+                let decoder = return_analysis_decoder(&program, name);
+                let operation = function_instruction_indices(&program, name, tag)[0];
+                let input = match decoder.expression_view(operation).unwrap() {
+                    schema::ExprView::PathFrom { value, .. } => value.raw() as usize,
+                    schema::ExprView::ModuleCall { mut args, op: RuntimeOp::EnvGet, .. } => args.next().unwrap().unwrap().unwrap().raw() as usize,
+                    _ => panic!("the source has its actual fixed operation"),
+                };
+                let schema::ExprView::Param(_) = decoder.expression_view(input).unwrap() else { panic!("the fixed operation reads its actual text binding") };
+                let input_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction == input as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+                let input_type_id = program.store.scheme_body_facts[input_fact].ty().unwrap();
+                let input_type = program.store.scheme_types[input_type_id.index()];
+                assert_eq!(input_type.tag, schema::FullSchemeTypeTag::Ground);
+                assert_eq!(program.store.semantic.to_type(TypeId::from_raw(input_type.first).unwrap()).unwrap(), Type::Str);
+                let wrong = function_instruction_indices(&program, name, FullTag::ExprParam).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+                let wrong_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction == wrong as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+                let wrong_type = program.store.scheme_types[program.store.scheme_body_facts[wrong_fact].ty().unwrap().index()];
+                assert_eq!(wrong_type.tag, schema::FullSchemeTypeTag::Ground);
+                assert_eq!(program.store.scheme_body_facts.iter().filter(|fact| fact.ty() == Some(input_type_id)).count(), 1);
+                let mut forged = program.clone();
+                forged.store.data[input] = program.store.data[wrong];
+                forged.store.scheme_types[input_type_id.index()].first = wrong_type.first;
+                assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, rejection);
+            }
+            let decoder = return_analysis_decoder(&program, "lookup");
+            let operation = function_instruction_indices(&program, "lookup", FullTag::ExprModuleCall)[0];
+            assert!(matches!(decoder.expression_view(operation).unwrap(), schema::ExprView::ModuleCall { op: RuntimeOp::EnvGet, .. }));
+            let native = program.store.extra[payload_start(&program, operation)] as usize;
+            let mut wrong_arity = program.clone();
+            wrong_arity.store.runtime_ops[native] = RuntimeOp::EnvSet;
+            assert_eq!(FullVerifier::verify(&wrong_arity).unwrap_err().message, "generic native operation disagrees with its canonical contract");
+            let mut wrong_operation = program.clone();
+            wrong_operation.store.runtime_ops[native] = RuntimeOp::BytesFromText;
+            assert_eq!(FullVerifier::verify(&wrong_operation).unwrap_err().message, "generic body expression disagrees with its checked type");
+            let owner = scheme_fixture_root_function(&program, "snapshot");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("snapshot retains its payload binder") };
+            let effects = program.store.schemes[id.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[effects.clone()], &[Effect::Env]);
+            let mut missing_effect = program.clone();
+            missing_effect.store.scheme_effects[effects.start] = Effect::Fs;
+            assert!(FullVerifier::verify(&missing_effect).unwrap_err().message.contains("requires effect env"));
+            let mut wrong_kind = program.clone();
+            wrong_kind.store.schemes[id.index()].callable_kind = CallableKind::Pure;
+            wrong_kind.store.function_metadata[owner].callable_kind = CallableKind::Pure;
+            wrong_kind.store.function_metadata[owner].flags &= !1;
+            assert!(FullVerifier::verify(&wrong_kind).unwrap_err().message.contains("pure executable body contains an impure operation"));
+        });
+    }
+
+    #[test]
+    fn generic_conversion_methods_authenticate_actual_receivers_and_arity() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-conversion-operands.xsh", "proc converted(payload, text: Str, wrong: Bool) [error] { let _ = wrong; let pieces = text.split(\",\"); {payload, pieces, number: text as Int} }\n");
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "converted");
+            let methods = function_instruction_indices(&program, "converted", FullTag::ExprMethod);
+            let conversion = methods.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "parse_int", .. }))).unwrap();
+            let schema::ExprView::Method { receiver, args, .. } = decoder.expression_view(conversion).unwrap() else { unreachable!() };
+            assert_eq!(args.len(), 0);
+            assert!(!program.store.registered_calls.contains_key(&(conversion as u32)));
+            let input = receiver.raw() as usize;
+            let schema::ExprView::Param(_) = decoder.expression_view(input).unwrap() else { panic!("conversion reads its actual text binding") };
+            let input_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction == input as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+            let input_type_id = program.store.scheme_body_facts[input_fact].ty().unwrap();
+            let input_type = program.store.scheme_types[input_type_id.index()];
+            assert_eq!(input_type.tag, schema::FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(input_type.first).unwrap()).unwrap(), Type::Str);
+            let wrong = function_instruction_indices(&program, "converted", FullTag::ExprParam).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let wrong_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction == wrong as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Expression(_))).unwrap();
+            let wrong_type = program.store.scheme_types[program.store.scheme_body_facts[wrong_fact].ty().unwrap().index()];
+            assert_eq!(wrong_type.tag, schema::FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.scheme_body_facts.iter().filter(|fact| fact.ty() == Some(input_type_id)).count(), 1);
+            let mut wrong_receiver = program.clone();
+            wrong_receiver.store.data[input] = program.store.data[wrong];
+            wrong_receiver.store.scheme_types[input_type_id.index()].first = wrong_type.first;
+            let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
+            assert!(error.message.contains("generic intrinsic method"), "{}", error.message);
+            let split = methods.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "split", args, .. }) if args.len() == 1)).unwrap();
+            let mut extra_argument = program.clone();
+            assert!(extra_argument.store.registered_calls.remove(&(split as u32)).is_some());
+            let name = program.store.extra[payload_start(&program, conversion) + 1];
+            assert_eq!(program.store.string(name).unwrap(), "parse_int");
+            extra_argument.store.extra[payload_start(&program, split) + 1] = name;
+            assert_eq!(FullVerifier::verify(&extra_argument).unwrap_err().message, "generic intrinsic method has unexpected arguments");
+        });
+    }
+
+    #[test]
+    fn generic_authored_requirements_reject_signature_claims_from_kind_checks() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-require-callable-kind.xsh", "pure checked(payload, value: Any) -> Result[Int] { value.require(Int) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "checked");
+            assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+            let decoder = return_analysis_decoder(&program, "checked");
+            let required = function_instruction_indices(&program, "checked", FullTag::ExprRequire)[0];
+            let schema::ExprView::Require { check, .. } = decoder.expression_view(required).unwrap() else { unreachable!() };
+            assert_eq!(check.ty.materialize().unwrap(), Type::Int);
+            assert!(check.schema.is_some());
+            let typed = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                kind: CallableKind::Pure,
+                sig: crate::sema::types::CallableType {
+                    params: Vec::new(), return_ty: Box::new(Type::Int),
+                    effects: crate::sema::types::CallableEffects::finite([]),
+                },
+            }));
+            fn replace_target(ty: Type, typed: &Type) -> Type {
+                match ty {
+                    Type::Int => typed.clone(),
+                    Type::Result(success, error) => Type::Result(Box::new(replace_target(*success, typed)), Box::new(replace_target(*error, typed))),
+                    Type::Record(fields) => Type::Record(Arc::new(fields.iter().map(|(&name, ty)| (name, replace_target(ty.clone(), typed))).collect())),
+                    ty => ty,
+                }
+            }
+            let mut forged = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let type_id = semantic.intern_type(&mut forged.store.semantic, &typed).unwrap();
+            let payload = payload_start(&program, required);
+            assert_eq!(program.store.extra[payload + 1], check.ty.id.raw());
+            assert_eq!(program.store.extra[payload + 3], 1);
+            let schema = program.store.extra[payload + 4] as usize;
+            forged.store.extra[payload + 1] = type_id.raw();
+            forged.store.prepared_schemas[schema] = Arc::new(super::super::super::require::PreparedSchema::Validate(typed.clone()));
+            for node in &mut forged.store.scheme_types {
+                if node.tag != schema::FullSchemeTypeTag::Ground { continue; }
+                let old = program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap();
+                let changed = replace_target(old.clone(), &typed);
+                if changed != old { node.first = semantic.intern_type(&mut forged.store.semantic, &changed).unwrap().raw(); }
+            }
+            for fact in &mut forged.store.checked_expr_types {
+                let old = program.store.semantic.to_type(fact.type_id).unwrap();
+                let changed = replace_target(old.clone(), &typed);
+                if changed != old { fact.type_id = semantic.intern_type(&mut forged.store.semantic, &changed).unwrap(); }
+            }
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("callable signature"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn generic_authored_requirements_authenticate_schema_and_nominal_targets() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-require-schema.xsh", concat!(
+                "error Failure = Missing(message: Str)\n",
+                "error OtherFailure = Missing(message: Str)\n",
+                "pure checked(payload, value: Any) { let _ = value.require(Str); let _ = value.require(Result[Int, OtherFailure]); {payload, integer: value.require(Int), nominal: value.require(Result[Int, Failure])} }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "checked");
+            let requirements = function_instruction_indices(&program, "checked", FullTag::ExprRequire);
+            let require_type = |instruction| match decoder.expression_view(instruction).unwrap() {
+                schema::ExprView::Require { check, .. } => { assert!(check.schema.is_some()); (check.ty.id.raw(), check.ty.materialize().unwrap()) },
+                _ => unreachable!(),
+            };
+            let integer = requirements.iter().copied().find(|&instruction| require_type(instruction).1 == Type::Int).unwrap();
+            let string = requirements.iter().copied().find(|&instruction| require_type(instruction).1 == Type::Str).unwrap();
+            let mut wrong_schema = program.clone();
+            let target = payload_start(&program, integer) + 1;
+            assert_eq!(program.store.extra[target], require_type(integer).0);
+            wrong_schema.store.extra[target] = require_type(string).0;
+            assert_eq!(FullVerifier::verify(&wrong_schema).unwrap_err().message, "prepared schema does not match its checked type");
+            let nominal = requirements.iter().copied().filter(|&instruction| matches!(require_type(instruction).1, Type::Result(_, _))).collect::<Vec<_>>();
+            assert_eq!(nominal.len(), 2);
+            assert_ne!(require_type(nominal[0]).1, require_type(nominal[1]).1);
+            let mut wrong_nominal = program.clone();
+            let left = payload_start(&program, nominal[0]);
+            let right = payload_start(&program, nominal[1]);
+            for offset in 1..5 { wrong_nominal.store.extra[right + offset] = program.store.extra[left + offset]; }
+            let error = FullVerifier::verify(&wrong_nominal).unwrap_err();
+            assert_eq!(error.message, "generic body expression disagrees with its checked type");
+        });
+    }
+
+    #[test]
     fn generic_native_effects_authenticate_owner_and_registry_authority() {
         run_with_large_stack(|| {
             let program = fixture("generic-native-effects.xsh", "proc read(payload) [fs] { {payload, cwd: fs.cwd()} }\n");

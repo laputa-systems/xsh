@@ -817,9 +817,6 @@ impl SchemeBodyFacts {
         let effect_ids = scheme.callable().requirements().effect_parameters.iter().copied().collect();
         let mut used_effects = BTreeSet::new();
         for ty in expression_types.values().chain(tail_types.values()) {
-            if let Some(error) = ty.body_build_error() {
-                return Err(error);
-            }
             ty.validate(
                 &type_ids,
                 &row_ids,
@@ -1717,6 +1714,32 @@ mod tests {
                 Box::new(SchemeType::Ground(Type::Str)),
             )
         );
+    }
+
+    #[test]
+    fn authored_dynamic_body_types_preserve_checked_scope_validation() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let scheme = Arc::new(TypeScheme::new(
+                crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(),
+                vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Ground(Type::Any), schema_expectation: None, defaulted: false, rest: false }],
+                SchemeType::Ground(Type::Int), None, true, Some(Vec::new()), false,
+            ).unwrap());
+            let expression = crate::syntax::arena::ExprId::from_index(0);
+            let make = |ty| super::SchemeBodyFacts::new(Arc::clone(&scheme), BTreeMap::from([(expression, ty)]), BTreeMap::new());
+            for actual in [SchemeType::Ground(Type::Any), SchemeType::Ground(Type::List(Box::new(Type::Any))), SchemeType::Result(Box::new(SchemeType::Ground(Type::Any)), Box::new(SchemeType::Ground(Type::Error)))] {
+                assert_eq!(make(actual.clone()).unwrap().expression_types().get(&expression), Some(&actual));
+            }
+            let inference = crate::sema::constraints::TypeConstraints::default().fresh(crate::source::Span::at(crate::source::SourceId::new(0), 0));
+            for (ty, expected) in [
+                (SchemeType::Ground(Type::List(Box::new(Type::Unknown))), SchemeBuildError::RecoveryType),
+                (SchemeType::Ground(Type::Optional(Box::new(inference))), SchemeBuildError::UnresolvedType),
+                (SchemeType::Parameter(super::SchemeTypeParameterId(9)), SchemeBuildError::UnboundTypeParameter),
+                (SchemeType::Record { fields: BTreeMap::new(), tail: SchemeRowTail::Parameter(SchemeRowParameterId(9)) }, SchemeBuildError::UnboundRowParameter),
+                (SchemeType::Callable { kind: crate::sema::types::CallableKind::Proc, monotype: Arc::new(super::CallableMonotype::new(Vec::new(), SchemeType::Ground(Type::Int), None)), effects: EffectContract::variable(super::SchemeEffectParameterId(9)) }, SchemeBuildError::UnboundEffectParameter),
+            ] {
+                assert_eq!(make(ty).unwrap_err(), expected);
+            }
+        });
     }
 
     #[test]

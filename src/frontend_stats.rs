@@ -988,7 +988,7 @@ fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
         body.typed_callable_calls.len(),
         body.from_end_indexes.len(),
         body.conversions.len(),
-        body.checked_control_flow.builtin_range_calls.len(),
+        body.checked_control_flow.builtin_calls.len(),
         body.checked_control_flow.result_constructors.len(),
         body.checked_control_flow
             .cardinality_preserving_collection_calls

@@ -10,7 +10,6 @@ use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ExprId,
 };
-use crate::syntax::node::Effect;
 use std::sync::Arc;
 
 enum FunctionSelectionRole {
@@ -1773,16 +1772,23 @@ impl Checker {
                 Type::ProcessError
             }
             "env" => {
-                self.require_effect(Effect::Env, span, "environment lookup");
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
+                let result = self.check_env_string(span);
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
-                Type::Result(Box::new(Type::Str), Box::new(Type::Error))
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Environment); }
+                result
             }
             "Path" => {
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Path); }
                 Type::Path
             }
             "range" => {
-                self.builtin_range_calls.insert(span);
+                self.builtin_calls.remove(&span);
+                let reported = self.diagnostics.len();
                 if args.len() != 1 && args.len() != 2 {
                     self.error(
                         span,
@@ -1802,6 +1808,7 @@ impl Checker {
                         self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
                     self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
                 }
+                if !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { self.builtin_calls.insert(span, super::CheckedBuiltinCall::Range); }
                 Type::Stream(Box::new(Type::Int))
             }
             _ => {

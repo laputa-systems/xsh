@@ -2853,6 +2853,38 @@ assert keep(7, "wrong") is Err(_)
 }
 
 #[test]
+fn generic_dedicated_environment_effects_follow_actual_owner_kind() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+stream rows(payload, name: Str) [env] { let _ = env(name); yield payload }
+env ({XSH_GENERIC_BUILTIN_PROBE:"present"}) {
+  assert (rows(7, "XSH_GENERIC_BUILTIN_PROBE") |> collect()) == [7]
+  assert (rows("row", "XSH_GENERIC_BUILTIN_PROBE") |> collect()) == ["row"]
+}?
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+        for definition in [
+            "pure keep(payload, name: Str) { let _ = env(name); payload }",
+            "proc keep(payload, name: Str) [] { let _ = env(name); payload }",
+            "stream rows(payload, name: Str) [] { let _ = env(name); yield payload }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), definition);
+            assert!(parsed.diagnostics.is_empty(), "{definition}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, definition, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckPureEffect | crate::diagnostic::DiagnosticCode::CheckEffectViolation))), "{definition}\n{:?}", checked.diagnostics);
+        }
+    });
+}
+
+#[test]
 fn ordinary_environment_path_views_preserve_snapshots_and_active_mutations() {
     on_scoped_body_test_stack(|| {
         let source = r#"
