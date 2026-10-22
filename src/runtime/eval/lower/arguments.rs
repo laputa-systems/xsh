@@ -32,7 +32,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         } else {
             None
         };
-        let invalid = first_invalid_generic_rest_splice(args, rest_slot, argument_slots);
+        let invalid = if args.iter().any(|argument| argument.name.is_some()) {
+            first_invalid_generic_rest_splice(args, rest_slot, argument_slots)
+        } else {
+            let mut slot = 0usize;
+            args.iter().enumerate().find_map(|(index, argument)| {
+                if !argument.splice {
+                    slot = slot.saturating_add(1).min(rest_slot);
+                    return None;
+                }
+                if slot >= rest_slot {
+                    return None;
+                }
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return Some(index);
+                };
+                let Some(items) = self.static_positional_list_items(expression) else {
+                    return Some(index);
+                };
+                slot = slot.saturating_add(items.len()).min(rest_slot);
+                None
+            })
+        };
         if let Some(index) = invalid {
             self.last_blocker_detail = Some((
                 args[index].span,
@@ -41,6 +64,95 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return None;
         }
         Some(())
+    }
+
+    fn static_positional_list_items(&self, expression: ExprId) -> Option<Vec<ExprId>> {
+        let ArenaExprKind::List(elements) = self.program.arena.expr(expression).kind else {
+            return None;
+        };
+        let elements = self.program.arena.list_elements(elements).collect::<Vec<_>>();
+        elements
+            .iter()
+            .all(|element| element.splice_span.is_none())
+            .then(|| elements.into_iter().map(|element| element.value).collect())
+    }
+
+    pub(super) fn expand_static_positional_splices<T: Clone>(
+        &self,
+        args: &[CallArgument<T>],
+        rest_slot: usize,
+    ) -> Option<Vec<CallArgument<T>>> {
+        if args.iter().any(|argument| argument.name.is_some()) {
+            return Some(args.to_vec());
+        }
+        let mut slot = 0usize;
+        let mut has_static_prefix_splice = false;
+        for argument in args {
+            if slot >= rest_slot {
+                break;
+            }
+            if argument.splice {
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return Some(args.to_vec());
+                };
+                let Some(items) = self.static_positional_list_items(expression) else {
+                    return Some(args.to_vec());
+                };
+                has_static_prefix_splice = true;
+                slot = slot.saturating_add(items.len()).min(rest_slot);
+            } else {
+                slot = slot.saturating_add(1).min(rest_slot);
+            }
+        }
+        if !has_static_prefix_splice {
+            return Some(args.to_vec());
+        }
+        let mut expanded = Vec::with_capacity(args.len());
+        let mut slot = 0usize;
+        for argument in args {
+            if argument.splice && slot < rest_slot {
+                let crate::sema::arguments::ArgumentValueSource::PositionalSplice(expression) =
+                    argument.source
+                else {
+                    return None;
+                };
+                let items = self.static_positional_list_items(expression)?;
+                let lowered_items = if let Some(lowered) = argument.lowered {
+                    let scratch = self.scratch.borrow();
+                    match &scratch.expressions[lowered.index()] {
+                        BuildExprRow::List(items) => Some(items.clone()),
+                        _ => return None,
+                    }
+                } else {
+                    None
+                };
+                if lowered_items
+                    .as_ref()
+                    .is_some_and(|lowered_items| lowered_items.len() != items.len())
+                {
+                    return None;
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    expanded.push(CallArgument {
+                        name: None,
+                        splice: false,
+                        source: crate::sema::arguments::ArgumentValueSource::Expression(item),
+                        ty: argument.ty.clone(),
+                        span: self.program.arena.expr(item).span,
+                        lowered: lowered_items.as_ref().map(|items| items[index]),
+                    });
+                    slot = slot.saturating_add(1).min(rest_slot);
+                }
+            } else {
+                expanded.push(argument.clone());
+                if !argument.splice {
+                    slot = slot.saturating_add(1).min(rest_slot);
+                }
+            }
+        }
+        Some(expanded)
     }
 
     pub(super) fn source_call_arguments(&self, args: &[ArenaCallArg]) -> Option<Vec<CallArgument>> {

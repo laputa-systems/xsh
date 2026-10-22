@@ -232,23 +232,123 @@ let result: Int = head(7, @words)
   }
 }
 
-test rank1_generic_rest_splice_before_fixed_slot_fails_closed { |ctx|
-  test.expect(
+test rank1_generic_rest_splice_before_fixed_slot_binds_in_source_order { |ctx|
+  let result = test.run_xsh(
     ctx,
-    r"""pure head(prefix, ...items: List[Int]) {
+    r"""pure ground(prefix: Int, suffix: Int, ...items: List[Int]) {
+  prefix * 1000 + suffix * 100 + items[0] * 10 + items[1]
+}
+pure generic(prefix, suffix, ...items: List[Int]) {
+  prefix * 1000 + suffix * 100 + items[0] * 10 + items[1]
+}
+pure bundle(payload, index: Int, ...items: List[Int]) {
+  {payload, index, items}
+}
+pure wrapped(numbers: NonEmpty[Int], marker: Int, ...items: List[Int]) {
+  numbers.first() + marker + items[0]
+}
+pure mixed(numbers: NonEmpty[Int], following: List[Int], marker: Int, ...items: List[Int]) {
+  numbers.first() + following.len() + marker + items[0]
+}
+assert ground(@[1], 2, 3, 4) == 1234
+assert ground(@[1, 2], 3, 4) == 1234
+assert ground(@[], 1, 2, 3, 4) == 1234
+assert generic(@[1], 2, 3, 4) == 1234
+assert generic(@[1, 2], 3, 4) == 1234
+assert generic(@[], 1, 2, 3, 4) == 1234
+assert generic(@[1], @[2], 3, 4) == 1234
+let word_bundle = bundle(@["word"], 2, 3, 4)
+assert word_bundle.payload == "word" and word_bundle.index == 2 and word_bundle.items == [3, 4]
+let number_bundle = bundle(@[1, 2], 3, 4)
+assert number_bundle.payload == 1 and number_bundle.index == 2 and number_bundle.items == [3, 4]
+assert wrapped([1], 2, 3) == 6
+assert wrapped(@[[1]], 2, 3) == 6
+assert mixed(@[[1], []], 3, 4) == 8
+""",
+  )?
+  assert result.success, result.stderr
+
+  let empty_validated = test.run_xsh(
+    ctx,
+    r"""pure wrapped(numbers: NonEmpty[Int], marker: Int, ...items: List[Int]) {
+  numbers.first() + marker + items[0]
+}
+wrapped(@[[]], 2, 3)
+""",
+  )?
+  assert !empty_validated.success, empty_validated.stderr
+  assert "[check.validated-literal]" in empty_validated.stderr, empty_validated.stderr
+
+  let direct_nonempty_mismatch = test.run_xsh(
+    ctx,
+    r"""pure takes_nonempty(numbers: NonEmpty[Int], marker: Int, ...items: List[Int]) {
+  numbers.first()
+}
+let xs: List[Int] = []
+takes_nonempty(xs, 1, 2)
+""",
+  )?
+  assert !direct_nonempty_mismatch.success, direct_nonempty_mismatch.stderr
+  assert "[check.type-mismatch]" in direct_nonempty_mismatch.stderr, direct_nonempty_mismatch.stderr
+
+  let spliced_nonempty_mismatch = test.run_xsh(
+    ctx,
+    r"""pure takes_nonempty(numbers: NonEmpty[Int], marker: Int, ...items: List[Int]) {
+  numbers.first()
+}
+let xs: List[Int] = []
+takes_nonempty(@[xs], 1, 2)
+""",
+  )?
+  assert !spliced_nonempty_mismatch.success, spliced_nonempty_mismatch.stderr
+  assert "[check.type-mismatch]" in spliced_nonempty_mismatch.stderr, spliced_nonempty_mismatch.stderr
+
+  let heterogeneous = test.run_xsh(
+    ctx,
+    r"""pure heterogeneous(first: Int, second: Str, marker: Int, ...items: List[Int]) {
+  marker
+}
+heterogeneous(@[1, "bad"], 2, 3)
+""",
+  )?
+  assert !heterogeneous.success, heterogeneous.stderr
+  assert "[check.type-mismatch]" in heterogeneous.stderr, heterogeneous.stderr
+
+  let mismatch = test.run_xsh(
+    ctx,
+    r"""pure ground(prefix: Int, suffix: Int, ...items: List[Int]) {
+  prefix * 1000 + suffix * 100 + items[0] * 10 + items[1]
+}
+ground(@[], "bad", 2, 3, 4)
+""",
+  )?
+  assert !mismatch.success, mismatch.stderr
+  assert "[check.type-mismatch]" in mismatch.stderr, mismatch.stderr
+
+  let missing = test.run_xsh(
+    ctx,
+    r"""pure generic(prefix, suffix, ...items: List[Int]) {
   prefix
 }
-pure selected() -> Int {
-  head(@[7, 8], 7)
-}
-let result: Int = selected()
+generic(@[1])
 """,
-    status: 2,
-    stderr: [
-      "[compact.indexed-build]",
-      "generic positional splice must target the final rest parameter",
-    ],
   )?
+  assert !missing.success, missing.stderr
+  assert "[check.arity]" in missing.stderr, missing.stderr
+
+  let dynamic = test.run_xsh(
+    ctx,
+    r"""pure generic(prefix, suffix: Int, ...items: List[Int]) {
+  prefix
+}
+pure selected(items: List[Int]) -> List[Int] {
+  generic(@items, 3)
+}
+let result: List[Int] = selected([1, 2])
+""",
+  )?
+  assert !dynamic.success, dynamic.stderr
+  assert "generic positional splice must target the final rest parameter" in dynamic.stderr, dynamic.stderr
 }
 
 test rank1_generic_default_parameters_use_defaults { |ctx|

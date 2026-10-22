@@ -85,6 +85,32 @@ fn function_arity_error(params: &[FunctionParamSig], found: usize) -> Option<Str
     ))
 }
 
+fn static_positional_list_elements(
+    arena: &ArenaProgram,
+    expression: ExprId,
+) -> Option<Vec<ExprId>> {
+    let crate::syntax::arena::ArenaExprKind::List(elements) =
+        arena.arena.expr(expression).kind
+    else {
+        return None;
+    };
+    let elements = arena.arena.list_elements(elements).collect::<Vec<_>>();
+    elements
+        .iter()
+        .all(|element| element.splice_span.is_none())
+        .then(|| elements.into_iter().map(|element| element.value).collect())
+}
+
+fn static_positional_argument_count(arena: &ArenaProgram, args: &[ArenaCallArg]) -> Option<usize> {
+    args.iter().try_fold(0usize, |count, arg| match arg.kind {
+        ArenaCallArgKind::Positional(_) => Some(count.saturating_add(1)),
+        ArenaCallArgKind::Splice { value, .. } => Some(count.saturating_add(
+            static_positional_list_elements(arena, value)?.len(),
+        )),
+        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. } => None,
+    })
+}
+
 fn callable_parameter_types(params: &[FunctionParamSig]) -> Vec<crate::sema::types::CallableParamType> {
     params
         .iter()
@@ -442,6 +468,70 @@ impl Checker {
         actual
     }
 
+    fn static_splice_item_context(
+        &mut self,
+        params: &[FunctionParamSig],
+        first_slot: usize,
+        item_count: usize,
+        span: Span,
+    ) -> Option<(
+        Type,
+        Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
+    )> {
+        let mut common_base = None;
+        let mut contexts = Vec::with_capacity(item_count);
+        for offset in 0..item_count {
+            let slot = first_slot.saturating_add(offset);
+            let parameter = params
+                .get(slot)
+                .or_else(|| params.last().filter(|parameter| parameter.rest))?;
+            let (ty, schema) = if parameter.rest {
+                let schema = parameter
+                    .schema_expectation
+                    .as_ref()
+                    .and_then(|schema| {
+                        schema
+                            .children
+                            .get(&crate::sema::constants::SchemaComponent::Item)
+                    })
+                    .cloned();
+                (self.function_argument_type(parameter, span), schema)
+            } else {
+                (parameter.ty.clone(), parameter.schema_expectation.clone())
+            };
+            let base = ty.unvalidated().clone();
+            if matches!(base, Type::Any | Type::Unknown | Type::Invalid) {
+                return None;
+            }
+            if let Some(common_base) = &common_base {
+                if common_base != &base {
+                    return None;
+                }
+            } else {
+                common_base = Some(base);
+            }
+            contexts.push((ty, schema));
+        }
+        common_base.map(|base| (base, contexts))
+    }
+
+    fn check_static_splice_with_item_contexts(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        expression: ExprId,
+        item_ty: Type,
+        item_contexts: Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
+    ) -> Type {
+        let expected = Type::List(Box::new(item_ty.clone()));
+        let previous = self
+            .call_splice_item_contexts
+            .replace((expression, item_contexts));
+        let actual = self.check_expr_arena(arena, source, expression, Some(&expected));
+        self.call_splice_item_contexts = previous;
+        actual
+    }
+
     pub(super) fn check_function_arg_list_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -512,8 +602,10 @@ impl Checker {
                 ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }
             )
         });
-        if !has_splice
-            && let Some(message) = function_arity_error(params, args.len())
+        let argument_count = static_positional_argument_count(arena, args);
+        if let Some(message) = argument_count
+            .or_else(|| (!has_splice).then_some(args.len()))
+            .and_then(|count| function_arity_error(params, count))
         {
             self.error(
                 span,
@@ -524,9 +616,16 @@ impl Checker {
 
         let mut index = 0;
         let mut can_check_following_positionals = true;
-        for param in params {
+        let mut pending_static_items = Vec::new();
+        let mut pending_static_item_index = 0;
+        for (param_index, param) in params.iter().enumerate() {
             if param.rest {
                 let item_ty = self.function_argument_type(param, span);
+                for (ty, item_span) in &pending_static_items[pending_static_item_index..] {
+                    if let Some(ty) = ty {
+                        self.expect_type(&item_ty, ty, *item_span);
+                    }
+                }
                 for arg in &args[index..] {
                     match &arg.kind {
                         ArenaCallArgKind::Splice { value, span }
@@ -563,49 +662,112 @@ impl Checker {
                 }
                 return;
             }
-            let Some(arg) = args.get(index) else {
+            if let Some((ty, item_span)) = pending_static_items.get(pending_static_item_index) {
+                if let Some(ty) = ty {
+                    self.expect_type(&param.ty, ty, *item_span);
+                }
+                pending_static_item_index += 1;
                 continue;
-            };
-            if let ArenaCallArgKind::Splice { value, span }
-            | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind
-            {
-                let splice_span = arena.arena.span(*span);
-                let actual = self.check_expr_arena(arena, source, *value, None);
-                if actual == Type::Any {
-                    self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span);
-                } else if !matches!(
-                    actual.unvalidated(),
-                    Type::List(_) | Type::Unknown
-                ) {
+            }
+            loop {
+                let Some(arg) = args.get(index) else {
+                    break;
+                };
+                if let ArenaCallArgKind::Splice { value, span }
+                | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind
+                {
+                    let splice_span = arena.arena.span(*span);
+                    let static_elements = if matches!(arg.kind, ArenaCallArgKind::Splice { .. })
+                        && can_check_following_positionals
+                    {
+                        static_positional_list_elements(arena, *value)
+                    } else {
+                        None
+                    };
+                    let item_context = static_elements
+                        .as_ref()
+                        .filter(|elements| !elements.is_empty())
+                        .and_then(|elements| {
+                            self.static_splice_item_context(
+                                params,
+                                param_index,
+                                elements.len(),
+                                splice_span,
+                            )
+                        });
+                    let contextually_checked = item_context.is_some();
+                    let actual = if let Some((item_ty, item_contexts)) = item_context {
+                        self.check_static_splice_with_item_contexts(
+                            arena,
+                            source,
+                            *value,
+                            item_ty,
+                            item_contexts,
+                        )
+                    } else {
+                        self.check_expr_arena(arena, source, *value, None)
+                    };
+                    if let Some(elements) = static_elements
+                        && let Type::List(item) = actual.clone().into_unvalidated()
+                    {
+                        if elements.is_empty() {
+                            index += 1;
+                            continue;
+                        }
+                        pending_static_items.extend(elements.iter().map(|element| {
+                            (
+                                (!contextually_checked).then(|| item.as_ref().clone()),
+                                arena.arena.expr(*element).span,
+                            )
+                        }));
+                        if let Some((ty, item_span)) =
+                            pending_static_items.get(pending_static_item_index)
+                        {
+                            if let Some(ty) = ty {
+                                self.expect_type(&param.ty, ty, *item_span);
+                            }
+                            pending_static_item_index += 1;
+                        }
+                        index += 1;
+                        break;
+                    }
+                    if actual == Type::Any {
+                        self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span);
+                    } else if !matches!(
+                        actual.unvalidated(),
+                        Type::List(_) | Type::Unknown
+                    ) {
+                        self.error(
+                            splice_span,
+                            "`@` splices require List values",
+                            DiagnosticCode::CheckSpliceTarget,
+                        );
+                    }
+                    can_check_following_positionals = false;
+                    index += 1;
+                    break;
+                }
+                if let ArenaCallArgKind::Named { name, .. } = &arg.kind
+                    && *name != param.name
+                {
                     self.error(
-                        splice_span,
-                        "`@` splices require List values",
-                        DiagnosticCode::CheckSpliceTarget,
+                        call_arg_span_arena(arena, &arg.kind),
+                        "unexpected named parameter",
+                        DiagnosticCode::CheckNamedArg,
                     );
                 }
-                can_check_following_positionals = false;
+                let expected = can_check_following_positionals.then_some(&param.ty);
+                let actual = if let Some(expected) = expected {
+                    self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param)
+                } else {
+                    self.check_call_arg_arena(arena, source, &arg.kind, None)
+                };
+                if let Some(expected) = expected {
+                    self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
+                }
                 index += 1;
-                continue;
+                break;
             }
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && *name != param.name
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    DiagnosticCode::CheckNamedArg,
-                );
-            }
-            let expected = can_check_following_positionals.then_some(&param.ty);
-            let actual = if let Some(expected) = expected {
-                self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param)
-            } else {
-                self.check_call_arg_arena(arena, source, &arg.kind, None)
-            };
-            if let Some(expected) = expected {
-                self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
-            }
-            index += 1;
         }
     }
 

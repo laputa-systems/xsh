@@ -968,7 +968,7 @@ impl Checker {
                 Type::Status
             }
             ArenaExprKind::List(items) => {
-                self.check_list_arena(arena, source, *items, expected, expr.span)
+                self.check_list_arena(arena, source, id, *items, expected, expr.span)
             }
             ArenaExprKind::Record(fields) => {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
@@ -1708,16 +1708,20 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        expression: ExprId,
         range: crate::syntax::arena::ArenaListElementRange,
         expected: Option<&Type>,
         literal_span: Span,
     ) -> Type {
         self.record_local_aggregate_list(literal_span, range);
+        let item_contexts = self
+            .call_splice_item_contexts
+            .as_ref()
+            .filter(|(context_expression, _)| *context_expression == expression)
+            .map(|(_, contexts)| contexts.clone());
         if range.is_empty() && matches!(expected, Some(Type::Any)) {
             return Type::List(Box::new(Type::Any));
         }
-        // A literal written where a validated list is expected is checked
-        // against the base and then judged against the validation.
         let validated = expected
             .map(|ty| ty.optional_inner().unwrap_or(ty))
             .and_then(Type::validated);
@@ -1730,8 +1734,13 @@ impl Checker {
             _ => None,
         };
         let mut inferred = expected_item.cloned().unwrap_or(Type::Unknown);
-        for item in arena.arena.list_elements(range) {
-            let item_expected = expected_item;
+        for (index, item) in arena.arena.list_elements(range).enumerate() {
+            let context = item_contexts
+                .as_ref()
+                .and_then(|contexts| contexts.get(index));
+            let item_expected = context
+                .map(|(expected, _)| expected)
+                .or(expected_item);
             let span = item
                 .splice_span
                 .map(|span| arena.arena.span(span))
@@ -1749,16 +1758,18 @@ impl Checker {
                     }
                 }
             } else {
-                let schema = self
-                    .boundary.expected_schema
-                    .as_ref()
-                    .and_then(|schema| {
-                        schema
-                            .value_context()
-                            .children
-                            .get(&crate::sema::constants::SchemaComponent::Item)
-                    })
-                    .cloned();
+                let schema = context.map(|(_, schema)| schema.clone()).unwrap_or_else(|| {
+                    self.boundary
+                        .expected_schema
+                        .as_ref()
+                        .and_then(|schema| {
+                            schema
+                                .value_context()
+                                .children
+                                .get(&crate::sema::constants::SchemaComponent::Item)
+                        })
+                        .cloned()
+                });
                 self.check_expr_with_schema_arena(
                     arena,
                     source,
@@ -1767,6 +1778,11 @@ impl Checker {
                     schema,
                 )
             };
+            if let Some((context_expected, _)) = context
+                && expected_item.is_some_and(|expected| expected != context_expected)
+            {
+                self.expect_type(context_expected, &actual, span);
+            }
             if inferred == Type::Unknown {
                 inferred = actual;
             } else if let Some(expected_item) = expected_item {

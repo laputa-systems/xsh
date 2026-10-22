@@ -71,7 +71,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    pub(super) fn lower_checked_function_arguments<T>(
+    pub(super) fn lower_checked_function_arguments<T: Clone>(
         &mut self, id: ExprId, args: &[CallArgument<T>], function: LoweredFunctionKey,
         slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
     ) -> Option<Vec<LoweredCallArg>> {
@@ -80,10 +80,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .compact_function_sig_for_key(function)
             .map(|signature| signature.params.clone());
         let scheme = self.checked_function_scheme(function);
+        let rest_slot = scheme
+            .as_deref()
+            .and_then(Self::final_rest_slot)
+            .or_else(|| {
+                params
+                    .as_ref()
+                    .and_then(|params| params.iter().position(|param| param.rest))
+            });
         if args.iter().any(|argument| argument.splice)
             && (scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()) || self.bodies.call_instantiations.contains_key(&id))
         {
-            let Some(rest_slot) = scheme.as_deref().and_then(Self::final_rest_slot) else {
+            let Some(rest_slot) = rest_slot else {
                 let splice_span = args
                     .iter()
                     .find(|argument| argument.splice)
@@ -96,8 +104,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             self.validate_generic_rest_splices(id, args, rest_slot)?;
         }
+        let expanded_args = match rest_slot {
+            Some(rest_slot) if args.iter().any(|argument| argument.splice) => {
+                self.expand_static_positional_splices(args, rest_slot)?
+            }
+            _ => args.to_vec(),
+        };
         self.lower_function_call_args(
-            args,
+            &expanded_args,
             scheme.as_deref().map(|scheme| CheckedCallParameters::Scheme(scheme.params())).or_else(|| params.as_deref().map(CheckedCallParameters::Ground)),
             self.call_argument_slots(id),
             Some((function, 0)),
