@@ -372,9 +372,12 @@ impl Checker {
                     );
                 }
             }
-            self.check_function_contract_arguments_arena(
+            if !self.check_function_contract_arguments_arena(
                 arena, source, args, &contract, span, checked_argument,
-            );
+            ) {
+                self.reject_invocation_return(invocation, &contract.effects, span);
+                return Type::Invalid;
+            }
             if !(alias.kind == crate::sema::types::CallableKind::Pure) {
                 self.invalidate_mutable_narrowings();
             }
@@ -445,10 +448,12 @@ impl Checker {
                         span,
                     );
                 }
-                self.check_function_contract_arguments_arena(
+                if !self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
-                );
-                // A procedure may change mutable lexical captures before the next statement.
+                ) {
+                    self.reject_invocation_return(invocation, &sig.effects, span);
+                    return Type::Invalid;
+                }
                 self.invalidate_mutable_narrowings();
                 self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
@@ -457,9 +462,12 @@ impl Checker {
                 && let Some(sig) = self.local_function_call_contract(declaration, span)
             {
                 self.record_function_call_target(span, sig.definition_target);
-                self.check_function_contract_arguments_arena(
+                if !self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
-                );
+                ) {
+                    self.reject_invocation_return(None, &sig.effects, span);
+                    return Type::Invalid;
+                }
                 self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, None);
                 return sig.return_ty;
             }
@@ -481,9 +489,12 @@ impl Checker {
                         span,
                     );
                 }
-                self.check_function_contract_arguments_arena(
+                if !self.check_function_contract_arguments_arena(
                     arena, source, args, &sig, span, checked_argument,
-                );
+                ) {
+                    self.reject_invocation_return(invocation, &sig.effects, span);
+                    return Type::Invalid;
+                }
                 self.record_invocation_propagation(&sig.effects, &sig.return_ty, span, invocation);
                 return sig.return_ty;
             }
@@ -609,9 +620,12 @@ impl Checker {
                 {
                     let contract = self.function_call_contract(&sig, span);
                     self.record_function_call_target(span, contract.definition_target);
-                    self.check_function_contract_arguments_arena(
+                    if !self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
-                    );
+                    ) {
+                        self.reject_invocation_return(None, &contract.effects, span);
+                        return Type::Invalid;
+                    }
                     self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, None);
                     return contract.return_ty;
                 }
@@ -630,9 +644,12 @@ impl Checker {
                     } else {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
-                    self.check_function_contract_arguments_arena(
+                    if !self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
-                    );
+                    ) {
+                        self.reject_invocation_return(invocation, &contract.effects, span);
+                        return Type::Invalid;
+                    }
                     self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }
@@ -651,9 +668,12 @@ impl Checker {
                     } else {
                         invocation = self.check_function_invocation_effects(&contract, &qualified.to_string(), span);
                     }
-                    self.check_function_contract_arguments_arena(
+                    if !self.check_function_contract_arguments_arena(
                         arena, source, args, &contract, span, checked_argument,
-                    );
+                    ) {
+                        self.reject_invocation_return(invocation, &contract.effects, span);
+                        return Type::Invalid;
+                    }
                     self.record_invocation_propagation(&contract.effects, &contract.return_ty, span, invocation);
                     return contract.return_ty;
                 }

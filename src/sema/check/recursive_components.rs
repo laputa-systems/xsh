@@ -27,6 +27,10 @@ impl Checker {
             self.reject_recursive_component(program, definitions);
             return None;
         }
+        if self.constrain_pending_component_invocations(&members).is_none() {
+            self.reject_recursive_component(program, definitions);
+            return None;
+        }
         let mut prepared = BTreeMap::new();
         for (&owner, &definition) in &members {
             let mut reachable = BTreeSet::new();

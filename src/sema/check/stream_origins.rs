@@ -1048,6 +1048,10 @@ impl Checker {
     pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
         if self.argument_projection_types.contains_key(&expression) { return; }
         let span = arena.arena.expr(expression).span;
+        if matches!(ty, Type::Invalid) && self.invocation_return_is_rejected(span) {
+            self.stream_expr_origins.insert(span, StreamOrigins::opaque());
+            return;
+        }
         let resolved = if ty.contains_inference() {
             match self.type_constraints.resolve(ty) {
                 Ok(ty) => Some(ty),

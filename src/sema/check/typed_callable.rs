@@ -369,7 +369,10 @@ impl Checker {
                 self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect);
             } else { invocation = self.check_function_invocation_effects(&contract, &name, span); }
         }
-        self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument);
+        if !self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument) {
+            self.reject_invocation_return(invocation, &contract.effects, span);
+            return Type::Invalid;
+        }
         if !(callable.kind == crate::sema::types::CallableKind::Pure) { self.invalidate_mutable_narrowings(); }
         self.record_invocation_propagation(&contract.effects, &return_ty, span, invocation);
         return_ty

@@ -170,7 +170,7 @@ impl Checker {
         contract: &super::FunctionCallContract,
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
-    ) {
+    ) -> bool {
         let diagnostics_before_arguments = self.diagnostics.len();
         self.check_function_call_arguments_arena(
             arena,
@@ -191,10 +191,20 @@ impl Checker {
                             && label.span.end() <= span.end()
                     })
             });
-        if !argument_error {
-            match self.type_constraints.solve_callable_applications() {
-                Ok(()) => if let Some(instantiation) = &contract.instantiation { self.record_pending_call_instantiation(span, instantiation.clone()); },
-                Err(error) => self.error(span, &format!("callable application requirement failed: {error:?}"), DiagnosticCode::CheckCallableMismatch),
+        if argument_error { return false; }
+        match self.type_constraints.solve_callable_applications() {
+            Ok(()) => {
+                if let Some(instantiation) = &contract.instantiation {
+                    self.record_pending_call_instantiation(span, instantiation.clone());
+                }
+                true
+            }
+            Err(error) => {
+                let code = if matches!(error, crate::sema::constraints::CallableApplicationError::Effects(crate::sema::constraints::EffectConstraintError::Mismatch)) {
+                    DiagnosticCode::CheckEffectViolation
+                } else { DiagnosticCode::CheckCallableMismatch };
+                self.error(span, &format!("callable application requirement failed: {error}"), code);
+                false
             }
         }
     }

@@ -463,6 +463,12 @@ expression spans. A semantic body comparison uses the same retained callable
 instance as its header comparison. Raw effect-term equality proves only equality
 within one owner scope.
 
+Pending recursive invocation permissions constrain the actual shared effect
+cells in their declaration's inference scope before generalization. An invocation
+rejected during argument checking retains its owned permission check without
+publishing a call instantiation, return flow, or Stream flow. Deferred validation
+does not repeat a permission check that already reported its failure.
+
 Indexed schemes retain owned effect binders, expressions, predicates, and call
 arguments alongside their type and row substitutions. Preparation authenticates
 one scope per scheme and reuses it for physical effect and producer verification.

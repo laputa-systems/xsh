@@ -350,6 +350,39 @@ impl EffectGraph {
         Ok(())
     }
 
+    fn pending_component_contract(
+        &self,
+        target: EffectDeclarationId,
+        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>,
+    ) -> Result<EffectContract<EffectVariableId>, SchemeOperationError> {
+        let invalid = || SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter);
+        let mut contract = EffectContract::finite(EffectSet::default());
+        let mut pending = vec![(target, false)];
+        let mut visited = BTreeSet::new();
+        while let Some((owner, captured)) = pending.pop() {
+            if !visited.insert((owner, captured)) { continue; }
+            let node = self.nodes.get(&owner).ok_or_else(invalid)?;
+            let contribution = if let Some(declared) = &node.declared {
+                EffectContract::finite(EffectSet::new(declared.iter().cloned()))
+            } else {
+                let contribution = match &node.direct {
+                    EffectContributions::Checking(summary) => {
+                        if !members.contains_key(&owner) && summary.known.variables().next().is_some() { return Err(invalid()); }
+                        if summary.unknown_chain.is_empty() { EffectContract::Known(summary.known.clone()) } else { EffectContract::Unknown }
+                    }
+                    EffectContributions::Checked(summary) => summary.effects().contract().substitute(|_| Err(invalid()))?,
+                };
+                for edge in &node.edges {
+                    if let Some(work) = &self.work { work.record_effect_edge_visit(); }
+                    pending.push((edge.target, captured || edge.captures_error));
+                }
+                contribution
+            };
+            contract = contract.union(if captured { contribution.capture_error() } else { contribution });
+        }
+        Ok(contract)
+    }
+
     fn bind_scopes(
         &mut self,
         mut bind: impl FnMut(EffectDeclarationId, &EffectContract<EffectVariableId>) -> Result<EffectContract<SchemeEffectParameterId>, SchemeOperationError>,
@@ -815,6 +848,7 @@ pub(super) enum DeferredEffectKind {
     },
     Invocation {
         effects: super::InvocationEffects,
+        validation: InvocationEffectValidation,
         instance: Option<super::PendingCallInstantiation>,
         flow: InvocationFlow,
         unknown_chain: Vec<String>,
@@ -822,10 +856,17 @@ pub(super) enum DeferredEffectKind {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum InvocationEffectValidation {
+    Pending,
+    Diagnosed,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum InvocationFlow {
     EffectsOnly,
     AwaitingReturn,
+    Rejected,
     Return(Type),
 }
 
@@ -926,9 +967,10 @@ mod deferred_invocation_tests {
             effects: super::super::InvocationEffects::Pending(target),
             effect_declaration: Some(target), definition_target: None, instantiation: None,
         };
-        let setup = || {
+        let setup = |caller| {
             let mut checker = Checker::new(super::super::CheckOptions::for_execution());
             checker.defer_effect_diagnostics = true;
+            checker.boundary.current_effects = caller;
             checker.effect_summaries.insert(target, EffectSummary {
                 known: EffectExpr::finite(EffectSet::singleton(Effect::Error)),
                 unknown_chain: Vec::new(), scope: CheckedEffectScope::default(),
@@ -936,13 +978,20 @@ mod deferred_invocation_tests {
             let ticket = checker.check_function_invocation_effects(&contract, "scalar", span);
             (checker, ticket)
         };
-        let (mut valid, ticket) = setup();
+        let (mut valid, ticket) = setup(None);
         valid.record_invocation_propagation(&contract.effects, &Type::Int, span, ticket);
         valid.validate_deferred_effects();
         assert!(valid.diagnostics.is_empty(), "{:?}", valid.diagnostics);
         assert!(valid.propagating_error_spans.contains(&span));
+        let (mut rejected, ticket) = setup(Some(Vec::new()));
+        rejected.reject_invocation_return(ticket, &contract.effects, span);
+        rejected.validate_deferred_effects();
+        assert!(rejected.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)));
+        assert!(!rejected.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", rejected.diagnostics);
+        assert!(!rejected.propagating_error_spans.contains(&span));
+        assert!(!rejected.latent_stream_error_spans.contains(&span));
         for mutation in 0..7 {
-            let (mut checker, ticket) = setup();
+            let (mut checker, ticket) = setup(None);
             match mutation {
                 0 => checker.attach_invocation_return(None, target, &Type::Int, span),
                 1 => checker.attach_invocation_return(Some(DeferredInvocationTicket(1)), target, &Type::Int, span),
@@ -963,11 +1012,118 @@ mod deferred_invocation_tests {
             assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "mutation {mutation}");
             if mutation != 5 { assert!(!checker.propagating_error_spans.contains(&span), "mutation {mutation}"); }
         }
-        let (mut checker, ticket) = setup();
+        let (mut checker, ticket) = setup(None);
         checker.attach_invocation_return(ticket, target, &Type::Unknown, span);
         checker.validate_deferred_effects();
         assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)));
         assert!(!checker.propagating_error_spans.contains(&span));
+    }
+
+    #[test]
+    fn explicit_recursive_effect_bounds_accept_pure_and_empty_proc_callbacks() {
+        let source = concat!(
+            "proc left(action, value, count) [] { if count == 0 { return value }; right(action, value, count - 1) }\n",
+            "proc right(action, value, count) { if count == 0 { return action(value) }; left(action, value, count - 1) }\n",
+            "pure number(value: Int) -> Int { value }\n",
+            "pure text(value: Str) -> Str { value }\n",
+            "proc quiet_number(value: Int) [] -> Int { value }\n",
+            "proc quiet_text(value: Str) [] -> Str { value }\n",
+            "var captured = 1\nproc capture(value: Int) [] -> Int { value + captured }\n",
+            "let _ = left(number, 7, 1)\nlet _ = left(text, \"row\", 1)\n",
+            "let _ = left(quiet_number, 7, 1)\nlet _ = left(quiet_text, \"row\", 1)\nlet _ = left(capture, 7, 1)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declarations = checked.checked_declarations.functions.values().filter(|declaration| matches!(declaration.name.as_str().as_ref(), "left" | "right")).collect::<Vec<_>>();
+        assert_eq!(declarations.len(), 2);
+        for declaration in declarations {
+            assert!(declaration.scheme.as_ref().unwrap().callable().is_quantified());
+            for (&span, target) in &checked.selected_function_calls {
+                if matches!(target.name.as_str().as_ref(), "left" | "right") && declaration.body.source_id == span.source_id && declaration.body.start() <= span.start() && span.end() <= declaration.body.end() {
+                    assert!(checked.call_instantiations.contains_key(&span));
+                }
+            }
+        }
+        let forbidden = format!("{source}proc report(value: Int) [io] -> Int {{ print $value; value }}\nlet _ = left(report, 7, 1)\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &forbidden);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &forbidden, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn callback_effect_mismatches_reject_calls_without_result_cascades() {
+        let source = concat!(
+            "proc report(value: Str) [io] -> Str { print $value; return value }\n",
+            "proc deny(callback, value) [] { callback(value) }\n",
+            "let result = deny(report, \"forbidden\")?\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckEffectViolation));
+        let view = super::super::CheckBundleView::for_root(&parsed.arena, parsed.arena.statements, None, Some(SourceId::new(0)));
+        let denied = view.expr_ids().into_iter().find_map(|expression| {
+            let node = parsed.arena.arena.expr(expression);
+            let ArenaExprKind::Call { callee, .. } = node.kind else { return None; };
+            matches!(parsed.arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "deny").then_some(node.span)
+        }).unwrap();
+        assert_eq!(checked.expr_types.get(&denied), Some(&Type::Invalid));
+        assert!(!checked.call_instantiations.contains_key(&denied));
+        assert!(!checked.checked_control_flow.propagating_error_spans.contains(&denied));
+        assert!(!checked.checked_control_flow.latent_stream_error_spans.contains(&denied));
+        let pure_mismatch = "pure identity(value: Int) -> Int { value }\nlet _ = identity(\"wrong\")?\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), pure_mismatch);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, pure_mismatch, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch));
+        let incompatible = "pure number(value: Int) -> Int { value }\nproc apply(callback, value) [] { callback(value) }\nlet _ = apply(number, \"wrong\")\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), incompatible);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, incompatible, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejected_arguments_preserve_one_reported_effect_violation() {
+        let source = concat!(
+            "proc needs_io(value: Int) [io] { print \"x\"; value }\n",
+            "proc caller(value: Str) [fs] { needs_io(value) }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)).count(), 1, "{errors:?}");
+        assert_eq!(errors.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)).count(), 1, "{errors:?}");
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        let valid_arguments = concat!(
+            "pure identity(value: Int) -> Int { value }\n",
+            "pure passthrough(value: Result[Int, Error]) -> Result[Int, Error] { value }\n",
+            "proc needs_io(value: Int) [io] { print \"x\"; value }\n",
+            "proc caller(value: Int) [fs] { let sibling = identity(1); passthrough(needs_io(value)) }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), valid_arguments);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, valid_arguments, super::super::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckEffectViolation));
+        let call_span = |call: &str| {
+            let start = valid_arguments.find(call).unwrap();
+            Span::new(SourceId::new(0), start, start + call.len())
+        };
+        assert!(checked.statically_resolved_call_spans.contains(&call_span("identity(1)")));
+        assert!(!checked.statically_resolved_call_spans.contains(&call_span("needs_io(value)")));
+        assert!(!checked.statically_resolved_call_spans.contains(&call_span("passthrough(needs_io(value))")));
     }
 
     #[test]
@@ -1068,6 +1224,92 @@ impl Checker {
             return;
         }
         *flow = InvocationFlow::Return(return_ty.clone());
+    }
+
+    pub(super) fn reject_invocation_return(
+        &mut self,
+        ticket: Option<DeferredInvocationTicket>,
+        effects: &super::InvocationEffects,
+        span: Span,
+    ) {
+        let Some(ticket) = ticket else {
+            if self.defer_effect_diagnostics {
+                self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
+                    effects: effects.clone(), validation: InvocationEffectValidation::Pending,
+                    instance: None, flow: InvocationFlow::Rejected,
+                    unknown_chain: Vec::new(), name: "rejected callable".to_owned(),
+                });
+            }
+            return;
+        };
+        let Some(check) = self.deferred_effect_checks.get_mut(ticket.0) else {
+            self.error(span, "rejected invocation has no owned effect check", DiagnosticCode::CheckLocalInference);
+            return;
+        };
+        if check.span != span || check.context.owner != self.boundary.effect_owner {
+            self.error(span, "rejected invocation effect check belongs to another source owner", DiagnosticCode::CheckLocalInference);
+            return;
+        }
+        let DeferredEffectKind::Invocation { effects: actual, flow, .. } = &mut check.kind else {
+            self.error(span, "rejected invocation effect check has another call contract", DiagnosticCode::CheckLocalInference);
+            return;
+        };
+        let matches_contract = match (actual, effects, &*flow) {
+            (super::InvocationEffects::Pending(actual), super::InvocationEffects::Pending(target), InvocationFlow::AwaitingReturn) => actual == target,
+            (super::InvocationEffects::Checked(actual), super::InvocationEffects::Checked(expected), InvocationFlow::EffectsOnly) => actual == expected,
+            _ => false,
+        };
+        if !matches_contract {
+            self.error(span, "rejected invocation does not match its effect check", DiagnosticCode::CheckLocalInference);
+            return;
+        }
+        *flow = InvocationFlow::Rejected;
+    }
+
+    pub(super) fn invocation_return_is_rejected(&self, span: Span) -> bool {
+        self.deferred_effect_checks.iter().any(|check| {
+            check.span == span && check.context.owner == self.boundary.effect_owner
+                && matches!(check.kind, DeferredEffectKind::Invocation { flow: InvocationFlow::Rejected, .. })
+        })
+    }
+
+    pub(super) fn constrain_pending_component_invocations(
+        &mut self,
+        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>,
+    ) -> Option<()> {
+        let checks = self.deferred_effect_checks.iter().filter_map(|check| {
+            let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(target), name, .. } = &check.kind else { return None; };
+            ((check.context.caller.is_some() || check.context.in_pure || !check.context.excluded.is_empty())
+                && check.context.owner.is_some_and(|owner| members.contains_key(&owner)) && members.contains_key(target))
+                .then(|| (check.context.clone(), check.span, *target, name.clone()))
+        }).collect::<Vec<_>>();
+        let before = self.diagnostics.len();
+        for (context, span, target, name) in checks {
+            let Some(&(caller, callee)) = self.provisional_function_calls.get(&span) else {
+                self.error(span, "pending recursive permission has no selected call", DiagnosticCode::CheckLocalInference);
+                continue;
+            };
+            if context.owner != Some(caller) || callee.effect_declaration() != target {
+                self.error(span, "pending recursive permission belongs to another call", DiagnosticCode::CheckLocalInference);
+                continue;
+            }
+            let contract = match self.effect_graph.pending_component_contract(target, members) {
+                Ok(contract) => contract,
+                Err(error) => {
+                    self.error(span, &format!("pending recursive permission has no shared effect scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    continue;
+                }
+            };
+            let saved = self.boundary.clone();
+            self.boundary.current_effects = context.caller;
+            self.boundary.effect_owner = context.owner;
+            self.boundary.excluded_effects = context.excluded;
+            self.boundary.in_pure = context.in_pure;
+            self.boundary.retry_attempt_depth = context.retry_attempt_depth;
+            self.constrain_callable_effects(&crate::sema::types::CallableEffects::from_contract(contract), &name, span);
+            self.boundary = saved;
+        }
+        (self.diagnostics.len() == before).then_some(())
     }
 
     pub(super) fn prepare_recursive_stream_error_flows(
@@ -1241,7 +1483,7 @@ impl Checker {
         if !self.defer_effect_diagnostics { return; }
         self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
             effects: super::InvocationEffects::Checked(crate::sema::types::CallableEffects::from_clause(contract)),
-            instance: None, flow: InvocationFlow::EffectsOnly, unknown_chain, name: name.to_owned(),
+            validation: InvocationEffectValidation::Pending, instance: None, flow: InvocationFlow::EffectsOnly, unknown_chain, name: name.to_owned(),
         });
     }
 
@@ -1312,7 +1554,8 @@ impl Checker {
         self.constrain_callable_effects(effects, name, span);
         if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
             self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: super::InvocationEffects::Checked(effects.clone()), instance: None, flow: InvocationFlow::EffectsOnly,
+                effects: super::InvocationEffects::Checked(effects.clone()), validation: InvocationEffectValidation::Pending,
+                instance: None, flow: InvocationFlow::EffectsOnly,
                 unknown_chain: Vec::new(), name: name.to_owned(),
             });
         }
@@ -1330,14 +1573,17 @@ impl Checker {
         }
         let diagnostic_count = self.diagnostics.len();
         if let super::InvocationEffects::Checked(effects) = &contract.effects { self.constrain_callable_effects(effects, name, span); }
-        if self.defer_effect_diagnostics && self.diagnostics.len() == diagnostic_count {
+        if self.defer_effect_diagnostics {
+            let validation = if self.diagnostics.len() == diagnostic_count {
+                InvocationEffectValidation::Pending
+            } else { InvocationEffectValidation::Diagnosed };
             let pending = matches!(contract.effects, super::InvocationEffects::Pending(_));
             let index = self.push_deferred_effect_check(span, DeferredEffectKind::Invocation {
-                effects: contract.effects.clone(), instance: contract.instantiation.clone(), flow: if pending { InvocationFlow::AwaitingReturn } else { InvocationFlow::EffectsOnly },
+                effects: contract.effects.clone(), validation, instance: contract.instantiation.clone(), flow: if pending { InvocationFlow::AwaitingReturn } else { InvocationFlow::EffectsOnly },
                 unknown_chain: contract.effect_declaration.and_then(|owner| self.effect_summaries.get(&owner)).map_or_else(Vec::new, |summary| summary.unknown_chain.clone()),
                 name: name.to_owned(),
             });
-            return pending.then_some(DeferredInvocationTicket(index));
+            return Some(DeferredInvocationTicket(index));
         }
         None
     }
@@ -1367,6 +1613,7 @@ impl Checker {
             let start = self.diagnostics.len();
             let deferred_span = check.span;
             let notes = check.notes.clone();
+            let invocation_diagnosed = matches!(check.kind, DeferredEffectKind::Invocation { validation: InvocationEffectValidation::Diagnosed, .. });
             let saved_boundary = self.boundary.clone();
             let saved_collecting = self.collecting_effects;
             let saved_recording = self.record_effects;
@@ -1405,7 +1652,8 @@ impl Checker {
                         Err(_) => self.error(check.span, "callable assignment has no settled source effect contract", DiagnosticCode::CheckCallableMismatch),
                     }
                 }
-                DeferredEffectKind::Invocation { effects, instance, flow, unknown_chain, name } => {
+                DeferredEffectKind::Invocation { validation: InvocationEffectValidation::Diagnosed, .. } => {},
+                DeferredEffectKind::Invocation { effects, validation: InvocationEffectValidation::Pending, instance, flow, unknown_chain, name } => {
                     let unknown_chain = match &effects {
                         super::InvocationEffects::Pending(owner) => self.effect_summaries.get(owner)
                             .map_or(unknown_chain, |summary| summary.unknown_chain.clone()),
@@ -1414,7 +1662,7 @@ impl Checker {
                     match self.resolve_invocation_effects(effects, instance.as_ref()) {
                         Ok(effects) => {
                             match flow {
-                                InvocationFlow::EffectsOnly => {},
+                                InvocationFlow::EffectsOnly | InvocationFlow::Rejected => {},
                                 InvocationFlow::AwaitingReturn => self.error(check.span, "pending invocation has no checked return flow", DiagnosticCode::CheckLocalInference),
                                 InvocationFlow::Return(return_ty) => match self.type_constraints.resolve(&return_ty) {
                                     Ok(return_ty) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
@@ -1436,11 +1684,10 @@ impl Checker {
             self.record_effects = saved_recording;
             self.defer_effect_diagnostics = saved_deferred;
             let mut generated = self.diagnostics.drain(start..).collect::<Vec<_>>();
-            if generated.iter().any(|diagnostic| {
+            if invocation_diagnosed || generated.iter().any(|diagnostic| {
                 diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
                     && diagnostic.labels.iter().any(|label| label.span == deferred_span)
             }) {
-                // Deferred errors arrive after call checking has admitted static call facts.
                 self.statically_resolved_call_spans.retain(|call| {
                     call.source_id != deferred_span.source_id
                         || call.start() > deferred_span.start()
