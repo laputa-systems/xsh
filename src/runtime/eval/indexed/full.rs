@@ -46419,6 +46419,51 @@ assert check_paths(p"relative")
     }
 
     #[test]
+    fn symbolic_dynamic_iteration_derives_item_evidence_from_its_checked_source() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("symbolic-dynamic-iteration.xsh", "pure copy(source) { [item for item in source] }\npure consume(source) { let _ = [item for item in source]; true }\npure symbolic(marker, values: List[Any]) -> List[Any] { let _ = marker; copy(values) }\npure concrete(marker, values: List[Int]) { let _ = marker; consume(values) }\npure opaque(values: List[Any]) -> List[Any] { symbolic(true, values) }\npure captured(source) { try { [item for item in source] } }\npure symbolic_capture(marker, values: List[Any]) -> Result[List[Any]] { let _ = marker; captured(values) }\npure opaque_captured(values: List[Any]) -> Result[List[Any]] { symbolic_capture(true, values) }\n"));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let value = Value::List(vec![Value::Int(7), Value::Str(Arc::from("kept"))]);
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for (name, expected) in [("opaque", value.clone()), ("opaque_captured", Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(value.clone()))))] {
+                    let result = evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), CallableKind::Pure,
+                        &[value.clone()], Span::at(program.store.source_id, 0),
+                    ).unwrap().unwrap();
+                    assert_eq!(result, expected);
+                }
+            }
+            for (name, callee, ty) in [("symbolic", "copy", Type::Int), ("concrete", "consume", Type::Any)] {
+                let callee = scheme_fixture_root_function(&program, callee);
+                let FullCallableContract::Scheme(scheme_id) = program.store.functions[callee].contract else { panic!("the callee retains its iteration scheme") };
+                let scheme = program.store.scheme(scheme_id).unwrap();
+                let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+                let parameters = &program.store.scheme_type_parameters[parameters];
+                let iteration = parameters.iter().find_map(|parameter| parameter.iteration().unwrap()).unwrap();
+                let item = program.store.scheme_types[iteration.item.index()];
+                assert_eq!(item.tag, schema::FullSchemeTypeTag::Parameter);
+                let item_binder = parameters[item.first as usize].id;
+                let owner = scheme_fixture_root_function(&program, name);
+                assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let instance = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize))).unwrap();
+                let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                let argument = program.store.call_type_arguments[arguments].iter().find(|argument| argument.binder == item_binder).unwrap();
+                let node = argument.ty;
+                assert_eq!(program.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::Ground);
+                let mut forged = (*program).clone();
+                let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
+                forged.store.scheme_types[node.index()].first = ty.raw();
+                let error = FullVerifier::verify(&forged).expect_err("an iteration item binder must match its checked source domain");
+                if name == "concrete" { assert_eq!(error.message, "generic type binder disagrees with the checked argument"); }
+            }
+        });
+    }
+
+    #[test]
     fn checked_dynamic_generic_references_preserve_exact_declared_signatures() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-dynamic-reference.xsh", "type DynamicIdentity = pure(value: Any) -> Any\ntype IntIdentity = pure(value: Int) -> Int\npure identity(value) { value }\npure dynamic(value: Any) -> Any { let target: DynamicIdentity = identity; target(value) }\npure concrete() -> Int { let target: IntIdentity = identity; target(7) }\n"));

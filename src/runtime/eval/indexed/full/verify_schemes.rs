@@ -2861,24 +2861,69 @@ fn verify_symbolic_call_arguments(
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
         let matches = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
         if !matches { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
-        verify_symbolic_argument_evidence(&parameter_type, &actual, callee_scope, substitution, &mut binder_evidence, budget, 0)?;
+        verify_symbolic_argument_evidence(&parameter_type, &actual, callee_scope, substitution, SymbolicEvidenceSource::Argument, &mut binder_evidence, budget, 0)?;
     }
+    extend_symbolic_iteration_evidence(store, callee_scope, caller_scope, substitution, &mut binder_evidence, budget)?;
     for (binder, ty) in substitution.types.iter().enumerate() {
-        let mut pending = vec![ty];
-        while let Some(ty) = pending.pop() {
-            budget.charge(1)?;
-            match ty {
-                SchemeType::Ground(ty) if ty.contains_any() && !binder_evidence.contains(&binder) => return Err(IrVerifyError::new("dynamic generic type binder has no checked input evidence")),
-                SchemeType::Callable { monotype, .. } => { pending.extend(monotype.params().iter().map(|parameter| &parameter.ty)); pending.push(monotype.return_type()); }
-                SchemeType::List(inner) | SchemeType::Stream(inner) | SchemeType::Set(inner) | SchemeType::Optional(inner) | SchemeType::Validated(_, inner) => pending.push(inner),
-                SchemeType::Map(key, value) | SchemeType::Result(key, value) => { pending.push(key); pending.push(value); }
-                SchemeType::Record { fields, .. } => pending.extend(fields.values()),
-                SchemeType::Union(members) => pending.extend(members),
-                _ => {}
-            }
+        if !binder_evidence.contains(&binder) && scheme_type_contains_any(ty, budget)? {
+            return Err(IrVerifyError::new("dynamic generic type binder has no checked input evidence"));
         }
     }
     Ok(())
+}
+
+fn scheme_type_contains_any(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        budget.charge(1)?;
+        match ty {
+            SchemeType::Ground(ty) if ty.contains_any() => return Ok(true),
+            SchemeType::Callable { monotype, .. } => { pending.extend(monotype.params().iter().map(|parameter| &parameter.ty)); pending.push(monotype.return_type()); }
+            SchemeType::List(inner) | SchemeType::Stream(inner) | SchemeType::Set(inner) | SchemeType::Optional(inner) | SchemeType::Validated(_, inner) => pending.push(inner),
+            SchemeType::Map(key, value) | SchemeType::Result(key, value) => { pending.push(key); pending.push(value); }
+            SchemeType::Record { fields, .. } => pending.extend(fields.values()),
+            SchemeType::Union(members) => pending.extend(members),
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+fn extend_symbolic_iteration_evidence(
+    store: &FullStore,
+    callee: &SchemeScope,
+    caller: &SchemeScope,
+    substitution: &SymbolicCallSubstitution,
+    evidence: &mut BTreeSet<usize>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let mut pending = evidence.iter().copied().collect::<Vec<_>>();
+    while let Some(source) = pending.pop() {
+        budget.charge(1)?;
+        let Some(iteration) = callee.type_parameters[source].iteration()? else { continue };
+        let actual = iteration_contract(store, &substitution.types[source], caller, budget)?;
+        let item = decode_scheme_type(store, callee, iteration.item, budget, 0)?;
+        let mut derived = BTreeSet::new();
+        verify_symbolic_argument_evidence(&item, &actual.item, callee, substitution, SymbolicEvidenceSource::Iteration, &mut derived, budget, 0)?;
+        match (iteration.failure, actual.failure) {
+            (_, crate::sema::schemes::IterationFailure::Infallible) => {}
+            (crate::sema::schemes::IterationFailure::Propagates(expected), crate::sema::schemes::IterationFailure::Propagates(actual)) => {
+                let expected = decode_scheme_type(store, callee, expected, budget, 0)?;
+                verify_symbolic_argument_evidence(&expected, &actual, callee, substitution, SymbolicEvidenceSource::Iteration, &mut derived, budget, 0)?;
+            }
+            _ => return Err(IrVerifyError::new("generic call does not retain its iteration failure domain")),
+        }
+        for binder in derived {
+            if evidence.insert(binder) { pending.push(binder); }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SymbolicEvidenceSource {
+    Argument,
+    Iteration,
 }
 
 fn verify_symbolic_argument_evidence(
@@ -2886,6 +2931,7 @@ fn verify_symbolic_argument_evidence(
     actual: &SchemeType,
     scope: &SchemeScope,
     substitution: &SymbolicCallSubstitution,
+    source: SymbolicEvidenceSource,
     evidence: &mut BTreeSet<usize>,
     budget: &mut SchemeInstantiationBudget,
     depth: usize,
@@ -2894,7 +2940,10 @@ fn verify_symbolic_argument_evidence(
     budget.charge(1)?;
     if let SchemeType::Parameter(id) = parameter {
         let binder = *scope.type_binders.get(&id.0).ok_or_else(|| IrVerifyError::new("scheme type parameter is out of scope"))?;
-        if !body_types_equal(actual, &substitution.types[binder]) { return Err(IrVerifyError::new("generic type binder disagrees with the checked argument")); }
+        if !body_types_equal(actual, &substitution.types[binder]) {
+            if source == SymbolicEvidenceSource::Iteration && !scheme_type_contains_any(&substitution.types[binder], budget)? && body_type_matches(actual, &substitution.types[binder], budget)? { return Ok(()); }
+            return Err(IrVerifyError::new("generic type binder disagrees with the checked argument"));
+        }
         evidence.insert(binder);
         return Ok(());
     }
@@ -2923,7 +2972,7 @@ fn verify_symbolic_argument_evidence(
         };
         &expanded
     } else { actual };
-    let mut nested = |parameter: &SchemeType, actual: &SchemeType| verify_symbolic_argument_evidence(parameter, actual, scope, substitution, evidence, budget, depth + 1);
+    let mut nested = |parameter: &SchemeType, actual: &SchemeType| verify_symbolic_argument_evidence(parameter, actual, scope, substitution, source, evidence, budget, depth + 1);
     match (parameter, actual) {
         (SchemeType::Validated(_, inner), _) => nested(inner, actual),
         (_, SchemeType::Validated(_, inner)) => nested(parameter, inner),
@@ -2955,7 +3004,7 @@ fn verify_symbolic_argument_evidence(
                     let expected = substitute_scheme_type(parameter, scope, substitution, budget, depth + 1)?;
                     if !body_types_equal(actual, &expected) && !matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected)) { continue; }
                     let mut candidate = evidence.clone();
-                    if verify_symbolic_argument_evidence(parameter, actual, scope, substitution, &mut candidate, budget, depth + 1).is_ok() && best.as_ref().is_none_or(|best: &BTreeSet<usize>| candidate.len() > best.len()) { best = Some(candidate); }
+                    if verify_symbolic_argument_evidence(parameter, actual, scope, substitution, source, &mut candidate, budget, depth + 1).is_ok() && best.as_ref().is_none_or(|best: &BTreeSet<usize>| candidate.len() > best.len()) { best = Some(candidate); }
                 }
                 *evidence = best.ok_or_else(|| IrVerifyError::new("generic union argument disagrees with its checked substitution"))?;
             }
