@@ -8,13 +8,32 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Matching verification products for provisional source `7b57e094d`, with the
-corpus assertions committed at `2aaefda86`, run all 113 enumerated full-inference
-native controls and seven changed legacy controls: 80 pass and 40 fail. Every
-listed selector executes exactly once. This wider boundary exposes unfinished
-declaration-side structural and operator relationships, callable composition,
-effect propagation, and prepared verification. The previous selected Rust
-results do not establish full capability completion.
+Matching verification products built from `f8771f5b2`, with corpus assertions
+through `d88180b53`, execute all 113 enumerated full-inference native controls
+and seven changed legacy controls: 87 pass and 33 fail. Every listed selector
+executes exactly once. The preceding `7b57e094d` products with `2aaefda86`
+assertions passed 80 and failed 40. Remaining failures cover structural and
+operator relationships, callable composition, effect propagation and prepared
+verification. These results do not establish full capability completion.
+
+Structural repair `2eda90c75`, integrated as `f8771f5b2`, preserves open-row
+relationships during destructuring and seeds omitted rest parameters as lists
+of fresh item variables. All twelve focused Rust controls pass. The native
+source-order and rest cases pass, including explicit JSON rendering of the
+concrete list results. Iterable and Optional/Result relationships remain open.
+Producer repair `e21dcb4b5`, integrated as `acc280757`, passes nine focused
+controls. Cold proof retains runtime validation for unsigned defaults and
+checks fresh aggregate payloads without exempting nested calls or operands.
+
+Alias repair `3d2e04eaa`, integrated as `82914c14d`, passes all 23 focused Rust
+controls and independent review. Driver lowering selects actual immutable reads
+before allocating dense input frames; mutable and signal-hook inputs remain.
+Cold alias authentication is iterative and retains every physical type claim,
+owner check and cycle guard. The controls include the original 400-alias case
+and 64/128/256/512-link cold verification and execution on both routes. No work
+limit or stack size increases. The rejected post-encoding compaction mode is
+absent. The combined unfiltered library replay is running; broader acceptance
+remains open.
 
 Fixture repairs `51d41a12e` and `071787144` pass all five focused native
 executions. Three corpus controls needed required public documentation and
@@ -22,7 +41,8 @@ valid print interpolation. The cleanup negative incorrectly treated print as
 a capability: XSH print is effect-free. Its corrected Env-read rejection,
 permitted Env construction and original print-only acceptance all pass, as
 does the existing print-effect control. No production capability bug is
-established by the original cleanup receipt.
+established by the original cleanup receipt. Generic Display fixtures retain
+their value-containing output assertions and require actual inference support.
 
 Static literal-splice repair `10fce8c8d`, integrated as `c06d930d0`, passes the
 matching native source-order/refinement selector, rest-element rejection and
@@ -30,14 +50,8 @@ default controls. Independent review is clear. Iterator-source repair
 `c024801ea`, integrated as `7b57e094d`, resolves established cells before loop
 and comprehension item projection. Ten Rust controls and its native rejection
 pass; the public positive still fails at downstream prepared storage proof.
-Keep that unchanged positive mandatory.
-
-The flat 400-alias diagnostic reaches 81,003 driver-slot rows for 403 driver
-steps. Its first producer-index charge requests 81,411 units against a natural
-6,636-unit budget, before alias traversal. No work limit is increased. An
-experimental post-encoding compaction mode is rejected after review finds an
-omitted-input fallback. The repair now targets allocation of unnecessary inputs
-before lowering, preserving one prepared metadata contract.
+Keep that unchanged positive mandatory. Active source work addresses reusable
+Display/Argv requirements and authenticated prepared storage/callable sources.
 
 Provisional assembly `e0a97e754` passes 662 of 670 selected Rust controls.
 The replay preserves all 668 preceding selectors and adds named-spread Stream
