@@ -853,8 +853,19 @@ impl Capture<'_> {
             let node = self.program.arena.expr(expression);
             let span = node.span;
             let callee = match node.kind { ArenaExprKind::Call { callee, .. } => self.program.arena.expr(callee), _ => node };
-            let ArenaExprKind::Field { base, .. } = callee.kind else { return Err(BodyContractError::MissingReceiver(span)); };
-            Some(self.checked.expr_types.get(&self.program.arena.expr(base).span).ok_or(BodyContractError::MissingReceiver(span))?)
+            let (base, null_safe) = match callee.kind {
+                ArenaExprKind::Field { base, .. } => (base, false),
+                ArenaExprKind::NullSafeField { base, .. } => (base, true),
+                _ => return Err(BodyContractError::MissingReceiver(span)),
+            };
+            let checked_receiver = self.checked.expr_types.get(&self.program.arena.expr(base).span)
+                .ok_or(BodyContractError::MissingReceiver(span))?;
+            Some(if null_safe {
+                match checked_receiver {
+                    Type::Optional(inner) | Type::Result(inner, _) => inner.as_ref(),
+                    _ => return Err(BodyContractError::MissingReceiver(span)),
+                }
+            } else { checked_receiver })
         } else { None };
         Ok(SelectedOperation { receiver: call.receiver, signature: call.sig, argument_slots: call.argument_slots.clone(),
             argument_checks: call.params.iter().enumerate().map(|(slot, parameter)| registered_argument_check(receiver, slot, parameter)).collect() })
@@ -1205,6 +1216,32 @@ mod tests {
         assert!(!first.operations.is_empty());
         assert!(first.preserved_by(&shifted));
         assert!(shifted.preserved_by(&first));
+    }
+
+    #[test]
+    fn checked_body_contract_captures_null_safe_method_receivers() {
+        let source = "proc decode(value: Int) [error] -> Str { bytes.from_ints([value])?.utf8()? }\nproc lookup(value: Result[Map[UInt, Str]]) [error] -> Result[Str] { value?.get(1) }\n";
+        let (program, sources, checked) = checked(source);
+        let (span, _) = checked.api_calls.iter().find(|(_, call)| call.receiver == Some(MethodReceiver::Bytes)).unwrap();
+        let expression = program.arena.source_rows().expr_ids(span.source_id).find(|&expression| program.arena.expr(expression).span == *span).unwrap();
+        let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { panic!("checked byte method call") };
+        let ArenaExprKind::NullSafeField { base, .. } = program.arena.expr(callee).kind else { panic!("checked safe byte method receiver") };
+        assert!(matches!(checked.expr_types.get(&program.arena.expr(base).span), Some(Type::Result(ok, _)) if **ok == Type::Bytes));
+        let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
+        let operations = contracts.iter().flat_map(|body| body.operations.values()).map(|operation| &operation.selection).collect::<Vec<_>>();
+        let bytes = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Bytes)).unwrap();
+        let map = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Map)).unwrap();
+        assert!(bytes.argument_checks.is_empty());
+        assert_eq!(map.argument_checks, [Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey)]);
+
+        let mut missing_receiver = checked.clone();
+        missing_receiver.expr_types.remove(&program.arena.expr(base).span);
+        assert_eq!(PendingBodyContracts::capture(&missing_receiver, &program, &sources)
+            .map(PendingBodyContracts::into_contracts).unwrap_err(), BodyContractError::MissingReceiver(*span));
+        let mut invalid_receiver = checked.clone();
+        invalid_receiver.expr_types.insert(program.arena.expr(base).span, Type::Bytes);
+        assert_eq!(PendingBodyContracts::capture(&invalid_receiver, &program, &sources)
+            .map(PendingBodyContracts::into_contracts).unwrap_err(), BodyContractError::MissingReceiver(*span));
     }
 
     #[test]
