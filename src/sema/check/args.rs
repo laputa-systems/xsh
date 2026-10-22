@@ -15,6 +15,33 @@ pub(super) struct CheckedCallArgument<'a> {
     pub span: Span,
 }
 
+#[derive(Clone, Default)]
+pub(super) struct CheckedArgumentContext {
+    pub(super) expected: Option<Type>,
+    pub(super) schema: crate::sema::constants::SchemaExpectation,
+}
+
+#[derive(Clone)]
+pub(super) struct CheckedArgumentValues {
+    pub(super) arguments: Vec<crate::sema::arguments::ExpandedArgument>,
+    pub(super) contexts: Vec<CheckedArgumentContext>,
+}
+
+pub(super) struct CheckedBoundArguments {
+    pub(super) values: CheckedArgumentValues,
+    pub(super) binding: crate::sema::arguments::StaticArgumentBinding,
+}
+
+pub(super) enum SelectedMethodArguments {
+    Invalid,
+    Bound(CheckedBoundArguments),
+    Values {
+        values: CheckedArgumentValues,
+        binding: crate::sema::arguments::StaticArgumentBinding,
+        schemas: Vec<Option<crate::sema::constants::SchemaExpectation>>,
+    },
+}
+
 fn expanded_checked_argument(argument: CheckedCallArgument<'_>) -> crate::sema::arguments::ExpandedArgument {
     crate::sema::arguments::ExpandedArgument {
         entry_index: 0,
@@ -635,12 +662,25 @@ impl Checker {
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) {
+        let _ = self.check_retained_signature_arguments_arena(arena, source, args, sig, span, schemas, checked_argument);
+    }
+
+    pub(super) fn check_retained_signature_arguments_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        sig: &ModuleFnSig,
+        span: Span,
+        schemas: &[Option<crate::sema::constants::SchemaExpectation>],
+        checked_argument: Option<CheckedCallArgument<'_>>,
+    ) -> Option<CheckedBoundArguments> {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
         let mut expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
             Ok(expanded) => expanded,
             Err(error) => {
                 self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
-                return;
+                return None;
             }
         };
         if let Some(argument) = checked_argument {
@@ -676,9 +716,10 @@ impl Checker {
                         .unwrap_or_else(|_| param.ty.clone());
                     self.expect_type(&expected, argument.ty, argument.span);
                 }
-                return;
+                return None;
             }
         };
+        let mut contexts = Vec::with_capacity(expanded.len());
         self.check_bound_api_argument_labels(arena, span, &expanded, &binding, sig);
         if let Some(argument) = checked_argument {
             if let Some(&slot) = binding.argument_slots.first() {
@@ -686,33 +727,32 @@ impl Checker {
                     .type_constraints
                     .resolve(&params[slot].ty)
                     .unwrap_or_else(|_| params[slot].ty.clone());
-                let previous_schema = self.boundary.expected_schema.clone();
-                self.boundary.expected_schema = schemas
-                    .get(slot)
-                    .cloned()
-                    .flatten()
-                    .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+                let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
+                let previous_schema = self.boundary.expected_schema.replace(schema.clone());
                 let actual = argument.ty;
                 self.boundary.expected_schema = previous_schema;
                 self.expect_api_argument(&expected, actual, argument.span);
+                expanded[0].ty = actual.clone();
+                contexts.push(CheckedArgumentContext { expected: Some(expected), schema });
             }
-            return;
+            return Some(CheckedBoundArguments { values: CheckedArgumentValues { arguments: expanded, contexts }, binding });
         }
-        for (arg, slot) in args.iter().zip(binding.argument_slots) {
+        for (index, (arg, &slot)) in args.iter().zip(&binding.argument_slots).enumerate() {
             let expected = self
                 .type_constraints
                 .resolve(&params[slot].ty)
                 .unwrap_or_else(|_| params[slot].ty.clone());
-            let previous_schema = self.boundary.expected_schema.clone();
-            self.boundary.expected_schema = schemas
-                .get(slot)
-                .cloned()
-                .flatten()
-                .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+            let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
+            let previous_schema = self.boundary.expected_schema.replace(schema.clone());
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.boundary.expected_schema = previous_schema;
             self.expect_api_argument(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+            expanded[index].ty = actual;
+            contexts.push(CheckedArgumentContext { expected: Some(expected), schema });
         }
+        (contexts.len() == expanded.len()).then_some(CheckedBoundArguments {
+            values: CheckedArgumentValues { arguments: expanded, contexts }, binding,
+        })
     }
 
     fn check_bound_api_argument_labels(
@@ -761,6 +801,73 @@ impl Checker {
     fn expect_api_argument(&mut self, expected: &Type, actual: &Type, span: Span) {
         if expected == &Type::Path && is_path_like_type(actual) || expected.accepts_readonly_argv_argument(actual) { return; }
         self.expect_type(expected, actual, span);
+    }
+
+    pub(super) fn check_argument_values_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        contexts: Vec<CheckedArgumentContext>,
+    ) -> Option<CheckedArgumentValues> {
+        assert_eq!(args.len(), contexts.len());
+        for (argument, context) in args.iter().zip(&contexts) {
+            let previous = self.boundary.expected_schema.replace(context.schema.clone());
+            self.check_call_arg_arena(arena, source, &argument.kind, context.expected.as_ref());
+            self.boundary.expected_schema = previous;
+        }
+        match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
+            self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+        }) {
+            Ok(arguments) => {
+                let contexts = arguments.iter().map(|argument| contexts[argument.entry_index].clone()).collect();
+                Some(CheckedArgumentValues { arguments, contexts })
+            }
+            Err(error) => {
+                self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
+                None
+            }
+        }
+    }
+
+    pub(super) fn retain_original_method_arguments(
+        &self,
+        arena: &ArenaProgram,
+        source: &super::method::HostCallSource,
+        values: &mut CheckedArgumentValues,
+    ) {
+        let super::method::HostCallSource::Expression(call) = source else { return; };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr(*call).kind else { panic!("method evidence belongs to its original call") };
+        let originals = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |expression| {
+            self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+        }).expect("checked original method arguments retain their static layout");
+        assert_eq!(originals.len(), values.arguments.len());
+        for (original, checked) in originals.into_iter().zip(&mut values.arguments) {
+            assert_eq!(original.name, checked.name);
+            checked.entry_index = original.entry_index;
+            checked.value = original.value;
+            checked.span = original.span;
+        }
+    }
+
+    pub(super) fn complete_checked_method_arguments(
+        &mut self,
+        arena: &ArenaProgram,
+        span: Span,
+        values: CheckedArgumentValues,
+        binding: crate::sema::arguments::StaticArgumentBinding,
+        signature: &ModuleFnSig,
+        schemas: &[Option<crate::sema::constants::SchemaExpectation>],
+    ) -> Result<CheckedBoundArguments, CheckedArgumentValues> {
+        assert_eq!(values.arguments.len(), values.contexts.len());
+        assert_eq!(values.arguments.len(), binding.argument_slots.len());
+        if values.contexts.iter().zip(&binding.argument_slots).any(|(context, &slot)| {
+            context.schema != schemas.get(slot).cloned().flatten().unwrap_or_default()
+        }) {
+            return Err(values);
+        }
+        self.check_bound_host_arguments(arena, span, &values.arguments, &binding, signature);
+        Ok(CheckedBoundArguments { values, binding })
     }
 
     pub(super) fn check_bound_host_arguments(

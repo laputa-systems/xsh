@@ -65,11 +65,11 @@ struct HostCallStart {
 }
 
 impl HostCallStart {
-    fn finish(self, checker: &mut Checker) -> HostCallContinuation {
+    fn finish(self, checker: &mut Checker, arguments: Vec<super::super::args::CheckedArgumentContext>) -> HostCallContinuation {
         let after_arguments = checker.reserve_host_call_phase();
         HostCallContinuation {
             source: self.source, before_arguments: self.before_arguments, after_arguments,
-            name: self.name, receiver_schema: self.receiver_schema,
+            name: self.name, receiver_schema: self.receiver_schema, arguments,
         }
     }
 }
@@ -81,6 +81,7 @@ struct HostCallContinuation {
     after_arguments: HostCallPhase,
     name: String,
     receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
+    arguments: Vec<super::super::args::CheckedArgumentContext>,
 }
 
 #[derive(Clone)]
@@ -103,9 +104,13 @@ struct HostMethodCandidates {
 impl HostCallContinuation {
     fn phase(&self, method: HostMethod, arguments: &[ExpandedArgument]) -> Option<&HostCallPhase> {
         if !matches!(self.source, HostCallSource::Expression(_))
-            || self.receiver_schema.is_some()
             || !matches!(method.signature.sig.arg_check, super::ApiArgCheck::Standard | super::ApiArgCheck::PathLikeSingle | super::ApiArgCheck::ResultContext)
         { return None; }
+        let schemas = crate::sema::builtin_templates::parameter_schema_contexts(&method.signature.sig, method.signature.receiver_ty.as_ref(), self.receiver_schema.as_ref());
+        let params = crate::sema::builtin_templates::callable_parameters(&method.signature.sig);
+        let binding = crate::sema::arguments::bind_static_arguments(&params, arguments).ok()?;
+        assert_eq!(arguments.len(), self.arguments.len());
+        if self.arguments.iter().zip(&binding.argument_slots).any(|(context, &slot)| context.schema != schemas.get(slot).cloned().flatten().unwrap_or_default()) { return None; }
         match super::method_with_unique_layout(
             api_spec().method_overloads(method.receiver, &self.name).expect("a selected host method remains registered"),
             Some(arguments),
@@ -262,25 +267,11 @@ impl Checker {
         let candidates = method_candidates(name);
         let registered = !candidates.is_empty();
         let signatures = candidates.iter().map(|method| method.signature.clone()).collect::<Vec<_>>();
-        for (index, argument) in args.iter().enumerate() {
-            let expected = super::common_method_overload_expected_arena(args, &signatures, index);
-            self.check_call_arg_arena(arena, source, &argument.kind, expected.as_ref());
-        }
-        let continuation = continuation.finish(self);
-        let original_args = match &call_source {
-            HostCallSource::Expression(call) => {
-                assert_eq!(arena.arena.expr(*call).span, span);
-                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr(*call).kind else { panic!("a host continuation belongs to its original call") };
-                arena.arena.call_args(args)
-            }
-            HostCallSource::Callback { .. } => args,
-        };
-        let Ok(arguments) = crate::sema::arguments::expand_named_arguments(arena, original_args, |expression| {
-            self.expr_types.get(&arena.arena.expr(expression).span).cloned()
-        }) else {
-            self.error(span, "method receiver needs an annotation", DiagnosticCode::CheckLocalInference);
-            return Type::Invalid;
-        };
+        let contexts = super::method_argument_contexts(arena, args, &signatures, continuation.receiver_schema.as_ref());
+        let Some(mut values) = self.check_argument_values_arena(arena, source, args, contexts) else { return Type::Invalid; };
+        self.retain_original_method_arguments(arena, &call_source, &mut values);
+        let continuation = continuation.finish(self, values.contexts);
+        let arguments = values.arguments;
         let result = self.type_constraints.fresh(span);
         let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: expected.cloned(), arguments, candidates, span };
         match obligation.select(&mut self.type_constraints) {
@@ -324,7 +315,11 @@ impl Checker {
         let phase = continuation.phase(selected.method, &obligation.candidates.arguments).expect("a finalized host call has canonical selection order");
         self.finalize_selected_host_method(
             arena, selected.method.receiver, &continuation.name, selected.method.signature, selected.signature,
-            &obligation.candidates.arguments, selected.binding, &phase.context, obligation.candidates.span,
+            super::super::args::SelectedMethodArguments::Values {
+                values: super::super::args::CheckedArgumentValues { arguments: obligation.candidates.arguments.clone(), contexts: continuation.arguments.clone() },
+                binding: selected.binding,
+                schemas: crate::sema::builtin_templates::parameter_schema_contexts(&selected.method.signature.sig, selected.method.signature.receiver_ty.as_ref(), continuation.receiver_schema.as_ref()),
+            }, &phase.context, obligation.candidates.span,
         )
     }
 
@@ -400,7 +395,7 @@ mod tests {
         candidates.arguments = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |_| types.next()).unwrap();
         assert!(types.next().is_none());
         HostObligation {
-            continuation: checker.reserve_host_call_continuation(HostCallSource::Expression(call), name, None).finish(checker),
+            continuation: checker.reserve_host_call_continuation(HostCallSource::Expression(call), name, None).finish(checker, vec![super::super::super::args::CheckedArgumentContext::default(); candidates.arguments.len()]),
             candidates,
         }
     }
@@ -601,7 +596,7 @@ mod tests {
             Some(checker.check_expr_arena(&parsed.arena, source, expression, None))
         }).unwrap();
         assert!(matches!(arguments[0].value, crate::sema::arguments::ArgumentValueSource::Expression(_)));
-        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "byte_at", None).finish(&mut checker);
+        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "byte_at", None).finish(&mut checker, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
         checker.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: HostMethodCandidates { selected: None,
             receiver: receiver.clone(), result: result.clone(), expected: None, arguments,
             candidates: method_candidates("byte_at"), span,
@@ -636,7 +631,7 @@ mod tests {
         assert!(arguments.iter().all(|argument| matches!(argument.value, crate::sema::arguments::ArgumentValueSource::RecordField { .. })));
         let receiver = checker.type_constraints.fresh(span);
         let result = checker.type_constraints.fresh(span);
-        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "replace", None).finish(&mut checker);
+        let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "replace", None).finish(&mut checker, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
         checker.local_inference.host_obligations.entries.push(HostObligation {
             continuation,
             candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("replace"), span },
@@ -697,7 +692,7 @@ mod tests {
             let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, args, |expression| {
                 Some(delayed.check_expr_arena(&parsed.arena, source, expression, None))
             }).unwrap();
-            let continuation = continuation.finish(&mut delayed);
+            let continuation = continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
                 candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
@@ -738,8 +733,8 @@ mod tests {
         let mut delayed = reference.clone();
         reference.check_expr_arena(&parsed.arena, source, outer, None);
         let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "mkdir", None);
-        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "exists", None).finish(&mut delayed);
-        let outer_continuation = outer_continuation.finish(&mut delayed);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "exists", None).finish(&mut delayed, Vec::new());
+        let outer_continuation = outer_continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); 1]);
         for (call, name, continuation, arguments) in [
             (inner, "exists", inner_continuation, Vec::new()),
             (outer, "mkdir", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Bool)).unwrap()),
@@ -755,6 +750,80 @@ mod tests {
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).map(|diagnostic| diagnostic.labels.iter().map(|label| label.span).collect::<Vec<_>>()).collect::<Vec<_>>();
         assert_eq!(order(&reference).len(), 2, "{:?}", reference.diagnostics);
         assert_eq!(order(&delayed), order(&reference), "{:?}", delayed.diagnostics);
+    }
+
+    #[test]
+    fn known_receiver_overloads_check_argument_effects_once() {
+        let source = "p\"outer\".write(p\"inner\".read_text() ?? \"\")\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaCallArgKind::Positional(value) = parsed.arena.arena.call_args(args)[0].kind else { panic!("write argument") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("read fallback") };
+        let mut checker = Checker::new(crate::sema::check::CheckOptions::default());
+        checker.boundary.in_pure = true;
+        let (work, _) = crate::sema::inference_work::collect(|| checker.check_expr_arena(&parsed.arena, source, outer, None));
+        assert_eq!(work.function_body_check_entries, 0);
+        let order = checker.diagnostics.iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect))
+            .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
+            .collect::<Vec<_>>();
+        assert_eq!(order, [parsed.arena.arena.expr(inner).span, parsed.arena.arena.expr(outer).span]);
+        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr(inner).span));
+        assert!(checker.api_calls.contains_key(&parsed.arena.arena.expr(outer).span));
+    }
+
+    #[test]
+    fn registered_method_arguments_retain_receiver_schema_evidence() {
+        for (definition, argument, expected) in [
+            ("type Box[T] = {value: Int}\n", "Box(value: 1)", Type::Str),
+            ("type Box[T] = {value: Int}\ntype Alias = Box[List[Int]]\n", "Box(value: 1)", Type::List(Box::new(Type::Int))),
+            ("type Box[T] = {value: T}\n", "Box(value: [])", Type::List(Box::new(Type::Int))),
+        ] {
+            let annotation = if definition.contains("type Alias") { "Alias" } else if expected == Type::Str { "Box[Str]" } else { "Box[List[Int]]" };
+            let source = format!("{definition}let values: List[{annotation}] = []\nlet _ = values.push({argument})\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution()));
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            assert_eq!(work.function_body_check_entries, 0);
+            let constructor = checked.record_constructor_instances.iter().find(|(span, _)| &source[span.range()] == argument).expect("the original contextual constructor publishes its actual schema instance");
+            assert_eq!(constructor.1.instance.arguments, [expected]);
+            assert_eq!(parsed.arena.arena.type_def(constructor.1.instance.definition).name.as_str().as_str(), "Box");
+            let call = checked.api_calls.iter().find(|(span, _)| source[span.range()].starts_with("values.push(")).expect("the selected List push publishes its checked binding").1;
+            assert_eq!(call.receiver, Some(MethodReceiver::List));
+            assert_eq!(call.argument_slots, [0]);
+            assert_eq!(call.params, [constructor.1.ty.clone()]);
+        }
+        for source in [
+            "type Box[T] = {value: T}\nlet values: List[Box[Int]] = []\nlet _ = values.push(Box(value: false))\n",
+            "type Box[T] = {value: T}\nlet values: List[Box[List[Int]]] = []\nlet stored: List[Str] = [\"wrong\"]\nlet _ = values.push(Box(value: stored))\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn registered_method_arguments_retain_requirement_targets() {
+        let source = "type Box[T] = {value: Int}\nlet values: List[Box[Str]] = []\nlet incoming: Any = {value: 7}\nlet _ = values.push(incoming.require()?)\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let target = checked.requirement_targets.iter().find(|(span, _)| &source[span.range()] == "incoming.require()").expect("the original require expression retains its contextual target").1;
+        assert_eq!(target.context.instances.len(), 1);
+        assert_eq!(target.context.instances[0].arguments, [Type::Str]);
+        assert_eq!(parsed.arena.arena.type_def(target.context.instances[0].definition).name.as_str().as_str(), "Box");
+        let call = checked.api_calls.iter().find(|(span, _)| source[span.range()].starts_with("values.push(")).expect("the enclosing method retains its actual selected parameter").1;
+        assert_eq!(call.params, [target.ty.clone()]);
     }
 
     #[test]
@@ -787,7 +856,7 @@ mod tests {
             let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |expression| {
                 Some(delayed.check_expr_arena(&parsed.arena, &source, expression, Some(&Type::Str)))
             }).unwrap();
-            let continuation = continuation.finish(&mut delayed);
+            let continuation = continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
             let receiver = delayed.type_constraints.fresh(span);
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
@@ -836,8 +905,8 @@ mod tests {
         let mut delayed = reference.clone();
         reference.check_expr_arena(&parsed.arena, source, outer, None);
         let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "append", None);
-        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "resolve", None).finish(&mut delayed);
-        let outer_continuation = outer_continuation.finish(&mut delayed);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "resolve", None).finish(&mut delayed, Vec::new());
+        let outer_continuation = outer_continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); 1]);
         for (call, name, receiver, continuation, arguments) in [
             (inner, "resolve", Type::Path, inner_continuation, Vec::new()),
             (outer, "append", Type::EnvPathList, outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Path)).unwrap()),
@@ -896,12 +965,12 @@ mod tests {
                     assert!(reference.diagnostics.is_empty(), "{source}: {:?}", reference.diagnostics);
                 }
                 let mut delayed = reference.clone();
-                reference.check_registered_method_arena(&parsed.arena, &source, receiver_kind, name, args, span, actual_receiver, DiagnosticCode::CheckUnknownMethod, None, None);
+                reference.check_registered_method_arena(&parsed.arena, &source, HostCallSource::Expression(call), receiver_kind, name, args, span, actual_receiver, DiagnosticCode::CheckUnknownMethod, None, None);
                 let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), name, None);
                 let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, args, |expression| {
                     Some(delayed.check_expr_arena(&parsed.arena, &source, expression, Some(&Type::Path)))
                 }).unwrap();
-                let continuation = continuation.finish(&mut delayed);
+                let continuation = continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
                 let receiver = delayed.type_constraints.fresh(span);
                 let result = delayed.type_constraints.fresh(span);
                 delayed.local_inference.host_obligations.entries.push(HostObligation {
@@ -952,7 +1021,7 @@ mod tests {
             }).unwrap();
             let receiver = delayed.type_constraints.fresh(span);
             let result = delayed.type_constraints.fresh(span);
-            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "write", None).finish(&mut delayed);
+            let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "write", None).finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
                 candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates("write"), span },
@@ -994,8 +1063,8 @@ mod tests {
         let mut delayed = reference.clone();
         reference.check_expr_arena(&parsed.arena, source, outer, None);
         let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "write", None);
-        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "read_text", None).finish(&mut delayed);
-        let outer_continuation = outer_continuation.finish(&mut delayed);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "read_text", None).finish(&mut delayed, Vec::new());
+        let outer_continuation = outer_continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); 1]);
         for (call, name, continuation, arguments) in [
             (inner, "read_text", inner_continuation, Vec::new()),
             (outer, "write", outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Str)).unwrap()),

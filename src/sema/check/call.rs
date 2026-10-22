@@ -656,6 +656,7 @@ impl Checker {
                     return self.check_registered_method_arena(
                         arena,
                         source,
+                        call_source.clone(),
                         MethodReceiver::PathConstructor,
                         &name.as_str(),
                         args,
