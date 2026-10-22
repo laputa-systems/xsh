@@ -337,7 +337,7 @@ impl Checker {
                         if !self.diagnostics[diagnostics_before..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
                             let body = program.arena.span(program.arena.block(def.body).span);
                             if let Some(return_ty) = self.function_return_types.get(&body).cloned().filter(|ty| *ty != Type::Invalid) {
-                                self.finish_stream_return_summary(program, def, &return_ty);
+                                self.finish_recorded_stream_return_summary(program, def, &return_ty);
                             }
                         }
                         let declaration = super::FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
@@ -530,7 +530,7 @@ impl Checker {
             let body = program.arena.span(program.arena.block(def.body).span);
             let Some(return_ty) = self.function_return_types.get(&body).cloned() else { continue; };
             let return_ty = self.type_constraints.resolve(&return_ty).unwrap_or(Type::Invalid);
-            self.finish_stream_return_summary(program, def, &return_ty);
+            self.finish_recorded_stream_return_summary(program, def, &return_ty);
         }
         if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
             self.reject_recursive_component(program, &definitions);

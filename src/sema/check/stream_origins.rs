@@ -645,6 +645,37 @@ mod tests {
     }
 
     #[test]
+    fn inferred_proc_tail_branches_keep_one_result_origin_envelope() {
+        for (annotation, completion) in [
+            ("", "if flag { Ok(value) } else { Ok(value) }"),
+            ("", "if flag { value } else { Ok(value) }"),
+            ("", "match flag { true => Ok(value); false => Ok(value) }"),
+            ("", "if flag { return Ok(value) }; value"),
+            ("", "value"),
+            (" -> Result[Stream[Int], Error]", "if flag { Ok(value) } else { Ok(value) }"),
+            (" -> Result[Stream[Int], Error]", "return Ok(value)"),
+        ] {
+            let source = format!("proc relay(flag: Bool, value: Stream[Int]){annotation} {{ {completion} }}");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let (work, checked) = crate::sema::inference_work::collect(|| super::Checker::check_arena(&parsed.arena, &source));
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            assert_eq!(work.function_body_check_entries, 1, "{source}");
+            assert_eq!(checked.function_body_check_entries, 1, "{source}");
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            assert_eq!(checked.function_return_types[&declaration.body], super::Type::Result(Box::new(super::Type::Stream(Box::new(super::Type::Int))), Box::new(super::Type::Error)), "{source}");
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            let summary = &checked.stream_origin_summaries.declarations[&owner];
+            assert!(!summary.returned.0.is_empty(), "{source}\n{summary:?}");
+            for (path, origin) in &summary.returned.0 {
+                assert_eq!(path.0, [StreamProjection::Success], "{source}\n{summary:?}");
+                assert!(matches!(origin, super::StreamOrigin::Formal { owner: source, parameter: 1, projection } if *source == owner && projection.0.is_empty()), "{source}\n{summary:?}");
+            }
+        }
+    }
+
+    #[test]
     fn recursive_valueless_procs_keep_their_unit_boundary() {
         for (inferred, authored) in [
             ("proc again() [error, io] { if false { again() } }", "proc again() [error, io] -> Result[Unit] { if false { again() } }"),
@@ -1380,14 +1411,15 @@ impl Checker {
         if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
         }
-        self.finish_stream_summary(arena, definition, expected, origin);
+        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        self.finish_recorded_stream_return_summary(arena, definition, expected);
     }
 
     pub(super) fn finish_stream_producer_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
-        self.finish_stream_summary(arena, definition, expected, StreamOrigins::default());
+        self.finish_recorded_stream_return_summary(arena, definition, expected);
     }
 
-    fn finish_stream_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type, origin: StreamOrigins) {
+    pub(super) fn finish_recorded_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
         let owner = self.effect_declaration_id(arena, definition.body);
         let shape = ProjectionDomain::from_type(expected);
         let parameters = arena.arena.params(definition.params).iter().map(|param| {
@@ -1398,7 +1430,6 @@ impl Checker {
         }).collect::<Result<Vec<_>, _>>();
         let (Ok(output), Ok(parameters)) = (shape, parameters) else { self.report_stream_origin_boundary(owner.body); return };
         let summary = self.stream_origin_outputs.declarations.entry(owner).or_default();
-        summary.returned.join(&origin);
         summary.output = output;
         summary.parameters = parameters;
         match summary.returned.validate(owner, &summary.output, &summary.parameters) {
