@@ -437,7 +437,7 @@ impl Checker {
                 propagations.push((original, errors));
             }
         }
-        if let Err(error) = self.solve_host_obligations() {
+        if let Err(error) = self.solve_host_obligations(program) {
             let span = definitions.first().map(|&definition| program.arena.span(program.arena.block(program.arena.function_def(definition).body).span))
                 .unwrap_or_else(|| Span::at(crate::source::SourceId::new(0), 0));
             self.reject_host_inference_resolution(error, span);

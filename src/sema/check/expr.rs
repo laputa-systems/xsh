@@ -1405,7 +1405,7 @@ impl Checker {
                 );
                 let diagnostics_before = self.diagnostics.len();
                 let result =
-                    self.check_call_arena(arena, source, *callee, *args, expr.span, expected);
+                    self.check_call_arena(arena, source, id, *callee, *args, expr.span, expected);
                 if self.diagnostics.len() == diagnostics_before
                     && self.stage_callable_is_static(arena, *callee)
                 {

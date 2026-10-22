@@ -361,7 +361,7 @@ impl Checker {
         if !has_local_seeds && !has_unresolved_parameters {
             return;
         }
-        self.collect_local_body_constraints(body, |probe| {
+        self.collect_local_body_constraints(program, body, |probe| {
             if stream {
                 probe.check_stream_function_arena(program, source, definition);
             } else {
@@ -381,20 +381,20 @@ impl Checker {
         let start = Span::new(body.source_id, body.start(), body.start());
         let end = Span::new(body.source_id, body.end(), body.end());
         if self.local_inference.seeds.range(start..end).next().is_some() {
-            self.collect_local_body_constraints(body, |probe| {
+            self.collect_local_body_constraints(program, body, |probe| {
                 probe.check_signal_hook_arena(program, source, hook, span);
             });
         }
     }
 
-    fn collect_local_body_constraints(&mut self, body: Span, check: impl FnOnce(&mut Self)) {
+    fn collect_local_body_constraints(&mut self, program: &ArenaProgram, body: Span, check: impl FnOnce(&mut Self)) {
         if self.local_inference.collecting || self.local_inference.solved_functions.contains(&body) {
             return;
         }
         let mut probe = self.constraint_probe();
         probe.local_inference.collecting = true;
         check(&mut probe);
-        if let Err(error) = probe.solve_host_obligations() {
+        if let Err(error) = probe.solve_host_obligations(program) {
             self.reject_host_inference_resolution(error, body);
         }
         self.type_constraints = probe.type_constraints;
