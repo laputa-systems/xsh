@@ -198,13 +198,17 @@ impl Checker {
     }
 
     pub(super) fn invocation_error_flow(&self, effects: &crate::sema::types::CallableEffects, return_ty: &Type) -> Result<crate::sema::types::CalleeErrorFlow, crate::sema::constraints::ConstraintResolutionError> {
+        let may_error = self.invocation_may_error(effects)?;
+        Ok(return_ty.callee_error_flow(Some(if may_error { &[Effect::Error] } else { &[] })))
+    }
+
+    pub(super) fn invocation_may_error(&self, effects: &crate::sema::types::CallableEffects) -> Result<bool, crate::sema::constraints::ConstraintResolutionError> {
         let contract = self.type_constraints.resolve_effect(effects.contract())?;
-        let may_error = match contract {
+        Ok(match contract {
             crate::sema::effects::EffectContract::Unknown => true,
             crate::sema::effects::EffectContract::Known(expression) => expression.direct().contains(Effect::Error)
                 || expression.variables().any(|(_, mask)| mask.contains(Effect::Error)),
-        };
-        Ok(return_ty.callee_error_flow(Some(if may_error { &[Effect::Error] } else { &[] })))
+        })
     }
 
     fn record_callee_error_flow(&mut self, flow: crate::sema::types::CalleeErrorFlow, span: Span) {

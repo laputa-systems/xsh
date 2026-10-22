@@ -1022,6 +1022,32 @@ mod deferred_invocation_tests {
     }
 
     #[test]
+    fn pending_no_error_invocation_accepts_an_unresolved_generic_return_shape() {
+        let span = Span::new(SourceId::new(0), 1, 3);
+        let target = EffectDeclarationId { namespace: None, body: span };
+        let contract = super::super::FunctionCallContract {
+            params: Vec::new(), return_ty: Type::Unknown,
+            effects: super::super::InvocationEffects::Pending(target),
+            effect_declaration: Some(target), definition_target: None, instantiation: None,
+        };
+        for known in [EffectSet::default(), EffectSet::singleton(Effect::Io)] {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            checker.defer_effect_diagnostics = true;
+            checker.effect_summaries.insert(target, EffectSummary {
+                known: EffectExpr::finite(known),
+                unknown_chain: Vec::new(), scope: CheckedEffectScope::default(),
+            });
+            let ticket = checker.check_function_invocation_effects(&contract, "generic", span);
+            let return_ty = checker.type_constraints.fresh_at_level(span, 0);
+            checker.record_invocation_propagation(&contract.effects, &return_ty, span, ticket);
+            checker.validate_deferred_effects();
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+            assert!(!checker.propagating_error_spans.contains(&span));
+            assert!(!checker.latent_stream_error_spans.contains(&span));
+        }
+    }
+
+    #[test]
     fn explicit_recursive_effect_bounds_accept_pure_and_empty_proc_callbacks() {
         let source = concat!(
             "proc left(action, value, count) [] { if count == 0 { return value }; right(action, value, count - 1) }\n",
@@ -1666,10 +1692,14 @@ impl Checker {
                             match flow {
                                 InvocationFlow::EffectsOnly | InvocationFlow::Rejected => {},
                                 InvocationFlow::AwaitingReturn => self.error(check.span, "pending invocation has no checked return flow", DiagnosticCode::CheckLocalInference),
-                                InvocationFlow::Return(return_ty) => match self.type_constraints.resolve(&return_ty) {
-                                    Ok(return_ty) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
-                                    Ok(_) => self.error(check.span, "invocation return flow has no settled result shape", DiagnosticCode::CheckLocalInference),
-                                    Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
+                                InvocationFlow::Return(return_ty) => match self.invocation_may_error(&effects) {
+                                    Ok(false) => {},
+                                    Ok(true) => match self.type_constraints.resolve(&return_ty) {
+                                        Ok(return_ty) if !matches!(return_ty.unvalidated(), Type::Inference(_) | Type::Unknown | Type::Invalid) => self.record_invocation_propagation(&super::InvocationEffects::Checked(effects.clone()), &return_ty, check.span, None),
+                                        Ok(_) => self.error(check.span, "invocation return flow has no settled result shape", DiagnosticCode::CheckLocalInference),
+                                        Err(_) => self.error(check.span, "invocation return flow escaped its inference scope", DiagnosticCode::CheckLocalInference),
+                                    },
+                                    Err(_) => self.error(check.span, "invocation error flow escaped its effect scope", DiagnosticCode::CheckLocalInference),
                                 },
                             }
                             self.validate_callable_effects(&effects, &name, check.span);
