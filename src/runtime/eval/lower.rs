@@ -1358,6 +1358,7 @@ pub(super) fn compact_function_selection(
             .chain(super::ProducerDemand::native_producer_calls(program, declarations))
             .chain(super::ProducerDemand::erased_callable_calls(program, declarations))
             .chain(super::ProducerDemand::typed_callable_calls(program, declarations))
+            .chain(super::ProducerDemand::instantiated_calls(program, declarations))
             .chain(super::ProducerDemand::condition_operations(program, declarations))
             .chain(super::ProducerDemand::capture_operations(program, declarations))
             .chain(super::ProducerDemand::process_operations(program, declarations))

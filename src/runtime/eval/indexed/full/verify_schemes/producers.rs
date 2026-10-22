@@ -229,7 +229,7 @@ pub(super) struct CaptureErrorRequest {
     pub(super) expected_error: crate::sema::schemes::SchemeType,
 }
 
-pub(super) struct GroundEmptyArgumentRequest {
+pub(super) struct GroundArgumentRequest {
     pub(super) owner: u32,
     pub(super) call: usize,
     pub(super) argument: usize,
@@ -239,7 +239,7 @@ pub(super) struct GroundEmptyArgumentRequest {
 #[derive(Default)]
 pub(super) struct SchemeProducerRequests {
     pub(super) streams: Vec<StreamIteration>,
-    pub(super) ground_arguments: Vec<GroundEmptyArgumentRequest>,
+    pub(super) ground_arguments: Vec<GroundArgumentRequest>,
     pub(super) captures: Vec<CaptureErrorRequest>,
     pub(super) applications: BTreeSet<(u32, usize)>,
 }
@@ -692,7 +692,11 @@ impl GroundProducerIndex {
             effect_demand_work += 1;
             store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
         });
-        let mut selected_demand = stream_demand || storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
+        let instantiated_call_demand = store.call_instantiations.iter().any(|call| {
+            effect_demand_work += 1;
+            matches!(store.tags.get(call.instruction as usize), Some(FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall))
+        });
+        let mut selected_demand = stream_demand || storage_demand || effect_demand || instantiated_call_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
         if !selected_demand {
             for (index, function) in store.functions.iter().enumerate() {
                 effect_demand_work += 1;
@@ -1477,7 +1481,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     for request in requests.ground_arguments {
         proof.budget.charge(1)?;
         if ground_arguments.insert((request.owner, request.call, request.argument), request.expected).is_some() {
-            return Err(IrVerifyError::new("generic empty argument request is duplicated"));
+            return Err(IrVerifyError::new("generic argument request is duplicated"));
         }
     }
     for instantiation in &store.call_instantiations {
@@ -1503,7 +1507,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             proof.expression(owner, argument, ty, false);
         }
     }
-    if !ground_arguments.is_empty() { return Err(IrVerifyError::new("generic empty argument request has no actual call operand")); }
+    if !ground_arguments.is_empty() { return Err(IrVerifyError::new("generic argument request has no actual call operand")); }
     for request in requests.captures {
         proof.budget.charge(1)?;
         let decoder = proof.owner(request.owner)?;

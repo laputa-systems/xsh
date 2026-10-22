@@ -34173,7 +34173,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     #[test]
     fn generic_producer_demand_excludes_checked_plans_outside_the_encoded_scope() {
         run_with_large_stack(|| {
-            let source = "pure ignored(row) -> Int { let unused = row.anchor; 7.bit_or(0) }\npure helper(flag: Bool) -> List[Int] { let values = if flag { [7] } else { [3] }; values.push(9) }\n";
+            let source = "pure ignored(row) -> Int { let unused = row.anchor; 7.bit_or(0) }\npure helper() -> Int { 7 }\n";
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("producer-demand-scope.xsh", crate::loader::entry_source_from_text("producer-demand-scope.xsh", source.to_string()), Vec::new());
             assert!(parsed.diagnostics.is_empty());
             let source_id = sources.files().first().unwrap().id();
