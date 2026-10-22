@@ -8907,27 +8907,14 @@ mod capture_transfer_tests {
         span: Span,
         drops: &Arc<std::sync::atomic::AtomicUsize>,
     ) -> (StreamValue, ScriptStreamState) {
-        // The captured stream points back to its producer through this test cell.
         let captured = Arc::new(std::sync::Mutex::new(None));
         let source = StreamValue::from_script(ScriptStreamState::new(DropProbeStream {
             drops: Arc::clone(drops),
             captured: Arc::clone(&captured),
         }));
         let args = [Value::Stream(Box::new(source))];
-        let kind = [CallableKind::Proc, CallableKind::Pure]
-            .into_iter()
-            .find(|kind| {
-                evaluator
-                    .indexed_program
-                    .as_ref()
-                    .unwrap()
-                    .function_view(function, *kind)
-                    .unwrap()
-                    .is_some()
-            })
-            .expect("prepared stream function identity");
         let value = evaluator
-            .call_indexed_direct(function, kind, &args, span)
+            .call_indexed_direct(function, CallableKind::Stream, &args, span)
             .expect("prepared stream function")
             .expect("stream producer call succeeds");
         drop(args);

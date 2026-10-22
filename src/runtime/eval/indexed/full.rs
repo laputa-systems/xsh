@@ -25330,7 +25330,7 @@ assert observed.scoped == Ok(8)
             let argument_node = program.store.scheme_types[argument.index()];
             assert_eq!(argument_node.tag, schema::FullSchemeTypeTag::Ground);
             let Type::Callable(callback) = program.store.semantic.to_type(TypeId::from_raw(argument_node.first).unwrap()).unwrap() else { panic!("checked callback type") };
-            assert_eq!(callback.sig.effects, crate::sema::types::CallableEffects::unknown());
+            assert_eq!(callback.sig.effects, crate::sema::types::CallableEffects::finite([]));
             let identity = scheme_fixture_root_function(&program, "identity");
             let FullCallableContract::Scheme(scheme_id) = program.store.functions[identity].contract else { panic!("identity scheme") };
             let scheme = *program.store.scheme(scheme_id).unwrap();
@@ -25352,7 +25352,7 @@ assert observed.scoped == Ok(8)
                 let monotype = program.store.scheme_callable_monotypes.len();
                 program.store.scheme_callable_monotypes.push(schemes::FullSchemeCallableMonotype {
                     params: IrRange { start: params_start as u32, len: 1 }, return_type: child,
-                    return_schema: None, effects: schemes::FullEffectContract::default(), kind: crate::sema::types::CallableKind::Pure,
+                    return_schema: None, effects: schemes::FullEffectContract { known: true, ..schemes::FullEffectContract::default() }, kind: crate::sema::types::CallableKind::Pure,
                     reserved: [0; 3],
                 });
                 program.store.scheme_types[root.index()] = FullSchemeTypeNode {
@@ -28120,7 +28120,7 @@ pure invoke(n: Int) -> Int { f(n) }
         let function_ref_payload =
             forged.store.data[original_instruction].range().start as usize;
         assert_eq!(forged.store.extra[function_ref_payload], 0);
-        assert_eq!(forged.store.extra[function_ref_payload + 2], 1);
+        assert_eq!(CallableKind::from_encoded(forged.store.extra[function_ref_payload + 2]), Some(CallableKind::Pure));
         forged.store.extra[function_ref_payload + 1] = Name::intern("bad").symbol().raw();
         forged.store.checked_expr_types[original_fact_index].type_id = bad_fact.type_id;
         forged.store.checked_expr_types[original_fact_index].purpose =
@@ -40791,8 +40791,7 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 );
             }
 
-            // Payload words: callee, kind, signature type, argument block.
-            let typed_call = |pure: u32| {
+            let typed_call = |kind| {
                 program
                     .store
                     .tags
@@ -40806,11 +40805,11 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                             .unwrap()
                             .start
                     })
-                    .find(|start| program.store.extra[start + 1] == pure)
+                    .find(|start| CallableKind::from_encoded(program.store.extra[start + 1]) == Some(kind))
                     .expect("both kinds of typed call are lowered")
             };
-            let pure_call = typed_call(1);
-            let proc_call = typed_call(0);
+            let pure_call = typed_call(CallableKind::Pure);
+            let proc_call = typed_call(CallableKind::Proc);
             let proc_call_instruction = program
                 .store
                 .tags
@@ -40833,16 +40832,13 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 );
             };
 
-            // The row claims a kind its type does not have.
             let mut wrong_kind = (*program).clone();
-            wrong_kind.store.extra[proc_call + 1] = 1;
+            wrong_kind.store.extra[proc_call + 1] = CallableKind::Pure as u32;
             rejected(
                 &wrong_kind,
                 "typed call kind does not match its callable type",
             );
 
-            // The row names `Int` instead of the callee slot's checked callable
-            // type. Exact slot correlation rejects it before callable-shape validation.
             let semantic = &program.store.semantic;
             let scale = TypeId::from_raw(program.store.extra[pure_call + 2]).unwrap();
             let int = semantic
@@ -40860,10 +40856,6 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                     .unwrap()
                     .start
             };
-            // The list declares an extra argument, which disagrees with the
-            // checked callable signature. Keep the vector well-formed so the
-            // verifier reaches the signature count check. The added value gets
-            // its own atom row so instruction ownership remains valid.
             let mut extra_argument = (*program).clone();
             extra_argument.store.in_place.take();
             let last_function = extra_argument.store.functions.len() - 1;
@@ -40944,21 +40936,16 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             );
             rejected(
                 &defaulted,
-                "function parameter metadata disagrees with its signature",
+                "checked function reference tail disagrees with its target signature",
             );
 
-            // A row made consistent with a proc type of the same arity still
-            // sits in a pure function, which makes no call to a proc.
             let mut proc_in_pure = (*program).clone();
-            proc_in_pure.store.extra[pure_call + 1] = 0;
+            proc_in_pure.store.extra[pure_call + 1] = CallableKind::Proc as u32;
             proc_in_pure.store.extra[pure_call + 2] = program.store.extra[proc_call + 2];
-            rejected(&proc_in_pure, "typed call to a proc inside a pure function");
+            rejected(&proc_in_pure, "typed call to a non-pure callable inside a pure function");
 
-            // `shifted` reads the local declared as `Shift` (a proc
-            // signature). Relabeling its call row to the pure `Scale`
-            // signature is rejected before execution.
             let mut other_kind = (*program).clone();
-            other_kind.store.extra[proc_call + 1] = 1;
+            other_kind.store.extra[proc_call + 1] = CallableKind::Pure as u32;
             other_kind.store.extra[proc_call + 2] = program.store.extra[pure_call + 2];
             let error = FullVerifier::verify(&other_kind).unwrap_err();
             assert!(

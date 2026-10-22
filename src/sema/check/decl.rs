@@ -2655,15 +2655,18 @@ mod imported_pure_tests {
 
     #[test]
     fn selected_imported_calls_retain_real_namespace_mutable_and_resource_reads() {
-        for (globals, prefix, argument) in [
-            ("", "let saved = api; ", "row.value"),
-            ("", "", "api.marker"),
-            ("var captured = 1", "let saved = captured; ", "row.value"),
-            ("let captured = fs.root(/)?", "let saved = captured; ", "row.value"),
+        for (globals, prefix, argument, expected) in [
+            ("", "let saved = api; ", "row.value", Some(DiagnosticCode::CheckLocalInference)),
+            ("", "", "api.marker", Some(DiagnosticCode::CheckLocalInference)),
+            ("var captured = 1", "let saved = captured; ", "row.value", None),
+            ("let captured = fs.root(/)?", "let saved = captured; ", "row.value", Some(DiagnosticCode::CheckLocalInference)),
         ] {
             let (program, output, body, namespace) = checked_imported_call(globals, prefix, argument);
             let _symbols = program.symbol_owner().enter();
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
+            match expected {
+                Some(code) => assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
+                None => assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
+            }
             let bindings = super::super::ResolvedBindings::collect(&program);
             let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
             if globals.is_empty() {

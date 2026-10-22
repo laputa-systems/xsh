@@ -1141,7 +1141,7 @@ mod tests {
             .expect("first entry prepared the shared module")
             .clone();
         let second_output = session.check(second.statements, second_source, CheckOptions::for_check_cli());
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 1);
 
         assert!(first_output.diagnostics.is_empty(), "{:?}", first_output.diagnostics);
         assert!(second_output.diagnostics.is_empty(), "{:?}", second_output.diagnostics);
@@ -1171,7 +1171,7 @@ mod tests {
         }));
         let byte_output = session.check(byte.statements, byte_source, CheckOptions::for_execution());
         assert!(byte_output.diagnostics.is_empty(), "{:?}", byte_output.diagnostics);
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 4);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
         assert_eq!(session.records.lock().expect("module record cache poisoned").len(), 5);
         let incoming = |output: &CheckOutput| {
             output
@@ -1254,7 +1254,7 @@ mod tests {
 
         assert!(first_output.diagnostics.is_empty(), "{:?}", first_output.diagnostics);
         assert!(second_output.diagnostics.is_empty(), "{:?}", second_output.diagnostics);
-        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 1);
         assert!(Arc::ptr_eq(&first_record, &second_record));
         assert!(Arc::ptr_eq(&first_checked, &second_checked));
         let first_scheme = first_checked
@@ -2383,7 +2383,7 @@ mod tests {
         let sources = Arc::new(sources);
         let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
         let view = session.view_for_root(root.statements, root_source);
-        let expected_module_checks = view.modules().count() * 2;
+        let expected_module_checks = view.modules().count();
         USER_MODULE_CHECKS.with(|checks| checks.set(0));
 
         let output = session.check_view(&view, CheckOptions::for_execution());
