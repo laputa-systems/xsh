@@ -1,11 +1,15 @@
 # Scoped verification across XSH and Laputa
 
-Status: planned, 2026-10-21. Execute after `full-inference-campaign.md` is
-complete and its accepted source is integrated. This plan grants no execution
-permissions. It does not replace the active campaign's remaining gates.
+Status: staggered preparation and native-runner implementation, 2026-10-22.
+The owner authorized starting independent Pyramid work alongside full inference.
+Full inference remains the priority; its remaining gates are unchanged.
 
-No pyramid implementation is provisional or accepted. The next milestone is P0
-after full-inference acceptance and a separate execution grant.
+The first provisional lane owns native exact-set selection and structured
+results in `.work/wt/pyramid-native-results`, based on `4f47f9ec7`. Local
+checkpoint `22f94efc0` passes sixteen focused controls and independent review.
+This qualifies the early slice; it does not establish P0 or campaign acceptance.
+P0 source freeze and qualification wait for accepted, integrated full inference.
+Keep this lane frozen until that source is ready.
 
 For a change, select the smallest declared verification scope, explain each
 selection, prepare only its required products, and report what the result
@@ -80,7 +84,10 @@ claiming a pass; memory and binary-size checks still run.
 
 Owner decisions, 2026-10-21:
 
-- This campaign follows full inference. It may be planned now, but not started.
+- Full campaign qualification follows full inference. On 2026-10-22 the owner
+  authorized staggered independent implementation before inference closes. Keep
+  early work isolated and provisional; repeat relevant foundation checks on the
+  accepted post-inference source before advancing P0.
 - The supplied proposal defines Edit, Change, Scenario and Full tiers. Full
   runs require an explicit owner request and cannot be an automatic fallback.
 - Preserve Cargo, XSHT and the existing benchmark/VM mechanisms. Defer Buck2.
@@ -205,7 +212,7 @@ Each item has the explicit executable proof in Acceptance below.
 |---|---|---|---|
 | P0 ground | M | Full inference accepted/integrated; execution grant | Coordinator freezes both repos/products, measures narrow loop, records failures and pins references. Repair broken selectors before broad work. |
 | P1 catalogue | L | P0 | `dev/gates.xsh`, `dev/main.xsh`, live canonical/manual dispatcher callers, gate tests and driver docs: typed catalogue, reasons, plan inspection, tier/manual closure, exact products, snapshot binding. |
-| P1 native results | L | P0 | `crates/xsht/src/commands.rs`, native test owner/tests: exact sets, JSONL, per-module preparation, accounting and cancellation. |
+| P1 native results | L | Early isolated implementation authorized; P0 before acceptance | `crates/xsht/src/commands.rs`, native test owner/tests: exact sets, JSONL, per-module preparation, accounting and cancellation. |
 | P1 workload adapters | L | P0 | `dev/performance` and existing benchmark owners/tests: independent correctness-qualified cases and Cargo/performance result translation. Start on agreed event shape before native lane merges. |
 | P1 Laputa cases | L | P0 | Isolated Laputa tests and adapters: PM/world/kernel inventory and stop-condition oracles. No normal-store or epoch mutation. Reuse package/VM owners. |
 | P2 host resources | L | Catalogue interface; workload shape | Existing leases/readiness owner and adapter hooks: common reservations, telemetry, cgroup accounting, bounded waits and cleanup. Coordinator serializes overlapping workload-adapter files. |
@@ -256,10 +263,14 @@ otherwise complete selected Change scope. No full-project green is inferred.
 
 ## Execution boundary
 
-Planning only is currently authorized for this document. A later launch must
-name bounded isolated XSH and Laputa edits, local commits/integration, pinned
-fetches, and owned offline Docker operations. Existing grants cover the running
-inference/security work; they do not launch this next campaign. No pushes,
+The 2026-10-22 owner request authorizes starting independent isolated Pyramid
+implementation alongside inference. The first lane is limited to XSH native
+runner code, its tests and source documentation. Use existing owned offline
+Docker operations under the shared allocation limits. The requested campaign
+workflow includes reviewed local checkpoints for this lane. Keep code isolated
+until post-inference P0 qualification; defer other Pyramid operations to their
+planned stage and authority boundary. Full-inference grants continue to govern
+inference work. No pushes,
 host installation, live roots, secret access, external messages, publication,
 normal-store cleanup or production-service control. Register KVM-dependent
 manual targets but do not execute them without a separate explicit scope grant.
@@ -323,13 +334,25 @@ scope; its optional Buck2/Nextest investigations remain deferred as stated above
 ## Campaign log
 
 - 2026-10-21: Planned after full inference. Two exact gate foundation controls
-  pass; absent exact-ID listing gap reproduced. Execution has not started.
+  pass; absent exact-ID listing gap reproduced.
+- 2026-10-22: Owner requested staggered execution. Start one isolated native
+  runner lane without increasing the shared six-lane or two-build limits.
+  Parent takes inference patch review while the former reviewer owns this lane.
+  Compiler repairs and combined inference verification retain build priority.
+  No early Pyramid result advances post-inference acceptance.
+- 2026-10-22: Native-runner checkpoint `22f94efc0` passes one final sixteen-control
+  replay and independent source review. Exact sets, list validation, schema-1
+  events, coverage failures, selected-source diagnostics, cancellation, timeout,
+  cleanup and fair admission are covered. Native SIGTERM now drains and exits
+  130; missing legacy exact listings exit 2. No Full suite or P0/performance
+  qualification ran. Retain the clean lane and matching products for P0.
 
 ## For the owner afterwards
 
 - Read the short report, explicit contract changes and any manual scope not run.
 - Review integrated XSH/Laputa commits and baseline-promotion decisions.
-- Launch only after full inference closes, with a separate execution grant.
+- Expand beyond the early native-runner lane only within an explicit execution
+  grant; qualify the campaign on accepted post-inference sources.
 
 ---
 
