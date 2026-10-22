@@ -8,87 +8,57 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `c1c7ed1a3` passes all 306 focused controls without
-failures or ignores. The combined group covers type, scheme, semantic-codec,
-Range, constructor, shorthand, structured Proc returns, resource transfers,
-counters, mutable callables and independent solver comparisons. All 27 unchanged
-native regression cases pass on the earlier matching `7f4dccc80` verification
-products, with source and product guards intact. Matching `0cc8dc0ff` products
-build cleanly. Its full XSH Rust library suite finishes with 1,754 passes,
-44 failures and three existing ignores. The failures include stale unsupported
-policy assertions, malformed mutation fixtures, missing producer demand and
-Stream provenance failures. Each requires a scoped repair or demonstrated
-correction of its former premise. No full-suite pass follows from the focused
-group. The binding-fact corpus sweep passes. Focused iteration continues through
-the named regressions rather than repeating that broad sweep.
-Matching `c1c7ed1a3` products are rebuilding.
-Master remains at `d2453760a`.
+Runtime assembly `a0cd0479f` passes 353 of 390 selected Rust controls.
+The remaining 37 failures all belong to the earlier full-library failure set.
+All prior 306 compiler controls, 57 runtime controls and 12 host-adapter controls
+pass on this combined source. The selection retains every earlier failure and
+adds the producer-demand controls. No test is silently omitted.
+Master remains at `d2453760a`; the assembly is not qualified for master.
 
-The diagnostic catalogue no longer advertises a mandatory Stream return-type
-annotation error. The parser already permits omission. Its emission-inventory
-regression exposed the obsolete entry; focused validation remains pending.
+The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
+44 failures and three existing ignores. Seven failures are repaired in the
+assembled replay: obsolete diagnostic inventory, list and rest argument demand,
+producer scope, effect ordering and two alias-counter expectations. The remaining
+failures include actual producer and Stream-provenance gaps, malformed mutation
+fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
+or a demonstrated correction of its former premise. The broad binding-fact
+corpus sweep passes. Focused iteration uses named regressions.
 
-The practical four-return paired gate on `28436de64` passes the original-view
-checks for all 12 XSH roots and three Laputa roots. The wc invalid-byte and sort
-numeric-order behavior tests pass. The next selector,
-`test_awk_arrays_functions_and_loops`, fails during indexed preparation:
-a ground match lacks a subject contract for a lowered list comprehension.
-Repair `09c9c8452` derives the actual comprehension element contract and passes
-eight focused controls. The original-program compiler replay then exposes a
-readonly argv mismatch between checker and native verification. Repair
-`9171cfcac` aligns that relation while retaining invariant containers and actual
-producer types. Its eight controls pass. Both repairs are integrated into
-`0cc8dc0ff`. Its unchanged paired replay stops during the original XSH root
-check: `sort` and `system-report` report a ground producer contract mismatch.
-The preceding `28436de64` root checks pass. Repair `795f3d3be` preserves the
-actual comprehension contract and checks fresh elements against contextual item
-types. Eight focused controls pass, including malformed elements and invariant
-stored lists. It is integrated into `c1c7ed1a3` and its combined 306 controls.
-The unchanged paired replay awaits matching products. Source and product
-post-guards pass on the failed run.
-Reduced-view checks, later behavior tests, interfaces, negative controls and
-signature comparisons do not run. Source and product guards remain clean.
-The initial saved-view permission mismatch is resolved by regenerating a new
-view with the existing pinned preparation command; metadata comparison remains
-strict. Repair `b2131ca90` restores the original branch expectation and passes
-all 23 focused controls, including both reproduced If and Match failures.
-The subsequent original-view source checks pass with this repair integrated.
-The failed paired run grants no additional annotation-removal or parity credit.
-Repair `30073af34` resolves the next failure at its checker origin: an empty
-field in one literal row no longer prevents a peer row from supplying its
-element type. Seven focused controls pass, including both execution routes
-and incompatible-item rejection. The combined 301 include these checker and
-cold-proof controls. The original conditional-list behavior remains covered.
-Its former mandatory-context assumption became false once the type was
-derivable. The context-forgery checks now use the reproduced record-loop case.
+The practical four-return paired run on matching `c1c7ed1a3` products passes
+all 12 XSH roots and three Laputa roots in both unchanged source views.
+All six selected behavior tests pass in each view: 12 passes, zero failures.
+XSH interface qualification then stops at an imported exported constant:
+its Export wrapper and inner declaration share a span and produce ambiguous
+body-site keys. Laputa interface comparison, negative controls, signatures and
+final view comparison do not run. Source and product post-guards pass and owned
+container cleanup resolves. These partial results grant no new removal credit.
 
-The separate runtime callable migration passes its library type check, 27 cold
-and runtime controls, and three execution controls on both routes. The execution
-group includes independent Int and Str Stream aliases, higher-order callbacks,
-lazy defaults and cleanup. Propagation consumer repair `dcca45911` resolves the
-existing handle before Result projection; its 15 controls pass and it is
-integrated. Generic-delegation controls pass for both runtime routes, late
-nominal errors, cleanup order and required Yield transfer facts. The cold
-item and effect mutations also reject correctly after the valid base passes.
-A reproduced propagation-boundary defect is repaired in the isolated candidate:
-actual declaration kind now controls latent Stream errors. The negative case
-first demonstrated incorrectly accepted IR. The repaired case and 22 boundary,
-delegation and Result controls pass, preserving local Result catches.
-The original captured-write, Repeat, defaults and cleanup witness now passes
-on both execution routes in the isolated runtime candidate. A separate control
-passes for consumer writes before first pull, between pulls and before close,
-including repeated and never-started cancellation. The reproduced stale snapshot
-is fixed by refreshing existing identity-bound captures on every actual pull.
-Exact mutable capture-storage checks also pass, including the no-writer case.
-The candidate remains unintegrated. Two additional controls pass for generic
-Range execution and authenticated UInt driver aliases. Forged validation
-metadata and missing gates reject. Negative UInt values fail the actual runtime
-gate before storage on both execution routes. The bounded combined runtime
-checkpoint passes all 57 selected controls. Final review then reproduces a
-separate dynamic-module target defect in the existing host adapter. Ordinary
-script calls and cache execution pass. The actual adapter keeps the qualified
-alias after switching programs and cannot find the exported target. Its repair
-and signature-checking sibling remain under review before the runtime commit.
+Repair `de9517ba4` keeps Export traversal and semantic facts while registering
+the inner declaration as the unique statement site. Its four controls pass
+both in isolation and on integrated source `97a0b32dd`. Ordinary competing
+statement paths still reject. Matching `97a0b32dd` products are rebuilding
+before the unchanged paired replay. Earlier expression-context, literal-row,
+comprehension and readonly argv repairs remain covered by the combined controls.
+Stored containers retain invariant matching.
+
+Runtime checkpoint `3b96ee9e7` is integrated. One canonical callable kind and
+invocation environment survive aliases, suspension, resume and cleanup.
+The unchanged captured-write and Repeat witness passes on both execution
+routes. Consumer writes before first pull, between pulls and before close are
+preserved. Repeated and never-started cancellation retain their contracts.
+Exact capture-storage, actual declaration-kind error boundaries, delegation,
+UInt driver validation and actual dynamic export target controls pass.
+The dynamic adapter repair transports program, function and kind together.
+Ordinary script calls and the actual adapter pass their separate controls.
+The obsolete mandatory Stream return-annotation diagnostic is removed, and its
+existing emission-inventory test now passes. No authored syntax is added.
+
+Five generic-body admission classes, single-body checking authority and the
+37 known regression failures remain open. The next lanes own ordinary body
+forms, scoped Proc completion provenance, imported module target proof and
+paired interface completion. Full Rust, native, memory, performance and inherited
+Laputa acceptance remain pending. The last matching native replay is the earlier
+`7f4dccc80` pair: 27 passes with unchanged source and product guards.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
