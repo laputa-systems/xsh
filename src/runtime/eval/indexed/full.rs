@@ -6029,6 +6029,12 @@ enum CheckedValueProjection {
     ErrorField { family: Name, variant: Name, field: Name },
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TypeTestOutcome {
+    Accepted,
+    Rejected,
+}
+
 #[derive(Clone, Copy)]
 enum CheckedValueBlockResult {
     Tail(usize),
@@ -12969,7 +12975,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<TypeId>, IrVerifyError> {
+    ) -> Result<Option<(TypeId, TypeTestOutcome)>, IrVerifyError> {
         for _ in self.instruction_range.clone() {
             charge(1)?;
             if is_boolean {
@@ -13003,12 +13009,13 @@ impl<'a> FullDecoder<'a> {
                     let (fallback, fallback_guard, rejected) = arms.next().unwrap()?;
                     if guard.is_some() || fallback_guard.is_some() { return Ok(None); }
                     let (schema::ExprView::Bool(yes), schema::ExprView::Bool(no)) = (self.expression_view(accepted.raw() as usize)?, self.expression_view(rejected.raw() as usize)?) else { return Ok(None) };
-                    if yes != when_true || yes == no { return Ok(None); }
+                    if yes == no { return Ok(None); }
                     let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(pattern.raw())? else { return Ok(None) };
                     if !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
                         || self.checked_binding_path(value.raw() as usize, charge)?.as_ref() != Some(target)
                     { return Ok(None); }
-                    return Ok(Some(ty.id));
+                    let outcome = if yes == when_true { TypeTestOutcome::Accepted } else { TypeTestOutcome::Rejected };
+                    return Ok(Some((ty.id, outcome)));
                 }
                 _ => return Ok(None),
             }
@@ -39982,11 +39989,6 @@ proc configured() [] -> Int {
         });
     }
 
-    // A slot declared as a union holds one member where a method is called on
-    // it, and the checker says which: the receiver's published type. Lowering
-    // reads that fact and nothing else, so a receiver whose fact is missing,
-    // is still the union, or names a member without the method is refused
-    // instead of being lowered on the strength of some other member.
     #[test]
     fn narrowed_union_receivers_are_lowered_from_the_checked_member() {
         use crate::sema::check::CompactDeclOutput;
@@ -40004,29 +40006,30 @@ pure label(word: Word) -> Str {
 "#;
             let program = Arc::new(fixture("narrowed-union.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for (argument, expected) in [
-                (Value::Str(Arc::from("  padded ")), "padded"),
-                (
-                    Value::Path(PathValue::new(b"/srv/data.txt".to_vec()).unwrap()),
-                    "data.txt",
-                ),
-            ] {
-                let mut evaluator =
-                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator
-                    .call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, "label")),
-                        CallableKind::Pure,
-                        &[argument],
-                        Span::new(program.store.source_id, 0, 0),
-                    )
-                    .expect("label exists");
-                assert_eq!(result.unwrap(), Value::Str(Arc::from(expected)));
+            for force_frames in [false, true] {
+                for (argument, expected) in [
+                    (Value::Str(Arc::from("  padded ")), "padded"),
+                    (
+                        Value::Path(PathValue::new(b"/srv/data.txt".to_vec()).unwrap()),
+                        "data.txt",
+                    ),
+                ] {
+                    let mut evaluator =
+                        Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let result = evaluator
+                        .call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&program, "label")),
+                            CallableKind::Pure,
+                            &[argument],
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .expect("label exists");
+                    assert_eq!(result.unwrap(), Value::Str(Arc::from(expected)));
+                }
             }
 
-            // Builds the same source after `edit` has changed the checked
-            // type of the `word` receiver of `.name()`.
             let build = |edit: &dyn Fn(&mut CompactDeclOutput, ExprId)| {
                 let name = "narrowed-union.xsh";
                 let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
@@ -40066,14 +40069,12 @@ pure label(word: Word) -> Str {
             assert!(build(&|_, _| {}).is_ok());
 
             let word = Type::Union(vec![Type::Str, Type::Path]);
-            // The fact names the member that has no `name` method.
             assert!(
                 build(&|declarations, receiver| {
                     declarations.bodies.expr_types.insert(receiver, Type::Str);
                 })
                 .is_err()
             );
-            // The fact is the declared union: nothing was narrowed.
             assert!(
                 build(&|declarations, receiver| {
                     declarations
@@ -40083,7 +40084,6 @@ pure label(word: Word) -> Str {
                 })
                 .is_err()
             );
-            // The fact is missing.
             assert!(
                 build(&|declarations, receiver| {
                     declarations.bodies.expr_types.remove(&receiver);
@@ -40093,9 +40093,6 @@ pure label(word: Word) -> Str {
         });
     }
 
-    // A loop item has no declared slot type, so the checker's fact is the
-    // only thing that says which union member a receiver is. Without the
-    // fact the method call is refused, as for a declared union slot.
     #[test]
     fn union_loop_item_receiver_without_a_fact_is_not_lowered() {
         use crate::syntax::arena::ArenaExprKind;
@@ -40151,8 +40148,182 @@ pure names(words: List[Word]) -> Str {
                     source_id,
                 )
             };
-            assert!(build(true).is_ok());
+            let program = Arc::new(build(true).unwrap());
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let words = Value::List(vec![Value::Str(Arc::from("skip")), Value::Path(PathValue::new(b"/first/a".to_vec()).unwrap()), Value::Path(PathValue::new(b"/second/b".to_vec()).unwrap())]);
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "names")), CallableKind::Pure, &[words], Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                assert_eq!(result, Value::Str(Arc::from("ab")));
+            }
             assert!(build(false).is_err());
+        });
+    }
+
+    #[test]
+    fn narrowed_union_receivers_authenticate_guard_polarity_and_binding() {
+        run_with_large_stack(|| {
+            let program = fixture("union-receiver-guard.xsh", r#"type Word = Union[Str, Path]
+pure label(word: Word, other: Word) -> Str {
+  let _ = other
+  if word is Path { return word.name() }
+  word.trim()
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "label");
+            let (method, receiver) = function_instruction_indices(&program, "label", FullTag::ExprMethod).into_iter().find_map(|instruction| {
+                match decoder.expression_view(instruction).unwrap() {
+                    schema::ExprView::Method { name: "name", receiver, .. } => Some((instruction, receiver.raw() as usize)),
+                    _ => None,
+                }
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(receiver).unwrap(), schema::ExprView::Param(0)));
+            let other = function_instruction_indices(&program, "label", FullTag::ExprParam).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(1))).unwrap();
+            let mut wrong_binding = program.clone();
+            wrong_binding.store.data[receiver] = program.store.data[other];
+            assert_eq!(FullVerifier::verify(&wrong_binding).unwrap_err().message, "ground method has no registered parameter contract");
+            let (accepted, rejected) = function_instruction_indices(&program, "label", FullTag::ExprMatch).into_iter().find_map(|instruction| {
+                let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                let (pattern, guard, accepted) = arms.next().unwrap().unwrap();
+                let (_, fallback_guard, rejected) = arms.next().unwrap().unwrap();
+                if guard.is_some() || fallback_guard.is_some() { return None; }
+                match decoder.checked_pattern_view(pattern.raw()).unwrap() {
+                    schema::PatternView::Type { ty, slot: None } if ty.materialize().unwrap() == Type::Path => Some((accepted.raw() as usize, rejected.raw() as usize)),
+                    _ => None,
+                }
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(accepted).unwrap(), schema::ExprView::Bool(true)));
+            assert!(matches!(decoder.expression_view(rejected).unwrap(), schema::ExprView::Bool(false)));
+            let mut flipped = program.clone();
+            flipped.store.data.swap(accepted, rejected);
+            assert_eq!(FullVerifier::verify(&flipped).unwrap_err().message, "ground method has no registered parameter contract");
+            let returned = function_instruction_indices(&program, "label", FullTag::StmtReturn).into_iter().find(|&instruction| matches!(decoder.statement_view(instruction).unwrap(), schema::StmtView::Return { value } if value.raw() as usize == method)).unwrap();
+            let schema::ExprView::Method { span: method_span, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+            let location = *program.store.payload(program.store.data[method].range()).unwrap().last().unwrap();
+            let mut completing_branch = program.clone();
+            let start = completing_branch.store.extra.len() as u32;
+            completing_branch.store.extra.extend([method as u32, location]);
+            completing_branch.store.tags[returned] = FullTag::StmtExpr;
+            completing_branch.store.data[returned] = IrData::from_range(IrRange::new(start, 2));
+            let completing_decoder = return_analysis_decoder(&completing_branch, "label");
+            assert!(matches!(completing_decoder.statement_view(returned).unwrap(), schema::StmtView::Expr { value, span } if value.raw() as usize == method && span == method_span));
+            assert!(!indexed_stmt_can_return_with_decoder(&completing_branch.store, returned, Some(&completing_decoder)).unwrap());
+            match FullVerifier::verify(&completing_branch) {
+                Err(error) => assert_eq!(error.message, "ground method has no registered parameter contract"),
+                Ok(()) => {
+                    let completing_branch = Arc::new(completing_branch);
+                    let outcomes = [false, true].map(|force_frames| {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*completing_branch.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&completing_branch));
+                        evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&completing_branch, "label")), CallableKind::Pure, &[Value::Path(PathValue::new(b"/first/a".to_vec()).unwrap()), Value::Str(Arc::from("other"))], method_span).unwrap()
+                    });
+                    panic!("accepted union guard with a completing discard: {outcomes:?}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn narrowed_union_numeric_receivers_require_the_actual_fallthrough_guard() {
+        run_with_large_stack(|| {
+            let program = fixture("union-numeric-receiver.xsh", r#"type Scalar = Union[Int, Str]
+pure bits(value: Scalar) -> Int {
+  if value is Str { return 7 }
+  value.bit_or(1)
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                for (argument, expected) in [(Value::Int(4), 5), (Value::Str(Arc::from("skip")), 7)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::new(program.clone()));
+                    assert_eq!(evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "bits")), CallableKind::Pure, &[argument], Span::at(program.store.source_id, 0)).unwrap().unwrap(), Value::Int(expected));
+                }
+            }
+            let decoder = return_analysis_decoder(&program, "bits");
+            let method = function_instruction_indices(&program, "bits", FullTag::ExprMethod).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Method { name: "bit_or", .. })).unwrap();
+            let returned = function_instruction_indices(&program, "bits", FullTag::StmtReturn).into_iter().find_map(|instruction| {
+                let schema::StmtView::Return { value } = decoder.statement_view(instruction).unwrap() else { unreachable!() };
+                matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Int(7)).then_some((instruction, value.raw()))
+            }).unwrap();
+            let schema::ExprView::Method { span: method_span, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+            let location = *program.store.payload(program.store.data[method].range()).unwrap().last().unwrap();
+            let mut completing_branch = program.clone();
+            let start = completing_branch.store.extra.len() as u32;
+            completing_branch.store.extra.extend([returned.1, location]);
+            completing_branch.store.tags[returned.0] = FullTag::StmtExpr;
+            completing_branch.store.data[returned.0] = IrData::from_range(IrRange::new(start, 2));
+            let completing_decoder = return_analysis_decoder(&completing_branch, "bits");
+            assert!(matches!(completing_decoder.statement_view(returned.0).unwrap(), schema::StmtView::Expr { value, span } if value.raw() == returned.1 && span == method_span));
+            assert!(!indexed_stmt_can_return_with_decoder(&completing_branch.store, returned.0, Some(&completing_decoder)).unwrap());
+            assert_eq!(FullVerifier::verify(&completing_branch).unwrap_err().message, "ground method has no registered parameter contract");
+        });
+    }
+
+    #[test]
+    fn native_receiver_proofs_reuse_authenticated_generic_method_plans() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-native-receiver-proofs.xsh", r#"pure collect(value, wrong: Bool) {
+  let _ = wrong
+  {items: [value].push(value), found: {["key"]: value}.get("key")}
+}
+assert collect(7, true) == {items: [7, 7], found: Ok(7)}
+assert collect("value", false) == {items: ["value", "value"], found: Ok("value")}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::new(program.clone()));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "collect");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("both clients share the symbolic value binder") };
+            let scheme = program.store.schemes[id.index()];
+            let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            let bool_type = program.store.scheme_params[parameters.start + 1].ty;
+            let decoder = return_analysis_decoder(&program, "collect");
+            let wrong = function_instruction_indices(&program, "collect", FullTag::ExprParam).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(1))).unwrap();
+            for method_name in ["push", "get"] {
+                let (instruction, argument) = function_instruction_indices(&program, "collect", FullTag::ExprMethod).into_iter().find_map(|instruction| {
+                    let schema::ExprView::Method { name, mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                    (name == method_name).then(|| (instruction, args.next().unwrap().unwrap().raw() as usize))
+                }).unwrap();
+                assert!(program.store.registered_calls.contains_key(&(instruction as u32)));
+                assert!(matches!(decoder.expression_view(argument).unwrap(), schema::ExprView::Param(_)));
+                let argument_type = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == argument).unwrap().ty().unwrap();
+                assert!(program.store.scheme_applications.is_empty());
+                assert!(program.store.scheme_callable_monotypes.is_empty());
+                let direct_references = program.store.scheme_body_facts.iter().filter(|fact| fact.ty() == Some(argument_type)).count()
+                    + program.store.schemes.iter().filter(|scheme| scheme.return_type == argument_type).count()
+                    + program.store.scheme_params.iter().filter(|parameter| parameter.ty == argument_type).count()
+                    + program.store.scheme_fields.iter().filter(|field| field.ty == argument_type).count()
+                    + program.store.scheme_children.iter().filter(|child| **child == argument_type).count()
+                    + program.store.call_type_arguments.iter().filter(|argument| argument.ty == argument_type).count()
+                    + program.store.call_row_fields.iter().filter(|field| field.ty == argument_type).count();
+                let nested_references = program.store.scheme_types.iter().map(|node| match node.tag {
+                    schema::FullSchemeTypeTag::List | schema::FullSchemeTypeTag::Stream | schema::FullSchemeTypeTag::Set
+                    | schema::FullSchemeTypeTag::Optional | schema::FullSchemeTypeTag::Validated => usize::from(node.first == argument_type.raw()),
+                    schema::FullSchemeTypeTag::Map | schema::FullSchemeTypeTag::Result => usize::from(node.first == argument_type.raw()) + usize::from(node.second == argument_type.raw()),
+                    _ => 0,
+                }).sum::<usize>();
+                assert_eq!(direct_references + nested_references, 1);
+                let mut forged = program.clone();
+                forged.store.data[argument] = program.store.data[wrong];
+                forged.store.scheme_types[argument_type.index()] = program.store.scheme_types[bool_type.index()];
+                let semantic_bool = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Bool).unwrap();
+                for fact in &mut forged.store.checked_expr_types {
+                    if fact.instruction as usize == argument { fact.type_id = semantic_bool; }
+                }
+                assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic host method disagrees with its selected registry signature", "{method_name}");
+            }
         });
     }
 

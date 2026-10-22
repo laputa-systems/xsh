@@ -94,6 +94,7 @@ struct ProducerOwner {
     block_guards: BTreeMap<usize, Vec<(usize, usize)>>,
     block_can_complete: BTreeMap<usize, bool>,
     completed_optional_presence: RefCell<BTreeSet<usize>>,
+    completed_union_reads: RefCell<BTreeMap<(usize, TypeId), super::super::LoweredType>>,
     snapshot_predicates: RefCell<BTreeMap<(usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>>>,
     declarations: BTreeMap<usize, Vec<usize>>,
     following_declarations: BTreeMap<usize, Vec<usize>>,
@@ -134,7 +135,8 @@ impl ProducerPrefixContext<'_> {
         let mut matched = None;
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
             |condition, when_true, is_boolean, _, charge| {
-                matched = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?;
+                matched = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?
+                    .and_then(|(ty, outcome)| (outcome == super::super::TypeTestOutcome::Accepted).then_some(ty));
                 Ok(matched.is_some())
             }, None, &mut charge)?;
         if !proven { return Ok(None); }
@@ -143,6 +145,67 @@ impl ProducerPrefixContext<'_> {
         let ty = decoder.store.semantic.to_type_with_budget(ty, &mut work.semantic_types)?;
         ensure_closed_type(&ty)?;
         if matches!(ty, Type::List(_)) && super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
+    }
+
+    fn exact_runtime_kind(ty: &Type, work: &mut SchemeInstantiationBudget) -> Result<Option<super::super::LoweredType>, IrVerifyError> {
+        if !super::runtime_complete_value_check_type(ty, work, 0)? { return Ok(None); }
+        let Some(kind) = super::super::lowered_type_for_type(ty) else { return Ok(None) };
+        Ok((super::super::lowered_type_to_type(kind) == *ty).then_some(kind))
+    }
+
+    fn union_member_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize, declared: &Type) -> Result<Option<Type>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range || !self.evidence.range.contains(&instruction) {
+            return Err(IrVerifyError::new("union type-test context disagrees with its owner range"));
+        }
+        let Type::Union(members) = declared else { return Ok(None) };
+        let mut charge = |amount| self.evidence.work.borrow_mut().charge(amount);
+        let Some(target) = decoder.checked_binding_path(instruction, &mut charge)? else { return Ok(None) };
+        let Some(stored_id) = decoder.checked_binding_path_type_id(instruction, &target, &mut charge)? else { return Ok(None) };
+        let stored = decoder.store.semantic.to_type_with_budget(stored_id, &mut self.evidence.work.borrow_mut().semantic_types)?;
+        self.evidence.work.borrow_mut().charge_clone(declared)?;
+        if &stored != declared { return Ok(None); }
+        self.evidence.work.borrow_mut().charge(1)?;
+        if let Some(&kind) = self.evidence.completed_union_reads.borrow().get(&(instruction, stored_id)) {
+            let ty = super::super::lowered_type_to_type(kind);
+            self.evidence.work.borrow_mut().charge_clone(&ty)?;
+            return Ok(Some(ty));
+        }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
+        let mut kinds = Vec::new();
+        for member in members {
+            let mut work = self.evidence.work.borrow_mut();
+            work.charge(1 + kinds.len())?;
+            let Some(kind) = Self::exact_runtime_kind(member, &mut work)? else { return Ok(None) };
+            if kinds.contains(&kind) { return Ok(None); }
+            kinds.push(kind);
+        }
+        let mut narrowed = None;
+        let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
+            |condition, when_true, is_boolean, _, charge| {
+                let Some((tested, outcome)) = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)? else { return Ok(false) };
+                let mut work = self.evidence.work.borrow_mut();
+                let tested = decoder.store.semantic.to_type_with_budget(tested, &mut work.semantic_types)?;
+                let Some(tested_kind) = Self::exact_runtime_kind(&tested, &mut work)? else { return Ok(false) };
+                let mut selected = None;
+                for (member, kind) in members.iter().zip(&kinds) {
+                    work.charge(1)?;
+                    let accepted = member.matches_expected(&tested);
+                    if accepted != (*kind == tested_kind) { return Ok(false); }
+                    if accepted == (outcome == super::super::TypeTestOutcome::Accepted) {
+                        if selected.replace((member, *kind)).is_some() { return Ok(false); }
+                    }
+                }
+                let Some((selected, kind)) = selected else { return Ok(false) };
+                work.charge_clone(selected)?;
+                narrowed = Some((selected.clone(), kind));
+                Ok(true)
+            }, None, &mut charge)?;
+        if proven && let Some((ty, kind)) = narrowed {
+            self.evidence.work.borrow_mut().charge(1)?;
+            self.evidence.completed_union_reads.borrow_mut().insert((instruction, stored_id), kind);
+            Ok(Some(ty))
+        } else { Ok(None) }
     }
 
     pub(in crate::runtime::eval::indexed::full) fn snapshot_condition_initializer(&self, decoder: &FullDecoder<'_>,
@@ -794,7 +857,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -1289,6 +1352,7 @@ impl GroundProducerIndex {
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.block_can_complete.len() * size_of::<(usize, bool)>()
                     + owner.completed_optional_presence.borrow().len() * size_of::<usize>()
+                    + owner.completed_union_reads.borrow().len() * size_of::<((usize, TypeId), super::super::LoweredType)>()
                     + owner.block_statements.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.block_declarations.len() * size_of::<((usize, usize), Vec<(usize, ProducerBinding)>)>()
                     + owner.block_declarations.values().map(|values| values.capacity() * size_of::<(usize, ProducerBinding)>()).sum::<usize>()
@@ -1496,6 +1560,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
         if proof.scheme_applications.contains(&(owner, instruction)) || proof.scheme_captures.contains(&(owner, instruction)) { continue; }
+        if store.tags[instruction] == FullTag::ExprMethod && store.registered_calls.contains_key(&(instruction as u32)) { continue; }
         if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand
             | FullTag::ExprWait | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder)
         { proof.producer_owner_contract(owner)?; }
@@ -2473,6 +2538,10 @@ impl<'a> ProducerProof<'a> {
             && let Some(prefix) = &decoder.producer_prefix
             && let Some(narrowed) = prefix.runtime_list_read_type(decoder, instruction)?
         { return Ok(Arc::new(narrowed)); }
+        if matches!(declared.as_ref(), Type::Union(_))
+            && let Some(prefix) = &decoder.producer_prefix
+            && let Some(narrowed) = prefix.union_member_read_type(decoder, instruction, &declared)?
+        { return Ok(Arc::new(narrowed)); }
         Ok(declared)
     }
 
@@ -3419,7 +3488,7 @@ impl<'a> ProducerProof<'a> {
             { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) {
                 match actual.unvalidated() {
-                    Type::Any => self.declared_read_type(&decoder, instruction, Arc::clone(actual))?.as_ref() == container,
+                    Type::Any | Type::Union(_) => self.declared_read_type(&decoder, instruction, Arc::clone(actual))?.as_ref() == container,
                     Type::Optional(payload) if payload.matches_expected(container)
                         && super::initializer_type_matches_annotation(payload, container, &mut self.budget, 0)? => self.optional_read_is_narrowed(&decoder, instruction, actual)?,
                     _ => false,

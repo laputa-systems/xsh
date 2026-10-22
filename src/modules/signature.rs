@@ -460,6 +460,7 @@ struct NativeMethodEffectRules {
     names: BTreeMap<&'static str, NativeEffectRule>,
     operand_dependent: BTreeSet<usize>,
     receiver_names: BTreeSet<&'static str>,
+    receiver_proof_names: BTreeSet<&'static str>,
 }
 
 fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
@@ -467,18 +468,20 @@ fn native_method_effect_rules() -> &'static NativeMethodEffectRules {
     RULES.get_or_init(|| {
         let mut signatures = BTreeMap::<&'static str, Vec<&'static ModuleFnSig>>::new();
         let mut receiver_names = BTreeSet::new();
+        let mut receiver_proof_names = BTreeSet::new();
         for (receiver, methods) in api_spec().method_entries() {
             if receiver == MethodReceiver::PathConstructor { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     if overload.sig.binding == ImplBinding::Native {
                         signatures.entry(method.name).or_default().push(&overload.sig);
+                        receiver_proof_names.insert(method.name);
                         if receiver == MethodReceiver::Path { receiver_names.insert(method.name); }
                     }
                 }
             }
         }
-        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new(), receiver_names };
+        let mut rules = NativeMethodEffectRules { names: BTreeMap::new(), operand_dependent: BTreeSet::new(), receiver_names, receiver_proof_names };
         for (name, signatures) in signatures {
             if let Some(rule) = native_effect_rule(signatures.iter().copied()) {
                 if rule == NativeEffectRule::OperandDependent || rules.receiver_names.contains(name) {
@@ -496,7 +499,7 @@ pub(crate) fn native_method_effect_rule(name: &str) -> Option<NativeEffectRule> 
 }
 
 pub(crate) fn native_method_requires_receiver_proof(name: &str) -> bool {
-    native_method_effect_rules().receiver_names.contains(name)
+    native_method_effect_rules().receiver_proof_names.contains(name)
 }
 
 pub(crate) fn native_call_requires_producer_proof(receiver: Option<MethodReceiver>, signature: &ModuleFnSig) -> bool {
