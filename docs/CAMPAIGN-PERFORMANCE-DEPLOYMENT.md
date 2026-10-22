@@ -8,8 +8,30 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Matching verification products at `5fa4a4b6b` execute the complete 132-selector
-native inference boundary: 116 pass, sixteen fail and none skip. Every selector
+Source `3ee4d8b92` builds matching verification products and passes the complete
+four-return practical comparison: twelve XSH roots and three Laputa roots in
+each view, six runtime selectors per view, signature comparisons, 1,991 callable
+interfaces and all three negative controls. Source, product, pinned-input and
+final view guards pass, and owned cleanup completes. The historical cohort,
+final migration and inherited acceptance remain open.
+
+Its complete native inference boundary executes every selector exactly once:
+118 pass, fourteen fail and none skip. Both producer witnesses now pass,
+including forced frames; every previously passing selector remains passing.
+The remaining failures cover wrappers, host method families, callable-value
+storage and open-row spread. The latest unfiltered Rust receipt remains the
+`865b8aac2` result below; it does not qualify this newer source.
+
+Repair `a6fff7537`, integrated as `3ee4d8b92`, proves the missing Result shape
+from the same callable instance's own checked proc-return envelope. It resolves
+both return identities before exact comparison and retains effect permission
+checks. Five focused controls pass, including actual FullBuilder/FullVerifier
+execution on both routes, alias identity and wrong-instance rejection. Both
+reviews are clear. Arbitrary unresolved returns without this proof retain their
+existing diagnostics; no early generalization or new IR state is introduced.
+
+Matching verification products at the preceding `5fa4a4b6b` execute the complete
+132-selector native inference boundary: 116 pass, sixteen fail and none skip. Every selector
 executes exactly once and all previously passing selectors remain passing.
 The one resolved failure is the diagnostic fixture correction described below;
 the fifteen main-family failures are unchanged.

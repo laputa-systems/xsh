@@ -3294,8 +3294,13 @@ effect contract is finite. `proc wrap(value) { value }` has the relation
 `forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
 always constructs `Ok`; passing `Ok(7)` therefore returns `Ok(Ok(7))`.
 Exported and statically imported procs keep the same relation. Mutable or
-resource-bearing captures and calls with unrestricted effects cannot enter
-this quantified body contract. Symbolic callback effects remain unsupported.
+resource-bearing captures and unknown effect contracts cannot enter this
+quantified body contract. Checked callback applications retain their effect
+relationships through generic forwarders. Each invocation substitutes the
+selected callback's finite checked effects. An inferred proc's checked
+application-result envelope establishes its outer Result shape without
+requiring a concrete callback payload type. Stream forwarders retain lazy
+callback execution.
 
 ```xsh
 {{.spec.generic_procs.source}}
