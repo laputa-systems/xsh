@@ -785,9 +785,6 @@ impl CallInstantiation {
         let mut used_rows = BTreeSet::new();
         let mut row_requirements = BTreeMap::new();
         for ty in type_arguments.values() {
-            if let Some(error) = ty.body_build_error() {
-                return Err(error);
-            }
             ty.validate(
                 &caller_type_ids,
                 &caller_row_ids,

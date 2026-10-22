@@ -8484,9 +8484,9 @@ mod capture_stream_pull_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
-        for expected in [DiagnosticCode::CheckListcompIterator, DiagnosticCode::CheckLocalInference] {
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(expected)), "{:?}", checked.diagnostics);
-        }
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, Some(DiagnosticCode::CheckDynamicBoundary), "{errors:?}");
     }
 
     #[test]

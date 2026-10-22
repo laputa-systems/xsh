@@ -1678,6 +1678,35 @@ impl TypeConstraints {
         )
     }
 
+    pub(crate) fn constrain_checked_call_argument(
+        &mut self,
+        instance: &InstantiatedScheme,
+        expected: &Type,
+        actual: &Type,
+        contribution: Span,
+    ) -> Result<(), ConstraintConflict> {
+        let conflict = |error| ConstraintConflict {
+            expected: expected.clone(), actual: actual.clone(), initializer: None,
+            established: None, contribution, resolution_error: Some(error),
+        };
+        let actual = self.resolve(actual).map_err(conflict)?;
+        if !actual.contains_any() || actual.contains_inference() || actual.contains_recovery() {
+            return self.constrain(expected, &actual, contribution);
+        }
+        let owned = instance.type_arguments.values().filter_map(|ty| match ty {
+            Type::Inference(id) => Some(*id),
+            _ => None,
+        }).collect::<FxHashSet<_>>();
+        let expected = self.resolve(expected).map_err(conflict)?;
+        let variables = self.variable_ids(&expected).map_err(conflict)?;
+        if variables.is_empty() || variables.iter().any(|id| {
+            !owned.contains(id) || !matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0)
+        }) {
+            return self.constrain(&expected, &actual, contribution);
+        }
+        self.constrain_context(&expected, &actual, contribution)
+    }
+
     pub(super) fn constrain_nullable_seed(
         &mut self,
         seed: TypeVariableId,
@@ -4525,6 +4554,37 @@ mod tests {
                 effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
+    }
+
+    #[test]
+    fn checked_dynamic_call_arguments_keep_authority_with_the_instance() {
+        for owned_first in [false, true] {
+            let mut constraints = TypeConstraints::default();
+            let first = constraints.fresh(span(1));
+            let second = constraints.fresh(span(2));
+            let (argument, outside) = if owned_first { (first, second) } else { (second, first) };
+            let instance = InstantiatedScheme {
+                params: vec![argument.clone()], return_type: argument.clone(),
+                type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
+            };
+            constraints.constrain(&argument, &outside, span(3)).unwrap();
+            let original = constraints.resolve(&outside).unwrap();
+            constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(4)).unwrap();
+            assert_eq!(constraints.resolve(&outside).unwrap(), original);
+            assert_eq!(constraints.resolve(&argument).unwrap(), original);
+        }
+
+        let mut constraints = TypeConstraints::default();
+        let argument = constraints.fresh(span(5));
+        let instance = InstantiatedScheme {
+            params: vec![argument.clone()], return_type: argument.clone(),
+            type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
+            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
+        };
+        constraints.require_map_key(&argument, span(6)).unwrap();
+        assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(7)).is_err());
+        assert_eq!(constraints.resolve(&argument).unwrap(), argument);
     }
 
     #[test]

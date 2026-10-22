@@ -3229,19 +3229,59 @@ mod generic_alias_call_tests {
     }
 
     #[test]
-    fn unresolved_generic_call_reports_its_inference_failure() {
-        let output = checked("pure identity(value) { value }\nlet result = identity([])\n");
-        let diagnostic = output
-            .diagnostics
-            .iter()
-            .find(|diagnostic| {
-                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
-                    && diagnostic.message.starts_with("generic call instantiation failed:")
-            })
-            .expect("unresolved generic call reports a local inference diagnostic");
-        assert_eq!(
-            diagnostic.message,
-            "generic call instantiation failed: type argument remains unresolved"
+    fn checked_dynamic_argument_keeps_passive_generic_identity() {
+        let accepted = checked("pure relay(items) { items }\npure keep(value: Any) -> Any { relay(value) }\n");
+        assert!(accepted.diagnostics.is_empty(), "{:?}", accepted.diagnostics);
+        assert_eq!(type_arguments(accepted.call_instantiations.values().cloned()), vec![SchemeType::Ground(Type::Any)]);
+    }
+
+    #[test]
+    fn checked_dynamic_arguments_preserve_passive_generic_instances() {
+        let accepted = checked(
+            "pure relay(items) { items }\n\
+             pure forward(items) { relay(items) }\n\
+             pure positional(value: Any) -> Any { relay(value) }\n\
+             pure named(value: Any) -> Any { relay(items: value) }\n\
+             pure spliced(value: Any) -> Any { relay(@[value]) }\n\
+             pure forwarded(value: Any) -> Any { forward(value) }\n\
+             pure aliased(value: Any) -> Any { let shared = relay; shared(value) }\n\
+             pure container(value: List[Any]) -> List[Any] { relay(value) }\n\
+             let integer: Int = relay(7)\n\
+             let text: Str = relay(\"kept\")\n",
         );
+        assert!(accepted.diagnostics.is_empty(), "{:?}", accepted.diagnostics);
+        let arguments = type_arguments(accepted.call_instantiations.values().cloned());
+        for expected in [Type::Any, Type::List(Box::new(Type::Any)), Type::Int, Type::Str] {
+            assert!(arguments.contains(&SchemeType::Ground(expected.clone())), "{expected}: {arguments:?}");
+        }
+    }
+
+    #[test]
+    fn checked_dynamic_arguments_do_not_establish_generic_operation_domains() {
+        for body in ["[item for item in value]", "{value, value}", "f\"{value}\"", "value()"] {
+            let output = checked(&format!("pure consume(value) {{ {body} }}\nproc rejected(value: Any) [] -> Unit {{ let result = consume(value); let _ = result }}\n"));
+            let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(!errors.is_empty(), "{body}: {:?}", output.diagnostics);
+            assert!(errors.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckLocalInference)), "{body}: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn unresolved_generic_call_reports_its_inference_failure() {
+        for value in ["[]", "null"] {
+            let output = checked(&format!("pure identity(value) {{ value }}\nlet result = identity({value})\n"));
+            let diagnostic = output
+                .diagnostics
+                .iter()
+                .find(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                        && diagnostic.message.starts_with("generic call instantiation failed:")
+                })
+                .expect("unresolved generic call reports a local inference diagnostic");
+            assert_eq!(
+                diagnostic.message,
+                "generic call instantiation failed: type argument remains unresolved"
+            );
+        }
     }
 }

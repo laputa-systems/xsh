@@ -2068,8 +2068,7 @@ fn build_substitution(
         let Some(&binder) = scope.type_binders.get(&row.binder) else {
             return Err(IrVerifyError::new("generic call type binder is out of scope"));
         };
-        let ty = ground_call_substitution_type(store, row.ty, &mut materialization)?;
-        ensure_substitution_type(&ty)?;
+        let ty = ground_call_type_argument_type(store, row.ty, &mut materialization)?;
         ground_conversions(&scope.type_parameters[binder], &ty)?;
         if scope.type_parameters[binder].map_key && !ty.is_map_key() {
             return Err(IrVerifyError::new("generic call violates its MapKey requirement"));
@@ -2143,6 +2142,16 @@ fn ground_call_substitution_type(
     id: SchemeTypeId,
     budget: &mut TypeMaterializationBudget,
 ) -> Result<Type, IrVerifyError> {
+    let ty = ground_call_type_argument_type(store, id, budget)?;
+    ensure_substitution_type(&ty)?;
+    Ok(ty)
+}
+
+fn ground_call_type_argument_type(
+    store: &FullStore,
+    id: SchemeTypeId,
+    budget: &mut TypeMaterializationBudget,
+) -> Result<Type, IrVerifyError> {
     let node = store.scheme_type(id)?;
     if node.tag != FullSchemeTypeTag::Ground {
         return Err(IrVerifyError::new(
@@ -2152,7 +2161,7 @@ fn ground_call_substitution_type(
     let type_id = TypeId::from_raw(node.first)
         .ok_or_else(|| IrVerifyError::new("ground scheme type id is invalid"))?;
     let ty = store.semantic.to_type_with_budget(type_id, budget)?;
-    ensure_substitution_type(&ty)?;
+    ensure_closed_type(&ty)?;
     Ok(ty)
 }
 
@@ -2351,7 +2360,7 @@ fn build_symbolic_substitution(
             return Err(IrVerifyError::new("generic call type binder is out of scope"));
         };
         let ty = decode_scheme_type(store, caller_scope, row.ty, &mut budget, 0)?;
-        validate_symbolic_substitution_type(&ty, caller_scope, 0)?;
+        validate_symbolic_call_type_argument(&ty, caller_scope, 0)?;
         let conversions = ValueConversionSet::from_bits(callee_scope.type_parameters[binder].conversions).ok_or_else(|| IrVerifyError::new("scheme conversion requirements are invalid"))?;
         for conversion in ValueConversion::ALL {
             if conversions.contains(conversion) && !scheme_conversion(&ty, conversion, caller_scope, &mut budget)? {
@@ -2620,6 +2629,23 @@ fn validate_symbolic_substitution_type(
     caller_scope: &SchemeScope,
     depth: usize,
 ) -> Result<(), IrVerifyError> {
+    validate_symbolic_argument_type(ty, caller_scope, depth, ensure_substitution_type)
+}
+
+fn validate_symbolic_call_type_argument(
+    ty: &SchemeType,
+    caller_scope: &SchemeScope,
+    depth: usize,
+) -> Result<(), IrVerifyError> {
+    validate_symbolic_argument_type(ty, caller_scope, depth, ensure_closed_type)
+}
+
+fn validate_symbolic_argument_type(
+    ty: &SchemeType,
+    caller_scope: &SchemeScope,
+    depth: usize,
+    ground: fn(&Type) -> Result<(), IrVerifyError>,
+) -> Result<(), IrVerifyError> {
     if depth > 128 {
         return Err(IrVerifyError::new("scheme substitution type nesting is too deep"));
     }
@@ -2627,11 +2653,11 @@ fn validate_symbolic_substitution_type(
         SchemeType::Callable { monotype, effects, .. } => {
             effects::validate_contract(effects, &caller_scope.effects)?;
             for parameter in monotype.params() {
-                validate_symbolic_substitution_type(&parameter.ty, caller_scope, depth + 1)?;
+                validate_symbolic_argument_type(&parameter.ty, caller_scope, depth + 1, ground)?;
             }
-            validate_symbolic_substitution_type(monotype.return_type(), caller_scope, depth + 1)
+            validate_symbolic_argument_type(monotype.return_type(), caller_scope, depth + 1, ground)
         }
-        SchemeType::Ground(ty) => ensure_substitution_type(ty),
+        SchemeType::Ground(ty) => ground(ty),
         SchemeType::Parameter(id) => caller_scope
             .type_binders
             .contains_key(&id.0)
@@ -2642,15 +2668,15 @@ fn validate_symbolic_substitution_type(
         | SchemeType::Set(inner)
         | SchemeType::Optional(inner)
         | SchemeType::Validated(_, inner) => {
-            validate_symbolic_substitution_type(inner, caller_scope, depth + 1)
+            validate_symbolic_argument_type(inner, caller_scope, depth + 1, ground)
         }
         SchemeType::Map(key, value) | SchemeType::Result(key, value) => {
-            validate_symbolic_substitution_type(key, caller_scope, depth + 1)?;
-            validate_symbolic_substitution_type(value, caller_scope, depth + 1)
+            validate_symbolic_argument_type(key, caller_scope, depth + 1, ground)?;
+            validate_symbolic_argument_type(value, caller_scope, depth + 1, ground)
         }
         SchemeType::Record { fields, tail } => {
             for ty in fields.values() {
-                validate_symbolic_substitution_type(ty, caller_scope, depth + 1)?;
+                validate_symbolic_argument_type(ty, caller_scope, depth + 1, ground)?;
             }
             if let SchemeRowTail::Parameter(id) = tail {
                 let Some(&binder) = caller_scope.row_binders.get(&id.0) else {
@@ -2669,7 +2695,7 @@ fn validate_symbolic_substitution_type(
         }
         SchemeType::Union(members) => {
             for member in members {
-                validate_symbolic_substitution_type(member, caller_scope, depth + 1)?;
+                validate_symbolic_argument_type(member, caller_scope, depth + 1, ground)?;
             }
             Ok(())
         }
@@ -2805,16 +2831,22 @@ fn verify_symbolic_call_arguments(
     if arguments.len() < required || rest.is_none() && arguments.len() > fixed {
         return Err(IrVerifyError::new("generic call arguments do not match checked parameter slots"));
     }
+    let mut binder_evidence = BTreeSet::new();
     for (slot, argument) in arguments.iter().enumerate() {
         budget.charge(1)?;
         let parameter = &scheme_params[slot.min(fixed)];
-        let expected = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
-        let mut expected = substitute_scheme_type(&expected, callee_scope, substitution, budget, 0)?;
+        let mut parameter_type = decode_scheme_type(store, callee_scope, parameter.ty, budget, 0)?;
+        let mut expected = substitute_scheme_type(&parameter_type, callee_scope, substitution, budget, 0)?;
         let value = match argument {
             super::decode::CallArgView::Default(actual) if slot < fixed && *actual as usize == slot && params[slot].flags & 2 != 0 => continue,
             super::decode::CallArgView::Default(_) => return Err(IrVerifyError::new("generic default argument has no matching parameter")),
             super::decode::CallArgView::Single(value) if slot < fixed => value,
             super::decode::CallArgView::Single(value) => {
+                parameter_type = match parameter_type {
+                    SchemeType::List(item) => *item,
+                    SchemeType::Ground(Type::List(item)) => SchemeType::Ground(*item),
+                    _ => return Err(IrVerifyError::new("generic rest parameter has no list domain")),
+                };
                 expected = match expected {
                     SchemeType::List(item) => *item,
                     SchemeType::Ground(Type::List(item)) => SchemeType::Ground(*item),
@@ -2829,8 +2861,108 @@ fn verify_symbolic_call_arguments(
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
         let matches = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
         if !matches { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
+        verify_symbolic_argument_evidence(&parameter_type, &actual, callee_scope, substitution, &mut binder_evidence, budget, 0)?;
+    }
+    for (binder, ty) in substitution.types.iter().enumerate() {
+        let mut pending = vec![ty];
+        while let Some(ty) = pending.pop() {
+            budget.charge(1)?;
+            match ty {
+                SchemeType::Ground(ty) if ty.contains_any() && !binder_evidence.contains(&binder) => return Err(IrVerifyError::new("dynamic generic type binder has no checked input evidence")),
+                SchemeType::Callable { monotype, .. } => { pending.extend(monotype.params().iter().map(|parameter| &parameter.ty)); pending.push(monotype.return_type()); }
+                SchemeType::List(inner) | SchemeType::Stream(inner) | SchemeType::Set(inner) | SchemeType::Optional(inner) | SchemeType::Validated(_, inner) => pending.push(inner),
+                SchemeType::Map(key, value) | SchemeType::Result(key, value) => { pending.push(key); pending.push(value); }
+                SchemeType::Record { fields, .. } => pending.extend(fields.values()),
+                SchemeType::Union(members) => pending.extend(members),
+                _ => {}
+            }
+        }
     }
     Ok(())
+}
+
+fn verify_symbolic_argument_evidence(
+    parameter: &SchemeType,
+    actual: &SchemeType,
+    scope: &SchemeScope,
+    substitution: &SymbolicCallSubstitution,
+    evidence: &mut BTreeSet<usize>,
+    budget: &mut SchemeInstantiationBudget,
+    depth: usize,
+) -> Result<(), IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("generic call argument type nesting is too deep")); }
+    budget.charge(1)?;
+    if let SchemeType::Parameter(id) = parameter {
+        let binder = *scope.type_binders.get(&id.0).ok_or_else(|| IrVerifyError::new("scheme type parameter is out of scope"))?;
+        if !body_types_equal(actual, &substitution.types[binder]) { return Err(IrVerifyError::new("generic type binder disagrees with the checked argument")); }
+        evidence.insert(binder);
+        return Ok(());
+    }
+    if !parameter.contains_parameter() { return Ok(()); }
+    let expanded;
+    let actual = if let SchemeType::Ground(ty) = actual {
+        budget.charge_clone(ty)?;
+        let ground = |ty: &Type| Box::new(SchemeType::Ground(ty.clone()));
+        expanded = match ty.unvalidated() {
+            Type::List(inner) => SchemeType::List(ground(inner)),
+            Type::Stream(inner) => SchemeType::Stream(ground(inner)),
+            Type::Set(inner) => SchemeType::Set(ground(inner)),
+            Type::Optional(inner) => SchemeType::Optional(ground(inner)),
+            Type::Map(key, value) => SchemeType::Map(ground(key), ground(value)),
+            Type::Result(ok, error) => SchemeType::Result(ground(ok), ground(error)),
+            Type::Record(fields) => SchemeType::Record { fields: fields.iter().map(|(&name, ty)| (name, SchemeType::Ground(ty.clone()))).collect(), tail: SchemeRowTail::Closed },
+            Type::Union(members) => SchemeType::Union(members.iter().cloned().map(SchemeType::Ground).collect()),
+            Type::Callable(callable) => SchemeType::Callable {
+                kind: callable.kind,
+                monotype: Arc::new(CallableMonotype::new(callable.sig.params.iter().map(|parameter| SchemeParameter {
+                    name: parameter.name, ty: SchemeType::Ground(parameter.ty.clone()), schema_expectation: None, defaulted: parameter.defaulted, rest: parameter.rest,
+                }).collect(), SchemeType::Ground((*callable.sig.return_ty).clone()), None)),
+                effects: EffectContract::from_clause(callable.sig.effects.concrete().map_err(|_| IrVerifyError::new("generic callable argument has unresolved effects"))?),
+            },
+            _ => SchemeType::Ground(ty.clone()),
+        };
+        &expanded
+    } else { actual };
+    let mut nested = |parameter: &SchemeType, actual: &SchemeType| verify_symbolic_argument_evidence(parameter, actual, scope, substitution, evidence, budget, depth + 1);
+    match (parameter, actual) {
+        (SchemeType::Validated(_, inner), _) => nested(inner, actual),
+        (_, SchemeType::Validated(_, inner)) => nested(parameter, inner),
+        (SchemeType::List(parameter), SchemeType::List(actual))
+        | (SchemeType::Stream(parameter), SchemeType::Stream(actual))
+        | (SchemeType::Set(parameter), SchemeType::Set(actual)) => nested(parameter, actual),
+        (SchemeType::Optional(_), SchemeType::Ground(Type::Null)) => Ok(()),
+        (SchemeType::Optional(parameter), SchemeType::Optional(actual)) => nested(parameter, actual),
+        (SchemeType::Optional(parameter), _) => nested(parameter, actual),
+        (SchemeType::Map(key, value), SchemeType::Map(actual_key, actual_value))
+        | (SchemeType::Result(key, value), SchemeType::Result(actual_key, actual_value)) => { nested(key, actual_key)?; nested(value, actual_value) }
+        (SchemeType::Record { fields, .. }, SchemeType::Record { fields: actual, .. }) => {
+            for (name, parameter) in fields {
+                let actual = actual.get(name).ok_or_else(|| IrVerifyError::new("generic call is missing a required record field"))?;
+                nested(parameter, actual)?;
+            }
+            Ok(())
+        }
+        (SchemeType::Callable { monotype, .. }, SchemeType::Callable { monotype: actual, .. }) => {
+            if monotype.params().len() != actual.params().len() { return Err(IrVerifyError::new("generic callable argument arity disagrees with its contract")); }
+            for (parameter, actual) in monotype.params().iter().zip(actual.params()) { nested(&parameter.ty, &actual.ty)?; }
+            nested(monotype.return_type(), actual.return_type())
+        }
+        (SchemeType::Union(parameters), _) => {
+            let members = match actual { SchemeType::Union(members) => members.iter().collect(), actual => vec![actual] };
+            for actual in members {
+                let mut best = None;
+                for parameter in parameters {
+                    let expected = substitute_scheme_type(parameter, scope, substitution, budget, depth + 1)?;
+                    if !body_types_equal(actual, &expected) && !matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected)) { continue; }
+                    let mut candidate = evidence.clone();
+                    if verify_symbolic_argument_evidence(parameter, actual, scope, substitution, &mut candidate, budget, depth + 1).is_ok() && best.as_ref().is_none_or(|best: &BTreeSet<usize>| candidate.len() > best.len()) { best = Some(candidate); }
+                }
+                *evidence = best.ok_or_else(|| IrVerifyError::new("generic union argument disagrees with its checked substitution"))?;
+            }
+            Ok(())
+        }
+        _ => Err(IrVerifyError::new("generic argument has no checked type binder shape")),
+    }
 }
 
 fn verify_instantiated_call_arguments(
@@ -4594,7 +4726,7 @@ pub(super) fn instantiate_invocation(
         budget.charge(1)?;
         let argument = type_arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
         let ty = instantiate_bound_type(store, argument.ty, caller, budget, 0)?;
-        ensure_substitution_type(&ty)?;
+        ensure_closed_type(&ty)?;
         ground_conversions(parameter, &ty)?;
         if parameter.map_key && !ty.is_map_key() {
             return Err(IrVerifyError::new("invocation violates its MapKey requirement"));

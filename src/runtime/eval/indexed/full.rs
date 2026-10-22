@@ -46419,6 +46419,114 @@ assert check_paths(p"relative")
     }
 
     #[test]
+    fn checked_dynamic_generic_references_preserve_exact_declared_signatures() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-dynamic-reference.xsh", "type DynamicIdentity = pure(value: Any) -> Any\ntype IntIdentity = pure(value: Int) -> Int\npure identity(value) { value }\npure dynamic(value: Any) -> Any { let target: DynamicIdentity = identity; target(value) }\npure concrete() -> Int { let target: IntIdentity = identity; target(7) }\n"));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                for value in [Value::Int(7), Value::Str(Arc::from("kept"))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    let result = evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "dynamic")), CallableKind::Pure,
+                        &[value.clone()], Span::at(program.store.source_id, 0),
+                    ).unwrap().unwrap();
+                    assert_eq!(result, value);
+                }
+            }
+            for (name, ty) in [("dynamic", Type::Int), ("concrete", Type::Any)] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let instance = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && program.store.tags[instance.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
+                let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                assert_eq!(arguments.len(), 1);
+                let node = program.store.call_type_arguments[arguments.start].ty;
+                assert_eq!(program.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::Ground);
+                let mut forged = (*program).clone();
+                let ty = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
+                forged.store.scheme_types[node.index()].first = ty.raw();
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert_eq!(error.message, "callable reference disagrees with its actual scheme instance");
+            }
+        });
+    }
+
+    #[test]
+    fn symbolic_dynamic_substitutions_require_exact_input_binder_evidence() {
+        run_with_large_stack(|| {
+            let program = fixture("symbolic-dynamic-input.xsh", "pure choose(value) { true }\npure choose_rest(...values) { true }\npure direct(unused) { let _ = unused; choose(7) }\npure nested(unused, value: Result[Int]) { let _ = unused; choose(value) }\npure rest(unused) { let _ = unused; choose_rest(7) }\npure dynamic_rest(value: Any) -> Bool { choose_rest(value) }\npure dynamic_splice(unused, values: List[Any]) { let _ = unused; choose_rest(@values) }\npure accepts_dynamic(value, dynamic: Any) { let _ = value; true }\npure ordinary(value) { accepts_dynamic(value, 7) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let argument = |name| {
+                let owner = scheme_fixture_root_function(&program, name);
+                assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let call = program.store.call_instantiations.iter().find(|call| range.contains(&(call.instruction as usize))).unwrap();
+                let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                assert_eq!(arguments.len(), 1);
+                arguments.start
+            };
+            for target in ["direct", "nested", "rest"] {
+                let mut forged = program.clone();
+                let mut node = program.store.call_type_arguments[argument(target)].ty;
+                while matches!(forged.store.scheme_types[node.index()].tag, schema::FullSchemeTypeTag::List | schema::FullSchemeTypeTag::Result) {
+                    node = SchemeTypeId::from_raw(forged.store.scheme_types[node.index()].first).unwrap();
+                }
+                let encoded = &forged.store.scheme_types[node.index()];
+                assert_eq!(encoded.tag, schema::FullSchemeTypeTag::Ground);
+                let original = forged.store.semantic.to_type(TypeId::from_raw(encoded.first).unwrap()).unwrap();
+                let ty = match original { Type::Int => Type::Any, Type::Result(_, error) => Type::Result(Box::new(Type::Any), error), _ => panic!("unexpected argument {original:?}") };
+                let semantic = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &ty).unwrap();
+                forged.store.scheme_types[node.index()].first = semantic.raw();
+                let error = FullVerifier::verify(&forged).expect_err("symbolic call type binders require exact checked input evidence");
+                assert_eq!(error.message, "generic type binder disagrees with the checked argument", "{target}: {error:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn checked_dynamic_generic_arguments_preserve_input_and_result_evidence() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-dynamic-generic.xsh", "pure relay(value) { value }\npure forward(value) { relay(value) }\npure dynamic(value: Any) -> Any { forward(value) }\npure concrete() -> Int { relay(7) }\n"));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                for value in [Value::Int(7), Value::Str(Arc::from("kept"))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    let result = evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "dynamic")),
+                        CallableKind::Pure,
+                        &[value.clone()],
+                        Span::at(program.store.source_id, 0),
+                    ).unwrap().unwrap();
+                    assert_eq!(result, value);
+                }
+            }
+            let argument = |name| {
+                let owner = scheme_fixture_root_function(&program, name);
+                let range = program.store.function_instruction_range(owner).unwrap();
+                let call = program.store.call_instantiations.iter().find(|call| range.contains(&(call.instruction as usize))).unwrap();
+                let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                assert_eq!(arguments.len(), 1);
+                (call.instruction as usize, arguments.start)
+            };
+            let (dynamic_call, dynamic_argument) = argument("dynamic");
+            let (_, concrete_argument) = argument("concrete");
+            for (target, source) in [(dynamic_argument, concrete_argument), (concrete_argument, dynamic_argument)] {
+                let mut forged = (*program).clone();
+                forged.store.call_type_arguments[target].ty = program.store.call_type_arguments[source].ty;
+                FullVerifier::verify(&forged).expect_err("call substitutions require exact checked input evidence");
+            }
+            let mut forged_result = (*program).clone();
+            let concrete = SemanticPoolBuilder::default().intern_type(&mut forged_result.store.semantic, &Type::Int).unwrap();
+            let fact = forged_result.store.checked_expr_types.iter_mut().find(|fact| fact.instruction as usize == dynamic_call && fact.is_contract()).unwrap();
+            fact.type_id = concrete;
+            FullVerifier::verify(&forged_result).expect_err("a passive dynamic result cannot acquire a concrete type");
+        });
+    }
+
+    #[test]
     fn generic_driver_aliases_verify_incomplete_annotation_producers() {
         run_with_large_stack(|| {
             let path_source = r#"pure paths(values) -> List[Path] { [value for value in values] }

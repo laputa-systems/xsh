@@ -43,7 +43,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 || !instantiation.row_arguments().is_empty())
         {
             let Some(ty) = self.bodies.expr_types.get(&id).cloned().filter(|ty| {
-                !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
+                !ty.contains_inference() && !ty.contains_recovery()
             }) else {
                 self.last_blocker_detail = Some((
                     span,

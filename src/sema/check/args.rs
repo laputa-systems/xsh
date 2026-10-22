@@ -133,6 +133,19 @@ impl Checker {
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) {
+        self.check_function_call_arguments_with_instance_arena(arena, source, args, params, span, checked_argument, None);
+    }
+
+    fn check_function_call_arguments_with_instance_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        params: &[FunctionParamSig],
+        span: Span,
+        checked_argument: Option<CheckedCallArgument<'_>>,
+        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+    ) {
         if let Some(argument) = checked_argument {
             assert!(args.is_empty(), "a checked argument replaces source arguments");
             let expanded = [expanded_checked_argument(argument)];
@@ -148,18 +161,18 @@ impl Checker {
                     self.error(span, &message, DiagnosticCode::CheckArity);
                     if let Some(param) = params.first() {
                         let expected = self.function_argument_type(param, span);
-                        self.expect_type(&expected, argument.ty, argument.span);
+                        self.expect_function_call_argument(instance, &expected, argument.ty, argument.span);
                     }
                     return;
                 }
             };
             for (slot, argument) in binding.argument_slots.into_iter().zip(expanded) {
                 let expected = self.function_argument_type(&params[slot], span);
-                self.expect_type(&expected, &argument.ty, argument.span);
+                self.expect_function_call_argument(instance, &expected, &argument.ty, argument.span);
             }
             return;
         }
-        self.check_function_arg_list_arena(arena, source, args, params, span);
+        self.check_function_arg_list_arena(arena, source, args, params, span, instance);
     }
 
     pub(super) fn check_function_contract_arguments_arena(
@@ -172,13 +185,14 @@ impl Checker {
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) -> bool {
         let diagnostics_before_arguments = self.diagnostics.len();
-        self.check_function_call_arguments_arena(
+        self.check_function_call_arguments_with_instance_arena(
             arena,
             source,
             args,
             &contract.params,
             span,
             checked_argument,
+            contract.instantiation.as_ref().map(|(_, instance)| instance),
         );
         let argument_error = self.diagnostics[diagnostics_before_arguments..]
             .iter()
@@ -205,6 +219,26 @@ impl Checker {
                 } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType } else { DiagnosticCode::CheckCallableMismatch };
                 self.error(span, &format!("callable application requirement failed: {error}"), code);
                 false
+            }
+        }
+    }
+
+    fn expect_function_call_argument(
+        &mut self,
+        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+        expected: &Type,
+        actual: &Type,
+        span: Span,
+    ) {
+        let Some(instance) = instance.filter(|_| actual.contains_any()) else {
+            self.expect_type(expected, actual, span);
+            return;
+        };
+        if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
+            if conflict.resolution_error.is_some() {
+                self.report_inferred_type_conflict(conflict);
+            } else {
+                self.reject_dynamic_use("a generic function argument", None, span);
             }
         }
     }
@@ -532,23 +566,36 @@ impl Checker {
         expression: ExprId,
         item_ty: Type,
         item_contexts: Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
+        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
     ) -> Type {
         let expected = Type::List(Box::new(item_ty.clone()));
         let previous = self
             .call_splice_item_contexts
             .replace((expression, item_contexts));
         let actual = self.check_expr_arena(arena, source, expression, Some(&expected));
-        self.call_splice_item_contexts = previous;
+        let (_, contexts) = std::mem::replace(&mut self.call_splice_item_contexts, previous)
+            .expect("a checked static splice retains its item contexts");
+        if instance.is_some()
+            && let crate::syntax::arena::ArenaExprKind::List(elements) = arena.arena.expr(expression).kind
+        {
+            for (element, (expected, _)) in arena.arena.list_elements(elements).zip(contexts) {
+                let span = arena.arena.expr(element.value).span;
+                if let Some(actual) = self.expr_types.get(&span).filter(|actual| actual.contains_any()).cloned() {
+                    self.expect_function_call_argument(instance, &expected, &actual, span);
+                }
+            }
+        }
         actual
     }
 
-    pub(super) fn check_function_arg_list_arena(
+    fn check_function_arg_list_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         args: &[ArenaCallArg],
         params: &[FunctionParamSig],
         span: Span,
+        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
     ) {
         if args
             .iter()
@@ -586,7 +633,7 @@ impl Checker {
                         };
                         if let ArenaCallArgKind::Splice { value, .. } = arg.kind {
                             let actual = self.check_expr_arena(arena, source, value, None);
-                            self.expect_type(
+                            self.expect_function_call_argument(instance,
                                 &Type::List(Box::new(expected.clone())),
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -595,7 +642,7 @@ impl Checker {
                             let actual = self.check_parameter_arg_arena(
                                 arena, source, &arg.kind, expected, param,
                             );
-                            self.expect_type(
+                            self.expect_function_call_argument(instance,
                                 expected,
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -633,7 +680,7 @@ impl Checker {
                 let item_ty = self.function_argument_type(param, span);
                 for (ty, item_span) in &pending_static_items[pending_static_item_index..] {
                     if let Some(ty) = ty {
-                        self.expect_type(&item_ty, ty, *item_span);
+                        self.expect_function_call_argument(instance, &item_ty, ty, *item_span);
                     }
                 }
                 for arg in &args[index..] {
@@ -643,6 +690,9 @@ impl Checker {
                             let splice_span = arena.arena.span(*span);
                             let actual = self.check_expr_arena(arena, source, *value, None);
                             match actual.into_unvalidated() {
+                                Type::List(item) if instance.is_some() && item.contains_any() => {
+                                    self.expect_function_call_argument(instance, &item_ty, &item, splice_span);
+                                }
                                 Type::List(item) if item.matches_expected(&item_ty) => {}
                                 Type::List(_) => self.error(
                                     splice_span,
@@ -662,7 +712,7 @@ impl Checker {
                             let actual = self.check_parameter_arg_arena(
                                 arena, source, &arg.kind, &item_ty, param,
                             );
-                            self.expect_type(
+                            self.expect_function_call_argument(instance,
                                 &item_ty,
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -674,7 +724,7 @@ impl Checker {
             }
             if let Some((ty, item_span)) = pending_static_items.get(pending_static_item_index) {
                 if let Some(ty) = ty {
-                    self.expect_type(&param.ty, ty, *item_span);
+                    self.expect_function_call_argument(instance, &param.ty, ty, *item_span);
                 }
                 pending_static_item_index += 1;
                 continue;
@@ -713,6 +763,7 @@ impl Checker {
                             *value,
                             item_ty,
                             item_contexts,
+                            instance,
                         )
                     } else {
                         self.check_expr_arena(arena, source, *value, None)
@@ -734,7 +785,7 @@ impl Checker {
                             pending_static_items.get(pending_static_item_index)
                         {
                             if let Some(ty) = ty {
-                                self.expect_type(&param.ty, ty, *item_span);
+                                self.expect_function_call_argument(instance, &param.ty, ty, *item_span);
                             }
                             pending_static_item_index += 1;
                         }
@@ -773,7 +824,7 @@ impl Checker {
                     self.check_call_arg_arena(arena, source, &arg.kind, None)
                 };
                 if let Some(expected) = expected {
-                    self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
+                    self.expect_function_call_argument(instance, expected, &actual, call_arg_span_arena(arena, &arg.kind));
                 }
                 index += 1;
                 break;
