@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-run_check() {
-  local view=$1
-  local project=$2
+run_check_root() {
+  local name=$1
+  local root=$2
   local expected_files=$3
   shift 3
-  local root=$views/$view/$project
-  local output=$scratch/check.$view.$project.stdout
-  local error=$scratch/check.$view.$project.stderr
+  local output=$scratch/check.$name.stdout
+  local error=$scratch/check.$name.stderr
   if ! (cd "$root" && "$xsht" check "$@") >"$output" 2>"$error"; then
     cat "$output" "$error" >&2
     return 1
@@ -17,6 +16,14 @@ run_check() {
     cat "$output" "$error" >&2
     return 1
   fi
+}
+
+run_check() {
+  local view=$1
+  local project=$2
+  local expected_files=$3
+  shift 3
+  run_check_root "$view.$project" "$views/$view/$project" "$expected_files" "$@"
 }
 
 run_exact() {
@@ -417,23 +424,7 @@ verify_products
 
 mkdir -p "$repo/.work/tmp"
 scratch=$(mktemp -d "$repo/.work/tmp/performance-corpus-paired.XXXXXXXX")
-restore_probes() {
-  if [[ ! -f $scratch/probe-restore-required ]]; then
-    return
-  fi
-  for view in original reduced; do
-    for path in core/wc.xsh core/sort.xsh core/awk.xsh; do
-      if [[ -f $scratch/expected/$view/xsh/$path ]]; then
-        cp "$scratch/expected/$view/xsh/$path" "$views/$view/xsh/$path"
-      fi
-    done
-    if [[ -f $scratch/expected/$view/laputa/pm/generation.xsh ]]; then
-      cp "$scratch/expected/$view/laputa/pm/generation.xsh" "$views/$view/laputa/pm/generation.xsh"
-    fi
-  done
-}
 cleanup() {
-  restore_probes
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -518,21 +509,17 @@ run_negative_control 'xsh|core/wc.xsh|parameter|94|pure continuation parameter d
 run_negative_control 'xsh|core/wc.xsh|parameter|99|pure within parameter data' within_data
 run_negative_control 'xsh|core/wc.xsh|parameter|214|pure byte_words parameter data' byte_words_data
 
-touch "$scratch/probe-restore-required"
+probe_views=$scratch/signature-probes
 python3 "$repo/dev/performance/corpus/append_probes.py" \
-  "$inventory" "$xsh_revision" "$laputa_revision" \
-  "$views/original/xsh" "$views/original/laputa"
-python3 "$repo/dev/performance/corpus/append_probes.py" \
-  "$inventory" "$xsh_revision" "$laputa_revision" \
-  "$views/reduced/xsh" "$views/reduced/laputa"
+  "$inventory" "$xsh_revision" "$laputa_revision" "$views" "$probe_views"
 
 for view in original reduced; do
   for project in xsh laputa; do
     if [[ $project == xsh ]]; then
-      run_check "$view" xsh 3 core/wc.xsh core/sort.xsh core/awk.xsh
+      run_check_root "$view.xsh" "$probe_views/$view/xsh" 3 core/wc.xsh core/sort.xsh core/awk.xsh
       expected_notes=4
     else
-      run_check "$view" laputa 1 pm/generation.xsh
+      run_check_root "$view.laputa" "$probe_views/$view/laputa" 1 pm/generation.xsh
       expected_notes=2
     fi
     grep 'revealed type:' "$scratch/check.$view.$project.stderr" >"$scratch/signatures.$view.$project"
@@ -545,8 +532,6 @@ for view in original reduced; do
 done
 cmp "$scratch/signatures.original.xsh" "$scratch/signatures.reduced.xsh"
 cmp "$scratch/signatures.original.laputa" "$scratch/signatures.reduced.laputa"
-restore_probes
-rm -f "$scratch/probe-restore-required"
 for view in original reduced; do
   for project in xsh laputa; do
     if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \

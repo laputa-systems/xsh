@@ -121,6 +121,12 @@ class FrozenViewAdapterTests(unittest.TestCase):
             "if [[ $1 == check ]]; then\n"
             "  count=$(($# - 1))\n"
             "  printf 'xsht check: %s files in 0.01s (thread time by stage: check 0.001, lower 0.001)\\n' \"$count\" >&2\n"
+            "  if [[ ${XSHT_REVEAL_TYPES:-} == 1 ]]; then\n"
+            "    for path in \"${@:2}\"; do\n"
+            "      notes=$(awk '/reveal_type\\(/ { count++ } END { print count + 0 }' \"$path\")\n"
+            "      for ((index = 0; index < notes; index++)); do printf 'revealed type: probe\\n' >&2; done\n"
+            "    done\n"
+            "  fi\n"
             "  exit 0\n"
             "fi\n"
             "if [[ $1 == test && $2 == --exact ]]; then\n"
@@ -261,6 +267,97 @@ class FrozenViewAdapterTests(unittest.TestCase):
             "interface qualification: 4 callable, 2 CLI",
             result.stdout,
         )
+
+    def test_signature_probes_run_on_copies_and_leave_input_stats_unchanged(self):
+        inputs = self.scratch / "signature-inputs"
+        targets = {
+            "xsh": ("core/wc.xsh", "core/sort.xsh", "core/awk.xsh"),
+            "laputa": ("pm/generation.xsh",),
+        }
+        for view in ("original", "reduced"):
+            for project, relative_paths in targets.items():
+                root = inputs / view / project
+                for relative in relative_paths:
+                    source = self.views / view / project / relative
+                    destination = root / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
+                    destination.chmod(0o664)
+
+        inventory = self.scratch / "signature-inventory.tsv"
+        with inventory.open("w", newline="") as stream:
+            writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+            writer.writerow(("project", "source_commit", "path"))
+            for project, relative_paths in targets.items():
+                revision = XSH_REVISION if project == "xsh" else LAPUTA_REVISION
+                for relative in relative_paths:
+                    writer.writerow((project, revision, relative))
+
+        def snapshot(root):
+            result = {}
+            for view in ("original", "reduced"):
+                for project, relative_paths in targets.items():
+                    for relative in relative_paths:
+                        path = root / view / project / relative
+                        stat = path.stat()
+                        result[(view, project, relative)] = (
+                            path.read_bytes(), stat.st_mode, stat.st_size,
+                            stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino, stat.st_dev,
+                        )
+            return result
+
+        before = snapshot(inputs)
+        probe_views = self.scratch / "signature-probes"
+        prepared = subprocess.run(
+            [
+                "python3", "-B", str(ROOT / "dev/performance/corpus/append_probes.py"),
+                str(inventory), XSH_REVISION, LAPUTA_REVISION,
+                str(inputs), str(probe_views),
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
+
+        self.assertEqual(snapshot(inputs), before)
+        for view in ("original", "reduced"):
+            for project, relative_paths in targets.items():
+                probe_root = probe_views / view / project
+                for relative in relative_paths:
+                    probe_path = probe_root / relative
+                    original = before[(view, project, relative)]
+                    stat = probe_path.stat()
+                    self.assertNotEqual(probe_path.read_bytes(), original[0])
+                    self.assertEqual(stat.st_mode, original[1])
+                    self.assertNotEqual(stat.st_mtime_ns, original[3])
+                self.calls.unlink(missing_ok=True)
+                files = relative_paths
+                checked = subprocess.run(
+                    [str(self.xsht), "check", *files],
+                    cwd=probe_root,
+                    env={
+                        **os.environ,
+                        "XSH_BIN": str(self.xsh),
+                        "XSHT_BIN": str(self.xsht),
+                        "XSHT_CALLS": str(self.calls),
+                        "XSHT_REVEAL_TYPES": "1",
+                    },
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+                self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+                expected_notes = 4 if project == "xsh" else 2
+                self.assertEqual(checked.stderr.count("revealed type:"), expected_notes)
+                self.assertEqual(
+                    self.calls.read_text().splitlines(),
+                    [f"{probe_root} check {' '.join(files)}"],
+                )
+        self.assertEqual(snapshot(inputs), before)
 
     def test_rejects_a_mutated_candidate_view_before_running_xsht(self):
         path = self.views / "reduced/xsh/core/wc.xsh"
