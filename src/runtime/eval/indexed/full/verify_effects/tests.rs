@@ -3257,6 +3257,23 @@ assert sample("word")? == "word"
 }
 
 #[test]
+fn generic_proc_terminal_commands_keep_the_unit_result_envelope() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+proc report(payload) { print "terminal" }
+let integer: Result[Unit] = report(7)
+let text: Result[Unit] = report("word")
+assert integer == Ok()
+assert text == Ok()
+"#);
+        let owner = function(&program, "report");
+        assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+    });
+}
+
+#[test]
 fn recursive_proc_completion_arms_keep_application_and_formal_result_envelopes() {
     on_large_stack(|| {
         let program = fixture(r#"

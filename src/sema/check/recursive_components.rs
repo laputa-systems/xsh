@@ -179,6 +179,30 @@ mod tests {
     }
 
     #[test]
+    fn inferred_proc_cleanup_errors_join_the_actual_application_envelope() {
+        let source = concat!(
+            "error CallbackFailure = Missing(message: Str)\n",
+            "proc close() [error] { assert false }\n",
+            "pure plain(value: Int) -> Int { value }\n",
+            "pure nominal(value: Int) -> Result[Int, CallbackFailure] { Ok(value) }\n",
+            "proc relay(action, value) { defer close(); action(value) }\n",
+            "let scalar: Result[Int] = relay(plain, 7)\n",
+            "let result: Result[Int] = relay(nominal, 8)\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let scheme = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "relay").unwrap().scheme.as_ref().unwrap();
+        let applications = &scheme.callable().requirements().applications;
+        assert_eq!(applications.len(), 1);
+        assert_eq!(applications[0].proc_returns.len(), 1);
+        let envelope = &applications[0].proc_returns[0];
+        assert_eq!(scheme.return_type(), &envelope.result);
+        assert_eq!(envelope.propagated_errors.as_ref(), &[crate::sema::schemes::SchemeType::Ground(Type::Error)]);
+    }
+
+    #[test]
     fn proc_stream_callback_relay_result_can_be_propagated_at_independent_types() {
         let source = concat!(
             "stream values(value) [] { yield value }\n",
@@ -305,7 +329,7 @@ mod tests {
             let commands = bindings.value_sites.iter().map(|(&site, &binding)| (site, binding)).collect::<BTreeMap<_, _>>();
             let calls = output.module_commands.keys().copied().collect::<super::super::FxHashSet<_>>();
             let accepts = |captures| super::super::scheme_body::supports_generalized_body(
-                program, &output.prepared_constants, &commands, body, bindings, &parameters, captures,
+                program, crate::sema::types::CallableKind::Pure, &output.prepared_constants, &commands, body, bindings, &parameters, captures,
                 facts.tail_types(), &output.statement_positions, &calls, facts.registered_calls(), facts.expression_types(),
                 facts.constructor_producers(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
             );

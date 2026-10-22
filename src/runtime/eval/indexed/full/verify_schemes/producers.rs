@@ -584,7 +584,8 @@ impl ProducerOwner {
                         if let Some(previous) = end.checked_sub(1) { break 'resolve Some(declarations[previous].1); }
                     }
                     let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
-                    if self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot)) {
+                    if !matches!(store.tags[parent], FullTag::StmtWith | FullTag::StmtGuard)
+                        && self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot)) {
                         break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
                     }
                     if let Some(inherited_bindings) = inherited_bindings {
@@ -604,6 +605,7 @@ impl ProducerOwner {
             }
             let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
             if self.statement_positions.contains_key(&root)
+                && !matches!(store.tags[parent], FullTag::StmtWith | FullTag::StmtGuard)
                 && self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot))
             {
                 break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
@@ -780,7 +782,8 @@ impl GroundProducerIndex {
             if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt { physical_statements += 1; }
             if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
                 | FullTag::ExprPatternIf | FullTag::StmtPatternIf | FullTag::StmtPatternWhile
-                | FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprPipeline)
+                | FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprPipeline
+                | FullTag::StmtWith | FullTag::StmtGuard)
             {
                 work.borrow_mut().charge(1)?;
                 pattern_instructions.push(instruction);
@@ -893,6 +896,32 @@ impl GroundProducerIndex {
                 }
             }
             match decoder.store.tags[instruction] {
+                FullTag::StmtWith => {
+                    let schema::StmtView::With { mut bindings, body, else_body, else_param_slot, .. } = decoder.statement_view(instruction)? else { unreachable!() };
+                    let mut preceding = Vec::new();
+                    for binding in &mut bindings {
+                        let (slot, value) = binding?;
+                        work.borrow_mut().charge(1 + preceding.len())?;
+                        for &(previous, binding) in &preceding { owner.region_bindings.insert((value.raw() as usize, previous), binding); }
+                        preceding.push((slot, ProducerBinding::ScopedDeclaration(instruction, slot)));
+                    }
+                    let roots = owner.block_statements.get(&body.block_identity().index()).cloned().unwrap_or_default();
+                    work.borrow_mut().charge(roots.len().saturating_mul(preceding.len()))?;
+                    for root in roots { for &(slot, binding) in &preceding { owner.region_bindings.insert((root, slot), binding); } }
+                    if let Some(slot) = else_param_slot {
+                        let roots = owner.block_statements.get(&else_body.block_identity().index()).cloned().unwrap_or_default();
+                        work.borrow_mut().charge(roots.len())?;
+                        for root in roots { owner.region_bindings.insert((root, slot), ProducerBinding::ScopedDeclaration(instruction, slot)); }
+                    }
+                }
+                FullTag::StmtGuard => {
+                    let schema::StmtView::Guard { else_body, else_param_slot, .. } = decoder.statement_view(instruction)? else { unreachable!() };
+                    if let Some(slot) = else_param_slot {
+                        let roots = owner.block_statements.get(&else_body.block_identity().index()).cloned().unwrap_or_default();
+                        work.borrow_mut().charge(roots.len())?;
+                        for root in roots { owner.region_bindings.insert((root, slot), ProducerBinding::ScopedDeclaration(instruction, slot)); }
+                    }
+                }
                 FullTag::ExprPatternIf => {
                     let schema::ExprView::PatternIf { mut branches, .. } = decoder.expression_view(instruction)? else { unreachable!("pattern conditional has another view") };
                     for branch in &mut branches {
@@ -1589,6 +1618,57 @@ fn call_values(decoder: &FullDecoder<'_>, instruction: usize) -> Result<Vec<Prod
     Ok(result)
 }
 
+
+pub(super) struct ConditionalProducerType {
+    candidate: Option<Arc<Type>>,
+    null: Option<Arc<Type>>,
+    unknown: bool,
+    records: bool,
+    incompatible: bool,
+}
+
+impl ConditionalProducerType {
+    pub(super) fn new() -> Self {
+        Self { candidate: None, null: None, unknown: false, records: true, incompatible: false }
+    }
+
+    pub(super) fn observe(&mut self, actual: Option<Arc<Type>>) {
+        match actual {
+            Some(ty) if ty.as_ref() == &Type::Null => self.null = Some(ty),
+            Some(ty) => {
+                self.records &= matches!(ty.as_ref(), Type::Record(_) | Type::ErasedRecord);
+                if !self.incompatible {
+                    match &self.candidate {
+                        Some(previous) if !ty.matches_expected(previous) => {
+                            if previous.matches_expected(&ty) { self.candidate = Some(ty); }
+                            else { self.incompatible = true; }
+                        }
+                        None => self.candidate = Some(ty),
+                        _ => {}
+                    }
+                }
+            }
+            None => self.unknown = true,
+        }
+    }
+
+    pub(super) fn finish(mut self, budget: &mut SchemeInstantiationBudget) -> Result<(Option<Arc<Type>>, bool), IrVerifyError> {
+        if self.incompatible { self.candidate = self.records.then(|| Arc::new(Type::ErasedRecord)); }
+        let candidate = match self.candidate {
+            Some(candidate) if self.null.is_some() && !Type::Null.matches_expected(&candidate) => {
+                ensure_substitution_type(&candidate)?;
+                budget.charge(1)?;
+                budget.charge_clone(&candidate)?;
+                Some(Arc::new(Type::Optional(Box::new((*candidate).clone()))))
+            }
+            Some(candidate) => Some(candidate),
+            None if !self.unknown && !self.incompatible => self.null,
+            None => None,
+        };
+        Ok((candidate, self.unknown))
+    }
+}
+
 impl<'a> ProducerProof<'a> {
     fn require_callable_effects(&mut self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
         let index = self.index;
@@ -1983,46 +2063,14 @@ impl<'a> ProducerProof<'a> {
     fn conditional_producer_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize,
         arms: impl Iterator<Item = Result<usize, IrVerifyError>>) -> Result<Option<Arc<Type>>, IrVerifyError>
     {
-        let mut candidate: Option<Arc<Type>> = None;
-        let mut null = None;
-        let mut unknown = false;
-        let mut records = true;
-        let mut incompatible = false;
+        let mut joined = ConditionalProducerType::new();
         for arm in arms {
             self.budget.charge(1)?;
             let Some(arm) = decoder.checked_branch_value_instruction(arm?)? else { continue };
-            match self.need_context(decoder, arm)? {
-                Some(ty) if ty.as_ref() == &Type::Null => null = Some(ty),
-                Some(ty) => {
-                    records &= matches!(ty.as_ref(), Type::Record(_) | Type::ErasedRecord);
-                    if !incompatible {
-                        match &candidate {
-                            Some(previous) if !ty.matches_expected(previous) => {
-                                if previous.matches_expected(&ty) { candidate = Some(ty); }
-                                else { incompatible = true; }
-                            }
-                            None => candidate = Some(ty),
-                            _ => {}
-                        }
-                    }
-                }
-                None => unknown = true,
-            }
+            joined.observe(self.need_context(decoder, arm)?);
         }
-        if incompatible {
-            candidate = records.then(|| Arc::new(Type::ErasedRecord));
-        }
-        let candidate = match candidate {
-            Some(candidate) if null.is_some() && !Type::Null.matches_expected(&candidate) => {
-                ensure_substitution_type(&candidate)?;
-                self.budget.charge(1)?;
-                self.budget.charge_clone(&candidate)?;
-                Arc::new(Type::Optional(Box::new((*candidate).clone())))
-            }
-            Some(candidate) => candidate,
-            None if !unknown && !incompatible => match null { Some(null) => null, None => return Ok(None) },
-            None => return Ok(None),
-        };
+        let (candidate, unknown) = joined.finish(&mut self.budget)?;
+        let Some(candidate) = candidate else { return Ok(None) };
         if unknown {
             ensure_substitution_type(&candidate)?;
             self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
@@ -2752,11 +2800,16 @@ impl<'a> ProducerProof<'a> {
                                         path.extend(fields.into_iter().rev().map(FunctionProjection::Field));
                                         pending.push((owner, CallableProducer::Expression(source.raw() as usize), path));
                                     }
-                                    schema::StmtView::Guard { target, value, optional, .. } => {
-                                        let fields = FullDecoder::checked_target_field_path(&target.materialize()?, slot).ok_or_else(|| IrVerifyError::new("callable guard binder has no field projection"))?;
+                                    schema::StmtView::Guard { target, value, optional, else_param_slot, .. } => {
                                         let mut path = path.clone();
-                                        path.extend(fields.into_iter().rev().map(FunctionProjection::Field));
-                                        if !optional { path.push(FunctionProjection::ResultPayload(true)); }
+                                        if else_param_slot == Some(slot) {
+                                            if optional { return Err(IrVerifyError::new("callable optional guard has an error binder")); }
+                                            path.push(FunctionProjection::ResultPayload(false));
+                                        } else {
+                                            let fields = FullDecoder::checked_target_field_path(&target.materialize()?, slot).ok_or_else(|| IrVerifyError::new("callable guard binder has no field projection"))?;
+                                            path.extend(fields.into_iter().rev().map(FunctionProjection::Field));
+                                            if !optional { path.push(FunctionProjection::ResultPayload(true)); }
+                                        }
                                         pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
                                     }
                                     schema::StmtView::With { bindings, else_param_slot, .. } => {

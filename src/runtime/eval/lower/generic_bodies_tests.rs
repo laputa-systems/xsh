@@ -2231,6 +2231,120 @@ fn prepared_callable_cache_separates_specializations_with_identical_arguments() 
 }
 
 #[test]
+fn generic_proc_cleanup_preserves_lifo_and_error_triggers() {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let source = format!("error CleanupFailure = Failed(message: Str)\nvar trace = \"\"\nproc mark(label: Str) [] -> Unit {{ trace = trace + label }}\npure fail() -> Result[Unit, CleanupFailure] {{ Err(CleanupFailure.Failed(message: \"original\")) }}\nproc keep(value{annotation}, failing: Bool) [error] {{ defer mark(\"a\"); errdefer mark(\"e\"); defer {{ mark(\"b\") }}; if failing {{ fail()? }}; value }}\nproc number(failing: Bool) [error] {{ keep(7, failing) }}\nproc observe() [] -> Str {{ trace }}\n");
+        let source = if generic { format!("{source}proc text() [error] {{ keep(\"row\", false) }}\n") } else { source };
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+            let (number, observe) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("number")), LoweredFunctionKey::Name(Name::intern("observe"))));
+            assert_eq!(evaluator.call_indexed_direct(number, CallableKind::Proc, &[Value::Bool(false)], span).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))));
+            assert_eq!(evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("ba")));
+            let Value::Result(ResultValue::Err(error)) = evaluator.call_indexed_direct(number, CallableKind::Proc, &[Value::Bool(true)], span).unwrap().unwrap() else { panic!("the original failure remains returned data") };
+            let Value::Error(error) = *error else { panic!("the nominal cleanup source error remains intact") };
+            assert_eq!((&*error.family, &*error.variant), ("CleanupFailure", "Failed"));
+            assert_eq!(error.payload.get("message"), Some(&Value::Str(Arc::from("original"))));
+            assert_eq!(evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("babea")), "generic={generic} frames={force_frames}");
+            if generic {
+                let text = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("text")));
+                assert_eq!(evaluator.call_indexed_direct(text, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from("row"))))));
+                assert_eq!(evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("babeaba")));
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_proc_cleanup_run_preserves_order_and_failure_status() {
+    let directory = tempfile::Builder::new().prefix("generic-cleanup-").tempdir_in(".work/tmp").unwrap();
+    let path = directory.path().canonicalize().unwrap().join("trace");
+    for generic in [false, true] {
+        for failing in [false, true] {
+            for block in [false, true] {
+                let annotation = if generic { "" } else { ": Int" };
+                let action = |label: &str, status: i32| {
+                    let run = format!(r#"run sh -c "printf {label} >> \"$1\"; exit {status}" cleanup {:?} ?"#, path.to_str().unwrap());
+                    if block { format!("defer {{ {run} }}") } else { format!("defer {run}") }
+                };
+                let cleanup = if failing { action("c", 7) } else { format!("{}; {}", action("a", 0), action("b", 0)) };
+                let source = format!("proc keep(value{annotation}) [io, error] {{ {cleanup}; value }}\nproc number() [io, error] {{ keep(7) }}\n");
+                let (program, sources, source_id) = record_form_program(&source);
+                for force_frames in [false, true] {
+                    std::fs::write(&path, b"").unwrap();
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let span = Span::at(source_id, 0);
+                    let number = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+                    let actual = evaluator.call_indexed_direct(number, CallableKind::Proc, &[], span).unwrap().unwrap();
+                    if failing && block {
+                        let Value::Result(ResultValue::Err(error)) = actual else { panic!("a cleanup process failure stays Err data: generic={generic} frames={force_frames} actual={actual:?}") };
+                        let Value::RunError(error) = *error else { panic!("the cleanup retains its process status") };
+                        assert_eq!(error.status.as_ref().unwrap().code, Some(7));
+                        assert_eq!(std::fs::read(&path).unwrap(), b"c");
+                    } else {
+                        assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))));
+                        assert_eq!(std::fs::read(&path).unwrap(), if failing { b"c".as_slice() } else { b"ba".as_slice() });
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_with_guard_with_bindings_keep_order_and_scopes() {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let source = format!("error BindingFailure = Missing(message: Str)\nvar trace = \"\"\nproc step(value: Int, valid: Bool) [] -> Result[Int, BindingFailure] {{ trace = trace + \"i\"; if valid {{ Ok(value) }} else {{ Err(BindingFailure.Missing(message: \"stopped\")) }} }}\nproc keep(value{annotation}, valid: Bool) [] {{ var total = 0; with first = step(3, valid), second = step(first + 1, true) {{ total = first + second; trace = trace + \"b\" }} else {{ |failure| let _ = failure; total = -1; trace = trace + \"e\" }}; {{value, total}} }}\nproc number(valid: Bool) [] {{ keep(7, valid) }}\nproc observe() [] -> Str {{ trace }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+            let (number, observe) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("number")), LoweredFunctionKey::Name(Name::intern("observe"))));
+            for (valid, total, trace) in [(true, 7, "iib"), (false, -1, "iibie")] {
+                let Value::Result(ResultValue::Ok(value)) = evaluator.call_indexed_direct(number, CallableKind::Proc, &[Value::Bool(valid)], span).unwrap().unwrap() else { panic!("With handles its failed initializer locally") };
+                let Value::Record(fields) = *value else { panic!("the generic payload and branch result retain their record") };
+                assert_eq!(fields.get("value"), Some(&Value::Int(7)));
+                assert_eq!(fields.get("total"), Some(&Value::Int(total)));
+                assert_eq!(evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from(trace)), "generic={generic} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_with_guard_guards_keep_result_optional_and_destructuring() {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let source = format!("type Row = {{number: Int}}\nerror BindingFailure = Missing(message: Str)\nproc keep(value{annotation}, selected: Result[Row, BindingFailure], optional: Int?) [] {{ guard let {{number}} = selected else {{ |failure| let _ = failure; return {{value, total: -1}} }}; guard let present = optional else {{ return {{value, total: -2}} }}; {{value, total: number + present}} }}\nproc number(mode: Int) [] {{ let selected: Result[Row, BindingFailure] = if mode == 0 {{ Err(BindingFailure.Missing(message: \"missing\")) }} else {{ Ok(Row(number: 3)) }}; let optional: Int? = if mode == 1 {{ null }} else {{ 4 }}; keep(7, selected, optional) }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            let number = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
+            for (mode, total) in [(0, -1), (1, -2), (2, 7)] {
+                let Value::Result(ResultValue::Ok(value)) = evaluator.call_indexed_direct(number, CallableKind::Proc, &[Value::Int(mode)], span).unwrap().unwrap() else { panic!("guard failure returns its checked ordinary value") };
+                let Value::Record(fields) = *value else { panic!("guard success bindings preserve the payload record") };
+                assert_eq!(fields.get("value"), Some(&Value::Int(7)));
+                assert_eq!(fields.get("total"), Some(&Value::Int(total)), "generic={generic} mode={mode} frames={force_frames}");
+            }
+        }
+    }
+}
+
+#[test]
 fn inferred_application_runtime_proc_error_origins_preserve_cleanup() {
     for payload in [-1, 7] {
         let source = format!("var closed = 0\nproc close() [] {{ closed = closed + 1 }}\nproc side(payload: Int) [error] -> Int {{ defer close(); assert payload > 0; payload }}\nproc relay(action, value) {{ action(value) }}\nproc number() [error] {{ let actual = relay(side, {payload}); {{actual, closed}} }}\n");
@@ -2292,6 +2406,17 @@ fn inferred_application_runtime_dependent_proc_cleanup_returns_error_data() {
     assert_prepared_deferred_error_result(concat!(
         "proc close() [error] { assert false }\n",
         "pure identity(payload: Int) -> Int { payload }\n",
+        "proc relay(action, value) { defer close(); action(value) }\n",
+        "proc number() [error] { let actual = relay(identity, 7); {actual} }\n",
+    ));
+}
+
+#[test]
+fn inferred_application_runtime_dependent_proc_cleanup_widens_nominal_errors() {
+    assert_prepared_deferred_error_result(concat!(
+        "error CallbackFailure = Missing(message: Str)\n",
+        "proc close() [error] { assert false }\n",
+        "pure identity(payload: Int) -> Result[Int, CallbackFailure] { Ok(payload) }\n",
         "proc relay(action, value) { defer close(); action(value) }\n",
         "proc number() [error] { let actual = relay(identity, 7); {actual} }\n",
     ));
@@ -2361,6 +2486,44 @@ fn generic_nonmaterial_constructors_execute_after_frontend_disposal() {
                 let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, expected, "{prefix} frames={force_frames}");
             }
+        }
+    }
+}
+
+#[test]
+fn generic_proc_cleanup_terminal_commands_keep_unit_result() {
+    for annotation in [": Int", ""] {
+        let source = format!("proc report(payload{annotation}) {{ print \"terminal\" }}\nproc integer() {{ report(7) }}\n");
+        let source = if annotation.is_empty() { source + "proc text() { report(\"word\") }\n" } else { source };
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let integer = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("integer")));
+            assert_eq!(evaluator.call_indexed_direct(integer, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Unit))));
+            assert_eq!(evaluator.stdout, b"terminal\n");
+            if annotation.is_empty() {
+                let text = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("text")));
+                assert_eq!(evaluator.call_indexed_direct(text, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(Value::Unit))));
+                assert_eq!(evaluator.stdout, b"terminal\nterminal\n");
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_proc_cleanup_pure_callbacks_keep_owner_restriction() {
+    for cleanup in [false, true] {
+        let body = if cleanup { "defer { let _ = value }; value" } else { "value" };
+        let source = format!("pure callback(value) {{ {body} }}\nproc apply(value) {{ callback(value) }}\nlet _ = apply(7)\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        if cleanup {
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckPureDefer)), "{:?}", checked.diagnostics);
+        } else {
+            assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
         }
     }
 }
