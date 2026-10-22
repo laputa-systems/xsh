@@ -8,8 +8,8 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `6f354caab` passes 524 of 534 selected Rust controls.
-Its 10 failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `6a082af02` passes 531 of 540 selected Rust controls.
+Its nine failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
@@ -48,6 +48,23 @@ physical false-to-true mutation that removes noncompletion. Parameter checkpoint
 read only when the checked slot matches the declared signature. Five focused
 controls pass; declared call/slot contracts and forged-path guards remain.
 Both checkpoints pass the combined replay without increasing work limits.
+
+Local-fact checkpoint `7351fd426` publishes the original empty-list owner's
+existing inference type to its initializer and binding. Constructor publication
+resolves its own pending suffix while preserving earlier pending expressions.
+Four phase controls and 48 family controls pass, followed by the combined
+540-control replay. Nested constructors and error cleanup retain their guards.
+Full-source accounting still records four performed body checks against one
+published body; this is not single-body authority acceptance.
+
+Practical comparison checkpoint `f6d22586c` compares interfaces and private
+bodies within each selected entry context, preserving nominal identity and
+old/new contracts. Seven comparator controls pass in isolation and on integrated
+`25d47071a`. Matching products pass every original/reduced XSH and Laputa root,
+the twelve selected behavior executions, and both interface qualifications.
+The first negative control stops on an additional local-inference diagnostic
+at `wc.xsh::continuation`. Its cause is under review; later negative controls
+and final comparisons remain unrun. No new removal credit follows.
 
 Four test-premise corrections pass the combined replay: scalar reads and local
 storage execute against annotated references on both routes; supported default
@@ -154,7 +171,9 @@ the combined replay. The two diagnostic cascades are also repaired on
 `2321053f2`. Four further test-premise corrections leave fourteen required
 failures on `6cf8c3a25`. Guard scheduling, Stream carriers, parameter narrowing
 and the generic-alias test premise subsequently reduce this to ten on
-`6f354caab`. Remaining failures include producer gaps, malformed mutation
+`6f354caab`. The actual checked-value constructor forgery fixture and solved
+local-fact checkpoint subsequently reduce this to nine on `6a082af02`.
+Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
