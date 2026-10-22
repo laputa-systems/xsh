@@ -117,6 +117,41 @@ pub(in crate::runtime::eval::indexed::full) struct ProducerPrefixContext<'a> {
     evidence: &'a ProducerOwner,
 }
 
+fn normalized_expression_expectation(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    expected: Arc<Type>,
+    returned: bool,
+    preserves_result: bool,
+    actual: Option<&Type>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Arc<Type>, IrVerifyError> {
+    let expected = if returned && !preserves_result && !actual.is_some_and(Type::is_result) {
+        match expected.as_ref() {
+            Type::Result(ok, _) => {
+                budget.charge_clone(ok)?;
+                Arc::new((**ok).clone())
+            }
+            _ => expected,
+        }
+    } else {
+        expected
+    };
+    if let Type::Optional(payload) = expected.unvalidated()
+        && (actual.is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
+            || (matches!(expected.as_ref(), Type::Optional(_))
+                && matches!((decoder.expression_view(instruction)?, payload.as_ref()),
+                (schema::ExprView::Record(_), Type::Record(_))
+                | (schema::ExprView::List(_) | schema::ExprView::ListBuild(_), Type::List(_))
+                | (schema::ExprView::MapLiteral(_), Type::Map(_, _)))))
+    {
+        budget.charge_clone(payload)?;
+        Ok(Arc::new((**payload).clone()))
+    } else {
+        Ok(expected)
+    }
+}
+
 impl ProducerPrefixContext<'_> {
     pub(in crate::runtime::eval::indexed::full) fn instruction_forest(&self) -> super::super::InstructionParentContext<'_> {
         super::super::InstructionParentContext { owner: self.owner, range: self.evidence.range.clone(),
@@ -1681,23 +1716,6 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     for (owner, instruction) in deferred_method_roots {
         proof.budget.charge(1)?;
         proof.budget.charge(proof.expressions.get(&(owner, instruction)).map_or(0, Vec::len))?;
-        let contexts = proof.expressions.get(&(owner, instruction)).cloned().unwrap_or_default();
-        let mut concrete: Vec<Arc<Type>> = Vec::new();
-        for (expected, _) in contexts {
-            proof.budget.charge(1)?;
-            if matches!(expected.unvalidated(), Type::Any) { continue; }
-            let mut duplicate = false;
-            for previous in &concrete {
-                proof.budget.charge(1)?;
-                if **previous == *expected {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if duplicate { continue; }
-            proof.budget.charge(1)?;
-            concrete.push(expected);
-        }
         let decoder = proof.owner(owner)?;
         let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else {
             return Err(IrVerifyError::new("deferred method root changed instruction kind"));
@@ -1705,12 +1723,34 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let receiver = receiver.raw() as usize;
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
         proof.budget.charge(arguments.len())?;
+        let contexts = proof.expressions.get(&(owner, instruction)).cloned().unwrap_or_default();
+        let mut concrete: Vec<(Arc<Type>, bool)> = Vec::new();
+        for (expected, returned) in contexts {
+            proof.budget.charge(1)?;
+            if matches!(expected.unvalidated(), Type::Any) { continue; }
+            let mut duplicate = false;
+            for (previous, previous_returned) in &concrete {
+                proof.budget.charge(1)?;
+                if *previous_returned == returned && **previous == *expected {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if duplicate { continue; }
+            proof.budget.charge(1)?;
+            concrete.push((expected, returned));
+        }
         if concrete.is_empty() {
             proof.budget.charge(1)?;
             proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &Type::Any)?;
         } else {
-            for expected in concrete {
+            proof.budget.charge(1)?;
+            let actual = proof.declared_type(&decoder, instruction)?;
+            for (expected, returned) in concrete {
                 proof.budget.charge(1)?;
+                let expected = normalized_expression_expectation(
+                    &decoder, instruction, expected, returned, false, actual.as_deref(), &mut proof.budget,
+                )?;
                 proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &expected)?;
             }
         }
@@ -3644,20 +3684,9 @@ impl<'a> ProducerProof<'a> {
             }
         }
         let preserves_result = matches!(decoder.expression_view(instruction)?, schema::ExprView::Fail { .. } | schema::ExprView::Ok(_) | schema::ExprView::Err { .. } | schema::ExprView::Capture { .. } | schema::ExprView::ContextScope { .. } | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. });
-        let expected = if returned && !preserves_result && !actual.as_ref().is_some_and(|actual| actual.is_result()) {
-            match expected.as_ref() { Type::Result(ok, _) => Arc::new((**ok).clone()), _ => expected }
-        } else { expected };
-        let expected = if let Type::Optional(payload) = expected.unvalidated()
-            && (actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
-                || (matches!(expected.as_ref(), Type::Optional(_))
-                    && matches!((decoder.expression_view(instruction)?, payload.as_ref()),
-                    (schema::ExprView::Record(_), Type::Record(_))
-                    | (schema::ExprView::List(_) | schema::ExprView::ListBuild(_), Type::List(_))
-                    | (schema::ExprView::MapLiteral(_), Type::Map(_, _)))))
-        {
-            self.budget.charge_clone(payload)?;
-            Arc::new((**payload).clone())
-        } else { expected };
+        let expected = normalized_expression_expectation(
+            &decoder, instruction, expected, returned, preserves_result, actual.as_deref(), &mut self.budget,
+        )?;
         match decoder.expression_view(instruction)? {
             schema::ExprView::Param(_) if contextual_list_source.is_some() => {
                 self.expression(owner, contextual_list_source.unwrap(), expected, false);

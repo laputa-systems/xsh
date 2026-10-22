@@ -41401,6 +41401,27 @@ assert make(false, [true])?.len() == 1
     }
 
     #[test]
+    fn returned_native_method_contexts_preserve_result_tail_contracts() {
+        let program = Arc::new(fixture("returned-native-method-contexts.xsh", r#"pure size(values: List[Int]) -> Result[Int] { values.len() }
+assert size([1, 2])? == 2
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "size");
+        let decoder = function_view_decoder(&program.store, owner);
+        assert!(program.store.function_instruction_range(owner).unwrap().any(|instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "len", .. }))
+        }));
+    }
+
+    #[test]
     fn typed_callable_optional_field_rejects_a_nested_condition_write() {
         let program = fixture("optional-field-nested-condition-write.xsh", r#"type Scale = pure(n: Int) -> Int
 type Holder = {callback: Scale}
