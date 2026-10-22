@@ -115,7 +115,8 @@ projection has no ground callable representation.
 
 `source_annotation()` returns source text only for expressible callable types;
 callers recheck it in the insertion scope. Displayed `forall` notation is
-diagnostic text, not an annotation to insert.
+diagnostic text, not an annotation to insert. A `T0: MapKey` binder reports the
+existing finite key-domain requirement on that type parameter.
 
 ## Lint
 

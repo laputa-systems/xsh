@@ -652,6 +652,21 @@ mod tests {
     }
 
     #[test]
+    fn checked_callable_contract_displays_map_key_bounds_without_source_syntax() {
+        let bounded = root_schema_contract("pure describe(value) -> Unit { var seen = set.empty(); seen = seen.add(value); let _ = seen }\n");
+        let shifted = root_schema_contract("pure unrelated(value) { value }\npure describe(value) -> Unit { var entries = set.empty(); entries = entries.add(value); let _ = entries }\n");
+        let unbounded = root_schema_contract("pure describe(value) -> Unit { let _ = value }\n");
+        assert!(bounded.to_string().starts_with("forall T0: MapKey. pure(value: T0) -> Unit"), "{bounded}");
+        assert_eq!(bounded.to_string(), shifted.to_string());
+        assert!(bounded.equivalent_to(&shifted));
+        assert!(!bounded.equivalent_to(&unbounded));
+        assert!(unbounded.to_string().starts_with("forall T0. pure(value: T0) -> Unit"), "{unbounded}");
+        assert!(bounded.source_annotation().is_none());
+        assert!(shifted.source_annotation().is_none());
+        assert!(unbounded.source_annotation().is_none());
+    }
+
+    #[test]
     fn checked_callable_contract_compares_row_binders_and_lacks() {
         let owner = SymbolOwner::new();
         owner.with_current(|| {

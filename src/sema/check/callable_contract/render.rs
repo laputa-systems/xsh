@@ -84,7 +84,15 @@ impl BinderNames {
         let mut types = self
             .types
             .iter()
-            .map(|(id, index)| (*index, self.type_name(*id)))
+            .map(|(id, index)| {
+                let name = self.type_name(*id);
+                let name = if scheme.callable().requirements().map_key_parameters.contains(id) {
+                    format!("{name}: MapKey")
+                } else {
+                    name
+                };
+                (*index, name)
+            })
             .collect::<Vec<_>>();
         types.sort_by_key(|(index, _)| *index);
         let mut binders = types
