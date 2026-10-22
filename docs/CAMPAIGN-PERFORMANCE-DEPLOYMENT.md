@@ -8,14 +8,15 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `4302be2ca` passes 366 of 399 selected Rust controls.
-The remaining 33 failures all belong to the earlier full-library failure set.
+Runtime assembly `058f05738` passes 374 of 404 selected Rust controls.
+The remaining 30 failures all belong to the earlier full-library failure set.
 Every prior passing control remains selected and passes. The replay also covers
-actual imported callable targets and Proc completion provenance.
+actual imported callable targets, Proc completion provenance, null-safe method
+receivers and recursive Unit boundaries.
 Master remains at `d2453760a`; the assembly is not qualified for master.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
-44 failures and three existing ignores. Eleven failures are repaired in the
+44 failures and three existing ignores. Fourteen failures are repaired in the
 assembled replay. The remaining failures include actual producer and Stream
 provenance gaps, malformed mutation fixtures and obsolete unsupported-policy
 assertions. Each needs a scoped repair or a demonstrated correction of its
@@ -35,8 +36,14 @@ changing ordinary field selection. Eleven isolated controls pass, including
 wrong and missing receiver facts. Repair `995ae6054` preserves the established
 Unit boundary of valueless recursive Procs. Three isolated controls pass,
 including the original recursive body-contract failure and value-returning
-controls. Both repairs are integrated through `6ffdbc9a7`; their combined
-replay and the next matching practical pair remain pending.
+controls. Both repairs pass the combined replay. The next matching practical
+pair remains pending.
+
+Repair `058f05738` restores conservative failure capture for an opaque Proc.
+Unknown effects may include `error`; treating them as empty incorrectly permits
+a narrow nominal error promise. Both existing source controls pass, including
+their pure, finite-effect, Result and unpulled Stream counterparts.
+The combined replay retains every earlier passing control and adds no failure.
 
 Runtime checkpoint `3b96ee9e7` is integrated. One canonical callable kind and
 invocation environment survive aliases, suspension, resume and cleanup.
@@ -51,7 +58,7 @@ The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
 Five generic-body admission classes, single-body checking authority and the
-33 known regression failures remain open. The next lanes own ordinary body
+30 known regression failures remain open. The next lanes own ordinary body
 forms, recursive provenance, canonical Stream module exports and paired
 interface completion. Full Rust, native, memory, performance and inherited
 Laputa acceptance remain pending. The last matching native replay is the earlier
