@@ -613,6 +613,7 @@ impl Checker {
             .iter()
             .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
         {
+            self.reject_recursive_component(program, &[decl.definition().expect("an inferred procedure retains its declaration")]);
             return;
         }
         if !candidates.iter().any(proc_candidate_produces_value) && conflicts.is_empty()
