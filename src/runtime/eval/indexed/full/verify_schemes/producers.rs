@@ -98,6 +98,7 @@ struct ProducerOwner {
     block_statements: BTreeMap<usize, Vec<usize>>,
     block_guards: BTreeMap<usize, Vec<(usize, usize)>>,
     block_can_complete: BTreeMap<usize, bool>,
+    typed_calls: Vec<usize>,
     completed_optional_reads: RefCell<BTreeMap<usize, CompletedOptionalRead>>,
     completed_union_reads: RefCell<BTreeMap<(usize, TypeId), super::super::LoweredType>>,
     snapshot_predicates: RefCell<BTreeMap<(usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>>>,
@@ -1019,6 +1020,13 @@ impl GroundProducerIndex {
             *decoder.return_analysis.borrow_mut() = Some(super::super::ReturnAnalysisSource::Shared(Rc::clone(&evidence.return_analysis)));
             decoder.prepared_constant_work.set(evidence.prepared_constant_work);
             decoder.verify_checked_expression_facts()?;
+            for &instruction in &evidence.typed_calls {
+                evidence.work.borrow_mut().charge(1)?;
+                let schema::ExprView::TypedCall { callee, signature, .. } = decoder.expression_view(instruction)? else {
+                    return Err(IrVerifyError::new("typed callable proof has another physical expression"));
+                };
+                decoder.verify_typed_callee_signature(callee.raw() as usize, signature.id)?;
+            }
             decoder.verify_callable_slot_initializers()?;
             if driver.is_some() { decoder.verify_temporary_driver_slot_types()?; }
         }
@@ -1054,7 +1062,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -1063,6 +1071,7 @@ impl GroundProducerIndex {
         for instruction in range.clone() {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
+            if decoder.store.tags[instruction] == FullTag::ExprTypedCall { owner.typed_calls.push(instruction); }
             if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt { physical_statements += 1; }
             if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
                 | FullTag::ExprPatternIf | FullTag::StmtPatternIf | FullTag::StmtPatternWhile

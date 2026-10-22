@@ -800,7 +800,6 @@ macro_rules! instruction_schema {
                         decoder.verify_with_shape(instruction)?;
                     }
                     if tag == FullTag::ExprTypedCall {
-                        // Callee-field proof needs parent links for every child.
                         let payload = decoder.cursor(
                             decoder.store.payload(decoder.store.data[instruction].range())?,
                         );

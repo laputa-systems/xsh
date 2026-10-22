@@ -6456,14 +6456,8 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    /// A typed call was checked against one callable type: the row names
-    /// that type and its kind, and passes each parameter exactly once. The
-    /// executor binds arguments by position and reads no defaults, so a row
-    /// with another argument count, a splice, or an omitted slot would call
-    /// the function with arguments the checker never saw.
     fn verify_typed_call_shape(&self, payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
         let schema::ExprView::TypedCall {
-            callee,
             kind,
             signature,
             args,
@@ -6481,8 +6475,6 @@ impl<'a> FullDecoder<'a> {
                 "typed call shape decoder returned another expression kind",
             ));
         };
-        let callee = callee.raw() as usize;
-        // Top-level steps have no enclosing function to hold the call to.
         if driver_owner_index(self.owner).is_none()
             && let Some(function) = IrFunctionId::from_raw(self.owner)
         {
@@ -6499,7 +6491,6 @@ impl<'a> FullDecoder<'a> {
             }
         }
         let ty = signature.id;
-        self.verify_typed_callee_signature(callee, ty)?;
         let semantic = &self.store.semantic;
         let signature = semantic
             .typed_callable_signature(ty)
@@ -13462,6 +13453,9 @@ impl<'a> FullDecoder<'a> {
         let Some(target) = self.checked_binding_path(receiver_instruction, charge)? else {
             return Ok(false);
         };
+        if let Some(prefix) = &self.producer_prefix {
+            return prefix.optional_path_is_narrowed(self, field_instruction, &target, expected_payload, charge);
+        }
         self.checked_binding_path_is_narrowed(field_instruction, &target, expected_payload, charge)
     }
 
@@ -30829,7 +30823,7 @@ assert render(null)? == ""
         let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
         forged.store.extra[words.start + 1] = any.raw();
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(error.message.contains("ground producer operand has no checked contract"), "{}", error.message);
+        assert_eq!(error.message, "checked callable payload differs from its optional source");
     }
 
     #[test]
@@ -30942,8 +30936,8 @@ assert apply(null, other) == 0
         let apply = scheme_fixture_root_function(&program, "apply");
         let apply_decoder = function_view_decoder(&program.store, apply);
         let source = program.store.function_instruction_range(apply).unwrap().find_map(|instruction| {
-            let Ok(schema::ExprView::CheckedValue { value, check, .. }) = apply_decoder.expression_view(instruction) else { return None };
-            (matches!(check.ty.materialize(), Ok(Type::Record(_))) && matches!(apply_decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(0)))).then_some(value.raw() as usize)
+            let Ok(schema::ExprView::Field { base, .. }) = apply_decoder.expression_view(instruction) else { return None };
+            matches!(apply_decoder.expression_view(base.raw() as usize), Ok(schema::ExprView::Param(0))).then_some(base.raw() as usize)
         }).unwrap();
         let other = program.store.function_instruction_range(apply).unwrap().find(|&instruction| matches!(apply_decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
         stripped.store.checked_expr_types.retain(|fact| fact.instruction as usize != source && fact.is_contract());
@@ -30954,7 +30948,8 @@ assert apply(null, other) == 0
         let mut wrong_guard = stripped.clone();
         wrong_guard.store.binary_ops[op] = BinaryOp::Ne;
         let error = FullVerifier::verify(&wrong_guard).expect_err("preceding return must exclude null on the surviving path");
-        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees")
+            || error.message == "checked field fact disagrees with its structural receiver", "{error:?}");
         let mut wrong_source = stripped.clone();
         wrong_source.store.data[source] = program.store.data[other];
         FullVerifier::verify(&wrong_source).expect_err("physical typed calls authenticate their actual optional formal source");
@@ -41688,7 +41683,8 @@ assert shared == null
         statements.swap(read_position, setter_position);
         assert_eq!(statements[read_position] as usize, setter);
         let error = FullVerifier::verify(&malformed).unwrap_err();
-        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+        assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees")
+            || error.message == "checked field fact disagrees with its structural receiver", "{error:?}");
         let reader_capture = captures(owner).find(|&index| malformed.store.captures[index].binding_identity == apply_capture.binding_identity).unwrap();
         malformed.store.captures[reader_capture].slot_and_flags &= !(1 << 31);
         assert!(malformed.store.captures[captures(clear)].iter().any(|capture| capture.binding_identity == apply_capture.binding_identity && capture.slot_and_flags & (1 << 31) != 0));
@@ -42494,7 +42490,8 @@ pure apply_or_write(holder: Holder?, n: Int, flag: Bool) -> Int {
             assert!(
                 error
                     .message
-                    .contains("checked optional field receiver has no non-null branch proof"),
+                    .contains("checked optional field receiver has no non-null branch proof")
+                    || error.message == "checked field fact disagrees with its structural receiver",
                 "{function}: {}",
                 error.message
             );
