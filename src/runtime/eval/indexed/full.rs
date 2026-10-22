@@ -41247,6 +41247,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
 }
 "#;
         let program = fixture("typed-callable-positional-record.xsh", source);
+        FullVerifier::verify(&program).unwrap();
         let callback_name = program_name(&program, "callback");
         let callback_has_parameter_name = |ty: &Type, wanted: &str| {
             let Type::Record(fields) = ty else {
@@ -41261,7 +41262,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
                 .first()
                 .is_some_and(|param| param.name.as_str().as_str() == wanted)
         };
-        let try_require_fact = |wanted_parameter_name: &str| {
+        let checked_constructor_fact = |wanted_parameter_name: &str| {
             program
                 .store
                 .checked_expr_types
@@ -41269,25 +41270,17 @@ test test_typed_callable_record_field_is_called_like_a_method {
                 .enumerate()
                 .find_map(|(fact_index, fact)| {
                     let instruction = fact.instruction as usize;
-                    if program.store.tags.get(instruction) != Some(&FullTag::ExprTry) {
-                        return None;
-                    }
-                    let try_payload = program
-                        .store
-                        .payload(program.store.data[instruction].range())
-                        .ok()?;
-                    let require = *try_payload.first()? as usize;
-                    if program.store.tags.get(require) != Some(&FullTag::ExprRequire) {
+                    if program.store.tags.get(instruction) != Some(&FullTag::ExprCheckedValue) {
                         return None;
                     }
                     let fact_type = program.store.semantic.to_type(fact.type_id).ok()?;
                     callback_has_parameter_name(&fact_type, wanted_parameter_name)
-                        .then_some((instruction, require, fact_index, fact.type_id))
+                        .then_some((instruction, fact_index, fact.type_id))
                 })
         };
-        let (try_instruction, require, fact_index, _) = try_require_fact("n")
+        let (constructor, fact_index, original_type) = checked_constructor_fact("n")
             .expect("positional constructor propagation has the original callback type");
-        let (_, _, _, forged_type) = try_require_fact("value")
+        let (_, _, forged_type) = checked_constructor_fact("value")
             .expect("fixture has a second callable record with an incompatible parameter label");
         let forged_callable = program
             .store
@@ -41316,7 +41309,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
                     .store
                     .payload(program.store.data[callee].range())
                     .ok()?;
-                (*field_payload.first()? as usize == try_instruction)
+                (*field_payload.first()? as usize == constructor)
                     .then_some((instruction, callee))
             })
             .expect("direct constructor field call has a typed-call instruction");
@@ -41327,8 +41320,9 @@ test test_typed_callable_record_field_is_called_like_a_method {
             .expect("direct constructor field has a callable fact");
 
         let mut forged = program.clone();
-        let require_payload = forged.store.data[require].range();
-        forged.store.extra[require_payload.start as usize + 1] = forged_type.raw();
+        let constructor_payload = forged.store.data[constructor].range();
+        assert_eq!(forged.store.extra[constructor_payload.start as usize + 1], original_type.raw());
+        forged.store.extra[constructor_payload.start as usize + 1] = forged_type.raw();
         forged.store.checked_expr_types[fact_index].type_id = forged_type;
         forged.store.checked_expr_types[field_fact_index].type_id = forged_callable;
         let call_payload = forged.store.data[typed_call].range();
