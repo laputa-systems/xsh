@@ -8,14 +8,25 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `08e824b91` passes 473 of 493 selected Rust controls.
-Its 20 failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `2321053f2` passes 479 of 497 selected Rust controls.
+Its 18 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
+
+Path-like checkpoint `55c681c25` passes eighteen focused controls and the
+combined replay. It reuses the canonical Path-like validator for all three
+methods, retaining contextual path literals, stored-Str rejection, exact
+arguments and original effect order. A unique registered receiver remains
+valid inference evidence; no artificial missing-annotation rule is introduced.
+Diagnostic repair `2321053f2` stops retrying already rejected callable
+interfaces. Both original regression assertions pass unchanged. Independent
+inference errors remain visible in both declaration orders, and genuine
+output-only and unresolved-call controls pass. Five focused controls pass
+before the combined replay. No global error suppression is introduced.
 
 Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
 operands from their actual checked AST and flow. Exact empty-list branch tails
@@ -27,8 +38,12 @@ pass; the existing extra generalization diagnostic remains a required failure.
 Both families pass their prior controls in the combined replay, with that same
 known diagnostic failure retained. No whole-doc generator was run because its
 only entry point also builds release products and renders all documents.
-A matching `08e824b91` product build and the unchanged guarded practical replay
-are active in the corpus lane. Earlier product evidence remains source-bound.
+Matching `08e824b91` verification products build without warnings. The guarded
+practical replay passes every source root and behavior selector, then fails at
+`cut.xsh:147` during interface comparison. Product/source post-guards and owned
+cleanup pass. Later Laputa interfaces, signature and negative comparisons do
+not run. A separate in-process diagnosis owns the remaining comparison gaps;
+no repeated product build is queued until that source class is repaired.
 
 Host checkpoint `e99bb2cc5` also finalizes argument-dependent Standard method
 overloads from committed argument evidence. Actual before/after argument
@@ -77,7 +92,8 @@ retired-lane archive.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
 44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
-the combined replay; its twenty remaining failures persist on `08e824b91`. Remaining failures include producer gaps, malformed mutation
+the combined replay. The two diagnostic cascades are also repaired on
+`2321053f2`, leaving eighteen required failures. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
@@ -118,7 +134,7 @@ The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
 The remaining generic-body families and single-body checking authority stay
-open, alongside 20 baseline failures. The first body checkpoint does not cover
+open, alongside 18 baseline failures. The first body checkpoint does not cover
 run-initialized Guard, Retry/context/error-context, dedicated builtins or the
 remaining conversion forms. The next lanes own those body forms, canonical
 host-call continuations and paired interface completion. Full Rust, native, memory, performance and inherited
