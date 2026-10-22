@@ -20,16 +20,6 @@ enum DeclarationContract {
     Cli(CheckedCliEntryContract),
 }
 
-impl DeclarationContract {
-    fn equivalent_to(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Callable { contract: left, exported: left_exported }, Self::Callable { contract: right, exported: right_exported }) => left_exported == right_exported && left.equivalent_to(right),
-            (Self::Cli(left), Self::Cli(right)) => left.equivalent_to(right),
-            _ => false,
-        }
-    }
-}
-
 type Contracts = BTreeMap<(PathBuf, String), DeclarationContract>;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -49,15 +39,21 @@ impl BodyOwner {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct BodyKey {
+    entry_path: PathBuf,
     source_path: PathBuf,
     module_key: Arc<str>,
     owner: BodyOwner,
 }
 
 impl BodyKey {
-    fn new(module_key: &str, owner: BodyOwner, original_root: &Path) -> Result<Self, String> {
+    fn new(module_key: &str, owner: BodyOwner, entry_path: &Path, original_root: &Path) -> Result<Self, String> {
+        let entry_path = canonical(entry_path)?;
+        if !entry_path.starts_with(original_root) {
+            return Err(format!("{} must be inside {}", entry_path.display(), original_root.display()));
+        }
         let physical = module_key.split('\0').next().expect("module key has a physical path");
         Ok(Self {
+            entry_path,
             source_path: bounded_file(Path::new(physical), original_root)?,
             module_key: Arc::from(module_key),
             owner,
@@ -167,11 +163,13 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
             return Err(format!("multiple candidate sources map to {}", original.display()));
         }
     }
-    let mut original_contracts = Contracts::new();
-    let mut candidate_contracts = Contracts::new();
+    let mut candidate_has_declarations = false;
+    let mut callable_declarations = BTreeSet::new();
+    let mut cli_declarations = BTreeSet::new();
     let mut original_bodies = BodyContracts::new();
     let mut candidate_bodies = BodyContracts::new();
     let mut entries = BTreeSet::new();
+    let mut failures = Vec::new();
     for path in paths {
         check_cancellation()?;
         let selected = std::path::absolute(path).map_err(|error| format!("{path}: {error}"))?;
@@ -189,42 +187,19 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
         let config = config_for_file(path_text(&original)?)?;
         let old = check_contracts(&original, &original_root, &candidate_root, None, config.module_roots(), timings)?;
         let new = check_contracts(&original, &original_root, &candidate_root, Some(&overrides), config.module_roots(), timings)?;
-        merge_contracts(&mut original_contracts, old.interfaces)?;
-        merge_contracts(&mut candidate_contracts, new.interfaces)?;
+        for (key, contract) in &old.interfaces {
+            match contract {
+                DeclarationContract::Callable { .. } => { callable_declarations.insert(key.clone()); }
+                DeclarationContract::Cli(_) => { cli_declarations.insert(key.clone()); }
+            }
+        }
+        candidate_has_declarations |= !new.interfaces.is_empty();
+        compare_contracts(relative, &old.interfaces, &new.interfaces, &mut failures)?;
         merge_body_contracts(&mut original_bodies, old.bodies)?;
         merge_body_contracts(&mut candidate_bodies, new.bodies)?;
     }
-    let mut failures = Vec::new();
-    if original_contracts.is_empty() || candidate_contracts.is_empty() {
+    if (callable_declarations.is_empty() && cli_declarations.is_empty()) || !candidate_has_declarations {
         failures.push("selected programs must contain callable declarations on both sides".into());
-    }
-    for ((path, name), old) in &original_contracts {
-        check_cancellation()?;
-        let Some(new) = candidate_contracts.get(&(path.clone(), name.clone())) else {
-            failures.push(format!("{}::{name}: missing candidate declaration", path.display()));
-            continue;
-        };
-        match (old, new) {
-            (DeclarationContract::Callable { exported: old_exported, .. }, DeclarationContract::Callable { exported: new_exported, .. }) if old_exported != new_exported => {
-                failures.push(format!("{}::{name}: export visibility mismatch", path.display()));
-            }
-            (DeclarationContract::Callable { contract: old, .. }, DeclarationContract::Callable { contract: new, .. }) => {
-                let comparison = if old.equivalent_to(new) { Ok(true) } else if old.is_generic() { Ok(false) } else { old.is_instance_of(new) };
-                match comparison {
-                    Ok(true) => {}
-                    Ok(false) => failures.push(format!("{}::{name}: contract mismatch\n  original: {old}\n  candidate: {new}", path.display())),
-                    Err(error) => failures.push(format!("{}::{name}: cannot establish interface compatibility: {}", path.display(), comparison_error(error))),
-                }
-            }
-            (DeclarationContract::Cli(old), DeclarationContract::Cli(new)) if old.equivalent_to(new) => {}
-            (DeclarationContract::Cli(_), DeclarationContract::Cli(_)) => failures.push(format!("{}::{name}: CLI parsing contract or declared effect bound mismatch", path.display())),
-            _ => failures.push(format!("{}::{name}: declaration kind mismatch", path.display())),
-        }
-    }
-    for (path, name) in candidate_contracts.keys() {
-        if !original_contracts.contains_key(&(path.clone(), name.clone())) {
-            failures.push(format!("{}::{name}: extra candidate declaration", path.display()));
-        }
     }
     if original_bodies.is_empty() || candidate_bodies.is_empty() {
         failures.push("selected programs must publish checked body contracts on both sides".into());
@@ -232,19 +207,18 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
     for (key, old) in &original_bodies {
         check_cancellation()?;
         match candidate_bodies.get(key) {
-            None => failures.push(format!("{}::{}: missing candidate checked body contract", key.source_path.display(), key.owner.label())),
+            None => failures.push(format!("entry {}: {}::{}: missing candidate checked body contract", key.entry_path.display(), key.source_path.display(), key.owner.label())),
             Some(new) if old.preserved_by(new) => {}
-            Some(_) => failures.push(format!("{}::{}: checked body contract mismatch", key.source_path.display(), key.owner.label())),
+            Some(_) => failures.push(format!("entry {}: {}::{}: checked body contract mismatch", key.entry_path.display(), key.source_path.display(), key.owner.label())),
         }
     }
     for key in candidate_bodies.keys() {
         if !original_bodies.contains_key(key) {
-            failures.push(format!("{}::{}: extra candidate checked body contract", key.source_path.display(), key.owner.label()));
+            failures.push(format!("entry {}: {}::{}: extra candidate checked body contract", key.entry_path.display(), key.source_path.display(), key.owner.label()));
         }
     }
     if failures.is_empty() {
-        let callables = original_contracts.values().filter(|contract| matches!(contract, DeclarationContract::Callable { .. })).count();
-        Ok((callables, original_contracts.len() - callables))
+        Ok((callable_declarations.len(), cli_declarations.len()))
     } else { Err(failures.join("\n")) }
 }
 
@@ -257,14 +231,35 @@ fn comparison_error(error: ContractComparisonError) -> &'static str {
     }
 }
 
-fn merge_contracts(target: &mut Contracts, contracts: Contracts) -> Result<(), String> {
-    for (key, contract) in contracts {
+fn compare_contracts(entry: &Path, original: &Contracts, candidate: &Contracts, failures: &mut Vec<String>) -> Result<(), String> {
+    for ((path, name), old) in original {
         check_cancellation()?;
-        if let Some(previous) = target.get(&key) {
-            if !previous.equivalent_to(&contract) {
-                return Err(format!("{}::{}: inconsistent declaration across entry programs", key.0.display(), key.1));
+        let Some(new) = candidate.get(&(path.clone(), name.clone())) else {
+            failures.push(format!("entry {}: {}::{name}: missing candidate declaration", entry.display(), path.display()));
+            continue;
+        };
+        match (old, new) {
+            (DeclarationContract::Callable { exported: old_exported, .. }, DeclarationContract::Callable { exported: new_exported, .. }) if old_exported != new_exported => {
+                failures.push(format!("entry {}: {}::{name}: export visibility mismatch", entry.display(), path.display()));
             }
-        } else { target.insert(key, contract); }
+            (DeclarationContract::Callable { contract: old, .. }, DeclarationContract::Callable { contract: new, .. }) => {
+                let comparison = if old.equivalent_to(new) { Ok(true) } else if old.is_generic() { Ok(false) } else { old.is_instance_of(new) };
+                match comparison {
+                    Ok(true) => {}
+                    Ok(false) => failures.push(format!("entry {}: {}::{name}: contract mismatch\n  original: {old}\n  candidate: {new}", entry.display(), path.display())),
+                    Err(error) => failures.push(format!("entry {}: {}::{name}: cannot establish interface compatibility: {}", entry.display(), path.display(), comparison_error(error))),
+                }
+            }
+            (DeclarationContract::Cli(old), DeclarationContract::Cli(new)) if old.equivalent_to(new) => {}
+            (DeclarationContract::Cli(_), DeclarationContract::Cli(_)) => failures.push(format!("entry {}: {}::{name}: CLI parsing contract or declared effect bound mismatch", entry.display(), path.display())),
+            _ => failures.push(format!("entry {}: {}::{name}: declaration kind mismatch", entry.display(), path.display())),
+        }
+    }
+    for (path, name) in candidate.keys() {
+        check_cancellation()?;
+        if !original.contains_key(&(path.clone(), name.clone())) {
+            failures.push(format!("entry {}: {}::{name}: extra candidate declaration", entry.display(), path.display()));
+        }
     }
     Ok(())
 }
@@ -274,7 +269,7 @@ fn merge_body_contracts(target: &mut BodyContracts, bodies: BodyContracts) -> Re
         check_cancellation()?;
         if let Some(previous) = target.get(&key) {
             if !previous.preserved_by(&body) || !body.preserved_by(previous) {
-                return Err(format!("{}::{}: inconsistent checked body contract across entry programs", key.source_path.display(), key.owner.label()));
+                return Err(format!("entry {}: {}::{}: inconsistent checked body contract across entry programs", key.entry_path.display(), key.source_path.display(), key.owner.label()));
             }
         } else { target.insert(key, body); }
     }
@@ -425,9 +420,9 @@ fn check_contracts(
             BodyContractOwner::Entry => BodyOwner::Entry,
             BodyContractOwner::Declaration(name) => BodyOwner::Declaration(name.as_str().to_string()),
         });
-        let key = BodyKey::new(body.source_name(), owner, original_root)?;
+        let key = BodyKey::new(body.source_name(), owner, entry, original_root)?;
         if bodies.contains_key(&key) {
-            return Err(format!("{}::{}: ambiguous checked body owner", key.source_path.display(), key.owner.label()));
+            return Err(format!("entry {}: {}::{}: ambiguous checked body owner", key.entry_path.display(), key.source_path.display(), key.owner.label()));
         }
         bodies.insert(key, body);
     }
@@ -437,6 +432,78 @@ fn check_contracts(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_interfaces_are_compared_within_each_entry_context() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.work/tmp");
+        fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        let original = root.path().join("original");
+        let candidate = root.path().join("candidate");
+        fs::create_dir_all(&original).unwrap();
+        fs::create_dir_all(&candidate).unwrap();
+        let original_model = "##! Nominal timestamp values.\n\
+## A timestamp with whole seconds.\n\
+export type Instant = {seconds: Int}\n\
+## Return the input timestamp.\n\
+export pure identity(value: Instant) -> Instant { value }\n\
+## Accept a timestamp.\n\
+export pure accepts(value: Instant) -> Bool { true }\n";
+        let original_main = "use model\npure keep(value: model.Instant) -> model.Instant { model.identity(value) }\n";
+        let write_sources = |directory: &Path, model: &str, main: &str| {
+            fs::write(directory.join("model.xsh"), model).unwrap();
+            fs::write(directory.join("main.xsh"), main).unwrap();
+        };
+        let qualify = |old: &Path, new: &Path, selected: &[&str]| {
+            let paths = selected.iter().map(|entry| new.join(entry).to_str().unwrap().to_owned()).collect::<Vec<_>>();
+            compare_paths(old.to_str().unwrap(), new.to_str().unwrap(), &paths, &StageTimings::start())
+        };
+        write_sources(&original, original_model, original_main);
+        assert_eq!(qualify(&original, &original, &["main.xsh", "model.xsh"]), Ok((3, 0)));
+        assert_eq!(qualify(&original, &original, &["model.xsh", "main.xsh", "main.xsh"]), Ok((3, 0)));
+
+        let cases = [
+            (
+                "nominal identity",
+                original_model.replace("Instant", "Timestamp"),
+                original_main.replace("model.Instant", "model.Timestamp"),
+                "contract mismatch",
+            ),
+            (
+                "callable return",
+                original_model.replace(
+                    "identity(value: Instant) -> Instant { value }",
+                    "identity(value: Instant) -> Int { value.seconds }",
+                ),
+                "use model\npure keep(value: model.Instant) -> Int { model.identity(value) }\n".to_owned(),
+                "contract mismatch",
+            ),
+            (
+                "checked body",
+                original_model.replace(
+                    "identity(value: Instant) -> Instant { value }",
+                    "identity(value: Instant) -> Instant { Instant(seconds: value.seconds) }",
+                ),
+                original_main.to_owned(),
+                "checked body contract mismatch",
+            ),
+            (
+                "callable domain",
+                original_model.replace(
+                    "accepts(value: Instant) -> Bool",
+                    "accepts(value: Str) -> Bool",
+                ),
+                original_main.to_owned(),
+                "contract mismatch",
+            ),
+        ];
+        for (changed_fact, model, main, diagnostic) in cases {
+            write_sources(&candidate, &model, &main);
+            assert_eq!(qualify(&candidate, &candidate, &["main.xsh", "model.xsh"]), Ok((3, 0)), "candidate {changed_fact}");
+            let error = qualify(&original, &candidate, &["main.xsh", "model.xsh"]).unwrap_err();
+            assert!(error.contains(diagnostic), "{changed_fact}: {error}");
+        }
+    }
 
     #[test]
     fn paired_qualification_preserves_actual_checked_bodies() {
@@ -612,7 +679,7 @@ proc observe() [time] -> Int { let _ = time.now(); 1 }\n";
         let physical_key = loader::module_key(&shared);
         let keys = loaded.program.modules.iter()
             .filter(|module| module.key.split('\0').next() == Some(physical_key.as_str()))
-            .map(|module| BodyKey::new(&module.key, BodyOwner::Entry, &original_root).unwrap())
+            .map(|module| BodyKey::new(&module.key, BodyOwner::Entry, root.path(), &original_root).unwrap())
             .collect::<BTreeSet<_>>();
         assert_eq!(keys.len(), 2);
         assert!(keys.iter().all(|key| key.source_path == shared.canonicalize().unwrap()));

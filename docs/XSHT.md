@@ -55,23 +55,30 @@ original files. Both complete programs use the original configuration and module
 roots, with candidate entry and import bytes loaded at the original canonical
 paths. This preserves nominal schema identity across the pair.
 
-Qualification requires equal nonempty declaration sets keyed by logical source
-path and name, preserving export visibility. Candidate imports must resolve to
-the same corresponding files, including through symlinks and configured module roots. Original generic contracts must remain equivalent; original
-concrete contracts must be instances of candidate contracts under the checker's
-canonical comparison. Missing, extra, mismatched, unresolved, or unsupported
-contracts fail with status 2 and a declaration diagnostic. CLI comparison covers
+Within each selected entry context, qualification requires equal declaration
+sets keyed by logical source path and name, preserving export visibility. A
+physical declaration can have different nominal schema identities when its file
+is checked as an entry and when imported; each context is compared only with its
+corresponding entry in the other tree. Candidate imports must resolve to the same
+corresponding files, including through symlinks and configured module roots.
+Original generic contracts must remain equivalent; original concrete contracts
+must be instances of candidate contracts under the checker's canonical
+comparison. Missing, extra, mismatched, unresolved, or unsupported contracts
+fail with status 2 and a declaration diagnostic. CLI comparison covers
 command paths, parameter parser domains, defaults, rest parameters, and declared
 effect bounds. Help text and runtime behavior require separate paired tests.
 Internal host declarations
 are excluded from both sides. The command checks each program once and prepares
-it once without executing initialization. It compares complete checked body owner
-sets by canonical source path and entry or declaration name. Checked operation and
-stage selections, effect summaries, and emitted runtime validation boundaries must
-be preserved according to the canonical body contract. Shared bodies must have
-mutually preserved contracts across entry programs on each side. Missing facts,
-unsupported capture, and preparation errors fail qualification. These checks do
-not establish runtime behavior equivalence.
+it once without executing initialization. It compares each selected program's
+complete checked body owner set, keyed by selected entry, canonical source path,
+module-resolution key, and entry or declaration name. Checked operation and stage
+selections, effect summaries, and emitted runtime validation boundaries must be
+preserved according to the canonical body contract. A body loaded in several
+entry contexts is compared separately with its corresponding candidate context.
+Within one selected entry, checked bodies with the same key must have mutually
+preserved contracts.
+Missing facts, unsupported capture, and preparation errors fail qualification.
+These checks do not establish runtime behavior equivalence.
 
 Both roots bound the source view: reachable user imports must stay inside the
 original root and have candidate files. Every candidate `.xsh` file must have
@@ -81,8 +88,9 @@ Reachable module paths must resolve inside their respective roots.
 Candidate import validation fails when the current `XSH_MODULE_PATH` resolves
 a module outside `CANDIDATE_ROOT`. Embedded standard-library modules load
 normally. Successful comparison prints `xsht check interface qualification: N callable, M CLI`,
-counting unique declaration keys. At least one count must be nonzero.
-Comparison requires explicit entries and cannot combine with
+counting unique physical source-path/name keys on the original side, so
+declarations loaded by multiple selected entries count once. At least one count
+must be nonzero. Comparison requires explicit entries and cannot combine with
 `--annotate` or `--summary`.
 
 The frontend facade exposes `CheckedCallableContract` through
