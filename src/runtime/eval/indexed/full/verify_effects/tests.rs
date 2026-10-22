@@ -3430,3 +3430,31 @@ assert first_size([]) == 0
         FullVerifier::verify(&foreign_iterable).expect_err("comprehension iterable must belong to its actual owner");
     });
 }
+
+#[test]
+fn native_readonly_argv_accepts_typed_comprehension_arguments() {
+    on_large_stack(|| {
+        for argument in ["[]", "[\"word\", p\"path\"]"] {
+            let program = fixture(&format!("test argv {{ |ctx| let output = test.run_script(ctx, \"\", args: {argument})?; assert output.status == 0 }}\n"));
+            FullVerifier::verify(&program).unwrap();
+        }
+        for words in ["[\"word\"]", "[p\"word\"]"] {
+            for argument in ["[word for word in words]", "arguments"] {
+                let source = format!("test argv {{ |ctx| let words = {words}; let arguments = [word for word in words]; let output = test.run_script(ctx, \"\", args: {argument})?; assert output.status == 0 }}\n");
+                let program = fixture(&source);
+                FullVerifier::verify(&program).unwrap();
+                let comprehension = program.store.tags.iter().rposition(|tag| *tag == FullTag::ExprListComp).unwrap();
+                let decoder = program.store.functions.iter().enumerate().find_map(|(index, _)| {
+                    let range = program.store.function_instruction_range(index).unwrap();
+                    range.contains(&comprehension).then(|| function_view_decoder(&program.store, index))
+                }).unwrap();
+                let schema::ExprView::ListComp { value, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+                let scalar = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+                let mut wrong_item = program.clone();
+                wrong_item.store.tags[value.raw() as usize] = FullTag::ExprInt;
+                wrong_item.store.data[value.raw() as usize] = program.store.data[scalar];
+                FullVerifier::verify(&wrong_item).expect_err("readonly argv rejects an actual integer element");
+            }
+        }
+    });
+}

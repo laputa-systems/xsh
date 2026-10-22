@@ -1534,6 +1534,17 @@ impl Type {
         ITEM.get_or_init(|| Self::Union(vec![Self::Str, Self::Path]))
     }
 
+    pub(crate) fn is_readonly_argv_word_list(&self) -> bool {
+        matches!(self, Self::List(item)
+            if matches!(&**item, Self::Union(members)
+                if members.len() == 2 && members.contains(&Self::Str) && members.contains(&Self::Path)))
+    }
+
+    pub(crate) fn accepts_readonly_argv_argument(&self, actual: &Self) -> bool {
+        self.is_readonly_argv_word_list()
+            && matches!(actual, Self::List(item) if item.can_be_process_command_argv_item())
+    }
+
     pub(crate) fn can_be_process_command_argv_item(&self) -> bool {
         match self {
             Self::Union(members) => members.iter().all(Self::can_be_process_command_argv_item),
@@ -1899,6 +1910,21 @@ mod tests {
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn readonly_argv_compatibility_preserves_container_invariance() {
+        let expected = Type::List(Box::new(Type::process_command_argv_item_type().clone()));
+        for item in [Type::Str, Type::Path, Type::Unknown, Type::Union(vec![Type::Str, Type::Path])] {
+            assert!(expected.accepts_readonly_argv_argument(&Type::List(Box::new(item))));
+        }
+        for item in [Type::Int, Type::Any, Type::Invalid] {
+            assert!(!expected.accepts_readonly_argv_argument(&Type::List(Box::new(item))));
+        }
+        assert!(!Type::List(Box::new(Type::Str)).matches_expected(&expected));
+        assert!(!Type::Map(Box::new(Type::Str), Box::new(Type::Str)).matches_expected(&Type::Map(Box::new(Type::Str), Box::new(Type::Any))));
+        assert!(!expected.accepts_readonly_argv_argument(&Type::Stream(Box::new(Type::Str))));
+        assert!(!Type::List(Box::new(Type::Any)).accepts_readonly_argv_argument(&Type::List(Box::new(Type::Str))));
+    }
 
     #[test]
     fn enum_display_hides_only_filesystem_owned_identities() {
