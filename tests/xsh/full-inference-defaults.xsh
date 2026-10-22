@@ -18,12 +18,12 @@ assert integers == [2, 4, 2]
 assert words == ["one", "two", "one"]
 print $omitted
 print $supplied
-print $integers
-print $words
+print ${json.encode(integers)?}
+print ${json.encode(words)?}
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == "fallback\nprovided\n[2, 4, 2]\n[one, two, one]\n"
+  assert output.stdout == "fallback\nprovided\n[2,4,2]\n[\"one\",\"two\",\"one\"]\n"
 }
 
 test test_full_inference_default_parameter_rejects_a_conflicting_argument { |ctx|
