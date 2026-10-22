@@ -679,7 +679,7 @@ pure blob_deep(stats: Stats) -> Stats {
         for (source, expected_error, expected_reason) in [
             ("pure again(value: Any, count: Int) -> Any { if count == 0 { return value }; again(value, count - 1) }", None, None),
             ("type Row = {value: Int, blobs: Map[Any]}\npure again(count: Int) -> Row { if count == 0 { return {value: \"wrong\", blobs: map.empty()} }; again(count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch), None),
-            ("pure again(value: Any, count: Int) { if count == 0 { return value }; again(value, count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckLocalInference), None),
+            ("pure again(value: Any, count: Int) { if count == 0 { return value }; again(value, count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckInferReturn), None),
             ("pure again(count: Int) { if count == 0 { return [] }; again(count - 1) }", Some(crate::diagnostic::DiagnosticCode::CheckLocalInference), Some("material type needs an annotation")),
         ] {
             let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
@@ -701,6 +701,56 @@ pure blob_deep(stats: Stats) -> Stats {
                 assert!(!checked.stream_origin_summaries.declarations[&owner].returned.has_pending());
             }
         }
+    }
+
+    #[test]
+    fn inferred_dynamic_returns_require_authored_types() {
+        for source in [
+            "pure forward(value: Any) { value }\n",
+            "pure forward(value: Any) { [value] }\n",
+            "pure again(value: Any, count: Int) { if count == 0 { return value }; again(value, count - 1) }\n",
+            "pure again(value: Any, count: Int) { if count == 0 { return [value] }; again(value, count - 1) }\n",
+            "pure again(value: Any, count: Int) { if count == 0 { return value }; if count == 1 { return 1 }; again(value, count - 1) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = super::Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckInferReturn)), "{source}\n{:?}", checked.diagnostics);
+        }
+
+        for source in [
+            "pure forward(value: Any) -> Any { value }\n",
+            "pure forward(value: Any) -> List[Any] { [value] }\n",
+            "pure again(value: Any, count: Int) -> Any { if count == 0 { return value }; again(value, count - 1) }\n",
+            "pure again(value: Any, count: Int) -> List[Any] { if count == 0 { return [value] }; again(value, count - 1) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = super::Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        }
+
+        let concrete_from_any = "pure number(value: Any) { value.require(Int) ?? 0 }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), concrete_from_any);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = super::Checker::check_arena(&parsed.arena, concrete_from_any);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declaration = checked.checked_declarations.functions.values().next().unwrap();
+        assert_eq!(checked.function_return_types[&declaration.body], super::Type::Int);
+
+        let rank_one = concat!(
+            "pure again(value, count: Int) { if count == 0 { return value }; again(value, count - 1) }\n",
+            "let integer: Int = again(7, 0)\n",
+            "let text: Str = again(\"ok\", 0)\n",
+        );
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), rank_one);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = super::Checker::check_arena(&parsed.arena, rank_one);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]

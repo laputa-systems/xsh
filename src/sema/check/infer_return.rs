@@ -413,6 +413,7 @@ impl Checker {
             self.function_return_types.insert(body, ty);
         }
         let mut propagations = Vec::new();
+        let mut inferred_dynamic_returns = std::collections::BTreeSet::new();
         for &index in component {
             let declaration = &declarations[index];
             let Some(definition) = declaration.definition() else {
@@ -432,6 +433,11 @@ impl Checker {
             self.return_conflicts = (declaration.kind() == Some(CallableKind::Proc)).then(Vec::new);
             self.check_body_before_callers(program, source, declaration, declarations, def);
             let candidates = self.inferred_returns.take().expect("recursive return checking owns its candidates");
+            let inferred_dynamic_return = declaration.kind() == Some(CallableKind::Pure)
+                && candidates.iter().any(|candidate| candidate.ty.contains_any());
+            if inferred_dynamic_return {
+                inferred_dynamic_returns.insert(self.effect_declaration_id(program, def.body));
+            }
             let errors = std::mem::take(&mut self.inferred_propagations);
             let body = program.arena.span(program.arena.block(def.body).span);
             let original = self.function_return_types[&body].clone();
@@ -474,8 +480,15 @@ impl Checker {
             let body = program.arena.span(program.arena.block(def.body).span);
             let Some(ty) = self.function_return_types.get(&body) else { continue; };
             let ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
-            if !return_type_is_concrete(&ty) {
-                self.error(body, "recursive return shape is not determined by its component", DiagnosticCode::CheckInferReturn);
+            let owner = self.effect_declaration_id(program, def.body);
+            let inferred_dynamic_return = inferred_dynamic_returns.contains(&owner);
+            if !return_type_is_concrete(&ty) || inferred_dynamic_return {
+                let message = if inferred_dynamic_return {
+                    "pure recursive return includes dynamic Any; declare a return annotation"
+                } else {
+                    "recursive return shape is not determined by its component"
+                };
+                self.error(body, message, DiagnosticCode::CheckInferReturn);
             }
         }
         if self.diagnostics[start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
