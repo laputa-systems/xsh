@@ -8,11 +8,13 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `f9350b320` passes 385 of 411 selected Rust controls.
-Its 26 failures belong to the earlier full-library failure set. Every prior
-passing control remains selected and passes. Authored recursive records retain
-their declared dynamic Map values and settled provenance. All three original
-Tokei regressions pass on this combined source.
+Runtime assembly `934a13003` passes 423 of 447 selected Rust controls.
+Its 24 failures belong to the earlier full-library failure set. Every prior
+passing control remains selected and passes. The combined checkpoint includes
+actual host-call selection publication, ordinary generic cleanup and With/Guard
+binding scopes. The dependent Proc cleanup and Guard error-binding failures
+are repaired. Authored recursive records retain their declared dynamic Map
+values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
 
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
@@ -27,14 +29,19 @@ Both libraries compile; this run selects XSH tests and establishes no XSHT
 test coverage.
 
 Test-first checkpoint `06a950205` preserves the earlier parked terminal Proc
-command control in committed source. Its current single-test replay fails at
-generic body admission. The body lane owns that required repair. The completed
-export checkout is retired from the active path and Git registration. Its
-scratch and generated artifacts remain in the ignored retired-lane archive.
+command control in committed source. It now passes in the combined replay.
+Body checkpoint `426157ef3` passes all 26 isolated controls. Host-continuation
+checkpoint `01ae27f43` passes all 15 isolated controls. The initial combined
+replay exposed a test adapter supplying Pure for an actual Proc; correction
+`a6ac1b984` derives the checked scheme kind and retains both capture assertions.
+All three focused controls pass, followed by the corrected 447-control replay.
+The completed export checkout is retired from the active path and Git
+registration. Its scratch and generated artifacts remain in the ignored
+retired-lane archive.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
-44 failures and three existing ignores. Eighteen failures are repaired in the
-`f9350b320` replay. Remaining failures include producer gaps, malformed mutation
+44 failures and three existing ignores. Twenty failures are repaired in the
+`934a13003` replay. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
@@ -74,10 +81,11 @@ Ordinary script calls and the actual adapter pass their separate controls.
 The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
-Five generic-body admission classes and single-body checking authority remain
-open, alongside 26 baseline failures and the committed terminal-command
-control. The next lanes own ordinary body forms, canonical host-call
-continuations and paired interface completion. Full Rust, native, memory, performance and inherited
+The remaining generic-body families and single-body checking authority stay
+open, alongside 24 baseline failures. The first body checkpoint does not cover
+run-initialized Guard, Retry/context/error-context, dedicated builtins or the
+remaining conversion forms. The next lanes own those body forms, canonical
+host-call continuations and paired interface completion. Full Rust, native, memory, performance and inherited
 Laputa acceptance remain pending. The last matching native replay is the earlier
 `7f4dccc80` pair: 27 passes with unchanged source and product guards.
 
