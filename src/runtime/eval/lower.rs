@@ -458,7 +458,7 @@ use super::{
     COMPACT_TYPE_EXPR_TAG_COUNT, CompactLowerConstructProbeOutput, Flow, FunctionBuild,
     LowerableFunctions, LoweredAssignPath, LoweredAssignStep, LoweredCallArg, LoweredCompFields,
     LoweredBindingIdentity, LoweredCompTarget, LoweredFmtPart,
-    LoweredFunctionBlocker, LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit,
+    LoweredFunctionBlocker, LoweredFunctionKey, LoweredFunctionUnit,
     LoweredModuleExport, LoweredModuleExportBinding, LoweredParamChecks, LoweredParamDefaults,
     LoweredParamKind, LoweredParamKinds, LoweredParamNames, LoweredParamRest, LoweredPipelineStage,
     LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption,
@@ -488,11 +488,7 @@ fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
     while let SchemeType::Validated(_, base) = ty { ty = base; }
     match ty {
         SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Optional(_))),
-        SchemeType::Callable { kind, .. } => match kind {
-            crate::sema::types::CallableKind::Pure => Some(LoweredType::Pure),
-            crate::sema::types::CallableKind::Proc => Some(LoweredType::Proc),
-            crate::sema::types::CallableKind::Stream => None,
-        },
+        SchemeType::Callable { kind, .. } => Some(LoweredType::Function(*kind)),
         SchemeType::List(_) => Some(LoweredType::List),
         SchemeType::Map(_, _) => Some(LoweredType::Map),
         SchemeType::Stream(_) => Some(LoweredType::Stream),
@@ -694,7 +690,9 @@ pub(super) fn lower_compact_function_units_into(
     let functions = LowerableFunctions::all_with_candidates(
         &empty_pures,
         &empty_procs,
+        &empty_procs,
         &empty_qualified_pures,
+        &empty_qualified_procs,
         &empty_qualified_procs,
         &candidates,
     );
@@ -1352,7 +1350,7 @@ pub(super) fn compact_function_selection(
     let keys = compact_function_defs(program, scope).into_iter().map(|function| {
         let definition = program.arena.function_def(function.id);
         let span = program.arena.span(program.arena.block(definition.body).span);
-        if declarations.scheme_bodies.get(&span).is_some_and(|facts| !facts.registered_calls().is_empty()) { producer_demand = super::ProducerDemand::Needed; }
+        if declarations.scheme_bodies.get(&span).is_some_and(|facts| super::ProducerDemand::for_scheme_body(facts) == super::ProducerDemand::Needed) { producer_demand = super::ProducerDemand::Needed; }
         function.key
     }).collect();
     if producer_demand == super::ProducerDemand::Absent {
@@ -2599,11 +2597,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let slot_count = body.slot_count;
                 LoweredFunctionUnit {
                     key: function.key,
-                    kind: if function.kind != CallableKind::Proc {
-                        LoweredFunctionKind::Pure
-                    } else {
-                        LoweredFunctionKind::Proc
-                    },
+                    kind: function.kind,
                     source_span,
                     definition_span,
                     owner: function.namespace,
@@ -2623,11 +2617,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let blocker_detail = self.last_blocker_detail.clone();
                 LoweredFunctionUnit {
                     key: function.key,
-                    kind: if function.kind != CallableKind::Proc {
-                        LoweredFunctionKind::Pure
-                    } else {
-                        LoweredFunctionKind::Proc
-                    },
+                    kind: function.kind,
                     source_span,
                     definition_span,
                     owner: function.namespace,
@@ -3106,6 +3096,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let block_data = self.program.arena.block(block);
         if !block_data.params.is_empty() { return self.block_scheme_lowering(block); }
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
+        if facts.scheme().kind() == CallableKind::Stream {
+            let mut body = Vec::new();
+            for statement in statements {
+                self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+            }
+            if visited.len() != facts.expression_types().len() + facts.constructor_producers().len() { return self.block_scheme_lowering(block); }
+            return Some((body, lowered_types, BTreeMap::new()));
+        }
         let (&tail, prefix) = statements.split_last()?;
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && (matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
@@ -3305,6 +3303,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
+        let statement = self.program.arena.core_stmt_id(statement);
         match self.program.arena.stmt(statement).kind {
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = facts.tail_types().get(&statement)?.clone();
@@ -3427,6 +3426,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<()> {
+        let statement = self.program.arena.core_stmt_id(statement);
         let node = self.program.arena.stmt(statement);
         let declaration = match node.kind {
             ArenaStmtKind::Let { target, ty, initializer: ArenaExprOrRun::Expr(expression) } => Some((target, ty, expression, super::SchemeLocalMutability::Immutable)),
@@ -3502,6 +3502,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 },
                 ArenaStmtKind::Break { value: None } => BuildStmtRow::Break,
                 ArenaStmtKind::Continue => BuildStmtRow::Continue,
+                ArenaStmtKind::Yield(ArenaExprOrRun::Expr(expression)) if facts.scheme().kind() == CallableKind::Stream => BuildStmtRow::Yield {
+                    value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
+                },
+                ArenaStmtKind::YieldDelegate(expression) if facts.scheme().kind() == CallableKind::Stream => BuildStmtRow::YieldDelegate {
+                    value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
+                    span: node.span,
+                },
+                ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expression), trigger) if facts.scheme().kind() == CallableKind::Stream => BuildStmtRow::Defer {
+                    value: self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?,
+                    on_error: trigger == DeferTrigger::Error,
+                },
+                ArenaStmtKind::Return(None) if facts.scheme().kind() == CallableKind::Stream => {
+                    let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                    lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                    BuildStmtRow::Return { value }
+                }
                 ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => {
                     let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
                     BuildStmtRow::Return { value: if facts.proc_return_site(node.span).is_some() { value } else { self.lift_scheme_return_value(value, facts, lowered_types)? } }
@@ -3559,6 +3575,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let site = match node.kind {
                 ArenaStmtKind::Assign { .. } => Some(ResourceTransferSite::Assignment(statement)),
                 ArenaStmtKind::Return(_) => Some(ResourceTransferSite::Return(statement)),
+                ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_) => Some(ResourceTransferSite::Yield(statement)),
                 ArenaStmtKind::Break { .. } => Some(ResourceTransferSite::Break(statement)),
                 _ => None,
             };
@@ -4294,6 +4311,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } => {
+                if self.bodies.checked_control_flow.builtin_range_calls.contains(&span) {
+                    if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range") { return self.block_scheme_lowering_expr(expression); }
+                    let mut bounds = Vec::new();
+                    for argument in self.program.arena.call_args(args).to_vec() {
+                        let ArenaCallArgKind::Positional(value) = argument.kind else { return self.block_scheme_lowering_expr(expression) };
+                        bounds.push(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?);
+                    }
+                    let (start, end) = match bounds.as_slice() {
+                        [end] => (None, *end),
+                        [start, end] => (Some(*start), *end),
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    };
+                    let (value, implicit_start) = self.lower_range_values(start, end, span);
+                    if let Some(start) = implicit_start { lowered_types.insert(start, SchemeType::Ground(Type::Int)); }
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
                     let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
@@ -8857,7 +8890,7 @@ mod checked_constructor_fact_tests {
 
     #[test]
     fn checked_record_constructors_enforce_unsigned_storage_boundaries() {
-        use crate::runtime::eval::{Evaluator, LoweredFunctionKey, LoweredFunctionKind};
+        use crate::runtime::eval::{Evaluator, LoweredFunctionKey, CallableKind};
         use crate::runtime::value::{ResultValue, Value};
         use crate::symbol::Name;
         use std::sync::Arc;
@@ -8876,7 +8909,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).expect("constructor procedure exists");
+                let result = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).expect("constructor procedure exists");
                 if value >= 0 {
                     let Value::Result(ResultValue::Ok(record)) = result.expect("valid constructor") else { panic!("constructor must return a successful record") };
                     let Value::Record(record) = *record else { panic!("constructor must return a record") };
@@ -8891,7 +8924,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
                 }
                 assert_eq!(evaluator.stdout, b"inner\ncallee\n");
                 let explicit = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("explicitly_checked")));
-                let result = evaluator.call_indexed_direct(explicit, LoweredFunctionKind::Pure, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).unwrap().expect("explicit validation returns data");
+                let result = evaluator.call_indexed_direct(explicit, CallableKind::Pure, &[Value::Int(value)], crate::source::Span::at(checked.source_id, 0)).unwrap().expect("explicit validation returns data");
                 match (result, value >= 0) {
                     (Value::Result(ResultValue::Ok(checked)), true) => assert_eq!(*checked, Value::Int(value)),
                     (Value::Result(ResultValue::Err(error)), false) => {

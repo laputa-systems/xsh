@@ -3,7 +3,7 @@ use super::{
     BuildPatternIdSlots, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
+    CallableKind, FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, IR_NONE,
     FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
@@ -896,7 +896,7 @@ instruction_schema! {
         Path(value: PathValue) => ExprPath = 28 [0; Operands; FrameApply; EagerAtom];
         FunctionRef {
             function: FunctionName,
-            pure: bool,
+            kind: CallableKind,
         } => ExprFunctionRef = 29 [0; Scheduled; FrameApply];
         PathFrom {
             value: BuildExprId,
@@ -1259,11 +1259,11 @@ instruction_schema! {
             span: Span,
         } => ExprSelfCall = 112 [EFFECT_TRACE; Scheduled; FrameControl];
         /// A call through a value of a callable type. `signature` is the checked
-        /// `Type::Callable` the arguments were bound against, and `pure` its
-        /// kind; `args` supplies each of its parameters once, in order.
+        /// `Type::Callable` the arguments were bound against, and `kind` its
+        /// actual kind. `args` follows the checked parameter layout.
         TypedCall {
             callee: BuildExprId,
-            pure: bool,
+            kind: CallableKind,
             signature: Type,
             args: Vec<LoweredCallArg>,
             span: Span,

@@ -3068,10 +3068,17 @@ dynamic type and is never treated as a type variable; it may appear beside
 quantified parameters. Required parameters in callable types and module
 contracts still need annotations.
 
+Captured runtime bindings retain their declaration's monomorphic type. A writable
+capture must refer to mutable storage with exactly that type. Every assignment
+preserves this storage contract; separate calls cannot specialize shared mutable
+storage. Stream producers observe current captured mutable storage before each
+pull and before cleanup of a started body. Cancelling an unstarted producer runs
+no defaults, body, or defers.
+
 When a checked pure or finite-effect proc signature retains quantified type or row variables, its
 executable body may contain immutable `let` bindings followed by one value
 tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, ground immutable runtime captures, required `.field` projections,
+reads, closed nonresource runtime captures, required `.field` projections,
 list literals without splices, records with named fields, `Ok` and `Err`
 constructors, value blocks, value-producing `if` branches, or statically
 selected calls whose finite effects fit the declaration. Conditions constrain unannotated parameters to `Bool`;

@@ -220,7 +220,7 @@ pub(super) enum StreamProducer {
 pub(super) struct StreamIteration {
     pub(super) owner: u32,
     pub(super) source: StreamProducer,
-    pub(super) expected_return: Arc<crate::sema::schemes::SchemeType>,
+    pub(super) boundary: super::PropagationBoundary,
 }
 
 pub(super) struct CaptureErrorRequest {
@@ -688,10 +688,9 @@ impl GroundProducerIndex {
         }
         let storage_demand = store.captures.iter().any(|capture| { effect_demand_work += 1; capture.slot_and_flags & (1 << 31) != 0 })
             || store.driver_slots.iter().any(|slot| { effect_demand_work += 1; slot.flags & super::super::DRIVER_SLOT_MUTABLE != 0 && slot.flags & (super::super::DRIVER_SLOT_TEMPORARY | super::super::DRIVER_SLOT_DEFINITION) == 0 && slot.binding_identity != IR_NONE });
-        let stream_demand = store.functions.iter().enumerate().any(|(index, function)| {
+        let stream_demand = store.functions.iter().enumerate().any(|(index, _)| {
             effect_demand_work += 1;
-            matches!(function.contract, FullCallableContract::Ground(_))
-                && store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
+            store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
         });
         let mut selected_demand = stream_demand || storage_demand || effect_demand || !store.registered_calls.is_empty() || !checked_producers.is_empty();
         if !selected_demand {
@@ -1331,12 +1330,15 @@ impl ProducerOperandContext {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum StorageContractRelation { ReadCompatible, ExactDeclaration }
+
 enum Obligation {
-    Function(usize),
+    GroundFunction(usize),
     Expression(u32, usize, Arc<Type>, bool, Option<DeclaredProducerFact>),
     Slot(u32, ProducerBinding, usize, Arc<Type>),
     PipelinePrefix(u32, usize, usize, Arc<Type>),
-    Storage(u32, Arc<Type>),
+    Storage(u32, Arc<Type>, StorageContractRelation),
 }
 
 pub(in crate::runtime::eval::indexed::full) enum ProducerContexts<'a> {
@@ -1365,7 +1367,7 @@ struct ProducerProof<'a> {
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
     slots: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     prefixes: BTreeMap<(u32, usize, usize), Vec<Arc<Type>>>,
-    storage: BTreeMap<u32, Vec<Arc<Type>>>,
+    storage: BTreeMap<u32, Vec<(Arc<Type>, StorageContractRelation)>>,
     decoders: BTreeMap<u32, Rc<FullDecoder<'a>>>,
     types: BTreeMap<TypeId, Arc<Type>>,
     declared_types: BTreeMap<(u32, usize), ProducerTypeDerivation>,
@@ -1405,7 +1407,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             && store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
         {
             proof.budget.charge(2)?;
-            proof.function(index);
+            proof.ground_function(index)?;
         }
     }
     for call in &store.checked_call_targets {
@@ -1453,6 +1455,9 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let decoder = proof.owner(function_owner(function_index)?)?;
         for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
             let ty = proof.ground_type(capture.type_id)?;
+            if capture.slot_and_flags & (1 << 31) != 0 {
+                proof.storage_contract(capture.binding_identity, Arc::clone(&ty), StorageContractRelation::ExactDeclaration)?;
+            }
             proof.slot(decoder.owner, decoder.instruction_range.start, (capture.slot_and_flags & !(1 << 31)) as usize, ty)?;
         }
         for instruction in decoder.instruction_range.clone() {
@@ -1460,7 +1465,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
                 FullTag::ExprCall | FullTag::ExprDirectPureCall => {
                     let (function, arguments) = call_parts(&decoder, instruction)?;
                     if matches!(store.functions[function].contract, FullCallableContract::Ground(_)) {
-                        proof.function(function);
+                        proof.ground_function(function)?;
                         proof.call_arguments(&decoder, function, &arguments)?;
                     }
                 }
@@ -1516,7 +1521,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         proof.budget.charge(1)?;
         let decoder = proof.owner(iteration.owner)?;
         if proof.stream_may_propagate_error(&decoder, iteration.source)? {
-            super::body_propagated_error_matches_owner(&crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.expected_return, &mut proof.budget)?;
+            super::body_propagated_error_matches_owner(store, &crate::sema::schemes::SchemeType::Ground(Type::Error), &iteration.boundary, &mut proof.budget)?;
         }
     }
     proof.finish()?;
@@ -1646,8 +1651,12 @@ impl<'a> ProducerProof<'a> {
         Ok(decoder)
     }
 
-    fn function(&mut self, function: usize) {
-        if self.functions.insert(function) { self.pending.push(Obligation::Function(function)); }
+    fn ground_function(&mut self, function: usize) -> Result<(), IrVerifyError> {
+        let contract = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("producer function target is out of bounds"))?.contract;
+        if matches!(contract, FullCallableContract::Ground(_)) && self.functions.insert(function) {
+            self.pending.push(Obligation::GroundFunction(function));
+        }
+        Ok(())
     }
 
     fn expression(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool) {
@@ -2591,9 +2600,9 @@ impl<'a> ProducerProof<'a> {
                 }
             }
             match decoder.expression_view(instruction)? {
-                schema::ExprView::FunctionRef { function, pure } if path.is_empty() => {
-                    let (target, _, selected_pure) = decoder.function_reference_contract(function)?;
-                    if pure != selected_pure { return Err(IrVerifyError::new("ground callable producer kind disagrees with its function")); }
+                schema::ExprView::FunctionRef { function, kind } if path.is_empty() => {
+                    let (target, _, selected_kind) = decoder.function_reference_contract(function)?;
+                    if kind != selected_kind { return Err(IrVerifyError::new("ground callable producer kind disagrees with its function")); }
                     targets.insert(target.index());
                 }
                 schema::ExprView::Param(slot) => {
@@ -3100,7 +3109,7 @@ impl<'a> ProducerProof<'a> {
             while let Some(obligation) = self.pending.pop() {
                 self.budget.charge(1)?;
                 match obligation {
-                    Obligation::Function(index) => {
+                    Obligation::GroundFunction(index) => {
                         let owner = function_owner(index)?;
                         let decoder = self.owner(owner)?;
                         let expected = self.contract_type(decoder.function_return_type(index)?)?;
@@ -3116,7 +3125,7 @@ impl<'a> ProducerProof<'a> {
                     Obligation::Expression(owner, instruction, expected, returned, fact) => self.verify_expression(owner, instruction, expected, returned, fact)?,
                     Obligation::Slot(owner, binding, slot, expected) => self.verify_slot(owner, binding, slot, expected)?,
                     Obligation::PipelinePrefix(owner, pipeline, end, expected) => self.verify_pipeline_prefix(owner, pipeline, end, expected)?,
-                    Obligation::Storage(binding, expected) => self.verify_storage(binding, expected)?,
+                    Obligation::Storage(binding, expected, relation) => self.verify_storage(binding, expected, relation)?,
                 }
             }
             if self.deferred_sources.is_empty() { break; }
@@ -3198,20 +3207,20 @@ impl<'a> ProducerProof<'a> {
             && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
         {
             decoder.function_reference_matches_callable(instruction, &expected)?;
-            self.slot(owner, instruction, slot, Arc::new(if callable.kind == crate::sema::types::CallableKind::Pure { Type::Function(crate::sema::types::CallableKind::Pure) } else { Type::Function(crate::sema::types::CallableKind::Proc) }))?;
+            self.slot(owner, instruction, slot, Arc::new(Type::Function(callable.kind)))?;
             return Ok(());
         }
-        if let schema::ExprView::FunctionRef { function, pure } = decoder.expression_view(instruction)?
+        if let schema::ExprView::FunctionRef { function, kind } = decoder.expression_view(instruction)?
             && let Type::Callable(callable) = expected.as_ref()
         {
-            let (target, contract, selected_pure) = decoder.function_reference_contract(function)?;
+            let (target, contract, selected_kind) = decoder.function_reference_contract(function)?;
             let fits = match contract {
-                super::super::FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
+                super::super::FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, kind, callable)?,
                 super::super::FullCallableContract::Scheme(_) => { decoder.function_reference_matches_callable(instruction, &expected)?; true },
             };
-            if pure != selected_pure || pure != (callable.kind == crate::sema::types::CallableKind::Pure) || !fits
+            if kind != selected_kind || kind != callable.kind || !fits
             { return Err(IrVerifyError::new("ground callable producer disagrees with its executable signature")); }
-            if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.function(target.index()); }
+            if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.ground_function(target.index())?; }
             return Ok(());
         }
         let actual = match declared {
@@ -3317,7 +3326,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. } | schema::ExprView::SelfCall { .. } => {
                 let (function, arguments) = call_parts(&decoder, instruction)?;
                 match self.store.functions[function].contract {
-                    FullCallableContract::Ground(_) => { self.function(function); self.call_arguments(&decoder, function, &arguments)?; }
+                    FullCallableContract::Ground(_) => { self.ground_function(function)?; self.call_arguments(&decoder, function, &arguments)?; }
                     FullCallableContract::Scheme(_) => {
                         for argument in arguments {
                             let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
@@ -3346,11 +3355,11 @@ impl<'a> ProducerProof<'a> {
                 }.into_iter().map(|value| value.map(|value| value.raw() as usize)).collect();
                 self.verify_native_call(&decoder, instruction, op, None, arguments, &result)
             }
-            schema::ExprView::TypedCall { callee, signature, pure, .. } => {
+            schema::ExprView::TypedCall { callee, signature, kind, .. } => {
                 let targets = self.function_targets(owner, callee.raw() as usize)?;
                 let contract = self.contract_type(signature.id)?;
                 let Type::Callable(callable) = contract.as_ref() else { return Err(IrVerifyError::new("typed producer call has no callable contract")) };
-                if callable.kind != if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc } { return Err(IrVerifyError::new("typed producer call kind disagrees with its contract")); }
+                if callable.kind != kind { return Err(IrVerifyError::new("typed producer call kind disagrees with its contract")); }
                 if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("typed producer call return disagrees with its checked contract")); }
                 self.expression(owner, callee.raw() as usize, Arc::clone(&contract), false);
                 let arguments = call_values(&decoder, instruction)?;
@@ -3368,7 +3377,7 @@ impl<'a> ProducerProof<'a> {
                     let incoming = self.incoming.entry(target).or_default();
                     if !incoming.contains(&instruction) { incoming.push(instruction); }
                     if matches!(self.store.functions[target].contract, FullCallableContract::Ground(_)) {
-                        self.function(target);
+                        self.ground_function(target)?;
                         self.call_arguments(&decoder, target, &arguments)?;
                     }
                 }
@@ -3469,18 +3478,10 @@ impl<'a> ProducerProof<'a> {
                 }
                 Ok(())
             }
-            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Function(crate::sema::types::CallableKind::Pure) => {
-                let (target, _, target_pure) = decoder.function_reference_contract(function)?;
-                if !pure || !target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Pure {
-                    return Err(IrVerifyError::new("erased pure callee has a non-pure executable target"));
-                }
-                Ok(())
-            }
-            schema::ExprView::FunctionRef { function, pure } if expected.as_ref() == &Type::Function(crate::sema::types::CallableKind::Proc) => {
-                let (target, _, target_pure) = decoder.function_reference_contract(function)?;
-                if pure || target_pure || self.store.function_metadata[target.index()].callable_kind != crate::sema::types::CallableKind::Proc {
-                    return Err(IrVerifyError::new("erased proc callee has a non-proc executable target"));
-                }
+            schema::ExprView::FunctionRef { function, kind } if matches!(expected.as_ref(), Type::Function(expected_kind) if *expected_kind == kind) => {
+                let (target, contract, target_kind) = decoder.function_reference_contract(function)?;
+                if kind != target_kind { return Err(IrVerifyError::new("callable producer kind disagrees with its target")); }
+                if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.ground_function(target.index())?; }
                 Ok(())
             }
             schema::ExprView::Field { base, .. } => {
@@ -3847,7 +3848,7 @@ impl<'a> ProducerProof<'a> {
         if !self.contract_owners.insert(owner) { return Ok(()); }
         self.budget.charge(1)?;
         let Some(step) = super::super::driver_owner_index(owner) else {
-            self.function(function_index(owner)?);
+            self.ground_function(function_index(owner)?)?;
             return Ok(());
         };
         let driver = self.store.driver_steps[step];
@@ -3879,10 +3880,10 @@ impl<'a> ProducerProof<'a> {
                 let (function, _) = call_parts(decoder, instruction)?;
                 super::super::verify_effects::function_effects(self.store, function)?
             }
-            schema::ExprView::TypedCall { signature, pure, .. } => {
+            schema::ExprView::TypedCall { signature, kind, .. } => {
                 let signature = self.store.semantic.typed_callable_signature(signature.id)?;
                 let effects = self.store.semantic.signature_effects(signature)?;
-                if pure { Some(effects.unwrap_or_default()) } else { effects }
+                if kind == crate::sema::types::CallableKind::Pure { Some(effects.unwrap_or_default()) } else { effects }
             }
             _ => return Ok(crate::sema::types::CalleeErrorFlow::None),
         };
@@ -3916,7 +3917,7 @@ impl<'a> ProducerProof<'a> {
             let effects = super::super::verify_effects::function_effects(self.store, target)?;
             self.budget.charge(1 + effects.as_ref().map_or(0, Vec::len))?;
             may_error |= effects.as_ref().is_none_or(|effects| effects.contains(&crate::syntax::node::Effect::Error));
-            self.function(target);
+            self.ground_function(target)?;
         }
         Ok(may_error)
     }
@@ -4019,9 +4020,11 @@ impl<'a> ProducerProof<'a> {
                 let expected = self.contract_type(decoder.function_return_type(function)?)?;
                 self.budget.charge_clone(&error)?;
                 self.budget.charge_clone(&expected)?;
+                let boundary = super::PropagationBoundary::for_function(self.store, decoder.owner, &crate::sema::schemes::SchemeType::Ground((*expected).clone()), &mut self.budget)?;
                 super::body_propagated_error_matches_owner(
+                    self.store,
                     &crate::sema::schemes::SchemeType::Ground((*error).clone()),
-                    &crate::sema::schemes::SchemeType::Ground((*expected).clone()),
+                    &boundary,
                     &mut self.budget,
                 )?;
             }
@@ -4200,7 +4203,7 @@ impl<'a> ProducerProof<'a> {
         }
         if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? {
             if super::super::driver_owner_index(decoder.owner).is_none() {
-                self.function(function_index(decoder.owner)?);
+                self.ground_function(function_index(decoder.owner)?)?;
             }
             return Ok(());
         }
@@ -5586,16 +5589,21 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn binding_writer(&mut self, binding: u32, expected: Arc<Type>) -> Result<(), IrVerifyError> {
+        self.storage_contract(binding, expected, StorageContractRelation::ReadCompatible)
+    }
+
+    fn storage_contract(&mut self, binding: u32, expected: Arc<Type>, relation: StorageContractRelation) -> Result<(), IrVerifyError> {
         self.budget.charge(1)?;
         let contracts = self.storage.entry(binding).or_default();
-        if contracts.iter().any(|previous| previous == &expected) { return Ok(()); }
+        self.budget.charge(contracts.len())?;
+        if contracts.iter().any(|(previous, previous_relation)| previous == &expected && (*previous_relation == StorageContractRelation::ExactDeclaration || relation == StorageContractRelation::ReadCompatible)) { return Ok(()); }
         ensure_closed_type(&expected)?;
-        contracts.push(Arc::clone(&expected));
-        self.pending.push(Obligation::Storage(binding, expected));
+        contracts.push((Arc::clone(&expected), relation));
+        self.pending.push(Obligation::Storage(binding, expected, relation));
         Ok(())
     }
 
-    fn verify_storage(&mut self, binding: u32, expected: Arc<Type>) -> Result<(), IrVerifyError> {
+    fn verify_storage(&mut self, binding: u32, expected: Arc<Type>, relation: StorageContractRelation) -> Result<(), IrVerifyError> {
         let identity = self.store.binding_identities.get(binding as usize).ok_or_else(|| IrVerifyError::new("ground capture identity is invalid"))?;
         if identity.flags & 1 != 0 {
             if self.store.string(identity.name)? == "args" && matches!(expected.as_ref(), Type::List(item) if matches!(item.as_ref(), Type::Str | Type::Bytes)) { return Ok(()); }
@@ -5645,7 +5653,6 @@ impl<'a> ProducerProof<'a> {
                     None => self.need_context(&decoder, value)?.ok_or_else(|| IrVerifyError::new("storage initializer has no monomorphic contract"))?,
                 };
                 ensure_closed_type(&root_contract)?;
-                if !root_contract.matches_expected(&expected) { return Err(IrVerifyError::new("storage declaration disagrees with its read contract")); }
                 let validates = match validation {
                     Some(check) if check.schema.is_none() => *self.contract_type(check.ty.id)? == *root_contract
                         && super::runtime_complete_storage_check_type(&root_contract, &mut self.budget)? ,
@@ -5655,9 +5662,13 @@ impl<'a> ProducerProof<'a> {
             }
             super::super::FullDriverTag::LetRecord => {
                 root_contract = self.driver_output_types(step)?.get(&binding).cloned().ok_or_else(|| IrVerifyError::new("storage destructuring has no slot projection"))?;
-                if !root_contract.matches_expected(&expected) { return Err(IrVerifyError::new("storage declaration disagrees with its read contract")); }
             }
             _ => return Err(IrVerifyError::new("ground capture has no lexical defining writer")),
+        }
+        match relation {
+            StorageContractRelation::ReadCompatible if !root_contract.matches_expected(&expected) => return Err(IrVerifyError::new("storage declaration disagrees with its read contract")),
+            StorageContractRelation::ExactDeclaration if *root_contract != *expected => return Err(IrVerifyError::new("mutable capture contract differs from its storage declaration")),
+            _ => {}
         }
         for writer in self.index.storage_writers.get(&binding).cloned().unwrap_or_default() {
             self.budget.charge(1)?;

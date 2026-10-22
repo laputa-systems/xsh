@@ -222,7 +222,7 @@ macro_rules! scalar_field {
     )*};
 }
 scalar_field!(
-    bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
+    crate::sema::types::CallableKind, bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
     BinaryOp, AssignOp, RuntimeOp, LoweredStrPredicate, RedirectionKind, RunKind,
     HashAlgorithm, FormatSpec, ReduceByOp, crate::runtime::eval::EndDistance,
     crate::syntax::arena::ContextScopeKind, crate::syntax::arena::RetrySchedule,
@@ -721,18 +721,14 @@ pub(in crate::runtime::eval) struct FunctionRef<'a> {
     store: &'a FullStore,
 }
 impl FunctionRef<'_> {
-    /// Resolve the borrowed identity through the program that owns this reference.
-    pub(in crate::runtime::eval) fn key(
+    pub(in crate::runtime::eval) fn identity(
         self,
         execution: &FullExecution<'_>,
-    ) -> Result<LoweredFunctionKey, IrVerifyError> {
+    ) -> Result<(LoweredFunctionKey, crate::sema::types::CallableKind), IrVerifyError> {
         if !std::ptr::eq(self.store, execution.store()) {
             return Err(IrVerifyError::new("function reference belongs to another program"));
         }
-        execution
-            .program()
-            .function_identity(self.id.index())
-            .map(|(key, _)| key)
+        execution.program().function_identity(self.id.index())
     }
 }
 impl BorrowCodec for LoweredFunctionKey {

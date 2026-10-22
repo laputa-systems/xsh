@@ -10,7 +10,7 @@ use super::{
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
-    IndexedFmt, LoweredFunctionKey, LoweredFunctionKind,
+    IndexedFmt, LoweredFunctionKey, CallableKind,
     LoweredReturnKind,
     LoweredStrPredicate, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
@@ -561,7 +561,7 @@ proc parent() {
                 frames
                     .push_call(
                         LoweredFunctionKey::Name(parent),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         Vec::new(),
                         span,
                         None,
@@ -571,7 +571,7 @@ proc parent() {
                 let parent_execution = program
                     .function_view(
                         LoweredFunctionKey::Name(parent),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                     )
                     .unwrap()
                     .expect("parent function exists")
@@ -594,7 +594,7 @@ proc parent() {
                 frames
                     .push_call(
                         LoweredFunctionKey::Name(child),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         Vec::new(),
                         span,
                         None,
@@ -603,7 +603,7 @@ proc parent() {
                 let child_header = ExplicitFrames::function_header(
                     &program,
                     LoweredFunctionKey::Name(child),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     span,
                 )
                 .unwrap();
@@ -647,7 +647,7 @@ proc parent() {
             let view = program
                 .function_view(
                     LoweredFunctionKey::Name(function),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                 )
                 .unwrap()
                 .expect("empty map function is present");
@@ -714,7 +714,7 @@ proc parent() {
             let value = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(function),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(source_id, 0, 0),
                 )
@@ -733,7 +733,7 @@ proc parent() {
                 program
                     .function_view(
                         LoweredFunctionKey::Name(Name::intern("pipeline")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                     )
                     .unwrap()
                     .expect("pipeline function is present")
@@ -825,6 +825,7 @@ proc parent() {
                     owner: Arc::clone(&evaluator.resource_owner),
                 });
             let frame = ProducerFrameState {
+                applications: PreparedInvocationBindings::default(),
                 work: vec![
                     FrameWork::Expr {
                         instruction: 0,
@@ -885,7 +886,7 @@ proc parent() {
                 .symbol_owner()
                 .with_current(|| Name::intern("folded"));
             let function_view = program
-                .function_view(LoweredFunctionKey::Name(function), LoweredFunctionKind::Pure)
+                .function_view(LoweredFunctionKey::Name(function), CallableKind::Pure)
                 .unwrap()
                 .expect("folded function is present");
             let execution = function_view.execution().unwrap();
@@ -953,6 +954,7 @@ proc parent() {
             slots.fill(LoweredValue::Unit);
 
             let frame = ProducerFrameState {
+                applications: PreparedInvocationBindings::default(),
                 work: vec![FrameWork::StageValue {
                     pipeline: Box::new(pipeline),
                     span,
@@ -1008,7 +1010,7 @@ proc range_case(start: Int, divisor: Int) [] -> Any {
                 .symbol_owner()
                 .with_current(|| Name::intern("range_case"));
             let function_view = program
-                .function_view(LoweredFunctionKey::Name(function), LoweredFunctionKind::Proc)
+                .function_view(LoweredFunctionKey::Name(function), CallableKind::Proc)
                 .unwrap()
                 .expect("range_case function is present");
             let execution = function_view.execution().unwrap();
@@ -1062,7 +1064,7 @@ pure increment(n: Int) -> Int { n + 1 }
             let error = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(descend),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[Value::Int(0)],
                     span,
                 )
@@ -1073,7 +1075,7 @@ pure increment(n: Int) -> Int { n + 1 }
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(increment),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[Value::Int(41)],
                     span,
                 )
@@ -2308,8 +2310,7 @@ enum FrameContinuation {
         instruction: u32,
         position: CallArgumentPosition,
         values: Vec<LoweredValue>,
-        /// The kind a typed call's callee must have; `None` for a dynamic call.
-        typed_pure: Option<bool>,
+        typed_kind: Option<CallableKind>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -2325,7 +2326,7 @@ enum FrameContinuation {
     },
     CallArguments {
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         external: bool,
         instruction: u32,
         position: CallArgumentPosition,
@@ -2942,7 +2943,7 @@ impl FrameWork {
 
 #[derive(Clone, Copy)]
 pub(super) enum FrameOwner {
-    Function(LoweredFunctionKey, LoweredFunctionKind),
+    Function(LoweredFunctionKey, CallableKind),
     Block {
         owns_scope: bool,
         outer_scope: u64,
@@ -3066,7 +3067,7 @@ struct ResolvedCall<'p> {
     applications: PreparedInvocationBindings,
     program: ProgramOwner<'p>,
     function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
     index: usize,
 }
 
@@ -3106,24 +3107,15 @@ impl Evaluator {
         Ok(view.callable_kind().map_err(|error| indexed_error(error, span))? != crate::sema::types::CallableKind::Stream)
     }
 
-    pub(super) fn eval_indexed_with_frames(
-        &mut self,
-        program: &FullProgram,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        values: &[LoweredValue],
-        call_span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let _machine = self.enter_frame_machine(call_span)?;
-        let mut frames = ExplicitFrames::new(self, program);
-        frames.push_call(function, kind, values.to_vec(), call_span, None)?;
-        frames.run()
-    }
-
     pub(in crate::runtime::eval) fn eval_indexed_with_invocation(
-        &mut self, program: &FullProgram, function: LoweredFunctionKey, kind: LoweredFunctionKind,
+        &mut self, program: &Arc<FullProgram>, function: LoweredFunctionKey, kind: CallableKind,
         values: Vec<LoweredValue>, invocation: PreparedInvocationBindings, call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        if kind == CallableKind::Stream {
+            let view = program.function_view(function, kind).map_err(|error| indexed_error(error, call_span))?
+                .ok_or_else(|| RuntimeError::new("indexed-ir", "stream callable target is absent").with_span(call_span))?;
+            return self.eval_indexed_call_at(program, function, kind, view.index(), &values, invocation, call_span);
+        }
         let _machine = self.enter_frame_machine(call_span)?;
         let _symbols = program.symbol_owner().enter();
         let mut frames = ExplicitFrames::new(self, program);
@@ -3136,7 +3128,7 @@ impl Evaluator {
         &mut self,
         program: &FullProgram,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         slots: Vec<LoweredValue>,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
@@ -3503,6 +3495,7 @@ impl FrameScratch {
 /// body's scope, discards a body's remaining work, and moves the state between
 /// pulls, but never reaches into the machine's own bookkeeping.
 pub(super) struct ProducerFrameState {
+    applications: PreparedInvocationBindings,
     work: Vec<FrameWork>,
     slots: Vec<LoweredValue>,
     slot_scopes: Vec<u64>,
@@ -3514,8 +3507,9 @@ pub(super) struct ProducerFrameState {
 
 impl ProducerFrameState {
     /// The state of a producer whose body has not run yet.
-    pub(super) fn begin_body(cursor: StatementCursor, slots: Vec<LoweredValue>) -> Self {
+    pub(super) fn begin_body(cursor: StatementCursor, slots: Vec<LoweredValue>, applications: PreparedInvocationBindings) -> Self {
         Self {
+            applications,
             work: vec![FrameWork::Statements {
                 cursor,
                 complete_call: true,
@@ -3698,6 +3692,7 @@ impl<'p> CallFrame<'p> {
 
     pub(super) fn into_state(self) -> ProducerFrameState {
         ProducerFrameState {
+            applications: self.applications,
             work: self.work,
             slots: match self.slots {
                 FrameSlots::Owned(slots) => slots,
@@ -3718,7 +3713,7 @@ impl<'p> CallFrame<'p> {
     pub(super) fn from_state(
         program: Arc<super::FullProgram>,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         call_span: Span,
         definition_span: Span,
         state: ProducerFrameState,
@@ -3736,7 +3731,7 @@ impl<'p> CallFrame<'p> {
             producer: true,
             cancelled: false,
             scope_id: state.scope_id,
-            applications: PreparedInvocationBindings::default(),
+            applications: state.applications,
             execution,
             _binding_namespace_lease: None,
             _symbol_owner: symbol_owner,
@@ -4492,8 +4487,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.release_slots(call.slots);
             self.evaluator.call_stack.pop();
             let exit_kind = match kind {
-                LoweredFunctionKind::Pure => TraceKind::PureExit,
-                LoweredFunctionKind::Proc => TraceKind::ProcExit,
+                CallableKind::Pure => TraceKind::PureExit,
+                CallableKind::Proc => TraceKind::ProcExit,
+                CallableKind::Stream => TraceKind::StreamExit,
             };
             let name = function.display_name();
             self.evaluator.trace_exit_with_definition(
@@ -4521,7 +4517,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &self,
         index: usize,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         allow_dynamic: bool,
         span: Span,
     ) -> Result<ResolvedCall<'p>, RuntimeError> {
@@ -4575,7 +4571,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<ResolvedCall<'p>, RuntimeError> {
         let (function, kind) = indexed_callable_identity(callee, span)?;
         let callable = match callee {
-            LoweredValue::Pure(callable) | LoweredValue::Proc(callable) => callable,
+            LoweredValue::Callable(callable) => callable,
             _ => unreachable!("callable identity requires a callable value"),
         };
         let Some(instance) = callable.instance() else {
@@ -4601,7 +4597,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<ResolvedCall<'p>, RuntimeError> {
         let caller = self.calls[index].execution.program_owner();
         let function = LoweredFunctionKey::Qualified(qualified);
-        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+        for kind in [CallableKind::Pure, CallableKind::Proc] {
             if let Some(function_index) = caller
                 .program()
                 .function_view(function, kind)
@@ -4646,7 +4642,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &self,
         index: usize,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         slot: usize,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
@@ -4690,7 +4686,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         values: Vec<LoweredValue>,
         instruction: u32,
         span: Span,
@@ -4776,9 +4772,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             None => false,
         };
         if stream_call {
-            if !resolved.applications.is_empty() {
-                return Err(RuntimeError::new("indexed-ir", "stream invocation lost its prepared application environment").with_span(span));
-            }
             let program = resolved
                 .program
                 .dispatch_arc(self.evaluator.indexed_program.as_ref())
@@ -4795,6 +4788,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 resolved.kind,
                 resolved.index,
                 &values,
+                resolved.applications,
                 span,
             )?;
             self.push_value(index, FrameValue::Value(value), next);
@@ -4859,7 +4853,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         mut position: CallArgumentPosition,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         external: bool,
         mut values: Vec<LoweredValue>,
         span: Span,
@@ -4968,7 +4962,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             resolved.applications = caller.invocation_applications(instruction, resolved.index, &self.calls[index].applications)
                 .map_err(|error| indexed_error(error, span))?;
         } else if resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
-            && matches!(&callee, LoweredValue::Pure(callable) | LoweredValue::Proc(callable) if callable.instance().is_none())
+            && matches!(&callee, LoweredValue::Callable(callable) if callable.instance().is_none())
         {
             return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span));
         }
@@ -5035,7 +5029,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn push_call(
         &mut self,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         values: Vec<LoweredValue>,
         call_span: Span,
         return_to: Option<FrameContinuation>,
@@ -5101,7 +5095,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn push_call_with_slots(
         &mut self,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         slots: Vec<LoweredValue>,
         call_span: Span,
         return_to: Option<FrameContinuation>,
@@ -5126,7 +5120,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn push_call_with_header(
         &mut self,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         view: FullFunctionView<'_>,
         execution: FullExecution<'p>,
         symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
@@ -5161,8 +5155,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map_err(|error| indexed_error(error, call_span))?;
         let cursor = StatementCursor::function_body(&execution, body, call_span)?;
         let (frame_kind, enter_kind) = match kind {
-            LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
-            LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
+            CallableKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
+            CallableKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
+            CallableKind::Stream => (TracebackFrameKind::Stream, TraceKind::StreamEnter),
         };
         let definition_span = view
             .definition_span()
@@ -7298,7 +7293,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::DynamicCall | ExprViewKind::TypedCall => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
-                let (callee, typed_pure, mut args, value_span) = match view {
+                let (callee, typed_kind, mut args, value_span) = match view {
                     ExprView::DynamicCall {
                         callee,
                         args,
@@ -7306,11 +7301,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } => (callee.raw(), None, args, span),
                     ExprView::TypedCall {
                         callee,
-                        pure,
+                        kind,
                         args,
                         span,
                         ..
-                    } => (callee.raw(), Some(pure), args, span),
+                    } => (callee.raw(), Some(kind), args, span),
                     _ => unreachable!("dynamic call tag has a typed call view"),
                 };
                 let capacity = args.len();
@@ -7325,7 +7320,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         instruction,
                         position,
                         values: Vec::with_capacity(capacity),
-                        typed_pure,
+                        typed_kind,
                         span: value_span,
                         next: Box::new(next),
                     },
@@ -7464,7 +7459,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::Call | ExprViewKind::SelfCall | ExprViewKind::DirectPureCall => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
-                let (function, mut args, value_span) = match view {
+                let (function, kind, mut args, value_span) = match view {
                     ExprView::Call {
                         function,
                         args,
@@ -7474,28 +7469,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         function,
                         args,
                         span,
-                    } => (
-                        function
-                            .key(execution)
-                            .map_err(|error| indexed_error(error, span))?,
-                        args,
-                        span,
-                    ),
-                    ExprView::SelfCall { args, span } => (
-                        self.calls[index]
-                            .execution
-                            .function_identity()
-                            .map_err(|error| indexed_error(error, span))?
-                            .0,
-                        args,
-                        span,
-                    ),
+                    } => {
+                        let (function, kind) = function.identity(execution).map_err(|error| indexed_error(error, span))?;
+                        (function, kind, args, span)
+                    }
+                    ExprView::SelfCall { args, span } => {
+                        let (function, kind) = self.calls[index].execution.function_identity().map_err(|error| indexed_error(error, span))?;
+                        (function, kind, args, span)
+                    }
                     _ => unreachable!("static call tag has a typed call view"),
                 };
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
-                let kind = self.function_kind(index, function, span)?;
                 self.push_static_arguments(
                     index,
                     instruction,
@@ -9477,13 +9463,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 instruction,
                 position,
                 values,
-                typed_pure,
+                typed_kind,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(callee) => {
-                    if let Some(pure) = typed_pure {
-                        super::indexed_typed_callee_kind(&callee, pure, span)?;
+                    if let Some(kind) = typed_kind {
+                        super::indexed_typed_callee_kind(&callee, kind, span)?;
                     }
                     let group_ends = Vec::with_capacity(values.capacity());
                     self.push_dynamic_arguments(
@@ -10279,7 +10265,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtFlow::Value(_) | StmtFlow::Return(_)
         ) && matches!(
             self.calls[index].owner,
-            FrameOwner::Function(_, LoweredFunctionKind::Pure)
+            FrameOwner::Function(_, CallableKind::Pure)
         ) && self.calls[index].defers.is_empty()
             && self.calls[index].block_scopes.is_empty()
             && !self.calls[index].work.is_empty()
@@ -10755,7 +10741,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<Option<(LoweredValue, FrameContinuation)>, RuntimeError> {
         let (callee, call_values, encoded) = super::super::module_utils::utils_cache_arguments(values, span)?;
         let resolved = self.resolve_callable_value(index, &callee, span)?;
-        if matches!(&callee, LoweredValue::Pure(callable) | LoweredValue::Proc(callable) if callable.instance().is_none())
+        if matches!(&callee, LoweredValue::Callable(callable) if callable.instance().is_none())
             && resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
         { return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span)); }
         self.evaluator.validate_prepared_arguments(resolved.program.program(), resolved.index, &resolved.applications, &call_values, span)?;
@@ -11394,11 +11380,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             _ => None,
         };
         let mut returns_bound_result = false;
-        if let FrameOwner::Function(function, LoweredFunctionKind::Proc) = active.owner
+        if let FrameOwner::Function(function, CallableKind::Proc) = active.owner
             && header.as_ref().is_some_and(|header| header.return_kind == LoweredReturnKind::Erased)
         {
             let program = active.execution.program();
-            let owner = program.function_view(function, LoweredFunctionKind::Proc)
+            let owner = program.function_view(function, CallableKind::Proc)
                 .map_err(|error| indexed_error(error, active.call_span))?
                 .ok_or_else(|| RuntimeError::new("indexed-ir", "erased return owner is missing").with_span(active.call_span))?;
             returns_bound_result = program.invocation_returns_result(owner.index(), &active.applications)
@@ -11433,8 +11419,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.release_slots(call.slots);
             self.evaluator.call_stack.pop();
             let exit_kind = match kind {
-                LoweredFunctionKind::Pure => TraceKind::PureExit,
-                LoweredFunctionKind::Proc => TraceKind::ProcExit,
+                CallableKind::Pure => TraceKind::PureExit,
+                CallableKind::Proc => TraceKind::ProcExit,
+                CallableKind::Stream => TraceKind::StreamExit,
             };
             if self.evaluator.trace_enabled {
                 let name = function.display_name();
@@ -11550,8 +11537,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.frame_scratch.recycle_block_stacks(&mut call);
         self.release_slots(call.slots);
         let exit_kind = match kind {
-            LoweredFunctionKind::Pure => TraceKind::PureExit,
-            LoweredFunctionKind::Proc => TraceKind::ProcExit,
+            CallableKind::Pure => TraceKind::PureExit,
+            CallableKind::Proc => TraceKind::ProcExit,
+                CallableKind::Stream => TraceKind::StreamExit,
         };
         self.evaluator.call_stack.pop();
         if self.evaluator.trace_enabled {
@@ -11610,7 +11598,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn function_header(
         program: &FullProgram,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         span: Span,
     ) -> Result<Arc<FunctionHeader>, RuntimeError> {
         program
@@ -12435,42 +12423,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
-    fn function_kind(
-        &self,
-        index: usize,
-        function: LoweredFunctionKey,
-        span: Span,
-    ) -> Result<LoweredFunctionKind, RuntimeError> {
-        let program = self.calls[index].execution.program();
-        if program
-            .function_view(function, LoweredFunctionKind::Pure)
-            .map_err(|error| indexed_error(error, span))?
-            .is_some()
-        {
-            Ok(LoweredFunctionKind::Pure)
-        } else if program
-            .function_view(function, LoweredFunctionKind::Proc)
-            .map_err(|error| indexed_error(error, span))?
-            .is_some()
-        {
-            Ok(LoweredFunctionKind::Proc)
-        } else {
-            Err(
-                RuntimeError::new("unresolved-lowered-call", function.display_name())
-                    .with_span(span),
-            )
-        }
-    }
-
     fn external_kind(
         &self,
         index: usize,
         qualified: crate::symbol::QualifiedName,
         span: Span,
-    ) -> Result<LoweredFunctionKind, RuntimeError> {
+    ) -> Result<CallableKind, RuntimeError> {
         let function = LoweredFunctionKey::Qualified(qualified);
         let program = self.calls[index].execution.program();
-        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+        for kind in [CallableKind::Pure, CallableKind::Proc, CallableKind::Stream] {
             if program
                 .function_view(function, kind)
                 .map_err(|error| indexed_error(error, span))?

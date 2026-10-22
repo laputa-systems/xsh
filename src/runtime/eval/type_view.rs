@@ -84,8 +84,7 @@ impl<'a> ValueView<'a> {
                 Value::EnvPathList => Type::EnvPathList,
                 Value::Error(_) => Type::Error,
                 Value::RunError(_) => Type::ProcessError,
-                Value::Pure(_) => Type::Function(crate::sema::types::CallableKind::Pure),
-                Value::Proc(_) => Type::Function(crate::sema::types::CallableKind::Proc),
+                Value::Callable(callable) => Type::Function(callable.kind()),
                 Value::Command(_) => Type::Command,
                 Value::ProcessHandle(_) => Type::ProcessHandle,
                 Value::NetJob(_) => Type::NetJob,
@@ -111,8 +110,7 @@ impl<'a> ValueView<'a> {
                 LoweredValue::Error(value) => {
                     if matches!(value.as_ref(), Value::RunError(_)) { Type::ProcessError } else { Type::Error }
                 }
-                LoweredValue::Pure(_) => Type::Function(crate::sema::types::CallableKind::Pure),
-                LoweredValue::Proc(_) => Type::Function(crate::sema::types::CallableKind::Proc),
+                LoweredValue::Callable(callable) => Type::Function(callable.kind()),
                 LoweredValue::Command(_) => Type::Command,
                 LoweredValue::ProcessHandle(_) => Type::ProcessHandle,
                 LoweredValue::NetJob(_) => Type::NetJob,
@@ -164,6 +162,7 @@ impl<'a> ValueView<'a> {
                 // storage value, and diagnostics retain that public name.
                 Type::ProcessError => "Error",
                 Type::Tag(_) => "Tag",
+                Type::Function(kind) => kind.value_type_name(),
                 ty => ty
                     .builtin_type_name()
                     .expect("runtime scalar types have builtin names")

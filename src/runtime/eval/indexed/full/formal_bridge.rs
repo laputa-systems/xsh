@@ -979,7 +979,7 @@ fn fixture_binders(functions: &[ArenaFunctionDef]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::eval::{LoweredFunctionKey, LoweredFunctionKind};
+    use crate::runtime::eval::{LoweredFunctionKey, CallableKind};
     use crate::runtime::value::Value;
 
     const FIXTURE_SOURCE: &str = include_str!(concat!(
@@ -1014,7 +1014,7 @@ mod tests {
         match evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(function_name(program, "signed_min")),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::Int(i64::MAX)],
                 Span::new(program.store.source_id, 0, 0),
             )
@@ -1035,7 +1035,7 @@ mod tests {
         match evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(function_name(program, "negative_zero")),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[],
                 Span::new(program.store.source_id, 0, 0),
             )
@@ -1180,7 +1180,7 @@ mod tests {
             let returned = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(function_name(&program, "path_echo")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[Value::Path(path.clone())],
                     Span::new(program.store.source_id, 0, 0),
                 )

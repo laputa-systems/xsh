@@ -105,9 +105,6 @@ fn selected(store: &FullStore, application: &Application, argument_slots: IrRang
             let effects = callable.sig.effects.contract();
             if let EffectContract::Known(expression) = effects { budget.charge(expression.variables().count())?; }
             let kind = callable.kind;
-            if kind == crate::sema::types::CallableKind::Stream {
-                return Err(IrVerifyError::new("ground stream callable applications require a stream callable carrier"));
-            }
             let effects = EffectContract::from_clause(effects.clone().for_invocation(kind).concrete().map_err(|_| IrVerifyError::new("ground application callable effects remain unresolved"))?);
             (kind, parameters,
                 SchemeType::Ground(callable.sig.return_ty.as_ref().clone()), effects)

@@ -115,7 +115,7 @@ fn export_mismatch(
 ) -> Option<String> {
     match (expected, value) {
         (ModuleExportType::Value { ty, .. }, value) => {
-            if matches!(value, LoweredValue::Proc(_) | LoweredValue::Pure(_)) {
+            if matches!(value, LoweredValue::Callable(_)) {
                 Some("the contract declares a value, the module exports a callable".to_string())
             } else if super::value_matches_static_type(ValueView::Lowered(value), ty) {
                 None
@@ -125,32 +125,27 @@ fn export_mismatch(
         }
         (
             ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. },
-            LoweredValue::Proc(function) | LoweredValue::Pure(function),
+            LoweredValue::Callable(function),
         ) => {
             let captured = evaluator.lookup_module_export_signature(function.identity());
-            // The captured declaration decides purity when there is one; the
-            // value's own kind stands in for a callable without a capture.
-            let found_pure = captured.map_or(matches!(value, LoweredValue::Pure(_)), |captured| {
-                captured.pure
-            });
-            match (
-                matches!(expected, ModuleExportType::Pure { .. }),
-                found_pure,
-            ) {
-                (false, true) => Some(
-                    "the contract declares a proc, the module exports a pure function".to_string(),
-                ),
-                (true, false) => Some(
-                    "the contract declares a pure function, the module exports a proc".to_string(),
-                ),
-                _ => captured.and_then(|captured| signature_mismatch(&captured.sig, sig)),
+            let found = captured.map_or(function.kind(), |captured| captured.kind);
+            let expected_kind = if matches!(expected, ModuleExportType::Pure { .. }) {
+                crate::sema::types::CallableKind::Pure
+            } else { crate::sema::types::CallableKind::Proc };
+            if expected_kind != found {
+                Some(match (expected_kind, found) {
+                    (crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Pure) => "the contract declares a proc, the module exports a pure function".to_string(),
+                    (crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc) => "the contract declares a pure function, the module exports a proc".to_string(),
+                    _ => format!("the contract declares {}, the module exports {}", expected_kind.value_type_name(), found.value_type_name()),
+                })
+            } else {
+                captured.and_then(|captured| signature_mismatch(&captured.sig, sig))
             }
         }
         (ModuleExportType::Proc { .. } | ModuleExportType::Pure { .. }, _) => {
             Some("the contract declares a callable, the module exports a value".to_string())
         }
-        (ModuleExportType::GenericCallable { kind: crate::sema::types::CallableKind::Pure, .. }, LoweredValue::Pure(_))
-        | (ModuleExportType::GenericCallable { kind: crate::sema::types::CallableKind::Proc, .. }, LoweredValue::Proc(_)) => None,
+        (ModuleExportType::GenericCallable { kind, .. }, LoweredValue::Callable(function)) if *kind == function.kind() => None,
         (ModuleExportType::GenericCallable { .. }, _) => {
             Some("the contract declares a generic callable, the module exports a different value kind".to_string())
         }
@@ -258,17 +253,18 @@ fn render_contract_entry(name: Name, entry: &ModuleExportType) -> String {
     }
 }
 
-/// The export as the module declares it, as far as the loaded value records:
-/// a callable's captured signature, or a value's runtime type.
+fn callable_keyword(kind: crate::sema::types::CallableKind) -> &'static str {
+    match kind { crate::sema::types::CallableKind::Pure => "pure", crate::sema::types::CallableKind::Proc => "proc", crate::sema::types::CallableKind::Stream => "stream" }
+}
+
 fn render_found_export(evaluator: &Evaluator, name: Name, value: &LoweredValue) -> String {
     let (value_keyword, function) = match value {
-        LoweredValue::Proc(function) => ("proc", function),
-        LoweredValue::Pure(function) => ("pure", function),
+        LoweredValue::Callable(function) => (callable_keyword(function.kind()), function),
         value => return format!("export let {name}: {}", value.type_name()),
     };
     match evaluator.lookup_module_export_signature(function.identity()) {
-        Some(ModuleExportSignature { pure, sig }) => {
-            render_callable(if *pure { "pure" } else { "proc" }, name, sig)
+        Some(ModuleExportSignature { kind, sig }) => {
+            render_callable(callable_keyword(*kind), name, sig)
         }
         None => format!("export {value_keyword} {name}"),
     }

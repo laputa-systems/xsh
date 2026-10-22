@@ -892,7 +892,7 @@ pub struct CallableValue {
 
 #[derive(Clone)]
 enum CallableRepresentation {
-    Named(FunctionName),
+    Named { kind: crate::sema::types::CallableKind, identity: FunctionName },
     Prepared {
         identity: FunctionName,
         instance: Arc<crate::runtime::eval::PreparedCallable>,
@@ -900,9 +900,20 @@ enum CallableRepresentation {
 }
 
 impl CallableValue {
+    pub fn named(kind: crate::sema::types::CallableKind, identity: FunctionName) -> Self {
+        Self { representation: CallableRepresentation::Named { kind, identity } }
+    }
+
+    pub fn kind(&self) -> crate::sema::types::CallableKind {
+        match &self.representation {
+            CallableRepresentation::Named { kind, .. } => *kind,
+            CallableRepresentation::Prepared { instance, .. } => instance.kind(),
+        }
+    }
+
     pub fn identity(&self) -> FunctionName {
         match &self.representation {
-            CallableRepresentation::Named(identity)
+            CallableRepresentation::Named { identity, .. }
             | CallableRepresentation::Prepared { identity, .. } => *identity,
         }
     }
@@ -913,34 +924,20 @@ impl CallableValue {
 
     pub(in crate::runtime) fn instance(&self) -> Option<&Arc<crate::runtime::eval::PreparedCallable>> {
         match &self.representation {
-            CallableRepresentation::Named(_) => None,
+            CallableRepresentation::Named { .. } => None,
             CallableRepresentation::Prepared { instance, .. } => Some(instance),
         }
     }
 }
 
-impl From<FunctionName> for CallableValue {
-    fn from(identity: FunctionName) -> Self {
-        Self { representation: CallableRepresentation::Named(identity) }
-    }
-}
-
-impl From<Name> for CallableValue {
-    fn from(identity: Name) -> Self { FunctionName::from(identity).into() }
-}
-
-impl From<QualifiedName> for CallableValue {
-    fn from(identity: QualifiedName) -> Self { FunctionName::from(identity).into() }
-}
-
 impl fmt::Debug for CallableValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("CallableValue").field(&self.identity()).finish()
+        formatter.debug_tuple("CallableValue").field(&self.kind()).field(&self.identity()).finish()
     }
 }
 
 impl PartialEq for CallableValue {
-    fn eq(&self, other: &Self) -> bool { self.identity() == other.identity() }
+    fn eq(&self, other: &Self) -> bool { self.kind() == other.kind() && self.identity() == other.identity() }
 }
 
 impl Eq for CallableValue {}
@@ -973,8 +970,7 @@ pub enum Value {
     // small (errors are the cold path).
     Error(Box<RuntimeError>),
     RunError(Box<RunError>),
-    Pure(CallableValue),
-    Proc(CallableValue),
+    Callable(CallableValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),

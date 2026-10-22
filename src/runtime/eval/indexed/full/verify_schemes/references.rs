@@ -14,9 +14,6 @@ pub(super) fn verify(
     claimed: &SchemeType,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    if scheme.callable_kind == crate::sema::types::CallableKind::Stream {
-        return Err(IrVerifyError::new("stream reference has no callable value representation"));
-    }
     let parameters = bounded(scheme.params, &store.scheme_params, "callable reference parameter range is invalid")?;
     let physical = bounded(target.params, &store.params, "callable reference physical parameter range is invalid")?;
     if parameters.len() != physical.len() {

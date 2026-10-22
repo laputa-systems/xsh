@@ -30,7 +30,7 @@ use crate::runtime::eval::{
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
     CheckedPatternField, LoweredBindingIdentity, RuntimeBindingIdentity, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
+    LoweredFunctionKey, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportBinding, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunOption,
@@ -403,7 +403,7 @@ struct FullCheckedExprType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FullCheckedExprPurpose {
     CheckedContract {
-        function_ref: Option<(FunctionName, bool)>,
+        function_ref: Option<(FunctionName, CallableKind)>,
         with_error_source: bool,
     },
     ProducerContext(ExecutableOwner),
@@ -426,7 +426,7 @@ impl ExecutableOwner {
 }
 
 impl FullCheckedExprType {
-    fn function_ref(self) -> Option<(FunctionName, bool)> {
+    fn function_ref(self) -> Option<(FunctionName, CallableKind)> {
         match self.purpose {
             FullCheckedExprPurpose::CheckedContract { function_ref, .. } => function_ref,
             FullCheckedExprPurpose::ProducerContext(_) => None,
@@ -502,6 +502,17 @@ enum FunctionSignatureLookup {
 struct FunctionIdentitySignatures {
     pure: FunctionSignatureLookup,
     proc: FunctionSignatureLookup,
+    stream: FunctionSignatureLookup,
+}
+
+impl FunctionIdentitySignatures {
+    fn lookup(&self, kind: CallableKind) -> &FunctionSignatureLookup {
+        match kind { CallableKind::Pure => &self.pure, CallableKind::Proc => &self.proc, CallableKind::Stream => &self.stream }
+    }
+
+    fn lookup_mut(&mut self, kind: CallableKind) -> &mut FunctionSignatureLookup {
+        match kind { CallableKind::Pure => &mut self.pure, CallableKind::Proc => &mut self.proc, CallableKind::Stream => &mut self.stream }
+    }
 }
 
 macro_rules! pipeline_stage_input_slots {
@@ -613,11 +624,7 @@ impl FunctionSignatureIndex {
                 Some(Name::intern(store.string(metadata.owner)?))
             };
             let entry = functions.entry((owner, name)).or_default();
-            let lookup = if metadata.flags & 1 == 0 {
-                &mut entry.pure
-            } else {
-                &mut entry.proc
-            };
+            let lookup = entry.lookup_mut(metadata.callable_kind);
             *lookup = match *lookup {
                 FunctionSignatureLookup::Missing => {
                     FunctionSignatureLookup::Unique(FunctionSignatureTarget { contract: function.contract, function: IrFunctionId::new(index).map_err(|_| IrVerifyError::new("function signature target id is invalid"))? })
@@ -633,12 +640,12 @@ impl FunctionSignatureIndex {
         &self,
         owner: Name,
         name: Name,
-        pure: bool,
+        kind: CallableKind,
     ) -> Result<SignatureId, IrVerifyError> {
         let lookup = self
             .functions
             .get(&(Some(owner), name))
-            .map(|signatures| if pure { &signatures.pure } else { &signatures.proc });
+            .map(|signatures| signatures.lookup(kind));
         match lookup {
             Some(FunctionSignatureLookup::Unique(target)) => match target.contract {
                 FullCallableContract::Ground(signature) => Ok(signature),
@@ -1225,7 +1232,7 @@ pub(in crate::runtime::eval) struct FullProgram {
     /// A malformed directly constructed fixture leaves this empty so the
     /// fallback scan reports its original verification error.
     identities:
-        std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>>,
+        std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, CallableKind), usize>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1240,9 +1247,6 @@ pub(in crate::runtime::eval) struct PreparedInvocationBindings {
     layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
 }
 
-impl PreparedInvocationBindings {
-    pub(in crate::runtime::eval) fn is_empty(&self) -> bool { self.layouts.is_empty() && self.substitution.types.is_empty() && self.substitution.rows.is_empty() && self.substitution.effects.is_empty() }
-}
 
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
@@ -1580,7 +1584,7 @@ impl FullProgram {
     pub(in crate::runtime::eval) fn contains_function(
         &self,
         key: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
     ) -> bool {
         let _symbols = self.symbol_owner().enter();
         (0..self.store.functions.len()).any(|function_index| {
@@ -1592,7 +1596,7 @@ impl FullProgram {
     pub(in crate::runtime::eval) fn function_param_kinds(
         &self,
         key: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
     ) -> Result<Option<Vec<LoweredParamKind>>, IrVerifyError> {
         let Some(view) = self.function_view(key, kind)? else {
             return Ok(None);
@@ -1603,7 +1607,7 @@ impl FullProgram {
     pub(in crate::runtime::eval) fn function_view(
         &self,
         key: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
     ) -> Result<Option<FullFunctionView<'_>>, IrVerifyError> {
         let _symbols = self.symbol_owner().enter();
         let identities = self
@@ -1629,7 +1633,7 @@ impl FullProgram {
     /// Keep the scan's first-match behavior for repeated identities.
     fn resolve_identities(
         &self,
-    ) -> Result<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>, IrVerifyError> {
+    ) -> Result<FxHashMap<(LoweredFunctionKey, CallableKind), usize>, IrVerifyError> {
         let mut identities = FxHashMap::default();
         identities.reserve(self.store.functions.len());
         for index in 0..self.store.functions.len() {
@@ -1652,7 +1656,7 @@ impl FullProgram {
     fn function_identity(
         &self,
         function_index: usize,
-    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
+    ) -> Result<(LoweredFunctionKey, CallableKind), IrVerifyError> {
         let function = self
             .store
             .functions
@@ -1673,11 +1677,7 @@ impl FullProgram {
                 name,
             ))
         };
-        let kind = if metadata.flags & 1 == 0 {
-            LoweredFunctionKind::Pure
-        } else {
-            LoweredFunctionKind::Proc
-        };
+        let kind = metadata.callable_kind;
         Ok((key, kind))
     }
 
@@ -3631,8 +3631,10 @@ impl FullBuilder {
         builder.reserve_function_keys(selection.keys)?;
         let mut pures = rustc_hash::FxHashSet::default();
         let mut procs = rustc_hash::FxHashSet::default();
+        let mut streams = rustc_hash::FxHashSet::default();
         let mut qualified_pures = rustc_hash::FxHashSet::default();
         let mut qualified_procs = rustc_hash::FxHashSet::default();
+        let mut qualified_streams = rustc_hash::FxHashSet::default();
         super::super::lower::lower_compact_function_units_into(
             program,
             declarations,
@@ -3673,16 +3675,18 @@ impl FullBuilder {
                     return Err(error);
                 }
                 match (unit.key(), unit.kind()) {
-                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
+                    (LoweredFunctionKey::Name(name), CallableKind::Pure) => {
                         pures.insert(name);
                     }
-                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
+                    (LoweredFunctionKey::Name(name), CallableKind::Proc) => {
                         procs.insert(name);
                     }
-                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
+                    (LoweredFunctionKey::Name(name), CallableKind::Stream) => { streams.insert(name); }
+                    (LoweredFunctionKey::Qualified(name), CallableKind::Stream) => { qualified_streams.insert(name); }
+                    (LoweredFunctionKey::Qualified(name), CallableKind::Pure) => {
                         qualified_pures.insert(name);
                     }
-                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
+                    (LoweredFunctionKey::Qualified(name), CallableKind::Proc) => {
                         qualified_procs.insert(name);
                     }
                 }
@@ -3692,8 +3696,10 @@ impl FullBuilder {
         let functions = super::super::LowerableFunctions::all(
             &pures,
             &procs,
+            &streams,
             &qualified_pures,
             &qualified_procs,
+            &qualified_streams,
         );
         let (driver, _) = super::super::lower::lower_compact_top_level_program_with_probe(
             program,
@@ -3712,6 +3718,8 @@ impl FullBuilder {
             .collect::<Vec<_>>();
         drop(pures);
         drop(procs);
+        drop(streams);
+        drop(qualified_streams);
         drop(qualified_pures);
         drop(qualified_procs);
 
@@ -4028,7 +4036,7 @@ impl FullBuilder {
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
-                flags: u8::from(unit.kind() == LoweredFunctionKind::Proc)
+                flags: u8::from(unit.kind() == CallableKind::Proc)
                     | (u8::from(unit.is_exported()) << 1),
                 callable_kind: body.callable_kind,
                 reserved: [0; 2],
@@ -5200,8 +5208,7 @@ pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
         LoweredType::FsRoot => Type::FsRoot,
         LoweredType::FsLock => Type::FsLock,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
-        LoweredType::Pure => Type::Function(crate::sema::types::CallableKind::Pure),
-        LoweredType::Proc => Type::Function(crate::sema::types::CallableKind::Proc),
+        LoweredType::Function(kind) => Type::Function(kind),
         LoweredType::Error => Type::Error,
         LoweredType::Record => Type::ErasedRecord,
         LoweredType::Module => Type::DynamicModule,
@@ -5315,11 +5322,8 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::FsLock => LoweredType::FsLock,
         Type::Stream(_) => LoweredType::Stream,
         Type::Set(_) => LoweredType::Set,
-        Type::Function(crate::sema::types::CallableKind::Pure) => LoweredType::Pure,
-        Type::Function(crate::sema::types::CallableKind::Proc) => LoweredType::Proc,
-        Type::Callable(callable) if callable.kind == crate::sema::types::CallableKind::Pure => LoweredType::Pure,
-        Type::Callable(callable) if callable.kind == crate::sema::types::CallableKind::Proc => LoweredType::Proc,
-        Type::Callable(_) | Type::Function(crate::sema::types::CallableKind::Stream) => return None,
+        Type::Function(kind) => LoweredType::Function(*kind),
+        Type::Callable(callable) => LoweredType::Function(callable.kind),
         Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
@@ -5340,12 +5344,10 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
     })
 }
 
-fn typed_callable_purity(ty: &Type) -> Option<bool> {
+fn typed_callable_kind(ty: &Type) -> Option<CallableKind> {
     match ty {
-        Type::Callable(callable) => match callable.kind {
-            CallableKind::Pure => Some(true), CallableKind::Proc => Some(false), CallableKind::Stream => None,
-        },
-        Type::Validated(validated) => typed_callable_purity(validated.base()),
+        Type::Callable(callable) => Some(callable.kind),
+        Type::Validated(validated) => typed_callable_kind(validated.base()),
         _ => None,
     }
 }
@@ -5417,11 +5419,7 @@ fn scheme_type_physical_kind(
         schema::FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotypes.get(node.first as usize)
                 .ok_or_else(|| IrVerifyError::new("scheme callable monotype id is out of bounds"))?;
-            Some(match callable.kind {
-                crate::sema::types::CallableKind::Pure => LoweredType::Pure,
-                crate::sema::types::CallableKind::Proc => LoweredType::Proc,
-                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported physical kind")),
-            })
+            Some(LoweredType::Function(callable.kind))
         }
         schema::FullSchemeTypeTag::List => Some(LoweredType::List),
         schema::FullSchemeTypeTag::Map => Some(LoweredType::Map),
@@ -5779,7 +5777,7 @@ impl<'p> FullExecution<'p> {
 
     pub(in crate::runtime::eval) fn function_identity(
         &self,
-    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
+    ) -> Result<(LoweredFunctionKey, CallableKind), IrVerifyError> {
         let id = IrFunctionId::from_raw(self.owner)
             .ok_or_else(|| IrVerifyError::new("indexed execution owner is not a function"))?;
         let function = self
@@ -5802,11 +5800,7 @@ impl<'p> FullExecution<'p> {
                 name,
             ))
         };
-        let kind = if metadata.flags & 1 == 0 {
-            LoweredFunctionKind::Pure
-        } else {
-            LoweredFunctionKind::Proc
-        };
+        let kind = metadata.callable_kind;
         Ok((key, kind))
     }
 
@@ -6436,7 +6430,7 @@ impl<'a> FullDecoder<'a> {
     fn verify_typed_call_shape(&self, payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
         let schema::ExprView::TypedCall {
             callee,
-            pure,
+            kind,
             signature,
             args,
             ..
@@ -6464,11 +6458,9 @@ impl<'a> FullDecoder<'a> {
                 .function_metadata
                 .get(function)
                 .ok_or_else(|| IrVerifyError::new("typed call owner metadata is missing"))?;
-            // A pure function calls only pure callables, whatever a row says
-            // its callee is.
-            if metadata.flags & 1 == 0 && !pure {
+            if metadata.callable_kind == CallableKind::Pure && kind != CallableKind::Pure {
                 return Err(IrVerifyError::new(
-                    "typed call to a proc inside a pure function",
+                    "typed call to a non-pure callable inside a pure function",
                 ));
             }
         }
@@ -6478,7 +6470,7 @@ impl<'a> FullDecoder<'a> {
         let signature = semantic
             .typed_callable_signature(ty)
             .map_err(|_| IrVerifyError::new("typed call signature is not a callable type"))?;
-        if semantic.typed_callable_kind(ty)? != if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc } {
+        if semantic.typed_callable_kind(ty)? != kind {
             return Err(IrVerifyError::new(
                 "typed call kind does not match its callable type",
             ));
@@ -8250,7 +8242,7 @@ impl<'a> FullDecoder<'a> {
             ));
         };
         let scheme = self.store.scheme(scheme_id)?;
-        if scheme.callable_kind != kind || kind == crate::sema::types::CallableKind::Stream {
+        if scheme.callable_kind != kind {
             return Err(IrVerifyError::new("generic module export callable kind differs from its child function"));
         }
         let type_parameters = scheme
@@ -8330,7 +8322,7 @@ impl<'a> FullDecoder<'a> {
         self.function_signature_index
             .as_ref()
             .ok_or_else(|| IrVerifyError::new("function signature index is missing"))?
-            .module_export(namespace, name, pure)
+            .module_export(namespace, name, if pure { CallableKind::Pure } else { CallableKind::Proc })
     }
 
     /// Prove the type of every statement-local callable slot of a driver step.
@@ -8768,7 +8760,7 @@ impl<'a> FullDecoder<'a> {
     fn function_reference_contract(
         &self,
         function: decode::FunctionNameView,
-    ) -> Result<(IrFunctionId, FullCallableContract, bool), IrVerifyError> {
+    ) -> Result<(IrFunctionId, FullCallableContract, CallableKind), IrVerifyError> {
         let (name, namespace) = match function {
             decode::FunctionNameView::Name(name) => (name, None),
             decode::FunctionNameView::Qualified(name) => (name.member, Some(name.namespace)),
@@ -8778,23 +8770,20 @@ impl<'a> FullDecoder<'a> {
             .as_ref()
             .ok_or_else(|| IrVerifyError::new("function signature index is missing"))?;
         let lookup = index.functions.get(&(namespace, name));
-        let result = match lookup {
-            Some(signatures) => match (&signatures.pure, &signatures.proc) {
-                (FunctionSignatureLookup::Unique(target), FunctionSignatureLookup::Missing) => {
-                    Some((target.function, target.contract, true))
+        let mut result = None;
+        if let Some(signatures) = lookup {
+            for kind in [CallableKind::Pure, CallableKind::Proc, CallableKind::Stream] {
+                match signatures.lookup(kind) {
+                    FunctionSignatureLookup::Missing => {}
+                    FunctionSignatureLookup::Unique(target) if result.is_none() => {
+                        result = Some((target.function, target.contract, kind));
+                    }
+                    FunctionSignatureLookup::Unique(_) | FunctionSignatureLookup::Ambiguous => {
+                        return Err(IrVerifyError::new("function reference target is ambiguous in the checked program"));
+                    }
                 }
-                (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Unique(target)) => {
-                    Some((target.function, target.contract, false))
-                }
-                (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Missing) => None,
-                _ => {
-                    return Err(IrVerifyError::new(
-                        "function reference target is ambiguous in the checked program",
-                    ));
-                }
-            },
-            None => None,
-        };
+            }
+        }
         result.ok_or_else(|| {
             let target = match namespace {
                 Some(namespace) => QualifiedName::new(namespace, name).to_string(),
@@ -8809,19 +8798,19 @@ impl<'a> FullDecoder<'a> {
     fn function_reference_target(
         &self,
         function: decode::FunctionNameView,
-    ) -> Result<(IrFunctionId, SignatureId, bool), IrVerifyError> {
-        let (target, contract, pure) = self.function_reference_contract(function)?;
+    ) -> Result<(IrFunctionId, SignatureId, CallableKind), IrVerifyError> {
+        let (target, contract, kind) = self.function_reference_contract(function)?;
         let FullCallableContract::Ground(signature) = contract else {
             return Err(IrVerifyError::new("function reference requires a checked scheme instance"));
         };
-        Ok((target, signature, pure))
+        Ok((target, signature, kind))
     }
 
     fn function_reference_signature(
         &self,
         function: decode::FunctionNameView,
-    ) -> Result<(SignatureId, bool), IrVerifyError> {
-        self.function_reference_target(function).map(|(_, signature, pure)| (signature, pure))
+    ) -> Result<(SignatureId, CallableKind), IrVerifyError> {
+        self.function_reference_target(function).map(|(_, signature, kind)| (signature, kind))
     }
 
     fn require_checked_child_type(
@@ -9302,8 +9291,8 @@ impl<'a> FullDecoder<'a> {
                 } else if let Type::Callable(callable) = expected
                     && actual.as_ref().is_none_or(|actual| {
                         matches!(
-                            (actual, (callable.kind == crate::sema::types::CallableKind::Pure)),
-                            (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
+                            actual,
+                            Type::Function(kind) if *kind == callable.kind
                         )
                     })
                 {
@@ -9314,22 +9303,22 @@ impl<'a> FullDecoder<'a> {
                     ))
                 }
             }
-            schema::ExprView::FunctionRef { function, pure } => {
+            schema::ExprView::FunctionRef { function, kind } => {
                 if matches!(self.function_reference_contract(function)?.1, FullCallableContract::Scheme(_)) {
                     return self.function_reference_matches_callable(instruction, expected);
                 }
-                let (signature, target_pure) = self.function_reference_signature(function)?;
+                let (signature, target_kind) = self.function_reference_signature(function)?;
                 let Type::Callable(callable) = expected else {
                     return Err(IrVerifyError::new(
                         "checked function reference tail has a non-callable expected type",
                     ));
                 };
-                if target_pure != pure
-                    || (callable.kind == crate::sema::types::CallableKind::Pure) != pure
+                if target_kind != kind
+                    || callable.kind != kind
                     || !self
                         .store
                         .semantic
-                        .signature_fits_callable(signature, pure, callable)?
+                        .signature_fits_callable(signature, kind, callable)?
                 {
                     return Err(IrVerifyError::new(
                         "checked function reference tail disagrees with its target signature",
@@ -9649,20 +9638,20 @@ impl<'a> FullDecoder<'a> {
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
         let source = self.checked_callable_reference_source(instruction)?;
-        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(source)?
+        let schema::ExprView::FunctionRef { function, kind } = self.expression_view(source)?
         else {
             return Err(IrVerifyError::new(
                 "checked callable initializer is not a function reference",
             ));
         };
-        let (target, contract, target_pure) = self.function_reference_contract(function)?;
+        let (target, contract, target_kind) = self.function_reference_contract(function)?;
         let Type::Callable(callable) = expected else {
             return Err(IrVerifyError::new(
                 "checked function reference has a non-callable expected type",
             ));
         };
         let fits = match contract {
-            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, callable)?,
+            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, kind, callable)?,
             FullCallableContract::Scheme(_) => {
                 let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("function reference instruction is invalid"))?;
                 if self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_err()
@@ -9672,7 +9661,7 @@ impl<'a> FullDecoder<'a> {
                 self.checked_expression_type(instruction as usize)?.as_ref().is_some_and(|actual| self.checked_type_fits(actual, expected))
             }
         };
-        if target_pure != pure || (callable.kind == crate::sema::types::CallableKind::Pure) != pure || !fits {
+        if target_kind != kind || callable.kind != kind || !fits {
             return Err(IrVerifyError::new(
                 "checked function reference tail disagrees with its target signature",
             ));
@@ -10434,10 +10423,10 @@ impl<'a> FullDecoder<'a> {
             return Ok(Some(ty));
         }
         match self.expression_view(instruction)? {
-            schema::ExprView::FunctionRef { function, pure } => {
-                let (_, _, actual_pure) = self.function_reference_contract(function)?;
-                if actual_pure != pure { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
-                Ok(Some(if pure { Type::Function(crate::sema::types::CallableKind::Pure) } else { Type::Function(crate::sema::types::CallableKind::Proc) }))
+            schema::ExprView::FunctionRef { function, kind } => {
+                let (_, _, actual_kind) = self.function_reference_contract(function)?;
+                if actual_kind != kind { return Err(IrVerifyError::new("function reference kind disagrees with its executable target")); }
+                Ok(Some(Type::Function(kind)))
             }
             schema::ExprView::Int(_) => Ok(Some(Type::Int)),
             schema::ExprView::Str(_) => Ok(Some(Type::Str)),
@@ -11071,9 +11060,9 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Path(_) if ty == Type::Path => {}
             schema::ExprView::PreparedRegex(_) if ty == Type::Regex => {}
             schema::ExprView::Unit if ty == Type::Unit => {}
-            schema::ExprView::FunctionRef { function, pure } => {
-                let function_matches = fact.function_ref().is_some_and(|(expected, expected_pure)| {
-                    if expected_pure != pure {
+            schema::ExprView::FunctionRef { function, kind } => {
+                let function_matches = fact.function_ref().is_some_and(|(expected, expected_kind)| {
+                    if expected_kind != kind {
                         return false;
                     }
                     match (expected.as_name(), expected.as_qualified(), function) {
@@ -11086,7 +11075,7 @@ impl<'a> FullDecoder<'a> {
                         _ => false,
                     }
                 });
-                let (_, contract, target_is_pure) = self.function_reference_contract(function)?;
+                let (_, contract, target_kind) = self.function_reference_contract(function)?;
                 let Type::Callable(checked_callable) = &ty else {
                     return Err(IrVerifyError::new(
                         "checked function reference has a non-callable fact",
@@ -11097,18 +11086,18 @@ impl<'a> FullDecoder<'a> {
                         "checked function reference identity disagrees with its producer: source name",
                     ));
                 }
-                if target_is_pure != pure {
+                if target_kind != kind {
                     return Err(IrVerifyError::new(
                         "checked function reference identity disagrees with its producer: function kind",
                     ));
                 }
-                if typed_callable_purity(&ty) != Some(pure) {
+                if typed_callable_kind(&ty) != Some(kind) {
                     return Err(IrVerifyError::new(
                         "checked function reference identity disagrees with its producer: checked kind",
                     ));
                 }
                 let fits = match contract {
-                    FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, pure, checked_callable)?,
+                    FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, kind, checked_callable)?,
                     FullCallableContract::Scheme(_) => { self.function_reference_matches_callable(instruction, &ty)?; true },
                 };
                 if !fits {
@@ -12565,8 +12554,8 @@ impl<'a> FullDecoder<'a> {
             }
             FullTag::ExprTypedCall => {
                 charge(1)?;
-                let schema::ExprView::TypedCall { signature, pure, .. } = self.expression_view(instruction)? else { unreachable!() };
-                return Ok(!pure || self.store.semantic.typed_callable_kind(signature.id)? != crate::sema::types::CallableKind::Pure);
+                let schema::ExprView::TypedCall { signature, kind, .. } = self.expression_view(instruction)? else { unreachable!() };
+                return Ok(kind != CallableKind::Pure || self.store.semantic.typed_callable_kind(signature.id)? != CallableKind::Pure);
             }
             FullTag::ExprModuleCall => {
                 charge(1)?;
@@ -18151,17 +18140,14 @@ impl FullVerifier {
                     }
                 }
             }
-            let return_is_stream = match function.contract {
-                FullCallableContract::Ground(signature) => matches!(
-                    store
-                        .semantic
-                        .to_type(store.semantic.signature_return_type(signature)?)?,
-                    Type::Stream(_)
-                ),
-                FullCallableContract::Scheme(_) => false,
-            };
-            // A stream producer's body ending ends the stream, so the empty
-            // body is the degenerate empty stream rather than a missing return.
+            let return_is_stream = store.function_metadata[index].callable_kind == CallableKind::Stream
+                && match function.contract {
+                    FullCallableContract::Ground(signature) => matches!(
+                        store.semantic.to_type(store.semantic.signature_return_type(signature)?)?,
+                        Type::Stream(_)
+                    ),
+                    FullCallableContract::Scheme(id) => scheme_return_kind(store, store.scheme(id)?.return_type)? == LoweredReturnKind::Plain(LoweredType::Stream),
+                };
             if body_payload.first().copied() == Some(0) && !return_is_stream {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
@@ -18460,6 +18446,9 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
+impl_word_codec!(CallableKind, |kind: &CallableKind| Ok(*kind as u32),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| CallableKind::from_encoded(raw)
+        .ok_or_else(|| IrVerifyError::new("callable kind is invalid"))));
 impl_word_codec!(
     crate::syntax::arena::ContextScopeKind,
     |value: &crate::syntax::arena::ContextScopeKind| Ok(match value {
@@ -19797,8 +19786,7 @@ lowered_value_schema! {
         | Self::FsRoot(_)
         | Self::FsLock(_)
         | Self::Stream(_)
-        | Self::Pure(_)
-        | Self::Proc(_)
+        | Self::Callable(_)
         | Self::Error(_)
         | Self::ResultErr(_) => {
             return Err(IrBuildError::format("non_literal_persistent_value", None, 0, 0));
@@ -21650,7 +21638,7 @@ run true
         let result = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(program_name(&program, "answer")),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[],
                 Span::new(program.store.source_id, 0, 0),
             )
@@ -21897,7 +21885,7 @@ run true
                 program_name(&program, "identity"),
             ));
             let identity = program
-                .function_view(identity_key, LoweredFunctionKind::Pure)
+                .function_view(identity_key, CallableKind::Pure)
                 .unwrap()
                 .expect("imported generic identity exists");
             let header = identity.header().unwrap();
@@ -21916,7 +21904,7 @@ run true
                 let identity_result = evaluator
                     .call_indexed_direct(
                         identity_key,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Bool(false)],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -21927,7 +21915,7 @@ run true
                 let missing_import = evaluator
                     .call_indexed_direct(
                         main_key,
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -21946,7 +21934,7 @@ run true
                 let result = evaluator
                     .call_indexed_direct(
                         main_key,
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -21977,7 +21965,7 @@ run true
                 ).expect("module import has a direct executor").expect("module import executes");
                 let result = evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("generic alias importer exists").expect("generic alias importer executes");
@@ -22084,7 +22072,7 @@ run true
                 evaluator.force_frames = force_frames;
                 evaluator.eval_indexed_driver_step(import_step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "main")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "main")), CallableKind::Proc,
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
@@ -22135,7 +22123,7 @@ run true
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "read")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "read")), CallableKind::Proc,
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(4)))));
@@ -22648,7 +22636,7 @@ pure invoke_plain() -> Command { build_plain(p"/not-launched", [p"/not-launched"
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "invoke_plain")), LoweredFunctionKind::Pure,
+                LoweredFunctionKey::Name(program_name(&program, "invoke_plain")), CallableKind::Pure,
                 &[], Span::new(program.store.source_id, 0, 0),
             ).unwrap().unwrap();
             assert!(matches!(result, Value::Command(_)));
@@ -22818,12 +22806,12 @@ pure nested(value: Result[Int]?) -> Result[Int] { value ?? Ok(9) }
                     (Value::Int(7), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))))),
                     (Value::Null, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("missing".into()))))),
                 ] {
-                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("guarded")), LoweredFunctionKind::Proc,
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("guarded")), CallableKind::Proc,
                         &[argument], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                     assert_eq!(result, expected);
                 }
                 assert_eq!(evaluator.lookup(Name::intern("hits")).unwrap().value, Value::Int(0));
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("ordinary")), LoweredFunctionKind::Proc,
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("ordinary")), CallableKind::Proc,
                     &[Value::Null], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(99));
                 assert_eq!(evaluator.lookup(Name::intern("hits")).unwrap().value, Value::Int(1));
@@ -22831,7 +22819,7 @@ pure nested(value: Result[Int]?) -> Result[Int] { value ?? Ok(9) }
                     (Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))), 7),
                     (Value::Null, 9),
                 ] {
-                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("nested")), LoweredFunctionKind::Pure,
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("nested")), CallableKind::Pure,
                         &[argument], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                     assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(expected)))));
                 }
@@ -22951,7 +22939,7 @@ assert first([], [7])? == {key: "", text: "empty"}
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "checksum")), LoweredFunctionKind::Pure,
+                    LoweredFunctionKey::Name(program_name(&program, "checksum")), CallableKind::Pure,
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
@@ -22974,7 +22962,7 @@ assert first([], [7])? == {key: "", text: "empty"}
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&leaf));
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&leaf, "invoke_checksum")), LoweredFunctionKind::Pure,
+                    LoweredFunctionKey::Name(program_name(&leaf, "invoke_checksum")), CallableKind::Pure,
                     &[], Span::new(leaf.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
@@ -23071,7 +23059,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             }
             let decoder = stage_view_decoder(&program.store);
             let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
-                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { kind: crate::sema::types::CallableKind::Proc, .. })).then_some(instruction)
             }).unwrap();
             let update = scheme_fixture_root_function(&program, "update");
             let decoder = function_view_decoder(&program.store, update);
@@ -23096,7 +23084,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             ));
             let decoder = stage_view_decoder(&program.store);
             let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
-                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { kind: crate::sema::types::CallableKind::Proc, .. })).then_some(instruction)
             }).unwrap();
             let constructor = program.store.tags.iter().position(|tag| *tag == FullTag::ExprTag).unwrap();
             let step = (0..program.store.driver_steps.len()).find(|&step| program.store.driver_instruction_range(step).unwrap().contains(&constructor)).unwrap();
@@ -23250,7 +23238,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             }
             let decoder = stage_view_decoder(&program.store);
             let wrong = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
-                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { pure: false, .. })).then_some(instruction)
+                (*tag == FullTag::ExprFunctionRef && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::FunctionRef { kind: crate::sema::types::CallableKind::Proc, .. })).then_some(instruction)
             }).unwrap();
             let install = scheme_fixture_root_function(&program, "install");
             let statement = program.store.function_instruction_range(install).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssign).unwrap();
@@ -23628,7 +23616,7 @@ assert apply(40) == 42
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let failure = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "terminate")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "terminate")), CallableKind::Proc,
                     &[Value::Int(77)], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap_err();
                 let abort = failure.abort.unwrap();
@@ -23893,7 +23881,7 @@ assert apply(40) == 42
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "unopened")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "unopened")), CallableKind::Proc,
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
@@ -24063,7 +24051,7 @@ assert apply(40) == 42
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let span = Span::at(program.store.source_id, 0);
                 let factory = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("factory")));
-                let value = evaluator.call_indexed_direct(factory, LoweredFunctionKind::Pure, &[Value::Int(1), Value::Int(3), Value::Str(Arc::from("wrong"))], span).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(factory, CallableKind::Pure, &[Value::Int(1), Value::Int(3), Value::Str(Arc::from("wrong"))], span).unwrap().unwrap();
                 let Value::Stream(mut stream) = value else { panic!("Range returns its declared native stream carrier") };
                 assert!(stream.contract.is_some());
                 assert!(stream.script.is_none());
@@ -24071,8 +24059,8 @@ assert apply(40) == 42
                 let (make, direct) = program.symbol_owner().with_current(|| (
                     LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
                 ));
-                let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[Value::Stream(stream.clone())], span).unwrap().unwrap();
-                assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, Value::Stream(stream.clone())], span).unwrap().unwrap(), Value::Int(8));
+                let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[Value::Stream(stream.clone())], span).unwrap().unwrap();
+                assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, Value::Stream(stream.clone())], span).unwrap().unwrap(), Value::Int(8));
                 assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(1)));
                 assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(2)));
                 assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
@@ -24160,6 +24148,319 @@ assert order == "LU123"
             assert_eq!(forged.store.checked_expr_types[fact].instruction, original.instruction);
             let error = FullVerifier::verify(&forged).unwrap_err();
             assert_eq!(error.message, "checked method result disagrees with its receiver's registry signature");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_generic_delegation() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-delegation-contracts.xsh", "error RowsError = Late\nproc fail() [] -> Result[Unit, RowsError] { Err(RowsError.Late()) }\nstream child(value) [error] { yield value; fail()? }\nstream parent(value, spare: Str) [error] { yield @child(value) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "parent");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("the delegator retains its actual polymorphic header") };
+            let scheme = program.store.schemes[id.index()];
+            let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            assert_eq!(parameters.len(), 2);
+            let spare = program.store.scheme_params[parameters.start + 1].ty;
+            let output = program.store.scheme_types[scheme.return_type.index()];
+            assert_eq!(output.tag, schema::FullSchemeTypeTag::Stream);
+            let item = schemes::SchemeTypeId::from_raw(output.first).unwrap();
+            let original = program.store.scheme_types[item.index()];
+            assert_eq!(original.tag, schema::FullSchemeTypeTag::Parameter);
+            assert_eq!(original.children.len, 0);
+            let replacement = program.store.scheme_types[spare.index()];
+            assert_eq!(replacement.tag, schema::FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(replacement.first).unwrap()).unwrap(), Type::Str);
+            let mut wrong_item = program.clone();
+            wrong_item.store.scheme_types[item.index()] = replacement;
+            assert_eq!(wrong_item.store.scheme_types.len(), program.store.scheme_types.len());
+            assert_eq!(wrong_item.store.scheme_types[scheme.return_type.index()], output);
+            assert_eq!(wrong_item.store.schemes[id.index()].return_type, scheme.return_type);
+            let error = FullVerifier::verify(&wrong_item).unwrap_err();
+            assert!(error.message.contains("delegation disagrees with its stream item contract"), "{}", error.message);
+            let mut wrong_effects = program.clone();
+            assert_eq!(scheme.effects.concrete(&program.store).unwrap(), Some(vec![Effect::Error]));
+            let effects = scheme.effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(effects.len(), 1);
+            wrong_effects.store.scheme_effects[effects.start] = Effect::Fs;
+            let error = FullVerifier::verify(&wrong_effects).unwrap_err();
+            assert!(error.message.contains("requires effect error"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_preserve_generic_range_inputs() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-range-inputs.xsh", concat!(
+                "pure build(value, start: Int, end: Int) { {value, items: range(start, end)} }\n",
+                "let first = build(7, -2, 2)\nassert first.value == 7\nassert first.items.collect() == [-2, -1, 0, 1]\n",
+                "let second = build(\"row\", 2, -1)\nassert second.value == \"row\"\nassert second.items.collect() == [2, 1, 0]\n",
+                "pure constrained(value, start: UInt, end: UInt) { {value, items: range(start, end)} }\n",
+                "let lo: UInt = 1\nlet hi: UInt = 3\nlet third = constrained(true, lo, hi)\nassert third.value\nassert third.items.collect() == [1, 2]\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_driver_unsigned_alias_checks() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-range-checked-alias.xsh", "pure constrained(value, start: UInt, end: UInt) { {value, items: range(start, end)} }\nlet lo: UInt = 1\nlet hi: UInt = 3\nlet result = constrained(true, lo, hi)\n");
+            FullVerifier::verify(&program).unwrap();
+            let (step, validation_start, validation_end) = program.store.driver_steps.iter().enumerate().find_map(|(step, row)| {
+                if row.tag != FullDriverTag::Let { return None; }
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                let mut payload = FullCursor::new(program.store.payload(row.data.range()).unwrap());
+                let name = Name::decode(&decoder, &mut payload).unwrap();
+                if name.as_str().as_str() != "lo" { return None; }
+                Option::<LoweredType>::decode(&decoder, &mut payload).unwrap();
+                let start = payload.index;
+                let check = Option::<LoweredTypeCheck>::decode(&decoder, &mut payload).unwrap().unwrap();
+                assert_eq!(check.ty, Type::UInt);
+                assert!(check.schema.is_none());
+                Some((step, start, payload.index))
+            }).unwrap();
+            let row = program.store.driver_steps[step];
+            let payload = row.data.range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong = program.clone();
+            let int = SemanticPoolBuilder::default().intern_type(&mut wrong.store.semantic, &Type::Int).unwrap();
+            assert_eq!(wrong.store.extra[payload.start + validation_start], 1);
+            wrong.store.extra[payload.start + validation_start + 1] = int.raw();
+            let error = FullVerifier::verify(&wrong).unwrap_err();
+            assert_eq!(error.message, "driver annotation disagrees with its runtime validation");
+            let mut missing = program.clone();
+            missing.store.extra.copy_within(payload.start + validation_end..payload.end, payload.start + validation_start + 1);
+            missing.store.extra[payload.start + validation_start] = 0;
+            let removed = validation_end - validation_start - 1;
+            missing.store.driver_steps[step].data = IrData::new(row.data.range().start, row.data.range().len - removed as u32);
+            let error = FullVerifier::verify(&missing).unwrap_err();
+            assert_eq!(error.message, "annotated driver local is missing its runtime validation");
+            let negative = Arc::new(fixture("generic-range-negative-alias.xsh", "pure negative() -> Int { -1 }\npure constrained(value, start: UInt, end: UInt) { {value, items: range(start, end)} }\nlet lo: UInt = negative()\nlet hi: UInt = 3\nlet result = constrained(true, lo, hi)\n"));
+            FullVerifier::verify(&negative).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*negative.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&negative));
+                let error = (0..negative.driver_step_count().unwrap()).find_map(|step| evaluator.eval_indexed_driver_step(step, Span::at(negative.store.source_id, 0)).unwrap().err()).expect("negative input fails before storage or Range invocation");
+                assert_eq!(&*error.family, "Error");
+                assert_eq!(&*error.variant, "type-error");
+            }
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_authenticate_write_only_monomorphic_captures() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-write-only-capture.xsh", "var shared = 0\nstream rows(value) [] { shared = 1; yield value }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "rows");
+            assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+            let captures = program.store.functions[owner].captures.bounds(program.store.captures.len()).unwrap();
+            assert_eq!(captures.len(), 1);
+            assert_ne!(program.store.captures[captures.start].slot_and_flags & (1 << 31), 0);
+            let mut forged = program.clone();
+            forged.store.captures[captures.start].slot_and_flags &= !(1 << 31);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(error.message, "capture mutability differs from its defining storage");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_require_exact_mutable_capture_declarations() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-mutable-capture-domain.xsh", "var shared = -1\nlet observed = shared\nstream rows(value) [] { let _ = shared; yield value }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "rows");
+            let function = program.store.functions[owner];
+            assert!(matches!(function.contract, FullCallableContract::Scheme(_)));
+            let captures = function.captures.bounds(program.store.captures.len()).unwrap();
+            assert_eq!(captures.len(), 1);
+            assert_ne!(program.store.captures[captures.start].slot_and_flags & (1 << 31), 0);
+            assert_eq!(program.store.semantic.to_type(program.store.captures[captures.start].type_id).unwrap(), Type::Int);
+            let mut forged = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let unsigned = semantic.intern_type(&mut forged.store.semantic, &Type::UInt).unwrap();
+            forged.store.captures[captures.start].type_id = unsigned;
+            let function_id = IrFunctionId::new(owner).unwrap();
+            let mut updated = 0;
+            for fact in program.store.scheme_body_facts.iter().filter(|fact| fact.function == function_id) {
+                let Some(ty) = fact.ty() else { continue };
+                let node = program.store.scheme_types[ty.index()];
+                if node.tag == schema::FullSchemeTypeTag::Ground && program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap() == Type::Int {
+                    forged.store.scheme_types[ty.index()].first = unsigned.raw();
+                    updated += 1;
+                }
+            }
+            assert!(updated > 0);
+            for index in function.slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap() {
+                let Some(ty) = TypeId::from_raw(program.store.slot_type_facts[index]) else { continue };
+                if program.store.semantic.to_type(ty).unwrap() == Type::Int { forged.store.slot_type_facts[index] = unsigned.raw(); }
+            }
+            for fact in forged.store.checked_expr_types.iter_mut().filter(|fact| program.store.function_instruction_range(owner).unwrap().contains(&(fact.instruction as usize))) {
+                if program.store.semantic.to_type(fact.type_id).unwrap() == Type::Int { fact.type_id = unsigned; }
+            }
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(error.message, "mutable capture contract differs from its storage declaration");
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_keep_error_boundaries_in_actual_owner_kind() {
+        run_with_large_stack(|| {
+            let program = fixture("stream-error-owner-kind.xsh", concat!(
+                "stream child(value: Int) [] -> Stream[Int] { yield value }\n",
+                "proc eager(token, failure: Result[Int]) [error] -> Stream[Int] { let _ = token; let _ = try { failure? }; let _ = 7; child(7) }\n",
+                "stream genuine(token, failure: Result[Int]) [error] { let _ = failure?; yield token }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "eager");
+            assert_eq!(program.store.function_metadata[owner].callable_kind, crate::sema::types::CallableKind::Proc);
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("the ordinary owner retains its token binder") };
+            let scheme = program.store.schemes[id.index()];
+            assert_eq!(scheme.callable_kind, crate::sema::types::CallableKind::Proc);
+            let output = program.store.scheme_types[scheme.return_type.index()];
+            assert_eq!(output.tag, schema::FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(output.first).unwrap()).unwrap(), Type::Stream(Box::new(Type::Int)));
+            let decoder = return_analysis_decoder(&program, "eager");
+            let capture = function_instruction_indices(&program, "eager", FullTag::ExprCapture);
+            assert_eq!(capture.len(), 1);
+            let propagated = function_instruction_indices(&program, "eager", FullTag::ExprTry);
+            assert_eq!(propagated.len(), 1);
+            let propagated = propagated[0];
+            let captured_declaration = decoder.instruction_parent_of(propagated).unwrap().unwrap();
+            let schema::StmtView::Let { value, .. } = decoder.statement_view(captured_declaration).unwrap() else { panic!("propagation retains its actual ANF initializer") };
+            assert_eq!(value.raw() as usize, propagated);
+            let mut ancestor = captured_declaration;
+            while ancestor != capture[0] {
+                ancestor = decoder.instruction_parent_of(ancestor).unwrap().expect("propagation is inside the actual capture");
+            }
+            let schema::ExprView::Try { value: input, .. } = decoder.expression_view(propagated).unwrap() else { unreachable!() };
+            let schema::ExprView::Param(alias) = decoder.expression_view(input.raw() as usize).unwrap() else { panic!("propagation reads the evaluated failure binding") };
+            let failure_parameter = program.store.scheme_params[scheme.params.bounds(program.store.scheme_params.len()).unwrap().start + 1].ty;
+            let input_type = program.store.scheme_body_facts.iter().find(|fact| fact.instruction == input.raw()).unwrap().ty().unwrap();
+            for ty in [failure_parameter, input_type] {
+                let node = program.store.scheme_types[ty.index()];
+                if node.tag == schema::FullSchemeTypeTag::Ground {
+                    assert_eq!(program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+                } else {
+                    assert_eq!(node.tag, schema::FullSchemeTypeTag::Result);
+                    for (child, expected) in [(node.first, Type::Int), (node.second, Type::Error)] {
+                        let leaf = program.store.scheme_types[schemes::SchemeTypeId::from_raw(child).unwrap().index()];
+                        assert_eq!(leaf.tag, schema::FullSchemeTypeTag::Ground);
+                        assert_eq!(program.store.semantic.to_type(TypeId::from_raw(leaf.first).unwrap()).unwrap(), expected);
+                    }
+                }
+            }
+            let declarations = function_instruction_indices(&program, "eager", FullTag::StmtLet);
+            let alias_initializer = declarations.iter().find_map(|&statement| {
+                let schema::StmtView::Let { slot, value, .. } = decoder.statement_view(statement).unwrap() else { unreachable!() };
+                (slot == alias).then_some(value)
+            }).expect("the failure read retains its immutable ANF writer");
+            assert!(matches!(decoder.expression_view(alias_initializer.raw() as usize).unwrap(), schema::ExprView::Param(1)));
+            let discarded = function_instruction_indices(&program, "eager", FullTag::StmtLetRecord).into_iter().find_map(|statement| {
+                let schema::StmtView::LetRecord { source, .. } = decoder.statement_view(statement).unwrap() else { unreachable!() };
+                let schema::ExprView::Param(read) = decoder.expression_view(source.raw() as usize).unwrap() else { return None };
+                declarations.iter().find_map(|&declaration| {
+                    let schema::StmtView::Let { slot, value, .. } = decoder.statement_view(declaration).unwrap() else { unreachable!() };
+                    (slot == read && matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Int(7))).then_some((declaration, value.raw()))
+                })
+            }).expect("the outer discard reads its actual integer initializer");
+            let mut forged = program.clone();
+            let captured_payload = forged.store.data[captured_declaration].range().start as usize;
+            let discarded_payload = forged.store.data[discarded.0].range().start as usize;
+            assert_eq!(forged.store.extra[captured_payload + 1], propagated as u32);
+            assert_eq!(forged.store.extra[discarded_payload + 1], discarded.1);
+            forged.store.extra[captured_payload + 1] = discarded.1;
+            forged.store.extra[discarded_payload + 1] = propagated as u32;
+            let input_payload = forged.store.data[input.raw() as usize].range().start as usize;
+            assert_eq!(forged.store.extra[input_payload], alias as u32);
+            forged.store.extra[input_payload] = 1;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("generic propagation has no owner result boundary"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn prepared_stream_contracts_require_generic_yield_transfer_facts() {
+        let source = "stream item(value) [] { yield value }\nstream listed(value) [] { yield @[value] }\nstream nested(value) [] { yield @item(value) }\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("generic-yield-transfers.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources.clone()), source_id).unwrap();
+        FullVerifier::verify(&program).unwrap();
+        let yields = (0..parsed.arena.arena.stmt_tags.len()).map(crate::syntax::arena::StmtId::from_index).filter(|&statement| matches!(parsed.arena.arena.stmt(statement).kind, crate::syntax::arena::ArenaStmtKind::Yield(_) | crate::syntax::arena::ArenaStmtKind::YieldDelegate(_))).collect::<Vec<_>>();
+        assert_eq!(yields.len(), 3);
+        for statement in yields {
+            let mut missing = checked.clone();
+            let site = crate::sema::check::ResourceTransferSite::Yield(statement);
+            assert!(missing.bodies.resource_transfers.remove(&site).is_some());
+            let error = match FullBuilder::build_compact(&parsed.arena, &missing, source, Arc::new(sources.clone()), source_id) {
+                Err(error) => error,
+                Ok(_) => panic!("generic yielding requires its actual checked transfer fact"),
+            };
+            assert_eq!(error.construct, "full_ir_function_blocker");
+            assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("missing checked resource-transfer fact")), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn prepared_callable_reference_identity_rejects_a_foreign_program() {
+        run_with_large_stack(|| {
+            let program = fixture("callable-reference-owner.xsh", "pure increment(value: Int) -> Int { value + 1 }\npure number() -> Int { increment(7) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "number");
+            let decoder = function_view_decoder(&program.store, owner);
+            let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprCall || program.store.tags[instruction] == FullTag::ExprDirectPureCall).unwrap();
+            let (schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) = decoder.expression_view(call).unwrap() else { panic!("the actual caller retains its resolved target") };
+            let execution = program.function_view_at(owner).unwrap().execution().unwrap();
+            assert_eq!(function.identity(&execution).unwrap(), (LoweredFunctionKey::Name(program_name(&program, "increment")), CallableKind::Pure));
+            let other = program.clone();
+            let foreign = other.function_view_at(owner).unwrap().execution().unwrap();
+            assert_eq!(function.identity(&foreign).unwrap_err().message, "function reference belongs to another program");
+        });
+    }
+
+    #[test]
+    fn prepared_callable_stream_references_authenticate_actual_kind() {
+        run_with_large_stack(|| {
+            let program = fixture("stream-callable-kind.xsh", "stream values(value) [] { yield value }\nproc observe(action, value) [] { let _ = action(value); 0 }\nproc make() [] { let _ = observe(values, 7); 0 }\n");
+            FullVerifier::verify(&program).unwrap();
+            let target = scheme_fixture_root_function(&program, "values");
+            assert_eq!(program.store.function_metadata[target].callable_kind, CallableKind::Stream);
+            let reference = program.store.checked_call_targets.iter().find(|reference| reference.function.index() == target && program.store.tags[reference.instruction as usize] == FullTag::ExprFunctionRef).unwrap();
+            assert!(program.store.call_instantiations.binary_search_by_key(&reference.instruction, |instance| instance.instruction).is_ok());
+            let payload = program.store.data[reference.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[payload.end - 1], CallableKind::Stream as u32);
+            let mut foreign = program.clone();
+            foreign.store.extra[payload.end - 1] = 3;
+            assert!(FullVerifier::verify(&foreign).unwrap_err().message.contains("callable kind"));
+            let mut wrong = program.clone();
+            wrong.store.extra[payload.end - 1] = CallableKind::Proc as u32;
+            let mut semantic = SemanticPoolBuilder::default();
+            for fact in &mut wrong.store.checked_expr_types {
+                if fact.instruction != reference.instruction { continue; }
+                if let FullCheckedExprPurpose::CheckedContract { function_ref: Some((_, kind)), .. } = &mut fact.purpose { *kind = CallableKind::Proc; }
+                let mut ty = program.store.semantic.to_type(fact.type_id).unwrap();
+                match &mut ty {
+                    Type::Callable(callable) => { assert_eq!(callable.kind, CallableKind::Stream); Arc::make_mut(callable).kind = CallableKind::Proc; }
+                    Type::Function(kind) => { assert_eq!(*kind, CallableKind::Stream); *kind = CallableKind::Proc; }
+                    _ => panic!("the actual Stream reference retains its callable type"),
+                }
+                fact.type_id = semantic.intern_type(&mut wrong.store.semantic, &ty).unwrap();
+            }
+            let error = FullVerifier::verify(&wrong).unwrap_err();
+            assert!(error.message.contains("kind"), "{}", error.message);
         });
     }
 
@@ -24294,12 +24595,12 @@ assert order == "LU123"
             Arc::make_mut(&mut changed).kind = crate::sema::types::CallableKind::Proc;
             coordinate_claim(&mut wrong_kind, changed);
             let payload = program.store.data[target.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
-            assert_eq!(program.store.extra[payload.end - 1], 1);
-            wrong_kind.store.extra[payload.end - 1] = 0;
+            assert_eq!(program.store.extra[payload.end - 1], CallableKind::Pure as u32);
+            wrong_kind.store.extra[payload.end - 1] = CallableKind::Proc as u32;
             for own in &mut wrong_kind.store.checked_expr_types {
                 if own.instruction != target.instruction { continue; }
-                let FullCheckedExprPurpose::CheckedContract { function_ref: Some((_, pure)), .. } = &mut own.purpose else { panic!("the actual reference retains its checked identity") };
-                *pure = false;
+                let FullCheckedExprPurpose::CheckedContract { function_ref: Some((_, kind)), .. } = &mut own.purpose else { panic!("the actual reference retains its checked identity") };
+                *kind = CallableKind::Proc;
             }
             let error = FullVerifier::verify(&wrong_kind).unwrap_err();
             assert!(error.message.contains("function kind"), "{}", error.message);
@@ -24462,7 +24763,7 @@ assert order == "LU123"
                 "let number: Int = choose(true, named(41).value, 0) + 1\n",
             ));
             FullVerifier::verify(&program).unwrap();
-            let succeed = program.function_view(LoweredFunctionKey::Name(program_name(&program, "succeed")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let succeed = program.function_view(LoweredFunctionKey::Name(program_name(&program, "succeed")), CallableKind::Pure).unwrap().unwrap();
             assert!(matches!(succeed.header().unwrap().return_kind, LoweredReturnKind::QuantifiedResult));
             assert!(crate::runtime::eval::lowered_ops::lowered_return_value(LoweredReturnKind::QuantifiedResult,
                 crate::runtime::eval::LoweredValue::Int(42), Span::new(program.store.source_id, 0, 0)).is_err());
@@ -25893,7 +26194,7 @@ assert order == "LU123"
         let error = evaluator
             .call_indexed_direct(
                 invoke,
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[],
                 Span::new(forged.store.source_id, 0, 0),
             )
@@ -25930,7 +26231,7 @@ assert order == "LU123"
                 evaluator
                     .call_indexed_direct(
                         root_capture,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         span,
                     )
@@ -25942,7 +26243,7 @@ assert order == "LU123"
                 evaluator
                     .call_indexed_direct(
                         module_invoke,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         span,
                     )
@@ -25954,7 +26255,7 @@ assert order == "LU123"
                 evaluator
                     .call_indexed_direct(
                         parameter_shadow,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Bool(true)],
                         span,
                     )
@@ -25971,7 +26272,7 @@ assert order == "LU123"
                 evaluator
                     .call_indexed_direct(
                         root_capture,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         span,
                     )
@@ -25983,7 +26284,7 @@ assert order == "LU123"
                 evaluator
                     .call_indexed_direct(
                         module_invoke,
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         span,
                     )
@@ -26016,14 +26317,14 @@ assert order == "LU123"
         }
         assert_eq!(
             evaluator
-                .call_indexed_direct(root_count, LoweredFunctionKind::Pure, &[], span)
+                .call_indexed_direct(root_count, CallableKind::Pure, &[], span)
                 .unwrap()
                 .unwrap(),
             Value::Int(2)
         );
         assert_eq!(
             evaluator
-                .call_indexed_direct(module_count, LoweredFunctionKind::Pure, &[], span)
+                .call_indexed_direct(module_count, CallableKind::Pure, &[], span)
                 .unwrap()
                 .unwrap(),
             Value::Int(100)
@@ -27139,7 +27440,7 @@ assert order == "LU123"
             evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "read_flag")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     span,
                 )
@@ -27197,8 +27498,8 @@ pure invoke(n: Int) -> Int { f(n) }
             .iter()
             .copied()
             .find(|fact| {
-                fact.function_ref().is_some_and(|(function, pure)| {
-                    pure && function.as_name() == Some(Name::intern("bad"))
+                fact.function_ref().is_some_and(|(function, kind)| {
+                    kind == CallableKind::Pure && function.as_name() == Some(Name::intern("bad"))
                 })
             })
             .expect("bad function reference has a checked fact");
@@ -27257,7 +27558,7 @@ pure invoke(n: Int) -> Int { f(n) }
         forged.store.extra[function_ref_payload + 1] = Name::intern("bad").symbol().raw();
         forged.store.checked_expr_types[original_fact_index].type_id = bad_fact.type_id;
         forged.store.checked_expr_types[original_fact_index].purpose =
-            FullCheckedExprPurpose::CheckedContract { function_ref: Some((FunctionName::name(Name::intern("bad")), true)), with_error_source: false };
+            FullCheckedExprPurpose::CheckedContract { function_ref: Some((FunctionName::name(Name::intern("bad")), CallableKind::Pure)), with_error_source: false };
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
@@ -27383,7 +27684,7 @@ pure invoke(n: Int) -> Int { f(n) }
             evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "read_args")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -27963,7 +28264,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
                     evaluator.force_frames = force_frames;
                     let actual = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "answer")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap();
@@ -28330,7 +28631,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
         let error = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(program_name(&wrong_item, "use_list")),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[],
                 Span::new(wrong_item.store.source_id, 0, 0),
             )
@@ -29713,7 +30014,7 @@ pure both(first: Bool, second: Bool, status: Status, number: Int) -> Bool {
             for status in [0, 1] {
                 let args = [Value::Bool(false), Value::Bool(true), Value::Status(crate::runtime::process::ProcessStatus::exited(status)), Value::Int(7)];
                 let value = converted.symbol_owner().with_current(|| evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(Name::intern("both")), LoweredFunctionKind::Pure, &args, Span::new(converted.store.source_id, 0, 0),
+                    LoweredFunctionKey::Name(Name::intern("both")), CallableKind::Pure, &args, Span::new(converted.store.source_id, 0, 0),
                 )).unwrap().unwrap();
                 assert_eq!(value, Value::Bool(status == 0));
             }
@@ -29758,7 +30059,7 @@ pure assertion(value: Bool, status: Status) -> Result[Unit] { let _ = status; as
                 for name in ["scalar", "generic", "selected"] {
                     let value = Value::Status(crate::runtime::process::ProcessStatus::exited(status));
                     let result = program.symbol_owner().with_current(|| evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure, &[value], Span::new(program.store.source_id, 0, 0),
+                        LoweredFunctionKey::Name(Name::intern(name)), CallableKind::Pure, &[value], Span::new(program.store.source_id, 0, 0),
                     )).unwrap().unwrap();
                     let expected = if name == "selected" { Value::List(if status == 0 { vec![Value::Int(1)] } else { Vec::new() }) } else { Value::Bool(status == 0) };
                     assert_eq!(result, expected);
@@ -31504,7 +31805,7 @@ assert results == [4]
             let execution = program
                 .function_view(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                 )
                 .expect("main resolves")
                 .expect("main exists")
@@ -31543,7 +31844,7 @@ assert results == [4]
             let function = program
                 .function_view(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                 )
                 .expect("main resolves")
                 .expect("main exists");
@@ -31571,7 +31872,7 @@ assert results == [4]
         let other_program = Arc::new(fixture("other-owned-list-position.xsh", source));
         let key = LoweredFunctionKey::Name(program_name(&program, "main"));
         let function_index = program
-            .function_view(key, LoweredFunctionKind::Proc)
+            .function_view(key, CallableKind::Proc)
             .unwrap()
             .unwrap()
             .index();
@@ -31609,7 +31910,7 @@ assert results == [4]
         let other_index = other_program
             .function_view(
                 LoweredFunctionKey::Name(program_name(&other_program, "main")),
-                LoweredFunctionKind::Proc,
+                CallableKind::Proc,
             )
             .unwrap()
             .unwrap()
@@ -31667,7 +31968,7 @@ proc main() [env, error] -> Result[Unit] {
             let error = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -31882,7 +32183,7 @@ proc main() [env, error] -> Result[Unit] {
             };
             let unit = LoweredFunctionUnit {
                 key: LoweredFunctionKey::Name(Name::intern("selected")),
-                kind: LoweredFunctionKind::Pure,
+                kind: CallableKind::Pure,
                 source_span: span,
                 definition_span: span,
                 owner: None,
@@ -31940,7 +32241,7 @@ proc main() [env, error] -> Result[Unit] {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "selected")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Bool(flag)],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -31982,7 +32283,7 @@ pure selected() -> Path {
         let result = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(program_name(&program, "selected")),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[],
                 Span::new(program.store.source_id, 0, 0),
             )
@@ -32035,7 +32336,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, name)),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &arguments,
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -32683,7 +32984,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                     evaluator.force_frames = force_frames;
                     let result = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "replace_before_anchor")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Str("a\tb".into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).expect("replacement function exists");
@@ -32717,7 +33018,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                     evaluator.force_frames = force_frames;
                     let result = evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "split_before_anchor")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Str("a\tb\nc".into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).expect("split function exists");
@@ -32742,7 +33043,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                 evaluator.force_frames = force_frames;
                 let result = evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "append")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[
                         Value::List(vec![Value::Int(1)]),
                         Value::Record(BTreeMap::from([
@@ -32825,7 +33126,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                         let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                         evaluator.indexed_program = Some(Arc::clone(&program));
                         evaluator.force_frames = force_frames;
-                        let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("invoke")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).unwrap();
+                        let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("invoke")), CallableKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).unwrap();
                         let value = result.unwrap();
                         if input == 0 {
                             assert_eq!(value, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Str("zero".into())))));
@@ -32857,13 +33158,13 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     evaluator.force_frames = force_frames;
                     let error = evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(Name::intern("fail")), LoweredFunctionKind::Pure,
+                        LoweredFunctionKey::Name(Name::intern("fail")), CallableKind::Pure,
                         &[Value::Record(BTreeMap::from([(Arc::from("value"), Value::Int(0))]).into())],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap_err();
                     errors.push((error.kind, error.message));
                     let after = evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(Name::intern("after")), LoweredFunctionKind::Pure, &[],
+                        LoweredFunctionKey::Name(Name::intern("after")), CallableKind::Pure, &[],
                         Span::new(program.store.source_id, 0, 0),
                     ).unwrap().unwrap();
                     assert_eq!(after, Value::Int(7));
@@ -32949,7 +33250,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                             evaluator.indexed_program = Some(Arc::clone(&program));
                             evaluator.force_frames = force_frames;
-                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
+                            let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("key"), Value::Int(input))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap();
                             if input > 0 {
                                 let expected = match return_type {
                                     "Int" => Value::Int(1),
@@ -32987,7 +33288,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     evaluator.force_frames = force_frames;
-                    let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("invoke")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap_err();
+                    let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("invoke")), CallableKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap_err();
                     assert_eq!(error.kind, "schema");
                     assert_eq!(&source[error.span.unwrap().range()], "key(row.key)");
                     failures.push((error.kind, error.message));
@@ -33030,7 +33331,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             for step in 0..program.driver_step_count().unwrap() {
                 evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             }
-            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             assert_eq!(result, Value::Int(7));
         }
     }
@@ -33954,7 +34255,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(2));
             }
             let context = program.store.checked_expr_types.iter().position(|fact| !fact.is_contract()).unwrap();
@@ -34051,7 +34352,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(result, Value::Int(7));
             }
         });
@@ -34159,7 +34460,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(value, Value::Int(1));
             }
             let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
@@ -34247,7 +34548,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                             evaluator.force_frames = force_frames;
                             let result = evaluator.call_indexed_direct(
                                 LoweredFunctionKey::Name(program_name(&program, "count_words")),
-                                LoweredFunctionKind::Pure,
+                                CallableKind::Pure,
                                 &[Value::Str(input.into())],
                                 Span::new(program.store.source_id, 0, 0),
                             ).expect("word counter exists");
@@ -34283,7 +34584,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 evaluator.force_frames = force_frames;
                 let result = evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "exercise")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("exercise is present in the indexed program");
@@ -34312,7 +34613,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -34337,7 +34638,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -34386,7 +34687,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "translated_cause")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::at(program.store.source_id, 0),
                 )
@@ -34505,7 +34806,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -34534,7 +34835,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 program
                     .function_view(
                         LoweredFunctionKey::Name(Name::intern("plus")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                     )
                     .expect("function view resolves")
                     .expect("the fixture declares `plus`")
@@ -34592,7 +34893,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             program
                 .function_view(
                     LoweredFunctionKey::Name(program_name(&program, "main")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                 )
                 .unwrap()
                 .is_some()
@@ -34653,7 +34954,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "selected")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -34760,7 +35061,7 @@ pure selected() -> Str {
         let result = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(name),
-                LoweredFunctionKind::Proc,
+                CallableKind::Proc,
                 &[],
                 Span::new(program.store.source_id, 0, 0),
             )
@@ -34777,7 +35078,7 @@ pure selected() -> Str {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(program));
             evaluator.force_frames = force_frames;
-            let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(program, name)), LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(program, name)), CallableKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
             assert_eq!(actual, expected);
         }
     }
@@ -34882,7 +35183,7 @@ pure selected() -> Str {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.force_frames = force_frames;
-                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "read")), LoweredFunctionKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::List((0..4097).map(Value::Int).collect()));
             }
         });
@@ -34940,7 +35241,7 @@ pure selected() -> Str {
                 let header = program
                     .function_view(
                         LoweredFunctionKey::Name(Name::intern("constant")),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                     )
                     .unwrap()
                     .unwrap()
@@ -35144,7 +35445,7 @@ pure selected() -> Str {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(name),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -35841,7 +36142,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "value")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -35862,7 +36163,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "root_methods")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -35888,7 +36189,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "command_values")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -35962,7 +36263,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -35971,7 +36272,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "descriptor_spread_values")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -35991,7 +36292,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "native_path")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     std::slice::from_ref(&argument),
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -36003,7 +36304,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "native_plan")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     std::slice::from_ref(&argument),
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -36200,7 +36501,7 @@ pure selected() -> Str {
             let view = program
                 .function_view(
                     LoweredFunctionKey::Name(Name::intern("select")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                 )
                 .unwrap()
                 .unwrap();
@@ -36391,7 +36692,7 @@ pure selected() -> Str {
             let view = program
                 .function_view(
                     LoweredFunctionKey::Name(Name::intern("nested")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                 )
                 .unwrap()
                 .unwrap();
@@ -37489,7 +37790,7 @@ pure selected() -> Str {
                 evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[argument],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -37593,7 +37894,7 @@ pure selected() -> Str {
                 evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "port")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Str(line.into())],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -37671,7 +37972,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "counts")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -37779,9 +38080,9 @@ pure selected() -> Str {
                     Vec::new()
                 };
                 let kind = if matches!(name, "producer_failure" | "nested_producer_failure") {
-                    LoweredFunctionKind::Proc
+                    CallableKind::Proc
                 } else {
-                    LoweredFunctionKind::Pure
+                    CallableKind::Pure
                 };
                 let result = evaluator
                     .call_indexed_direct(
@@ -37817,7 +38118,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "counts")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -37850,7 +38151,7 @@ pure selected() -> Str {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &args,
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -37860,7 +38161,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "present")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -37901,7 +38202,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "counts")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -37951,7 +38252,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "updated")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -37997,7 +38298,7 @@ pure selected() -> Str {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "spliced")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -38066,7 +38367,7 @@ assert nearest(bad, different)? == bad
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "capture")), CallableKind::Proc,
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).expect("capture function exists").unwrap();
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
@@ -38123,7 +38424,7 @@ pure captured(value: Result[Int, CaptureFailure], other: Result[Int, OtherFailur
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))));
                 let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "captured")), LoweredFunctionKind::Pure,
+                    LoweredFunctionKey::Name(program_name(&program, "captured")), CallableKind::Pure,
                     &[value.clone(), value.clone()], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, value);
@@ -38207,7 +38508,7 @@ proc captured(value: Result[Int, CaptureFailure]) [error] -> Result[Int, Capture
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let value = Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7))));
                 assert_eq!(evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "captured")), LoweredFunctionKind::Proc,
+                    LoweredFunctionKey::Name(program_name(&program, "captured")), CallableKind::Proc,
                     &[value.clone()], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap(), value);
             }
@@ -38633,9 +38934,9 @@ assert context_streams(good, bad)? == 7
                 for step in 0..program.driver_step_count().unwrap() {
                     evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 }
-                let stopped = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "blocked_stream_rows")), LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let stopped = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "blocked_stream_rows")), CallableKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
                 assert!(matches!(stopped, Value::Result(crate::runtime::value::ResultValue::Err(_))));
-                let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "uncaught_stream_rows")), LoweredFunctionKind::Proc, &[stopped], Span::new(program.store.source_id, 0, 0)).unwrap().expect_err("Result iteration outside Capture remains a propagated failure");
+                let error = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "uncaught_stream_rows")), CallableKind::Proc, &[stopped], Span::new(program.store.source_id, 0, 0)).unwrap().expect_err("Result iteration outside Capture remains a propagated failure");
                 assert_eq!(error.family, "AssertionError");
                 assert_eq!(error.variant, "Failed");
                 assert!(error.propagated);
@@ -38756,7 +39057,7 @@ proc configured() [] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "configured")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -38817,7 +39118,7 @@ proc configured() [] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -38919,7 +39220,7 @@ proc configured() [] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "verified")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -38951,7 +39252,7 @@ proc configured() [] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &args,
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -38977,7 +39278,7 @@ proc configured() [] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -39109,7 +39410,7 @@ proc configured() [] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &arguments,
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -39154,7 +39455,7 @@ pure label(word: Word) -> Str {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "label")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[argument],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -39349,13 +39650,13 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             };
             for (flag, expected) in [(true, 15), (false, 10)] {
                 assert_eq!(
-                    call(&program, "scaled", LoweredFunctionKind::Pure, flag).unwrap(),
+                    call(&program, "scaled", CallableKind::Pure, flag).unwrap(),
                     Value::Int(expected)
                 );
             }
             for (flag, expected) in [(true, 7), (false, 6)] {
                 assert_eq!(
-                    call(&program, "shifted", LoweredFunctionKind::Proc, flag).unwrap(),
+                    call(&program, "shifted", CallableKind::Proc, flag).unwrap(),
                     Value::ok(Value::Int(expected))
                 );
             }
@@ -43044,7 +43345,7 @@ pure apply() -> Int {
                 assert_eq!(
                     evaluator.call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "current")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         span,
                     ).unwrap().unwrap(),
@@ -43720,7 +44021,7 @@ pure both() -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "both")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -43812,7 +44113,7 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
                 evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(program, "all")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[
                             Value::Bool(false),
                             Value::Int(5),
@@ -43972,7 +44273,7 @@ pure union_task(source: Str) -> Result[Str] {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "union_task")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Str(Arc::from(raw))],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44073,7 +44374,7 @@ pure union_task(source: Str) -> Result[Str] {
                 evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "validated_first")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[Value::Str(Arc::from(raw))],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44178,7 +44479,7 @@ pure checked(number: Int) -> Result[Port] {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, name)),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[Value::Int(value)],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44261,7 +44562,7 @@ pure checked(number: Int) -> Result[Port] {
                 evaluator.indexed_program = Some(Arc::clone(program));
                 evaluator.call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(program, "beneath")),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &[Value::Path(
                         crate::runtime::value::PathValue::from_text(raw).unwrap(),
                     )],
@@ -44318,7 +44619,7 @@ pure checked(number: Int) -> Result[Port] {
                         &program,
                         "inferred_requirement_via_parameter",
                     )),
-                    LoweredFunctionKind::Pure,
+                    CallableKind::Pure,
                     &arguments,
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44466,7 +44767,7 @@ pure checked(number: Int) -> Result[Port] {
                 let value = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "parent")),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Stream,
                         &[],
                         span,
                     )
@@ -44680,7 +44981,7 @@ proc checked() [process, error] {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44726,7 +45027,7 @@ proc local() [env, error] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "scoped")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44736,7 +45037,7 @@ proc local() [env, error] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "local")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44782,7 +45083,7 @@ proc local() [env, error] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, "limited")),
-                        LoweredFunctionKind::Proc,
+                        CallableKind::Proc,
                         &[millis(limit), millis(pause)],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44832,7 +45133,7 @@ proc local() [env, error] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "selected")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     std::slice::from_ref(&argument),
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44862,7 +45163,7 @@ proc local() [env, error] -> Int {
             let result = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(program_name(&program, "fatal")),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
@@ -44893,7 +45194,7 @@ proc local() [env, error] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44907,7 +45208,7 @@ proc local() [env, error] -> Int {
                 let result = evaluator
                     .call_indexed_direct(
                         LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure,
+                        CallableKind::Pure,
                         &[],
                         Span::new(program.store.source_id, 0, 0),
                     )
@@ -44963,7 +45264,7 @@ proc local() [env, error] -> Int {
                 };
                 let unit = LoweredFunctionUnit {
                     key: LoweredFunctionKey::Name(Name::intern("selected")),
-                    kind: LoweredFunctionKind::Pure,
+                    kind: CallableKind::Pure,
                     source_span: span,
                     definition_span: span,
                     owner: None,
@@ -45201,8 +45502,8 @@ proc local() [env, error] -> Int {
                 LoweredType::Stream,
                 Type::Stream(Box::new(Type::Any)),
             ),
-            (LoweredType::Pure, Type::Function(crate::sema::types::CallableKind::Pure)),
-            (LoweredType::Proc, Type::Function(crate::sema::types::CallableKind::Proc)),
+            (LoweredType::Function(crate::sema::types::CallableKind::Pure), Type::Function(crate::sema::types::CallableKind::Pure)),
+            (LoweredType::Function(crate::sema::types::CallableKind::Proc), Type::Function(crate::sema::types::CallableKind::Proc)),
             (LoweredType::Error, Type::Error),
             (LoweredType::Record, Type::ErasedRecord),
             (LoweredType::Module, Type::DynamicModule),
@@ -45263,8 +45564,8 @@ proc local() [env, error] -> Int {
             ),
             (Type::Record(std::collections::BTreeMap::new().into()), LoweredType::Record),
             (module, LoweredType::Module),
-            (callable(true), LoweredType::Pure),
-            (callable(false), LoweredType::Proc),
+            (callable(true), LoweredType::Function(crate::sema::types::CallableKind::Pure)),
+            (callable(false), LoweredType::Function(crate::sema::types::CallableKind::Proc)),
             (Type::non_empty(Type::Int), LoweredType::List),
         ];
         for (ty, expected) in variants {

@@ -1019,6 +1019,9 @@ pub(super) fn lowered_return_value(
 }
 
 pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> bool {
+    if let (LoweredType::Function(kind), LoweredValue::Callable(callable)) = (kind, value) {
+        return kind == callable.kind();
+    }
     matches!(
         (kind, value),
         (LoweredType::Any, _)
@@ -1041,8 +1044,6 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::FsRoot, LoweredValue::FsRoot(_))
             | (LoweredType::FsLock, LoweredValue::FsLock(_))
             | (LoweredType::Stream, LoweredValue::Stream(_))
-            | (LoweredType::Pure, LoweredValue::Pure(_))
-            | (LoweredType::Proc, LoweredValue::Proc(_))
             | (LoweredType::Error, LoweredValue::Error(_))
             | (LoweredType::Record, LoweredValue::Record(_))
             | (LoweredType::Record, LoweredValue::RecordVec(_))
@@ -1080,8 +1081,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::FsRoot => "FsRoot",
         LoweredType::FsLock => "FsLock",
         LoweredType::Stream => "Stream",
-        LoweredType::Pure => "Pure",
-        LoweredType::Proc => "Proc",
+        LoweredType::Function(kind) => kind.value_type_name(),
         LoweredType::Error => "Error",
         LoweredType::Record => "Record",
         LoweredType::Module => "Module",
@@ -1129,8 +1129,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::FsRoot, Value::FsRoot(value)) => Some(LoweredValue::FsRoot(value.clone())),
         (LoweredType::FsLock, Value::FsLock(value)) => Some(LoweredValue::FsLock(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
-        (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(value.clone())),
-        (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(value.clone())),
+        (LoweredType::Function(kind), Value::Callable(value)) if kind == value.kind() => Some(LoweredValue::Callable(value.clone())),
         (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
@@ -1181,8 +1180,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::FsRoot(value) => Some(LoweredValue::FsRoot(value.clone())),
         Value::FsLock(value) => Some(LoweredValue::FsLock(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
-        Value::Pure(value) => Some(LoweredValue::Pure(value.clone())),
-        Value::Proc(value) => Some(LoweredValue::Proc(value.clone())),
+        Value::Callable(value) => Some(LoweredValue::Callable(value.clone())),
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
         Value::Record(value) => lowered_record_from_runtime(value),
         Value::Module(value) => lowered_module_from_runtime(value),

@@ -12,6 +12,14 @@ use super::{
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn lower_range_values(&mut self, start: Option<BuildExprId>, end: BuildExprId, span: Span) -> (BuildExprId, Option<BuildExprId>) {
+        let (start, implicit_start) = match start {
+            Some(start) => (start, None),
+            None => { let start = push_build_row!(self, expr, BuildExprRow::Int(0)); (start, Some(start)) }
+        };
+        (push_build_row!(self, expr, BuildExprRow::Range { start, end, span }), implicit_start)
+    }
+
     fn lower_checked_function_call(
         &mut self,
         id: ExprId,
@@ -616,7 +624,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::TypedCall {
                     callee,
-                    pure: (callable.kind == crate::sema::types::CallableKind::Pure),
+                    kind: callable.kind,
                     signature: Type::Callable(callable),
                     args,
                     span,
@@ -2375,20 +2383,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         [start, end] => (Some(start), end),
                         _ => return None,
                     };
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Range {
-                            start: match start {
-                                Some(start) => {
-                                    self.lower_call_argument(start, slots, current_function, item_slot)?
-                                }
-                                None => push_build_row!(self, expr, BuildExprRow::Int(0)),
-                            },
-                            end: self.lower_call_argument(end, slots, current_function, item_slot)?,
-                            span,
-                        }
-                    ));
+                    let start = match start {
+                        Some(start) => Some(self.lower_call_argument(start, slots, current_function, item_slot)?),
+                        None => None,
+                    };
+                    let end = self.lower_call_argument(end, slots, current_function, item_slot)?;
+                    return Some(self.lower_range_values(start, end, span).0);
                 }
                 if name == "Path"
                     && let Some(positional) = positional.as_ref()

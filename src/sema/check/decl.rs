@@ -133,6 +133,14 @@ fn collect_body_type_facts(
         }
     }
     for &(statement, usage) in &statements {
+        if usage != BodyFactUse::Executable { continue; }
+        let statement = arena.stmt(arena.core_stmt_id(statement));
+        if let ArenaStmtKind::Assign { target, .. } = statement.kind
+            && let Some(name) = super::assignment_target_root_name(program, target)
+            && let Some(binding) = bindings.value_sites.get(&(statement.span, name))
+        { reads.insert(*binding); }
+    }
+    for &(statement, usage) in &statements {
         if usage != BodyFactUse::Executable || !matches!(arena.stmt(statement).kind, ArenaStmtKind::Command(_)) { continue; }
         let span = arena.stmt(statement).span;
         let start = (Span::at(span.source_id, span.start()), Name::UNKNOWN);
@@ -364,6 +372,7 @@ impl Checker {
             }).collect::<super::FxHashSet<_>>();
             checked_calls.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
+            checked_calls.extend(self.builtin_range_calls.iter().filter(|span| expression_spans.contains(span)).copied());
             if matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream) {
                 checked_calls.extend(local_statements.iter().filter_map(|&statement| {
                     let node = program.arena.stmt(statement);
@@ -391,9 +400,9 @@ impl Checker {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
                     if declaration.kind != super::BindingKind::Runtime { return None; }
                     self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
-                        .filter(|binding| !binding.mutable && !binding.ty.contains_inference() && !binding.ty.may_hold_resource())
-                        .map(|_| id)
-                }).collect::<super::FxHashSet<_>>();
+                        .filter(|binding| !binding.ty.contains_inference() && !binding.ty.may_hold_resource())
+                        .map(|binding| (id, if binding.mutable { super::scheme_body::CapturedBindingAccess::Writable } else { super::scheme_body::CapturedBindingAccess::ReadOnly }))
+                }).collect::<super::scheme_body::CapturedBindings>();
             if !super::scheme_body::supports_generalized_body(
                 program,
                 &self.prepared_constants,

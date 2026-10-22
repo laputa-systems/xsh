@@ -311,6 +311,12 @@ Direct error propagation from a physical `Err` proves its error payload and caus
 without inventing a success contract. Every direct transfer has a mandatory
 producer proof, including transfers with no completing return. Uncaught transfers
 must fit the function's declared error boundary.
+Mutable capture headers require exact equality with the independently derived
+storage declaration. Ordinary reads retain their compatibility relation. The
+same storage obligation cache distinguishes both relations, and every writer
+preserves the declaration type. Producers refresh their identity-bound captures
+before every pull and before cleanup of a started body. Unstarted cancellation
+drops the frame without executing defaults, body, or defers.
 
 Presence queries retain the exact binding and field path through ordered guards.
 They check later fallthrough conditions, completing branches, intervening writes,
@@ -478,11 +484,19 @@ The semantic codec retains the kind for opaque and typed callables and rejects
 invalid kind tags. Authored callable annotations retain the existing Pure and
 Proc syntax. Stream callable contracts have no authored annotation syntax.
 
-The public Rust `Value::Pure` and `Value::Proc` variants carry an opaque
-`CallableValue`. Its declaration identity remains available through `identity()`;
-equality compares that identity rather than treating invocation evidence as part
-of the source value. Prepared invocation context belongs to the callable's
-executable program and remains private. Extracting a declaration name provides no
+The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
+Its opaque `CallableValue` carries the canonical `CallableKind`; named values
+require an explicit kind, and prepared values derive it from the authenticated
+executable target. Declaration identity remains available through `identity()`.
+Equality compares kind and identity, excluding invocation evidence.
+The runtime uses `CallableKind` in place of its former `LoweredFunctionKind`.
+Prepared invocation context belongs to the callable's executable program and
+remains private. Function references and typed calls encode the three kinds
+strictly; a stream factory is distinct from its produced stream value.
+A lazy producer owns the same checked invocation bindings at creation, first
+pull, default evaluation, suspension, and cleanup. Declared creation effects
+remain charged at the call site; executing defaults and the body waits for the
+first pull. Extracting a declaration name provides no
 substitute for checking the actual target and its call-site substitution.
 Each contextual reference or immutable alias read retains its own checked
 substitution; materializing one use does not specialize the stored declaration

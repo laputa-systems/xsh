@@ -1,4 +1,4 @@
-use crate::runtime::eval::{Evaluator, FullBuilder, LoweredFunctionKey, LoweredFunctionKind};
+use crate::runtime::eval::{Evaluator, FullBuilder, LoweredFunctionKey, CallableKind};
 use crate::runtime::value::{ResultValue, Value};
 use crate::sema::check::Checker;
 use crate::sema::types::Type;
@@ -41,7 +41,7 @@ fn ordinary_generic_bodies_execute_after_frontend_disposal() {
             assert!(declarations.diagnostics.is_empty(), "{source}\n{:?}", declarations.diagnostics);
             let program = FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources.clone()), source_id)
                 .unwrap_or_else(|error| panic!("{source}\n{error:?}"));
-            (Arc::new(program), sources, if proc { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure })
+            (Arc::new(program), sources, if proc { CallableKind::Proc } else { CallableKind::Pure })
         };
         for force_frames in [false, true] {
             for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
@@ -79,7 +79,7 @@ fn ordinary_generic_explicit_discards_preserve_result_data() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[input], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[input], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(7));
         }
     }
@@ -107,7 +107,7 @@ fn ordinary_generic_proc_early_returns_preserve_nested_result_data() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("wrap")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[input], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[input], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, expected);
         }
     }
@@ -132,7 +132,7 @@ fn ordinary_generic_local_storage_preserves_signed_widening() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(SourceId::new(0), 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(SourceId::new(0), 0)).unwrap().unwrap();
             assert_eq!(actual, expected, "{name} frames={force_frames}");
         }
     }
@@ -163,7 +163,7 @@ fn ordinary_generic_aggregate_projections_execute_after_frontend_disposal() {
             assert!(declarations.diagnostics.is_empty(), "{source}\n{:?}", declarations.diagnostics);
             let program = FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources.clone()), source_id)
                 .unwrap_or_else(|error| panic!("{source}\n{error:?}"));
-            (Arc::new(program), sources, if proc { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure })
+            (Arc::new(program), sources, if proc { CallableKind::Proc } else { CallableKind::Pure })
         };
         for force_frames in [false, true] {
             for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("value")))] {
@@ -199,7 +199,7 @@ fn ordinary_generic_aggregate_concatenation_preserves_validation_boundaries() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::List(vec![Value::Int(item)])], Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::List(vec![Value::Int(item)])], Span::at(source_id, 0)).unwrap();
                 if item >= 0 { assert_eq!(actual.unwrap(), expected); }
                 else {
                     let error = actual.unwrap_err();
@@ -213,7 +213,7 @@ fn ordinary_generic_aggregate_concatenation_preserves_validation_boundaries() {
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("nonempty")));
-        assert_eq!(evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::List(vec![Value::Int(1), Value::Int(1)]));
+        assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap(), Value::List(vec![Value::Int(1), Value::Int(1)]));
     }
 }
 
@@ -235,7 +235,7 @@ fn ordinary_generic_aggregate_computed_negative_indexes_fail_on_both_routes() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Int(index)], Span::at(source_id, 0)).unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(index)], Span::at(source_id, 0)).unwrap();
             if index == 0 { assert_eq!(actual.unwrap(), Value::Int(7)); }
             else {
                 let error = actual.unwrap_err();
@@ -274,7 +274,7 @@ fn ordinary_generic_guarded_receivers_preserve_null_and_present_values() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, expected, "{operation} frames={force_frames}");
                 }
             }
@@ -309,7 +309,7 @@ fn ordinary_generic_guarded_operands_are_evaluated_only_when_present() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap();
                 if matches!(input, Value::Null) { assert_eq!(actual.unwrap(), Value::Int(7), "{operation} frames={force_frames}"); }
                 else { assert_eq!(actual.unwrap_err().kind, "index-out-of-range", "{operation} frames={force_frames}"); }
             }
@@ -330,7 +330,7 @@ fn ordinary_generic_guarded_result_receivers_preserve_error_data() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[input], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, expected, "frames={force_frames}");
         }
     }
@@ -351,7 +351,7 @@ fn ordinary_generic_guarded_nullable_returns_preserve_nested_result_data() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, *input, "{input_type} {name} frames={force_frames}");
                 }
             }
@@ -379,7 +379,7 @@ fn ordinary_generic_guarded_operation_results_preserve_optional_payloads() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[input.clone()], Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, expected, "{operation} {name} frames={force_frames}");
                 }
             }
@@ -402,7 +402,7 @@ fn ordinary_generic_guarded_uint_map_keys_validate_only_present_receivers() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let actual = evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &[items, Value::Int(key)], Span::at(source_id, 0)).unwrap();
+            let actual = evaluator.call_indexed_direct(function, CallableKind::Pure, &[items, Value::Int(key)], Span::at(source_id, 0)).unwrap();
             if present && key < 0 {
                 let error = actual.unwrap_err();
                 assert_eq!(error.kind, "schema");
@@ -429,7 +429,7 @@ fn nullable_branch_inference_executes_independent_payloads_after_frontend_dispos
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let plain = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("plain")));
-                let error = evaluator.call_indexed_direct(plain, LoweredFunctionKind::Pure, &[Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))))], Span::at(source_id, 0)).unwrap().unwrap_err();
+                let error = evaluator.call_indexed_direct(plain, CallableKind::Pure, &[Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))))], Span::at(source_id, 0)).unwrap().unwrap_err();
                 assert_eq!(error.kind, "stream-stage-error");
                 for flag in [false, true] {
                     let present = flag == present_when_true;
@@ -443,7 +443,7 @@ fn nullable_branch_inference_executes_independent_payloads_after_frontend_dispos
                         evaluator.force_frames = force_frames;
                         evaluator.indexed_program = Some(Arc::clone(&program));
                         let function = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                        let actual = evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &args, Span::at(source_id, 0)).unwrap().unwrap();
+                        let actual = evaluator.call_indexed_direct(function, CallableKind::Pure, &args, Span::at(source_id, 0)).unwrap().unwrap();
                         assert_eq!(actual, if present { expected } else { Value::Null }, "{expression} {name} frames={force_frames}");
                     }
                 }
@@ -491,7 +491,7 @@ fn generic_construction_values_execute_after_frontend_disposal() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 let actual = match actual {
                     Value::Record(fields) => Value::Map(fields.iter().map(|(name, value)| (MapKey::Str(Arc::from(name)), value.clone())).collect()),
                     actual => actual,
@@ -526,7 +526,7 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("a proc preserves its result envelope") };
             let Value::Record(fields) = *actual else { panic!("the ordered constructor returns its counters") };
             assert_eq!(fields.get("count"), Some(&Value::Int(2)), "{operation}");
@@ -554,7 +554,7 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
+            let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
             assert_eq!(error.kind, "index-out-of-range");
             assert_eq!(&source[error.span.unwrap().range()], "[1][first]");
         }
@@ -600,7 +600,7 @@ fn generic_record_forms_execute_after_frontend_disposal() {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(record_form_observable(actual), expected, "{definition} {name} frames={force_frames}");
             }
         }
@@ -616,7 +616,7 @@ fn generic_record_forms_updates_preserve_order_failure_and_unsigned_checks() {
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-        let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the proc retains its checked result boundary") };
         let Value::Record(fields) = *actual else { panic!("the update returns its actual counter and records") };
         assert_eq!(fields.get("count"), Some(&Value::Int(3)));
@@ -635,7 +635,7 @@ fn generic_record_forms_updates_preserve_order_failure_and_unsigned_checks() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
+            let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap_err();
             assert_eq!(error.kind, "index-out-of-range");
             assert_eq!(&source[error.span.unwrap().range()], "[1][first]");
         }
@@ -649,7 +649,7 @@ fn generic_record_forms_updates_preserve_order_failure_and_unsigned_checks() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Int(input)], Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(input)], Span::at(source_id, 0)).unwrap();
                 if input == 7 { assert_eq!(actual.unwrap(), Value::Int(7)); }
                 else { let error = actual.unwrap_err(); assert_eq!(error.kind, "type-error"); assert!(error.message.contains("UInt"), "{error:?}"); assert_eq!(&source[error.span.unwrap().range()], "{...row, nested.count: signed}"); }
             }
@@ -668,12 +668,12 @@ fn generic_operators_short_circuit_preserves_lazy_failure_after_frontend_disposa
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let skipped = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(skipped), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
+                let skipped = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Bool(skipped), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(skipped, Value::Bool(operator == "or"), "{operator} {name} frames={force_frames}");
-                let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(reached), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
+                let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Bool(reached), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
                 assert_eq!(error.kind, "index-out-of-range");
                 assert_eq!(&source[error.span.unwrap().range()], "[true][index]");
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(reached), Value::Int(0)], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Bool(reached), Value::Int(0)], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::Bool(true), "{operator} {name} frames={force_frames}");
             }
         }
@@ -691,7 +691,7 @@ fn generic_operators_short_circuit_preserves_observable_operand_order() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(flag)], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Bool(flag)], Span::at(source_id, 0)).unwrap().unwrap();
                 let count = if flag == (operator == "and") { 11 } else { 1 };
                 assert_eq!(actual, Value::ok(Value::Int(count)), "{operator} {flag} frames={force_frames}");
             }
@@ -709,7 +709,7 @@ fn generic_operators_selected_domains_execute_after_frontend_disposal() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let mut expected = vec![Value::Bool(true); 13];
             expected[1] = Value::Bool(false);
             assert_eq!(actual, Value::List(expected), "{name} frames={force_frames}");
@@ -727,13 +727,13 @@ fn generic_operators_comparison_chains_evaluate_only_reached_operands_once() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let observed = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
         for (number, count) in [(-1, 11), (2, 111), (9, 111)] {
-            let actual = evaluator.call_indexed_direct(observed, LoweredFunctionKind::Proc, &[Value::Int(number)], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(observed, CallableKind::Proc, &[Value::Int(number)], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::ok(Value::Int(count)), "{number} frames={force_frames}");
         }
         let checked = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("checked")));
-        let skipped = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(-1), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
+        let skipped = evaluator.call_indexed_direct(checked, CallableKind::Pure, &[Value::Int(-1), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(skipped, Value::Bool(false));
-        let error = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(2), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
+        let error = evaluator.call_indexed_direct(checked, CallableKind::Pure, &[Value::Int(2), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
         assert_eq!(error.kind, "index-out-of-range");
         assert_eq!(&source[error.span.unwrap().range()], "[7][index]");
     }
@@ -750,12 +750,12 @@ fn generic_operators_unsigned_map_membership_keeps_the_ordinary_validation_bound
             evaluator.indexed_program = Some(Arc::clone(&program));
             let arguments = [Value::Int(key), Value::Map(Default::default())];
             let ordinary = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
-            let expected = evaluator.call_indexed_direct(ordinary, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+            let expected = evaluator.call_indexed_direct(ordinary, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
             if key < 0 { assert!(expected.as_ref().unwrap_err().message.contains("UInt")); }
             else { assert_eq!(expected.as_ref().unwrap(), &Value::Bool(false)); }
             for name in ["number", "text"] {
                 let selected = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(selected, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(selected, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
                 match (&expected, actual) {
                     (Ok(expected), Ok(actual)) => assert_eq!(&actual, expected),
                     (Err(expected), Err(actual)) => { assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family); }
@@ -776,7 +776,7 @@ fn generic_iteration_destructured_sources_preserve_order_and_binder_identity() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked proc retains its success boundary") };
             let Value::Record(fields) = *actual else { panic!("the checked result remains a record") };
             assert_eq!(fields.get("value"), Some(&expected));
@@ -796,7 +796,7 @@ fn generic_iteration_for_sources_evaluate_once_and_keep_the_snapshot() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked proc retains its success boundary") };
             let Value::Record(fields) = *actual else { panic!("the checked result remains a record") };
             assert_eq!(fields.get("value"), Some(&expected));
@@ -825,7 +825,7 @@ fn generic_iteration_finite_sources_preserve_canonical_item_order() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{ty} frames={force_frames}: {error:?}"));
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{ty} frames={force_frames}: {error:?}"));
                     let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the loop retains its checked result boundary") };
                     let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
                     assert_eq!(fields.get("marker"), Some(&marker), "{ty} frames={force_frames}");
@@ -848,7 +848,7 @@ fn generic_iteration_result_sources_preserve_the_actual_error_payload() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 let Value::Result(ResultValue::Err(error)) = actual else { panic!("the source failure must propagate") };
                 let Value::Error(error) = *error else { panic!("the nominal source failure remains an error value") };
                 assert_eq!(error.family, "IterationFailure", "{item} frames={force_frames}");
@@ -870,7 +870,7 @@ fn generic_iteration_stream_break_stops_pulling_and_releases_the_source() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the loop retains its checked result boundary") };
             let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
             assert_eq!(fields.get("value"), Some(&expected));
@@ -891,7 +891,7 @@ fn generic_iteration_result_streams_keep_pulls_lazy_and_preserve_source_errors()
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{name} frames={force_frames}: {error:?}"));
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{name} frames={force_frames}: {error:?}"));
             if let Some(expected) = expected {
                 let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the checked loop succeeds") };
                 let Value::Record(fields) = *actual else { panic!("the loop returns its observations") };
@@ -922,7 +922,7 @@ fn generic_iteration_result_maps_preserve_the_payload_binder() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the iterable retains its checked success boundary") };
             assert_eq!(*actual, expected, "{name} frames={force_frames}");
         }
@@ -950,7 +950,7 @@ fn generic_comprehension_constructions_preserve_the_checked_payload_relationship
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(record_form_observable(actual), expected, "{definition} {name} frames={force_frames}");
             }
         }
@@ -967,7 +967,7 @@ fn generic_comprehension_qualifiers_keep_nested_evaluation_and_failure_lazy() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(actual)) = actual else { panic!("the selected qualifier path succeeds") };
             let Value::Record(fields) = *actual else { panic!("the comprehension returns its observations") };
             assert_eq!(fields.get("rows"), Some(&Value::List(rows)), "{name} frames={force_frames}");
@@ -988,7 +988,7 @@ fn generic_comprehension_status_filters_keep_exit_success_selection() {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
                 let status = Value::Status(crate::runtime::process::ProcessStatus::exited(code));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[status], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[status], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::List(if code == 0 { vec![value] } else { Vec::new() }), "{name} status={code} frames={force_frames}");
             }
         }
@@ -1006,7 +1006,7 @@ fn generic_comprehension_streams_preserve_source_projection_and_cleanup_boundari
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap();
             if let Some(marker) = marker {
                 let Value::Result(ResultValue::Ok(actual)) = actual.unwrap() else { panic!("the comprehension succeeds") };
                 let Value::Record(fields) = *actual else { panic!("the ground caller returns its observations") };
@@ -1046,7 +1046,7 @@ fn generic_comprehension_unsigned_keys_keep_the_ordinary_checked_elaboration() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::List(vec![Value::Int(1), Value::Int(2)])], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::List(vec![Value::Int(1), Value::Int(2)])], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Map([(MapKey::Int(1), value.clone()), (MapKey::Int(2), value)].into_iter().collect()), "{name} frames={force_frames}");
         }
     }
@@ -1071,7 +1071,7 @@ fn generic_assignment_selected_paths_preserve_the_payload_relationships() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, expected, "{definition} {name} frames={force_frames}");
             }
         }
@@ -1088,7 +1088,7 @@ fn generic_assignment_selectors_precede_rhs_and_compounds_read_after_rhs() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(actual) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the caller returns its checked observations") };
+            let Value::Record(actual) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the caller returns its checked observations") };
             assert_eq!(actual.get("value"), Some(&expected), "{name} frames={force_frames}");
             assert_eq!(actual.get("trace"), Some(&Value::Int(123)), "{name} frames={force_frames}");
             assert_eq!(actual.get("count"), Some(&Value::Int(4)), "{name} frames={force_frames}");
@@ -1111,7 +1111,7 @@ fn generic_assignment_mixed_record_unsigned_fields_keep_the_actual_boundary() {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Int(1), Value::Int(delta)], Span::at(source_id, 0)).unwrap();
+                    let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(1), Value::Int(delta)], Span::at(source_id, 0)).unwrap();
                     if delta == 2 { assert_eq!(actual.unwrap(), Value::Int(3), "{name} frames={force_frames}"); }
                     else { assert_eq!(actual.unwrap_err().kind, "type-error", "{name} frames={force_frames}"); }
                 }
@@ -1134,7 +1134,7 @@ fn generic_assignment_failures_return_no_partial_value_and_preserve_caller_alias
                 let original = Value::List(vec![Value::Int(1), Value::Int(2)]);
                 let index = if operator == "=" { 9 } else { 0 };
                 let arguments = [original.clone(), Value::Int(index)];
-                let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap_err();
+                let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap_err();
                 assert_eq!(error.kind, failure, "{operator} {name} frames={force_frames}");
                 assert_eq!(arguments[0], original, "{operator} {name} frames={force_frames}");
                 assert_eq!(original, Value::List(vec![Value::Int(1), Value::Int(2)]));
@@ -1154,10 +1154,10 @@ fn generic_assignment_unsigned_map_selectors_keep_the_checked_key_domain() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             let arguments = [Value::Int(0), Value::Int(index)];
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("ordinary")));
-            let ordinary = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+            let ordinary = evaluator.call_indexed_direct(key, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
             for (name, expected) in [("number", Value::Int(8)), ("text", Value::Str(Arc::from("other")))] {
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap();
                 if index == 0 { assert_eq!(actual.unwrap(), expected, "{name} frames={force_frames}"); }
                 else {
                     let error = actual.unwrap_err();
@@ -1180,7 +1180,7 @@ fn generic_assignment_validated_and_scalar_compounds_keep_their_domains() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(actual) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::List(vec![Value::Int(1)])], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("compound updates retain their checked record") };
+            let Value::Record(actual) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::List(vec![Value::Int(1)])], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("compound updates retain their checked record") };
             assert_eq!(actual.get("marker"), Some(&marker));
             assert_eq!(actual.get("names"), Some(&Value::List(vec![Value::Int(1), Value::Int(3)])));
             assert_eq!(actual.get("word"), Some(&Value::Str(Arc::from("value!"))));
@@ -1199,7 +1199,7 @@ fn argument_calls_preserve_payloads(definition: &str) {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, expected, "{definition} {name} frames={force_frames}");
         }
     }
@@ -1236,7 +1236,7 @@ fn generic_arguments_defaults_keep_the_declaration_scope() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the selected default stays in the returned record") };
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the selected default stays in the returned record") };
             assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
             assert_eq!(fields.get("count"), Some(&Value::Int(7)), "{name} frames={force_frames}");
         }
@@ -1253,7 +1253,7 @@ fn generic_arguments_spreads_and_splices_keep_source_entry_order() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the call returns its checked observations") };
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the call returns its checked observations") };
             assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
             assert_eq!(fields.get("trace"), Some(&Value::Int(123)), "{name} frames={force_frames}");
             assert_eq!(fields.get("first"), Some(&Value::Int(2)), "{name} frames={force_frames}");
@@ -1272,7 +1272,7 @@ fn generic_arguments_ordinary_interior_defaults_keep_the_declaration_scope() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-        let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary call returns its checked record") };
+        let Value::Record(fields) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary call returns its checked record") };
         assert_eq!(fields.get("value"), Some(&Value::Int(7)), "frames={force_frames}");
         assert_eq!(fields.get("count"), Some(&Value::Int(7)), "frames={force_frames}");
     }
@@ -1290,7 +1290,7 @@ fn generic_arguments_defaults_run_after_supplied_entries_once() {
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(supplied)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the checked default call succeeds") };
+                let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Bool(supplied)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the checked default call succeeds") };
                 let Value::Record(fields) = *fields else { panic!("the call returns its observations") };
                 assert_eq!(fields.get("value"), Some(&expected), "{name} supplied={supplied} frames={force_frames}");
                 assert_eq!(fields.get("trace"), Some(&Value::Int(if supplied { 213 } else { 134 })), "{name} supplied={supplied} frames={force_frames}");
@@ -1310,7 +1310,7 @@ fn generic_arguments_defaults_preserve_failure_and_cleanup() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the outer caller catches the actual default failure") };
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the outer caller catches the actual default failure") };
             let Value::Record(fields) = *fields else { panic!("the caller returns failure observations") };
             assert_eq!(fields.get("closed"), Some(&Value::Int(i64::from(omitted))), "omitted={omitted} frames={force_frames}");
             assert_eq!(fields.get("later"), Some(&Value::Int(0)), "omitted={omitted} frames={force_frames}");
@@ -1320,6 +1320,162 @@ fn generic_arguments_defaults_preserve_failure_and_cleanup() {
                 assert_eq!((&*error.family, &*error.variant, &*error.message), ("ArgumentError", "invalid", "default failed"));
             } else { assert_eq!(fields.get("result"), Some(&Value::Result(ResultValue::Ok(Box::new(Value::Int(7)))))); }
         }
+    }
+}
+
+#[test]
+fn callable_kind_stream_aliases_keep_independent_invocation_bindings() {
+    for through_callback in [false, true] {
+        let creations = if through_callback {
+            "let integers = relay(create, 7)?; let words = relay(create, \"row\")?"
+        } else {
+            "let integers = create(7); let words = create(\"row\")"
+        };
+        let effects = if through_callback { "[error]" } else { "[]" };
+        let source = format!("stream values(value) [] {{ yield value }}\nproc relay(action, value) [] {{ action(value) }}\nproc exercise() {effects} {{ let create = values; {creations}; var integer = 0; for item in integers {{ integer = item; break }}; var text = \"\"; for item in words {{ text = item; break }}; {{integer, text}} }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("stream invocation returns its independently specialized values") };
+            let Value::Record(fields) = *fields else { panic!("the stream consumers return their actual items") };
+            assert_eq!(fields.get("integer"), Some(&Value::Int(7)), "callback={through_callback} frames={force_frames}");
+            assert_eq!(fields.get("text"), Some(&Value::Str(Arc::from("row"))), "callback={through_callback} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn callable_kind_stream_aliases_preserve_lazy_defaults_and_cleanup() {
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; repeat count times { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let words = create(\"row\", count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var text = \"\"; for item in words { text = item; break }; {before, after_first, defaults, pulls, closed, integer, text} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+        let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("stream aliases preserve the lazy producer lifecycle") };
+        let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
+        for (stage, expected) in [("before", 0), ("after_first", 1)] {
+            let Some(Value::Record(counters)) = fields.get(stage) else { panic!("each stage retains its own counter snapshot") };
+            for name in ["defaults", "pulls", "closed"] { assert_eq!(counters.get(name), Some(&Value::Int(expected)), "{stage}.{name} frames={force_frames}"); }
+        }
+        for (name, expected) in [("defaults", 1), ("pulls", 2), ("closed", 2), ("integer", 7)] { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
+        assert_eq!(fields.get("text"), Some(&Value::Str(Arc::from("row"))));
+    }
+}
+
+#[test]
+fn callable_kind_stream_captures_follow_interleaved_writes_and_cancel() {
+    let source = "var counter = 0\nvar defaults = 0\nvar closed = -1\nproc initial() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] -> Unit { closed = counter; counter = counter + 100 }\nstream rows(value, count: Int = initial()) [error] { defer close(); counter = counter + 1; yield value; counter = counter + 1; yield value }\nproc make() [error] -> Stream[Int] { rows(7) }\nproc write(value: Int) [] -> Unit { counter = value }\nproc observe() [] { {counter, defaults, closed} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let span = Span::at(source_id, 0);
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+        let (make, write, observe) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("write")), LoweredFunctionKey::Name(Name::intern("observe"))));
+        let Value::Stream(mut stream) = evaluator.call_indexed_direct(make, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("creation returns an unstarted generic producer") };
+        let observe_state = |evaluator: &mut Evaluator, expected: [i64; 3]| {
+            let Value::Result(ResultValue::Ok(value)) = evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("observations preserve the Proc envelope") };
+            let Value::Record(fields) = *value else { panic!("observations return the live storage state") };
+            for (name, expected) in ["counter", "defaults", "closed"].into_iter().zip(expected) { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
+        };
+        evaluator.call_indexed_direct(write, CallableKind::Proc, &[Value::Int(10)], span).unwrap().unwrap();
+        observe_state(&mut evaluator, [10, 0, -1]);
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(7)));
+        observe_state(&mut evaluator, [11, 1, -1]);
+        evaluator.call_indexed_direct(write, CallableKind::Proc, &[Value::Int(20)], span).unwrap().unwrap();
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(7)));
+        observe_state(&mut evaluator, [21, 1, -1]);
+        evaluator.call_indexed_direct(write, CallableKind::Proc, &[Value::Int(30)], span).unwrap().unwrap();
+        evaluator.stream_cancel(&mut stream, span).unwrap();
+        observe_state(&mut evaluator, [130, 1, 30]);
+        evaluator.stream_cancel(&mut stream, span).unwrap();
+        observe_state(&mut evaluator, [130, 1, 30]);
+        let Value::Stream(mut unstarted) = evaluator.call_indexed_direct(make, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("creation remains lazy after cancellation") };
+        evaluator.call_indexed_direct(write, CallableKind::Proc, &[Value::Int(40)], span).unwrap().unwrap();
+        evaluator.stream_cancel(&mut unstarted, span).unwrap();
+        observe_state(&mut evaluator, [40, 1, 30]);
+    }
+}
+
+#[test]
+fn callable_kind_stream_aliases_instrumented_defaults_wait_for_pull() {
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nproc observe_pull() [] { pulls = pulls + 1 }\nproc observe_late_pull() [] { pulls = pulls + 100 }\nstream rows(value, count: Int = count_default()) [error] { defer close(); let _ = observe_pull(); if count > 0 { yield value }; let _ = observe_late_pull() }\nproc exercise() [error] { let create = rows; let integers = create(7); let words = create(\"row\", count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var text = \"\"; for item in words { text = item; break }; {before, after_first, defaults, pulls, closed, integer, text} }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.trace_enabled = true;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+        let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("stream aliases preserve the lazy producer lifecycle") };
+        let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
+        for (stage, expected) in [("before", 0), ("after_first", 1)] {
+            let Some(Value::Record(counters)) = fields.get(stage) else { panic!("each stage retains its own counter snapshot") };
+            for name in ["defaults", "pulls", "closed"] { assert_eq!(counters.get(name), Some(&Value::Int(expected)), "{stage}.{name} frames={force_frames}"); }
+        }
+        for (name, expected) in [("defaults", 1), ("pulls", 2), ("closed", 2), ("integer", 7)] { assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} frames={force_frames}"); }
+        assert_eq!(fields.get("text"), Some(&Value::Str(Arc::from("row"))));
+        let entries = evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::StreamEnter && event.name.as_deref() == Some("rows")).collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2, "each actual stream body enters once at its first pull");
+        let default = evaluator.trace_events.iter().position(|event| event.kind == crate::trace::TraceKind::ProcEnter && event.name.as_deref() == Some("count_default")).expect("the omitted default runs on first pull");
+        let first_body = evaluator.trace_events.iter().position(|event| event.kind == crate::trace::TraceKind::StreamEnter && event.name.as_deref() == Some("rows")).unwrap();
+        let first_close = evaluator.trace_events.iter().position(|event| event.kind == crate::trace::TraceKind::ProcEnter && event.name.as_deref() == Some("close")).expect("breaking closes the first producer");
+        assert!(first_body < default && default < first_close);
+        assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::ProcEnter && event.name.as_deref() == Some("close")).count(), 2);
+    }
+}
+
+#[test]
+fn callable_kind_stream_delegation_preserves_bindings_and_close_order() {
+    for nested in [false, true] {
+        let factory = if nested { "nested" } else { "listed" };
+        let source = format!("var closed = \"\"\nproc close(label: Str) [] -> Unit {{ closed = closed + label }}\nstream listed(value) [] {{ defer close(\"c\"); yield @[value, value] }}\nstream nested(value) [] {{ defer close(\"p\"); yield @listed(value) }}\nproc exercise() [error] {{ let create = {factory}; var integer = 0; for item in create(7) {{ integer = item; break }}; var text = \"\"; for item in create(\"row\") {{ text = item; break }}; {{integer, text, closed}} }}\n");
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("exercise")));
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("the caller returns delegated items and cleanup observations") };
+            let Value::Record(fields) = *fields else { panic!("the caller retains its independent item types") };
+            assert_eq!(fields.get("integer"), Some(&Value::Int(7)));
+            assert_eq!(fields.get("text"), Some(&Value::Str(Arc::from("row"))));
+            assert_eq!(fields.get("closed"), Some(&Value::Str(Arc::from(if nested { "cpcp" } else { "cc" }))), "nested={nested} frames={force_frames}");
+        }
+    }
+}
+
+#[test]
+fn callable_kind_stream_delegation_preserves_late_nominal_errors() {
+    let source = "error RowsError = Late(row: Int)\nvar closed = \"\"\nproc close(label: Str) [] -> Unit { closed = closed + label }\nproc fail() [] -> Result[Unit, RowsError] { Err(RowsError.Late(row: 4)) }\nstream child(value) [error] { defer close(\"c\"); yield value; fail()? }\nstream parent(value) [error] { defer close(\"p\"); yield @child(value) }\nproc make() [error] -> Stream[Int] { parent(7) }\nproc observations() [] -> Str { closed }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let span = Span::at(source_id, 0);
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+        let (make, observations) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("observations"))));
+        let Value::Stream(mut stream) = evaluator.call_indexed_direct(make, CallableKind::Proc, &[], span).unwrap().unwrap() else { panic!("creation retains an unpulled generic delegator") };
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("")));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(7)));
+        let error = evaluator.stream_next(&mut stream, span).unwrap_err();
+        assert_eq!((&*error.family, &*error.variant), ("RowsError", "Late"));
+        assert_eq!(error.payload.get("row"), Some(&Value::Int(4)));
+        assert_eq!(&source[error.span.unwrap().range()], "fail()?");
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cp")));
+        assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+        assert_eq!(evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from("cp")));
     }
 }
 
@@ -1334,7 +1490,7 @@ fn generic_arguments_stream_defaults_keep_pull_and_cleanup_ownership() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the lazy default stream remains owned by the callee") };
+            let Value::Result(ResultValue::Ok(fields)) = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Bool(omitted)], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the lazy default stream remains owned by the callee") };
             let Value::Record(fields) = *fields else { panic!("the caller returns lifecycle observations") };
             for (name, expected) in [("value", 7), ("created", if omitted { 1 } else { 10 }), ("pulls", 1), ("closed", 1)] {
                 assert_eq!(fields.get(name), Some(&Value::Int(expected)), "{name} omitted={omitted} frames={force_frames}");
@@ -1353,7 +1509,7 @@ fn generic_arguments_ground_layouts_keep_default_and_rest_meanings() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary helpers retain their checked parameter layouts") };
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the ordinary helpers retain their checked parameter layouts") };
             assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
             for (field, value) in [("omitted", 2), ("explicit", 3), ("empty", 0), ("rest", 3), ("spliced", 7)] {
                 assert_eq!(fields.get(field), Some(&Value::Int(value)), "{name}.{field} frames={force_frames}");
@@ -1372,7 +1528,7 @@ fn generic_arguments_registered_spreads_use_the_selected_layout() {
             evaluator.force_frames = force_frames;
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let Value::Record(fields) = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the registered calls retain their selected outputs") };
+            let Value::Record(fields) = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap() else { panic!("the registered calls retain their selected outputs") };
             assert_eq!(fields.get("value"), Some(&expected), "{name} frames={force_frames}");
             assert_eq!(fields.get("matched"), Some(&Value::Bool(true)), "{name} frames={force_frames}");
             assert_eq!(fields.get("data"), Some(&Value::Bytes(b"data".to_vec())), "{name} frames={force_frames}");
@@ -1392,7 +1548,7 @@ fn generic_captured_callable_invocations_preserve_error_and_cleanup() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
-            let returned = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Int(payload)], Span::at(source_id, 0)).unwrap().unwrap();
+            let returned = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Int(payload)], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(record)) = returned else { panic!("the outer result carries the captured invocation") };
             let Value::Record(record) = *record else { panic!("the invocation returns its lifecycle observations") };
             assert_eq!(record.get("calls"), Some(&Value::Int(1)), "frames={force_frames} payload={payload}");
@@ -1417,7 +1573,7 @@ fn generic_captured_callable_results_remain_data() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("data_run")));
-        let returned = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let returned = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Result(ResultValue::Ok(data)) = returned else { panic!("capture succeeds when the callback returns an Err as data") };
         let Value::Result(ResultValue::Err(error)) = *data else { panic!("the callback result is retained inside capture success") };
         let Value::Error(error) = *error else { panic!("the original nominal error is retained as data") };
@@ -1436,14 +1592,14 @@ fn prepared_applications_results_anchor_empty_collection_arguments() {
             evaluator.indexed_program = Some(Arc::clone(&program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
             for present in [false, true] {
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[Value::Bool(present)], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Bool(present)], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::List(if present { vec![expected.clone()] } else { Vec::new() }));
             }
         }
     }
 }
 
-fn assert_prepared_application_result(source: &str, kind: LoweredFunctionKind, expected: Value) {
+fn assert_prepared_application_result(source: &str, kind: CallableKind, expected: Value) {
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -1461,7 +1617,7 @@ fn assert_prepared_application_result(source: &str, kind: LoweredFunctionKind, e
 #[test]
 fn inferred_application_runtime_named_arguments_keep_source_order() {
     let source = "pure target(first: Int, last: Int) -> Int { first * 100 + last }\npure apply(action, value) { var trace = 0; let result = action(last: { trace = trace * 10 + 1; value }, first: { trace = trace * 10 + 2; 1 }); {result, trace} }\npure number() { apply(target, 7) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Map([
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Map([
         (crate::runtime::value::MapKey::Str(Arc::from("result")), Value::Int(107)),
         (crate::runtime::value::MapKey::Str(Arc::from("trace")), Value::Int(12)),
     ].into_iter().collect()));
@@ -1470,19 +1626,19 @@ fn inferred_application_runtime_named_arguments_keep_source_order() {
 #[test]
 fn inferred_application_runtime_interior_defaults_use_actual_layout() {
     let source = "pure target(first: Int = 11, payload: Int = 7) -> Int { first * 100 + payload }\npure apply(action, value) { action(payload: value) }\npure number() -> Int { apply(target, 7) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(1107));
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Int(1107));
 }
 
 #[test]
 fn inferred_application_runtime_named_rest_preserves_splice_groups() {
     let source = "pure target(first: Int, payload: Int, ...items: List[Int]) -> Int { first * 100 + payload * 10 + items.len() }\npure apply(action, value) { action(payload: value, first: 1, @[2, 3], @[4]) }\npure number() -> Int { apply(target, 7) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(173));
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Int(173));
 }
 
 #[test]
 fn inferred_application_runtime_returned_callable_keeps_authored_labels() {
     let source = "pure target(payload: Int, scale: Int = 2) -> Int { payload * scale }\npure keep(action, value) { let _ = action(value); action }\npure number() -> Int { let returned = keep(target, 7); returned(scale: 4, payload: 3) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(12));
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Int(12));
 }
 
 #[test]
@@ -1497,7 +1653,7 @@ fn inferred_application_runtime_proc_returns_follow_actual_application_origin() 
     ] {
         for returned in ["action(value)", "let result = action(value); result", "return action(value)", "let result = action(value); return result"] {
             let source = format!("{definition}\nproc relay(action, value) {{ {returned} }}\nproc number() [] {{ relay({callback}, {value}) }}\n");
-            assert_prepared_application_result(&source, LoweredFunctionKind::Proc, expected.clone());
+            assert_prepared_application_result(&source, CallableKind::Proc, expected.clone());
         }
     }
 }
@@ -1506,13 +1662,13 @@ fn inferred_application_runtime_proc_returns_follow_actual_application_origin() 
 fn inferred_application_runtime_formal_result_keeps_its_data_envelope() {
     let source = "pure identity(payload: Result[Int, Str]) -> Result[Int, Str] { payload }\npure data() -> Result[Int, Str] { Err(\"stored\") }\nproc keep(action, value) { let _ = action(value); value }\nproc number() [] -> Result[Result[Int, Str]] { keep(identity, data()) }\n";
     let data = Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("stored")))));
-    assert_prepared_application_result(source, LoweredFunctionKind::Proc, Value::Result(ResultValue::Ok(Box::new(data))));
+    assert_prepared_application_result(source, CallableKind::Proc, Value::Result(ResultValue::Ok(Box::new(data))));
 }
 
 #[test]
 fn inferred_application_runtime_forwarded_layout_retains_caller_binding() {
     let source = "pure target(first: Int, last: Int) -> Int { first * 100 + last }\npure apply(action, value) { action(last: value, first: 1) }\npure forward(action, value) { apply(action, value) }\npure number() -> Int { forward(target, 7) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(107));
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Int(107));
 }
 
 #[test]
@@ -1530,7 +1686,7 @@ fn inferred_application_runtime_defaults_keep_order_failure_and_cleanup() {
                     evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
                 }
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[Value::Bool(omit)], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[Value::Bool(omit)], Span::at(source_id, 0)).unwrap().unwrap();
                 let Value::Result(ResultValue::Ok(record)) = actual else { panic!("the enclosing proc preserves its success boundary") };
                 let Value::Record(fields) = *record else { panic!("the observations retain their checked record") };
                 assert_eq!(fields.get("closed"), Some(&Value::Int(1)));
@@ -1561,7 +1717,7 @@ fn inferred_application_runtime_proc_branches_keep_actual_application_origins() 
                 ("pure data(payload: Int) -> Result[Int, Str] { Err(\"stored\") }", "data", Value::err(Value::Str("stored".into()))),
             ] {
                 let source = format!("{definition}\nproc relay(action, value, flag: Bool) {{ {body} }}\nproc number() [] {{ relay({callback}, 7, {flag}) }}\n");
-                assert_prepared_application_result(&source, LoweredFunctionKind::Proc, expected);
+                assert_prepared_application_result(&source, CallableKind::Proc, expected);
             }
         }
     }
@@ -1571,14 +1727,14 @@ fn inferred_application_runtime_proc_branches_keep_actual_application_origins() 
 fn inferred_application_runtime_proc_mixed_data_branches_keep_ordinary_envelopes() {
     for flag in [false, true] {
         let source = format!("pure identity(payload: Int) -> Int {{ payload }}\nproc relay(action, value, flag: Bool) {{ if flag {{ action(value) }} else {{ value }} }}\nproc number() [] {{ relay(identity, 7, {flag}) }}\n");
-        assert_prepared_application_result(&source, LoweredFunctionKind::Proc, Value::ok(Value::Int(7)));
+        assert_prepared_application_result(&source, CallableKind::Proc, Value::ok(Value::Int(7)));
     }
 }
 
 #[test]
 fn inferred_application_runtime_generic_callback_retains_actual_substitution() {
     let source = "pure identity(payload) { payload }\npure apply(action, value) { action(value) }\npure number() -> Int { apply(identity, 7) }\n";
-    assert_prepared_application_result(source, LoweredFunctionKind::Pure, Value::Int(7));
+    assert_prepared_application_result(source, CallableKind::Pure, Value::Int(7));
 }
 
 #[test]
@@ -1593,7 +1749,7 @@ fn inferred_application_runtime_polymorphic_aliases_keep_each_call_substitution(
                 format!("let integer = {integer}; let text = {text};")
             };
             let source = format!("pure identity(payload) {{ payload }}\npure apply(action, value) {{ action(value) }}\npure number() {{ let f = identity; {bindings} {{integer, text}} }}\n");
-            assert_prepared_application_result(&source, LoweredFunctionKind::Pure, Value::Map([
+            assert_prepared_application_result(&source, CallableKind::Pure, Value::Map([
                 (crate::runtime::value::MapKey::Str(Arc::from("integer")), Value::Int(7)),
                 (crate::runtime::value::MapKey::Str(Arc::from("text")), Value::Str(Arc::from("word"))),
             ].into_iter().collect()));
@@ -1616,12 +1772,12 @@ fn prepared_callable_host_call_retains_its_program() {
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&first));
         let key = first.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
-        let prepared = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        assert!(matches!(&prepared, Value::Pure(callable) if callable.instance().is_some()));
+        let prepared = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert!(matches!(&prepared, Value::Callable(callable) if callable.kind() == crate::sema::types::CallableKind::Pure && callable.instance().is_some()));
         for program in [&first, &second] {
             evaluator.indexed_program = Some(Arc::clone(program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("direct")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[prepared.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[prepared.clone()], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(8), "frames={force_frames}");
         }
     }
@@ -1638,8 +1794,8 @@ fn prepared_callable_cache_separates_programs_and_preserves_clones() {
         for program in [&first, &second] {
             evaluator.indexed_program = Some(Arc::clone(program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
-            let value = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-            assert!(matches!(&value, Value::Pure(callable) if callable.instance().is_some()));
+            let value = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert!(matches!(&value, Value::Callable(callable) if callable.kind() == crate::sema::types::CallableKind::Pure && callable.instance().is_some()));
             handles.push(value);
         }
         evaluator.trace_enabled = true;
@@ -1647,7 +1803,7 @@ fn prepared_callable_cache_separates_programs_and_preserves_clones() {
         for (program, handle, answer) in [(&first, &handles[0], 8), (&first, &handles[0], 8), (&second, &handles[1], 9), (&second, &handles[1], 9)] {
             evaluator.indexed_program = Some(Arc::clone(program));
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached")));
-            let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[handle.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[handle.clone()], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(answer), "frames={force_frames}");
         }
         assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")).count(), 2);
@@ -1664,9 +1820,9 @@ fn prepared_callable_host_call_rejects_an_open_named_declaration() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let (key, open) = program.symbol_owner().with_current(|| (
             LoweredFunctionKey::Name(Name::intern("direct")),
-            Value::Pure(Name::intern("identity").into()),
+            Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("identity").into())),
         ));
-        let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[open], Span::at(source_id, 0)).unwrap()
+        let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[open], Span::at(source_id, 0)).unwrap()
             .expect_err("a declaration name supplies no checked generic invocation");
         assert!(error.message.contains("checked invocation instance"), "{error:?}");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
@@ -1681,22 +1837,22 @@ fn prepared_callable_host_call_checks_its_specialized_input() {
         evaluator.force_frames = force_frames;
         evaluator.indexed_program = Some(Arc::clone(&program));
         let make = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make")));
-        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        assert!(matches!(&prepared, Value::Pure(callable) if callable.instance().is_some()));
+        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert!(matches!(&prepared, Value::Callable(callable) if callable.kind() == crate::sema::types::CallableKind::Pure && callable.instance().is_some()));
         evaluator.trace_enabled = true;
         evaluator.trace_events.clear();
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("direct_value")));
-        let error = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[prepared.clone(), Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
+        let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[prepared.clone(), Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
             .expect_err("the retained Int invocation does not admit a Str argument");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
         let cached = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached_value")));
         for _ in 0..2 {
-            let value = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[prepared.clone(), Value::Int(7)], Span::at(source_id, 0)).unwrap().unwrap();
+            let value = evaluator.call_indexed_direct(cached, CallableKind::Proc, &[prepared.clone(), Value::Int(7)], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(value, Value::Int(8));
         }
         evaluator.trace_events.clear();
-        let error = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[prepared, Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
+        let error = evaluator.call_indexed_direct(cached, CallableKind::Proc, &[prepared, Value::Str(Arc::from("wrong"))], Span::at(source_id, 0)).unwrap()
             .expect_err("a primed cache retains its actual input contract");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
@@ -1727,14 +1883,14 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let (direct, number, text, timed, quiet, filesystem) = program.symbol_owner().with_current(|| (
             LoweredFunctionKey::Name(Name::intern("direct")),
-            Value::Pure(Name::intern("number").into()), Value::Pure(Name::intern("text").into()),
-            Value::Proc(Name::intern("timed").into()), Value::Proc(Name::intern("quiet").into()),
-            Value::Proc(Name::intern("filesystem").into()),
+            Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("number").into())), Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("text").into())),
+            Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Proc, Name::intern("timed").into())), Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Proc, Name::intern("quiet").into())),
+            Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Proc, Name::intern("filesystem").into())),
         ));
         let record = |callback| program.symbol_owner().with_current(|| Value::Record([(Arc::from("callback"), callback)].into_iter().collect()));
         let broad = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("make_broad_record")));
-        let prepared = evaluator.call_indexed_direct(broad, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        let Value::Pure(callable) = &prepared else { panic!("the broad record retains its actual handle") };
+        let prepared = evaluator.call_indexed_direct(broad, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Callable(callable) = &prepared else { panic!("the broad record retains its actual handle") };
         let instance = callable.instance().unwrap();
         let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
         program.symbol_owner().with_current(|| {
@@ -1742,7 +1898,7 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
             assert!(matches!(&parameters[0], Type::Record(fields) if fields.len() == 1 && fields.values().all(|ty| ty == &Type::Function(crate::sema::types::CallableKind::Pure))));
         });
         for callback in [number.clone(), text.clone()] {
-            let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), record(callback)], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), record(callback)], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(8), "an actual opaque Pure field admits either Pure signature");
         }
         for (factory, valid, invalid, smaller) in [
@@ -1751,23 +1907,23 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
             ("make_effect", timed, filesystem, Some(quiet)),
         ] {
             let make = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(factory)));
-            let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-            let Value::Pure(callable) = &prepared else { panic!("{factory} must return the actual retained handle") };
+            let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let Value::Callable(callable) = &prepared else { panic!("{factory} must return the actual retained handle") };
             let instance = callable.instance().expect("a prepared invocation retains its closed argument contract");
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
             program.symbol_owner().with_current(|| {
                 let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
                 assert!(parameters[0].contains_typed_callable(), "{factory} must retain the actual nested signature: {parameters:?}");
             });
-            let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), valid], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), valid], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(8), "{factory}, frames={force_frames}");
             if let Some(smaller) = smaller {
-                let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), smaller], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), smaller], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, Value::Int(8), "a smaller Proc effect contract remains permitted");
             }
             evaluator.trace_enabled = true;
             evaluator.trace_events.clear();
-            let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, invalid], Span::at(source_id, 0)).unwrap()
+            let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, invalid], Span::at(source_id, 0)).unwrap()
                 .expect_err(&format!("{factory}: the actual nested signature and effects must satisfy the retained contract"));
             assert_eq!(error.kind, "type-error", "{factory}, frames={force_frames}");
             assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
@@ -1793,19 +1949,19 @@ fn prepared_callable_host_call_checks_module_export_signatures() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let (make, direct, number, text) = program.symbol_owner().with_current(|| (
             LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
-            Value::Pure(Name::intern("number").into()), Value::Pure(Name::intern("text").into()),
+            Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("number").into())), Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("text").into())),
         ));
         program.symbol_owner().with_current(|| {
             for (name, expected) in [("number", Type::Int), ("text", Type::Str)] {
-                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap().index();
+                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), CallableKind::Pure).unwrap().unwrap().index();
                 let actual = program.invocation_callable_type(target, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default()).unwrap();
                 assert_eq!(actual.sig.params[0].ty, expected);
                 assert_eq!(*actual.sig.return_ty, expected);
             }
         });
         let module = |callable| program.symbol_owner().with_current(|| Value::Module([(Arc::from("item"), callable)].into_iter().collect()));
-        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[module(number.clone())], Span::at(source_id, 0)).unwrap().unwrap();
-        let Value::Pure(callable) = &prepared else { panic!("the module argument retains its actual invocation") };
+        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[module(number.clone())], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Callable(callable) = &prepared else { panic!("the module argument retains its actual invocation") };
         let instance = callable.instance().unwrap();
         program.symbol_owner().with_current(|| {
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
@@ -1815,11 +1971,11 @@ fn prepared_callable_host_call_checks_module_export_signatures() {
             assert_eq!(sig.params[0].ty, Type::Int);
             assert_eq!(*sig.return_ty, Type::Int);
         });
-        let value = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), module(number)], Span::at(source_id, 0)).unwrap().unwrap();
+        let value = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), module(number)], Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(value, Value::Int(8));
         evaluator.trace_enabled = true;
         evaluator.trace_events.clear();
-        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, module(text)], Span::at(source_id, 0)).unwrap()
+        let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, module(text)], Span::at(source_id, 0)).unwrap()
             .expect_err("the actual exported signature must satisfy the retained module contract");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
@@ -1844,7 +2000,7 @@ fn prepared_callable_host_call_checks_module_export_parameter_labels() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let (make, direct, ordered, swapped) = program.symbol_owner().with_current(|| {
             for (name, labels) in [("ordered", ["left", "right"]), ("swapped", ["right", "left"])] {
-                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap().index();
+                let target = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), CallableKind::Pure).unwrap().unwrap().index();
                 let actual = program.invocation_callable_type(target, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default()).unwrap();
                 assert!((actual.kind == crate::sema::types::CallableKind::Pure));
                 assert_eq!(actual.sig.params.len(), 2);
@@ -1855,15 +2011,15 @@ fn prepared_callable_host_call_checks_module_export_parameter_labels() {
                 assert_eq!(*actual.sig.return_ty, Type::Int);
             }
             (LoweredFunctionKey::Name(Name::intern("make")), LoweredFunctionKey::Name(Name::intern("direct")),
-                Value::Pure(Name::intern("ordered").into()), Value::Pure(Name::intern("swapped").into()))
+                Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("ordered").into())), Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("swapped").into())))
         });
         let module = |callable| program.symbol_owner().with_current(|| Value::Module([(Arc::from("item"), callable)].into_iter().collect()));
         let span = Span::at(source_id, 0);
-        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[module(ordered.clone())], span).unwrap().unwrap();
-        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), module(ordered)], span).unwrap().unwrap(), Value::Int(8));
+        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[module(ordered.clone())], span).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), module(ordered)], span).unwrap().unwrap(), Value::Int(8));
         evaluator.trace_enabled = true;
         evaluator.trace_events.clear();
-        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, module(swapped)], span).unwrap().expect_err("the actual export's swapped parameter labels cannot satisfy the retained named argument layout");
+        let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, module(swapped)], span).unwrap().expect_err("the actual export's swapped parameter labels cannot satisfy the retained named argument layout");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
     }
@@ -1897,26 +2053,26 @@ fn prepared_callable_host_call_checks_stream_items_without_pulling() {
             LoweredFunctionKey::Name(Name::intern("make_unsigned")), LoweredFunctionKey::Name(Name::intern("direct")),
             LoweredFunctionKey::Name(Name::intern("observations")),
         ));
-        let numbers = evaluator.call_indexed_direct(numbers, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        let texts = evaluator.call_indexed_direct(texts, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        let unsigned = evaluator.call_indexed_direct(unsigned, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let numbers = evaluator.call_indexed_direct(numbers, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let texts = evaluator.call_indexed_direct(texts, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let unsigned = evaluator.call_indexed_direct(unsigned, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
         for source in [&numbers, &texts, &unsigned] {
             assert!(matches!(source, Value::Stream(stream) if stream.script.is_some() && stream.source.is_none() && stream.items.is_empty()));
         }
-        let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
-        let Value::Pure(callable) = &prepared else { panic!("the stream argument retains its actual invocation") };
+        let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let Value::Callable(callable) = &prepared else { panic!("the stream argument retains its actual invocation") };
         let instance = callable.instance().unwrap();
         program.symbol_owner().with_current(|| {
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
             let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
             assert_eq!(parameters[0], Type::Stream(Box::new(Type::Int)));
         });
-        let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();
         assert_eq!(actual, Value::Int(8));
         evaluator.trace_enabled = true;
         evaluator.trace_events.clear();
-        let actual = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, texts], Span::at(source_id, 0)).unwrap();
-        let observed = evaluator.call_indexed_direct(observations, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, texts], Span::at(source_id, 0)).unwrap();
+        let observed = evaluator.call_indexed_direct(observations, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Result(ResultValue::Ok(observed)) = observed else { panic!("observations retain their ordinary result envelope") };
         let Value::Record(fields) = *observed else { panic!("observations retain their record") };
         assert_eq!(fields.get("pulls"), Some(&Value::Int(0)), "validation must not pull either producer");
@@ -1924,10 +2080,10 @@ fn prepared_callable_host_call_checks_stream_items_without_pulling() {
         let error = actual.expect_err("the actual Str producer cannot satisfy the retained Stream[Int] input");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
-        let prepared_unsigned = evaluator.call_indexed_direct(make_unsigned, LoweredFunctionKind::Pure, &[unsigned.clone()], Span::at(source_id, 0)).unwrap().unwrap();
-        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared_unsigned.clone(), unsigned], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+        let prepared_unsigned = evaluator.call_indexed_direct(make_unsigned, CallableKind::Pure, &[unsigned.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared_unsigned.clone(), unsigned], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
         evaluator.trace_events.clear();
-        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared_unsigned, numbers], Span::at(source_id, 0)).unwrap().expect_err("a signed item contract cannot promise UInt even when its unpulled literal happens to be positive");
+        let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared_unsigned, numbers], Span::at(source_id, 0)).unwrap().expect_err("a signed item contract cannot promise UInt even when its unpulled literal happens to be positive");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")));
     }
@@ -1950,7 +2106,7 @@ fn prepared_stream_contracts_preserve_lazy_uint_and_delegation_checks() {
         ));
         let span = Span::at(source_id, 0);
         for input in [7, -1] {
-            let value = evaluator.call_indexed_direct(checked, LoweredFunctionKind::Pure, &[Value::Int(input)], span).unwrap().unwrap();
+            let value = evaluator.call_indexed_direct(checked, CallableKind::Stream, &[Value::Int(input)], span).unwrap().unwrap();
             let Value::Stream(mut stream) = value else { panic!("creation retains an unpulled script producer") };
             assert!(stream.contract.is_some());
             assert!(stream.items.is_empty());
@@ -1958,7 +2114,7 @@ fn prepared_stream_contracts_preserve_lazy_uint_and_delegation_checks() {
             if input >= 0 { assert_eq!(pulled.unwrap(), Some(Value::Int(input))); }
             else { assert_eq!(pulled.unwrap_err().kind, "type-error"); }
         }
-        let value = evaluator.call_indexed_direct(delegated, LoweredFunctionKind::Pure, &[], span).unwrap().unwrap();
+        let value = evaluator.call_indexed_direct(delegated, CallableKind::Stream, &[], span).unwrap().unwrap();
         let Value::Stream(mut stream) = value else { panic!("delegation retains an unpulled script producer") };
         assert!(stream.contract.is_some());
         assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(1)));
@@ -1982,14 +2138,14 @@ fn prepared_callable_host_call_checks_ground_stream_parameters() {
         evaluator.indexed_program = Some(Arc::clone(&program));
         let (numbers, texts, direct, accept) = program.symbol_owner().with_current(|| (
             LoweredFunctionKey::Name(Name::intern("numbers")), LoweredFunctionKey::Name(Name::intern("texts")),
-            LoweredFunctionKey::Name(Name::intern("direct")), Value::Pure(Name::intern("accept").into()),
+            LoweredFunctionKey::Name(Name::intern("direct")), Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, Name::intern("accept").into())),
         ));
-        let numbers = evaluator.call_indexed_direct(numbers, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        let texts = evaluator.call_indexed_direct(texts, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-        assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[accept.clone(), numbers], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+        let numbers = evaluator.call_indexed_direct(numbers, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let texts = evaluator.call_indexed_direct(texts, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[accept.clone(), numbers], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
         evaluator.trace_enabled = true;
         evaluator.trace_events.clear();
-        let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[accept, texts], Span::at(source_id, 0)).unwrap().expect_err("an opaque ground call must validate its actual Stream[Int] parameter before entering the body");
+        let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[accept, texts], Span::at(source_id, 0)).unwrap().expect_err("an opaque ground call must validate its actual Stream[Int] parameter before entering the body");
         assert_eq!(error.kind, "type-error");
         assert!(!evaluator.trace_events.iter().any(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("accept")));
     }
@@ -2022,7 +2178,7 @@ fn prepared_callable_host_call_retains_native_stream_factory_contracts() {
                 LoweredFunctionKey::Name(Name::intern("wrong")),
             ));
             let path = Value::Path(crate::runtime::value::PathValue::from_text(path.to_str().unwrap()).unwrap());
-            let output = evaluator.call_indexed_direct(factory, LoweredFunctionKind::Proc, &[path], Span::at(source_id, 0)).unwrap().unwrap();
+            let output = evaluator.call_indexed_direct(factory, CallableKind::Proc, &[path], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(output)) = output else { panic!("native factory keeps its Result envelope") };
             let actual = if boxed {
                 let Value::Record(fields) = *output else { panic!("native stream keeps its aggregate") };
@@ -2031,11 +2187,11 @@ fn prepared_callable_host_call_retains_native_stream_factory_contracts() {
             let Value::Stream(stream) = &actual else { panic!("native factory returns a stream") };
             assert!(stream.source.is_some() && stream.script.is_none() && stream.items.is_empty());
             assert!(stream.contract.is_some(), "ordinary unchecked native factory output must retain its solved contract before aggregate escape");
-            let prepared = evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[actual.clone()], Span::at(source_id, 0)).unwrap().unwrap();
-            assert_eq!(evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared.clone(), actual.clone()], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
+            let prepared = evaluator.call_indexed_direct(make, CallableKind::Pure, &[actual.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            assert_eq!(evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), actual.clone()], Span::at(source_id, 0)).unwrap().unwrap(), Value::Int(8));
             assert_eq!(stream.next_live(Span::at(source_id, 0)).unwrap(), Some(Value::Str(Arc::from("first"))), "contract validation must leave the first native item untouched");
-            let wrong = evaluator.call_indexed_direct(wrong, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-            let error = evaluator.call_indexed_direct(direct, LoweredFunctionKind::Pure, &[prepared, wrong], Span::at(source_id, 0)).unwrap().expect_err("actual Int producer cannot satisfy retained native Str item contract");
+            let wrong = evaluator.call_indexed_direct(wrong, CallableKind::Stream, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let error = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared, wrong], Span::at(source_id, 0)).unwrap().expect_err("actual Int producer cannot satisfy retained native Str item contract");
             assert_eq!(error.kind, "type-error");
         }
     }
@@ -2058,8 +2214,8 @@ fn prepared_callable_cache_separates_specializations_with_identical_arguments() 
         let mut handles = Vec::new();
         for name in ["make_number", "make_text", "make_number_again"] {
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let value = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
-            assert!(matches!(&value, Value::Pure(callable) if callable.instance().is_some()));
+            let value = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            assert!(matches!(&value, Value::Callable(callable) if callable.kind() == crate::sema::types::CallableKind::Pure && callable.instance().is_some()));
             handles.push(value);
         }
         assert_eq!(handles[0], handles[1], "source equality remains declaration identity");
@@ -2067,7 +2223,7 @@ fn prepared_callable_cache_separates_specializations_with_identical_arguments() 
         evaluator.trace_events.clear();
         let cached = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("cached")));
         for handle in [&handles[0], &handles[0], &handles[2], &handles[1], &handles[1]] {
-            let actual = evaluator.call_indexed_direct(cached, LoweredFunctionKind::Proc, &[handle.clone(), Value::List(Vec::new())], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(cached, CallableKind::Proc, &[handle.clone(), Value::List(Vec::new())], Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Int(8));
         }
         assert_eq!(evaluator.trace_events.iter().filter(|event| event.kind == crate::trace::TraceKind::PureEnter && event.name.as_deref() == Some("identity")).count(), 2, "distinct List[Int]/List[Str] instances miss independently; clones hit");
@@ -2087,7 +2243,7 @@ fn inferred_application_runtime_proc_error_origins_preserve_cleanup() {
                 evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
             }
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-            let result = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+            let result = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
             let Value::Result(ResultValue::Ok(record)) = result else { panic!("the enclosing proc preserves the observed Result as data") };
             let Value::Record(fields) = *record else { panic!("the observations retain their record") };
             assert_eq!(fields.get("closed"), Some(&Value::Int(1)));
@@ -2113,7 +2269,7 @@ fn assert_prepared_deferred_error_result(source: &str) {
             evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
         }
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("number")));
-        let result = evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
+        let result = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Result(ResultValue::Ok(record)) = result else { panic!("the callee cleanup failure is returned data, not an error from the observer: {result:?}") };
         let Value::Record(fields) = *record else { panic!("the observer retains its record") };
         let Some(Value::Result(ResultValue::Err(error))) = fields.get("actual") else { panic!("the callee preserves the deferred failure as an actual Err") };
@@ -2202,7 +2358,7 @@ fn generic_nonmaterial_constructors_execute_after_frontend_disposal() {
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                let actual = evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                 assert_eq!(actual, expected, "{prefix} frames={force_frames}");
             }
         }

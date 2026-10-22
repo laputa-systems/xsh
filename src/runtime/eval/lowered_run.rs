@@ -111,7 +111,7 @@ use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{CompTargetView, InlineList};
 use super::{
     Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredParamKind,
+    LoweredFunctionKey, CallableKind, LoweredParamKind,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
     Name, ReduceByOp,
     StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
@@ -1482,7 +1482,7 @@ struct PreparedDynamicModule {
     arena: ArenaProgram,
     declarations: crate::sema::check::CompactDeclOutput,
     module_program: Arc<super::indexed::full::FullProgram>,
-    exported_functions: Vec<(Name, bool)>,
+    exported_functions: Vec<(Name, CallableKind)>,
     exported_let_names: Vec<Name>,
     harvest: Arc<super::LoweredSharedState>,
 }
@@ -7170,29 +7170,6 @@ impl Evaluator {
         slots
     }
 
-    fn call_lowered_function_value_with_values(
-        &mut self,
-        function: FunctionName,
-        pure: bool,
-        args: &[Value],
-        call_span: Span,
-    ) -> Option<Result<Value, RuntimeError>> {
-        let function = function
-            .as_name()
-            .map(LoweredFunctionKey::Name)
-            .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))?;
-        self.call_indexed_direct(
-            function,
-            if pure {
-                LoweredFunctionKind::Pure
-            } else {
-                LoweredFunctionKind::Proc
-            },
-            args,
-            call_span,
-        )
-    }
-
     fn hydrate_lowered_captures(
         &mut self,
         lowered: &FunctionHeader,
@@ -7598,13 +7575,6 @@ impl Evaluator {
         );
     }
 
-    /// Runtime `module.load(path)`: load a user module file through the compact
-    /// pipeline and return its export record. Exported `pure`/`proc` definitions
-    /// are installed into the qualified-function tables under the module's
-    /// path-derived namespace so the returned `Value::Pure`/`Value::Proc`
-    /// handles dispatch through the lowered runtime; exported `let` values are
-    /// produced by running the module file as its own compact program in an
-    /// isolated child evaluator. Results are cached by module key.
     /// Make this program's prepared standard-library implementations callable
     /// from a dynamically loaded module.
     ///
@@ -7622,7 +7592,7 @@ impl Evaluator {
                 let function = Name::intern(script.function);
                 let qualified = QualifiedName::new(namespace, function);
                 let key = LoweredFunctionKey::Qualified(qualified);
-                for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+                for kind in [CallableKind::Pure, CallableKind::Proc] {
                     if program.contains_function(key, kind) {
                         additions.push((
                             qualified,
@@ -7707,33 +7677,29 @@ impl Evaluator {
         let exported_functions = exported_functions.clone();
         let exported_let_names = exported_let_names.clone();
         let dynamic_namespace = Name::intern(format!("dynamic:{key}"));
-        for (name, pure) in &exported_functions {
+        for (name, kind) in &exported_functions {
             let qualified = QualifiedName::new(dynamic_namespace, *name);
             Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
                 qualified,
                 DynamicFunction {
                     program: Arc::clone(module_program),
                     function: LoweredFunctionKey::Name(*name),
-                    kind: if *pure {
-                        LoweredFunctionKind::Pure
-                    } else {
-                        LoweredFunctionKind::Proc
-                    },
+                    kind: *kind,
                 },
             );
         }
-        for (name, pure) in &exported_functions {
+        for (name, kind) in &exported_functions {
             let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
                 dynamic_namespace,
                 *name,
             ));
-            let sig = if *pure {
-                declarations.pures.get(name)
-            } else {
-                declarations.procs.get(name)
+            let sig = match kind {
+                CallableKind::Pure => declarations.pures.get(name),
+                CallableKind::Proc => declarations.procs.get(name),
+                CallableKind::Stream => declarations.streams.get(name),
             };
             if let Some(sig) = sig {
-                self.record_module_export_signature(function, *pure, sig);
+                self.record_module_export_signature(function, *kind, sig);
             }
         }
 
@@ -7784,11 +7750,8 @@ impl Evaluator {
                     declarations.static_callable_aliases.get(&arena.arena.expr(expression).span)
                 });
                 let value = if let Some(alias) = alias {
-                    if alias.kind == crate::sema::types::CallableKind::Stream {
-                        return Err(RuntimeError::new("module-load", "stream callable aliases require a stream callable carrier").with_span(span));
-                    }
                     let original = match value {
-                        Value::Pure(function) | Value::Proc(function) => function.identity(),
+                        Value::Callable(function) => function.identity(),
                         _ => {
                             return Err(RuntimeError::new(
                                 "module-load",
@@ -7808,42 +7771,30 @@ impl Evaluator {
                         DynamicFunction {
                             program: Arc::clone(module_program),
                             function: target,
-                            kind: if alias.kind == crate::sema::types::CallableKind::Pure {
-                                LoweredFunctionKind::Pure
-                            } else {
-                                LoweredFunctionKind::Proc
-                            },
+                            kind: alias.kind,
                         },
                     );
                     let function = crate::runtime::value::FunctionName::qualified(qualified);
                     Arc::make_mut(&mut self.module_export_signatures).insert(
                         function,
                         super::ModuleExportSignature {
-                            pure: (alias.kind == crate::sema::types::CallableKind::Pure),
+                            kind: alias.kind,
                             sig: alias.signature.clone(),
                         },
                     );
-                    if alias.kind == crate::sema::types::CallableKind::Pure {
-                        Value::Pure(function.into())
-                    } else {
-                        Value::Proc(function.into())
-                    }
+                    Value::Callable(crate::runtime::value::CallableValue::named(alias.kind, function))
                 } else {
                     value.clone()
                 };
                 record_fields.push((name, value));
             }
         }
-        for (name, pure) in exported_functions {
+        for (name, kind) in exported_functions {
             let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
                 dynamic_namespace,
                 name,
             ));
-            let value = if pure {
-                Value::Pure(function.into())
-            } else {
-                Value::Proc(function.into())
-            };
+            let value = Value::Callable(crate::runtime::value::CallableValue::named(kind, function));
             record_fields.push((name, value));
         }
         let record = RecordMap::from_name_values(record_fields);
@@ -7880,7 +7831,7 @@ impl Evaluator {
 
     /// Enumerate the module file's top-level `export pure`/`export proc`
     /// declarations as `(name, is_pure)` pairs.
-    fn module_namespace_export_functions(arena: &ArenaProgram) -> Vec<(Name, bool)> {
+    fn module_namespace_export_functions(arena: &ArenaProgram) -> Vec<(Name, CallableKind)> {
         let mut functions = Vec::new();
         for stmt in arena.statement_ids() {
             let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(stmt).kind
@@ -7889,10 +7840,13 @@ impl Evaluator {
             };
             match arena.arena.stmt(inner).kind {
                 crate::syntax::arena::ArenaStmtKind::PureDef(def) => {
-                    functions.push((arena.arena.function_def(def).name, true));
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Pure));
                 }
                 crate::syntax::arena::ArenaStmtKind::ProcDef(def) => {
-                    functions.push((arena.arena.function_def(def).name, false));
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Proc));
+                }
+                crate::syntax::arena::ArenaStmtKind::StreamDef(def) => {
+                    functions.push((arena.arena.function_def(def).name, CallableKind::Stream));
                 }
                 _ => {}
             }
@@ -8330,37 +8284,8 @@ impl Evaluator {
             };
             return Ok(ControlFlow::Continue(value));
         }
-        if name == "call"
-            && let Some((function, pure)) = match &receiver {
-                LoweredValue::Pure(function) => Some((function.identity(), true)),
-                LoweredValue::Proc(function) => Some((function.identity(), false)),
-                _ => None,
-            }
-        {
-            let args = values
-                .into_iter()
-                .map(LoweredValue::into_value)
-                .collect::<Vec<_>>();
-            let result = self
-                .call_lowered_function_value_with_values(function, pure, &args, *span)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "unresolved-call",
-                        format!(
-                            "method call target {} could not be lowered",
-                            function.display_name()
-                        ),
-                    )
-                    .with_span(*span)
-                })??;
-            let value = lowered_value_from_runtime_any(&result).ok_or_else(|| {
-                RuntimeError::new(
-                    "type-error",
-                    format!("method call returned unsupported {}", result.type_name()),
-                )
-                .with_span(*span)
-            })?;
-            return Ok(ControlFlow::Continue(value));
+        if name == "call" && matches!(receiver, LoweredValue::Callable(_)) {
+            return self.eval_lowered_callable_values(&receiver, values, *span).map(ControlFlow::Continue);
         }
         match receiver {
             LoweredValue::Stream(stream) if name == "collect" && values.is_empty() => {
@@ -8712,13 +8637,13 @@ mod checked_storage_tests {
             name: Arc::from("Service"),
         };
         let value = LoweredValue::Module(Arc::new(BTreeMap::from([
-            (Arc::from("item"), LoweredValue::Pure(function.into())),
+            (Arc::from("item"), LoweredValue::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, function.into()))),
         ])));
         let mut evaluator = Evaluator::new(Vec::new());
-        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { pure: true, sig: signature(Type::Int) });
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { kind: CallableKind::Pure, sig: signature(Type::Int) });
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         checked_storage_value(&evaluator, &value, &check, span).unwrap();
-        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { pure: true, sig: signature(Type::Str) });
+        Arc::make_mut(&mut evaluator.module_export_signatures).insert(function, super::super::ModuleExportSignature { kind: CallableKind::Pure, sig: signature(Type::Str) });
         let error = checked_storage_value(&evaluator, &value, &check, span).unwrap_err();
         assert!(error.message.contains("mismatched export `item`"), "{}", error.message);
     }

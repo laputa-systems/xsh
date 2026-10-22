@@ -166,9 +166,10 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 }
             }
             FullTag::ExprTypedCall => {
-                let schema::ExprView::TypedCall { signature, pure, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::TypedCall { signature, kind, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 let signature = decoder.store.semantic.typed_callable_signature(signature.id)?;
                 let effects = decoder.store.semantic.signature_effects(signature)?;
+                let pure = kind == CallableKind::Pure;
                 require(instruction, effects.as_deref().or(if pure { Some(&[]) } else { None }), pure, &mut captured)?;
             }
             FullTag::ExprDynamicCall => {}
@@ -263,11 +264,11 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
         }
     }
     if owner.kind == CallableKind::Stream {
-        let FullCallableContract::Ground(signature) = decoder.store.functions[index].contract else {
-            return Err(IrVerifyError::new("stream callable entry has no stream return contract"));
+        let result = match decoder.store.functions[index].contract {
+            FullCallableContract::Ground(signature) => super::lowered_return_kind(decoder.store.semantic.to_type(decoder.store.semantic.signature_return_type(signature)?)?)?,
+            FullCallableContract::Scheme(id) => super::scheme_return_kind(decoder.store, decoder.store.scheme(id)?.return_type)?,
         };
-        let result = decoder.store.semantic.signature_return_type(signature)?;
-        if !matches!(decoder.store.semantic.to_type(result)?, Type::Stream(_)) {
+        if result != super::LoweredReturnKind::Plain(super::LoweredType::Stream) {
             return Err(IrVerifyError::new("stream callable kind requires a lazy stream return boundary"));
         }
     }
