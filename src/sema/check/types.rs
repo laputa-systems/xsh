@@ -201,7 +201,7 @@ impl Checker {
     pub(super) fn invocation_error_flow(&self, effects: &crate::sema::types::CallableEffects, return_ty: &Type) -> Result<crate::sema::types::CalleeErrorFlow, crate::sema::constraints::ConstraintResolutionError> {
         let contract = self.type_constraints.resolve_effect(effects.contract())?;
         let may_error = match contract {
-            crate::sema::effects::EffectContract::Unknown => false,
+            crate::sema::effects::EffectContract::Unknown => true,
             crate::sema::effects::EffectContract::Known(expression) => expression.direct().contains(Effect::Error)
                 || expression.variables().any(|(_, mask)| mask.contains(Effect::Error)),
         };
