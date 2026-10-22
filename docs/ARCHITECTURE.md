@@ -447,6 +447,16 @@ operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
 
+Generalized bodies retain their actual callable kind for cleanup permission.
+Proc cleanup uses the ordinary deferred-action rows and failure policy; inferred
+return envelopes include errors from actual statement and cleanup propagation.
+A terminal Proc command completes with Unit through the ordinary Result envelope.
+With initializers see only preceding success bindings. Its handler sees the
+outer scope and its failure binding. A Guard handler must diverge before success
+bindings become visible. The body and producer verifiers preserve these same
+regions. Argument queries sample actual checked guards and closed conditional
+arms; incomplete runtime guards still require independent proof of their inputs.
+
 Each invocation retains the checked application layouts selected by its canonical
 call substitution. Forwarded entries share the caller's actual layout instead of
 building a chain of unresolved applications. Argument evaluation retains source

@@ -3118,7 +3118,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.lower_scheme_statement(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
         }
         let mut tail_types = BTreeMap::new();
-        let mut value = self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+        let mut value = if facts.scheme().kind() == CallableKind::Proc
+            && matches!(self.program.arena.stmt(self.program.arena.core_stmt_id(tail)).kind, ArenaStmtKind::Command(_))
+        {
+            self.lower_scheme_statement(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+            let value = push_build_row!(self, expr, BuildExprRow::Unit);
+            lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+            value
+        } else { self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)? };
         let return_span = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Return(_)) {
             self.program.arena.stmt(tail).span
         } else { self.program.arena.span(block_data.span) };
@@ -3405,12 +3412,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 slots, current_function, facts, visited, types, body))
     }
 
+    fn lower_scheme_handler_parameter(&self, block: BlockId, slots: &mut SlotScope, ty: SchemeType) -> Option<Option<usize>> {
+        let parameters = self.program.arena.block_params(self.program.arena.block(block).params);
+        if parameters.len() > 1 { return None; }
+        let Some(parameter) = parameters.first().filter(|parameter| !is_discard_name(parameter.name)) else { return Some(None) };
+        Some(Some(slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, ty)))
+    }
+
     fn lower_scheme_statement_block(
         &mut self, block: BlockId, slots: &mut SlotScope, current_function: Name,
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<Vec<BuildStmtId>> {
-        if !self.program.arena.block(block).params.is_empty() { return None; }
+        if !self.program.arena.block_params(self.program.arena.block(block).params).iter().all(|parameter| is_discard_name(parameter.name)
+            || self.declaration_binding(self.program.arena.span(parameter.span), parameter.name).is_some_and(|binding| slots.resolve_binding(binding).is_some())) { return None; }
         let saved = slots.enter();
         let mut body = Vec::new();
         for statement in self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>() {
@@ -3508,9 +3523,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
                     span: node.span,
                 },
-                ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expression), trigger) if facts.scheme().kind() == CallableKind::Stream => BuildStmtRow::Defer {
-                    value: self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?,
-                    on_error: trigger == DeferTrigger::Error,
+                ArenaStmtKind::Defer(value, trigger) if facts.scheme().kind() != CallableKind::Pure => {
+                    let value = match value {
+                        ArenaExprOrRun::Expr(expression) => self.lower_scheme_deferred_expression(expression, slots, current_function, facts, visited, lowered_types)?,
+                        ArenaExprOrRun::Run(run) => {
+                            let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                            self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
+                        }
+                    };
+                    BuildStmtRow::Defer { value, on_error: trigger == DeferTrigger::Error }
                 },
                 ArenaStmtKind::Return(None) if facts.scheme().kind() == CallableKind::Stream => {
                     let value = push_build_row!(self, expr, BuildExprRow::Unit);
@@ -3549,6 +3570,55 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         lowered_arms.push((pattern, guard, statements));
                     }
                     BuildStmtRow::Match { value: subject, arms: lowered_arms, span: node.span }
+                }
+                ArenaStmtKind::With { bindings: entries, body: success, else_block } => {
+                    let saved = slots.enter();
+                    let mut bindings = Vec::new();
+                    let mut captures = Vec::new();
+                    let mut error = None;
+                    for entry in self.program.arena.with_bindings(entries).to_vec() {
+                        let ty = facts.expression_types().get(&entry.initializer)?.clone();
+                        for source in std::iter::once(entry.initializer).chain(with_error_source_exprs(self.program, entry.initializer)) {
+                            let next = match facts.expression_types().get(&source)? {
+                                SchemeType::Result(_, error) => Some((**error).clone()),
+                                SchemeType::Ground(Type::Result(_, error)) => Some(SchemeType::Ground((**error).clone())),
+                                _ => None,
+                            };
+                            if let Some(next) = next { error = Some(match error { None => next, Some(previous) if previous == next => previous, Some(_) => SchemeType::Ground(Type::Error) }); }
+                        }
+                        let value = self.lower_scheme_lazy_expression(entry.initializer, slots, current_function, facts, visited, lowered_types)?;
+                        let ty = match ty { SchemeType::Result(ok, _) => *ok, SchemeType::Ground(Type::Result(ok, _)) => SchemeType::Ground(*ok), other => other };
+                        let slot = if is_discard_name(entry.name) { slots.reserve("with discard") }
+                            else { slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(entry.span), entry.name)?, entry.name, ty) };
+                        bindings.push((slot, value));
+                        captures.push(slot);
+                    }
+                    let success = self.lower_scheme_statement_block(success, slots, current_function, facts, visited, lowered_types)?;
+                    slots.exit(saved);
+                    let saved = slots.enter();
+                    let else_param_slot = self.lower_scheme_handler_parameter(else_block, slots, error.unwrap_or(SchemeType::Ground(Type::Error)))?;
+                    captures.extend(else_param_slot);
+                    let else_body = self.lower_scheme_statement_block(else_block, slots, current_function, facts, visited, lowered_types)?;
+                    slots.exit(saved);
+                    BuildStmtRow::With { bindings, body: success, else_param_slot, else_body, captures, span: node.span }
+                }
+                ArenaStmtKind::Guard { target, initializer: ArenaExprOrRun::Expr(expression), else_block, .. } => {
+                    let ty = facts.expression_types().get(&expression)?.clone();
+                    let optional = self.bodies.optional_binding_guards.contains(&statement);
+                    let (success, error) = match (optional, ty) {
+                        (false, SchemeType::Result(ok, error)) => (*ok, Some(*error)),
+                        (false, SchemeType::Ground(Type::Result(ok, error))) => (SchemeType::Ground(*ok), Some(SchemeType::Ground(*error))),
+                        (true, SchemeType::Optional(item)) => (*item, None),
+                        (true, SchemeType::Ground(ty)) => (SchemeType::Ground(guard_bound_type(&ty, true)?.clone()), None),
+                        _ => return None,
+                    };
+                    let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?;
+                    let saved = slots.enter();
+                    let else_param_slot = match error { Some(error) => self.lower_scheme_handler_parameter(else_block, slots, error)?, None => None };
+                    let else_body = self.lower_scheme_statement_block(else_block, slots, current_function, facts, visited, lowered_types)?;
+                    slots.exit(saved);
+                    let target = self.lower_scheme_binding_target(target, slots, &success)?;
+                    BuildStmtRow::Guard { target, value, else_param_slot, else_body, span: node.span, optional }
                 }
                 ArenaStmtKind::For { target, iter, block } => {
                     let item_type = facts.expression_types().get(&iter)?.closed_ground_type().and_then(|ty| ty.iteration_item_type());
@@ -3710,6 +3780,40 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             });
         }
         Some(super::LoweredCompQualifiers(lowered))
+    }
+
+    fn lower_scheme_deferred_expression(
+        &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expression).kind {
+            if !visited.insert(expression) { return None; }
+            let mut body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
+            let unit = push_build_row!(self, expr, BuildExprRow::Unit);
+            lowered_types.insert(unit, SchemeType::Ground(Type::Unit));
+            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: unit }));
+            let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.expr(expression).span });
+            lowered_types.insert(value, facts.expression_types().get(&expression)?.clone());
+            return Some(value);
+        }
+        let outer = slots.deferred_propagation.replace(expression);
+        let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types);
+        slots.deferred_propagation = outer;
+        let value = value?;
+        if !matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Try(_)) {
+            let success = match lowered_types.get(&value)? {
+                SchemeType::Result(ok, _) => Some((**ok).clone()),
+                SchemeType::Ground(Type::Result(ok, _)) => Some(SchemeType::Ground((**ok).clone())),
+                _ => None,
+            };
+            if let Some(success) = success {
+                let value = push_build_row!(self, expr, BuildExprRow::Try { value, span: self.program.arena.expr(expression).span });
+                lowered_types.insert(value, success);
+                return Some(value);
+            }
+        }
+        Some(value)
     }
 
     fn lower_scheme_lazy_expression(

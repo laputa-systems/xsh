@@ -1199,6 +1199,7 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
 enum PropagationBoundary {
     ResultError(Arc<SchemeType>),
     StreamProducer(IrFunctionId),
+    ProcApplication { owner: IrFunctionId, errors: Arc<[SchemeType]> },
     Unavailable,
 }
 
@@ -1210,6 +1211,34 @@ impl PropagationBoundary {
             _ => return Ok(Self::Unavailable),
         };
         Ok(Self::ResultError(Arc::new(error)))
+    }
+
+    fn for_scheme_function(store: &FullStore, owner: u32, ty: &SchemeType, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+        let boundary = Self::for_function(store, owner, ty, budget)?;
+        if !matches!(boundary, Self::Unavailable) { return Ok(boundary); }
+        let function = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("application propagation boundary has no function owner"))?;
+        let declaration = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary owner is out of bounds"))?;
+        let metadata = store.function_metadata.get(function.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary has no owner metadata"))?;
+        if metadata.callable_kind != crate::sema::types::CallableKind::Proc { return Ok(Self::Unavailable); }
+        let FullCallableContract::Scheme(id) = declaration.contract else { return Ok(Self::Unavailable) };
+        let scheme = store.scheme(id)?;
+        let returned = decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
+        if !body_types_equal(&returned, ty) { return Err(IrVerifyError::new("application propagation boundary disagrees with its owner return")); }
+        let mut errors = Vec::new();
+        for application in bounded(scheme.applications, &store.scheme_applications, "application propagation boundary has an invalid requirement range")? {
+            budget.charge(1)?;
+            for envelope in bounded(application.proc_returns, &store.scheme_proc_returns, "application propagation boundary has an invalid return envelope range")? {
+                budget.charge(1)?;
+                let result = decode_scheme_type(store, scope, envelope.result, budget, 0)?;
+                if !body_types_equal(&result, ty) { continue; }
+                for error in bounded(envelope.propagated_errors, &store.scheme_children, "application propagation boundary has an invalid error range")? {
+                    budget.charge(1)?;
+                    errors.push(decode_scheme_type(store, scope, *error, budget, 0)?);
+                }
+            }
+        }
+        if errors.is_empty() { return Ok(Self::Unavailable); }
+        Ok(Self::ProcApplication { owner: function, errors: errors.into() })
     }
 
     fn for_function(store: &FullStore, owner: u32, ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
@@ -1235,6 +1264,17 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
                 return Err(IrVerifyError::new("stream propagation boundary has no actual producer owner"));
             }
             body_type_matches(error, &SchemeType::Ground(Type::Error), budget)?
+        }
+        PropagationBoundary::ProcApplication { owner, errors } => {
+            if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Proc) {
+                return Err(IrVerifyError::new("application propagation boundary has no actual Proc owner"));
+            }
+            let mut compatible = false;
+            for expected in errors.iter() {
+                budget.charge(1)?;
+                compatible |= body_type_matches(error, expected, budget)?;
+            }
+            compatible
         }
         PropagationBoundary::Unavailable => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
     };
@@ -3172,22 +3212,45 @@ fn checked_argument_type_inner(
     if let schema::ExprView::CheckedValue { check, .. } =
         decoder.expression_view(instruction)?
     {
-        if check.schema.is_some() {
-            return Ok(None);
-        }
         let checked_type = store
             .semantic
             .to_type_with_budget(check.ty.id, &mut materialization.semantic_types)?;
         ensure_closed_type(&checked_type)?;
-        if !runtime_complete_value_check_type(&checked_type, materialization, 0)? {
-            return Ok(None);
-        }
         return Ok(Some(CheckedArgumentType::Known(checked_type)));
     }
     if decoder.is_empty_list_literal_expression(instruction)? {
         return Ok(Some(CheckedArgumentType::EmptyList(None)));
     }
     match decoder.expression_view(instruction)? {
+        schema::ExprView::Null => return Ok(Some(CheckedArgumentType::Known(Type::Null))),
+        schema::ExprView::ValueBlock { mut body, .. } => {
+            materialization.charge(body.len())?;
+            return match decoder.checked_value_block_result(&mut body)? {
+                super::CheckedValueBlockResult::Tail(tail) => checked_argument_type(store, decoder, tail, tail, materialization, depth + 1),
+                super::CheckedValueBlockResult::Unit => Ok(Some(CheckedArgumentType::Known(Type::Unit))),
+                super::CheckedValueBlockResult::DoesNotComplete => Ok(None),
+            };
+        }
+
+        schema::ExprView::IfExpr { branches, else_value, .. } => {
+            let mut joined = producers::ConditionalProducerType::new();
+            for arm in branches.map(|branch| branch.map(|(_, value)| value.raw() as usize))
+                .chain(std::iter::once(Ok(else_value.raw() as usize)))
+            {
+                materialization.charge(1)?;
+                let Some(arm) = decoder.checked_branch_value_instruction(arm?)? else { continue };
+                let Some(actual) = checked_argument_type(store, decoder, arm, arm, materialization, depth + 1)? else { return Ok(None) };
+                let Some(actual) = closed_literal_argument_type(actual, materialization)? else { return Ok(None) };
+                joined.observe(Some(Arc::new(actual)));
+            }
+            let (actual, unknown) = joined.finish(materialization)?;
+            if unknown { return Ok(None); }
+            return actual.map(|actual| {
+                materialization.charge_clone(&actual)?;
+                Ok(CheckedArgumentType::Known(Arc::unwrap_or_clone(actual)))
+            }).transpose();
+        }
+
         schema::ExprView::EmptyMap => return Ok(Some(CheckedArgumentType::EmptyMap)),
         schema::ExprView::MapLiteral(mut entries) => {
             let mut key_type = None;

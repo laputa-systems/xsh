@@ -6074,6 +6074,8 @@ impl InstructionParentContext<'_> {
     }
 }
 
+enum WithErrorSource { Initializer(usize), Propagation(usize) }
+
 pub(in crate::runtime::eval) struct FullDecoder<'a> {
     store: &'a FullStore,
     owner: u32,
@@ -13982,25 +13984,39 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    // Assign each propagated try to its nearest With initializer in one owner pass.
-    fn checked_with_initializer_error_types(
+    fn checked_with_initializer_error_types(&self) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+        self.with_initializer_error_types_with(|source| Ok(match match source {
+            WithErrorSource::Initializer(instruction) => self.checked_expression_type(instruction)?,
+            WithErrorSource::Propagation(instruction) => self.derive_checked_expression_type(instruction)?,
+        } {
+            Some(Type::Result(_, error)) => Some(*error),
+            _ => None,
+        }), Type::Error, Self::merge_with_error_type, |_| Ok(()))
+    }
+
+    fn with_initializer_error_types_with<E: Clone>(
         &self,
-    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+        mut source_error: impl FnMut(WithErrorSource) -> Result<Option<E>, IrVerifyError>,
+        fallback: E,
+        mut merge: impl FnMut(&mut Option<E>, E),
+        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<BTreeMap<usize, E>, IrVerifyError> {
         let mut initializer_owners = BTreeMap::new();
         let mut error_types = BTreeMap::new();
         for instruction in self.instruction_range.clone() {
+            charge(1)?;
             if self.store.tags[instruction] != FullTag::StmtWith {
                 continue;
             }
             let schema::StmtView::With {
                 mut bindings,
-                else_param_slot,
                 ..
             } = self.statement_view(instruction)? else {
                 unreachable!("With instruction tag and generated view disagree")
             };
             let mut error_type = None;
             for binding in &mut bindings {
+                charge(1)?;
                 let (_, value) = binding?;
                 let initializer = value.raw() as usize;
                 if initializer_owners.insert(initializer, instruction).is_some() {
@@ -14008,24 +14024,22 @@ impl<'a> FullDecoder<'a> {
                         "checked With initializer has multiple owners",
                     ));
                 }
-                if else_param_slot.is_some()
-                    && let Some(Type::Result(_, error)) =
-                        self.checked_expression_type(initializer)?
+                if let Some(error) = source_error(WithErrorSource::Initializer(initializer))?
                 {
-                    Self::merge_with_error_type(&mut error_type, *error);
+                    merge(&mut error_type, error);
                 }
             }
-            if else_param_slot.is_some() {
-                error_types.insert(instruction, error_type);
-            }
+            error_types.insert(instruction, error_type);
         }
         for instruction in self.instruction_range.clone() {
+            charge(1)?;
             if self.store.tags[instruction] != FullTag::ExprTry {
                 continue;
             }
             let mut current = instruction;
             let mut with_instruction = None;
             loop {
+                charge(1)?;
                 if let Some(owner) = initializer_owners.get(&current) {
                     with_instruction = Some(*owner);
                     break;
@@ -14048,23 +14062,12 @@ impl<'a> FullDecoder<'a> {
                 unreachable!("Try instruction tag and generated view disagree")
             };
             let value_instruction = value.raw() as usize;
-            let operand_type = self
-                .derive_checked_expression_type(value_instruction)?
-                .ok_or_else(|| {
-                    IrVerifyError::new(format!(
-                        "checked With propagation at instruction {instruction} is missing its Result source type at instruction {value_instruction} ({:?})",
-                        self.store.tags[value_instruction]
-                    ))
-                })?;
-            let error = Self::checked_result_payload_type(Some(&operand_type), false)
-                .ok_or_else(|| {
-                    IrVerifyError::new("checked With propagation source is not a Result")
-                })?;
-            Self::merge_with_error_type(error_type, error);
+            let error = source_error(WithErrorSource::Propagation(value_instruction))?.ok_or_else(|| IrVerifyError::new("checked With propagation source is not a Result"))?;
+            merge(error_type, error);
         }
         Ok(error_types
             .into_iter()
-            .map(|(instruction, error_type)| (instruction, error_type.unwrap_or(Type::Error)))
+            .map(|(instruction, error_type)| (instruction, error_type.unwrap_or_else(|| fallback.clone())))
             .collect())
     }
 
@@ -24234,6 +24237,57 @@ assert order == "LU123"
             }
             let error = FullVerifier::verify(&forged).unwrap_err();
             assert_eq!(error.message, "mutable capture contract differs from its storage declaration");
+        });
+    }
+
+    #[test]
+    fn generic_body_arguments_authenticate_schema_checked_sources() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-schema-argument.xsh", concat!(
+                "type Row = {number: Int}\n",
+                "error BindingFailure = Missing(message: Str)\n",
+                "error OtherFailure = Missing(message: Str)\n",
+                "pure keep(value, selected: Result[Row, BindingFailure]) { let _ = selected; value }\n",
+                "pure number(mode: Bool) -> Int { let selected: Result[Row, BindingFailure] = if mode { Err(BindingFailure.Missing(message: \"missing\")) } else { Ok(Row(number: 7)) }; let _ = \"wrong\"; let _ = OtherFailure.Missing(message: \"spare\"); keep(1, selected) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "number");
+            assert!(function_instruction_indices(&program, "number", FullTag::ExprCheckedValue).iter().any(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check, .. }) if check.schema.is_none() && matches!(check.ty.materialize(), Ok(Type::Result(_, error)) if matches!(*error, Type::ErrorFamily(_))))));
+            let integer = function_instruction_indices(&program, "number", FullTag::ExprInt).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7)))).unwrap();
+            let string = function_instruction_indices(&program, "number", FullTag::ExprStr).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags.swap(integer, string);
+            forged.store.data.swap(integer, string);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("producer") || error.message.contains("record") || error.message.contains("checked"), "{}", error.message);
+            let errors = function_instruction_indices(&program, "number", FullTag::ExprError);
+            let actual_error = errors.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Error(super::ErrorExprView::Structured { family_identity, .. })) if family_identity.contains("BindingFailure"))).unwrap();
+            let other_error = errors.iter().copied().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Error(super::ErrorExprView::Structured { family_identity, .. })) if family_identity.contains("OtherFailure"))).unwrap();
+            let mut forged = program.clone();
+            forged.store.data.swap(actual_error, other_error);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("error") || error.message.contains("producer") || error.message.contains("checked"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn generic_body_arguments_authenticate_conditional_optional_sources() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-conditional-argument.xsh", concat!(
+                "pure keep(payload, optional: Int?) { let _ = optional; payload }\n",
+                "pure number(mode: Bool) -> Int { let optional: Int? = if mode { null } else { 4 }; let _ = \"wrong\"; keep(7, optional) }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "number");
+            assert_eq!(function_instruction_indices(&program, "number", FullTag::ExprIf).len(), 1);
+            assert_eq!(function_instruction_indices(&program, "number", FullTag::ExprNull).len(), 1);
+            let integer = function_instruction_indices(&program, "number", FullTag::ExprInt).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(4)))).unwrap();
+            let string = function_instruction_indices(&program, "number", FullTag::ExprStr).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags.swap(integer, string);
+            forged.store.data.swap(integer, string);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("initializer") || error.message.contains("argument") || error.message.contains("producer"), "{}", error.message);
         });
     }
 
