@@ -8,6 +8,20 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Matching verification products at `5fa4a4b6b` execute the complete 132-selector
+native inference boundary: 116 pass, sixteen fail and none skip. Every selector
+executes exactly once and all previously passing selectors remain passing.
+The one resolved failure is the diagnostic fixture correction described below;
+the fifteen main-family failures are unchanged.
+
+Repair `e8e50ba94`, integrated as `5fa4a4b6b`, stops requiring a settled return
+shape when invocation effects prove Error impossible. The causal regression
+and retained ticket/error-flow control pass: two selected, two passed. Effects
+that may contain Error still require the existing shape proof. The matching
+native replay still rejects the two producer witnesses whose effect contracts
+remain symbolic. Those cases require the retained invocation-flow relationship;
+this narrower repair earns no producer-capability closure.
+
 Source `7d9f4c6ac` builds matching verification products and passes the complete
 four-return practical comparison. Both original and reduced views check all
 twelve XSH roots and three Laputa roots. Six runtime selectors execute in each
@@ -22,6 +36,8 @@ fallthrough and Result[Unit] propagation survive early error returns. Ten
 focused controls pass across compatible receipts, with both reviews clear.
 Value-context conditionals, exhaustive branches, ignored non-Unit values and
 authored Unit return restrictions retain their existing checks.
+The completed Proc checkout is removed after patch-equivalence and ownership
+checks; its branch and four small failure/test logs remain available.
 
 The combined unfiltered library replay at `865b8aac2` selects 2,024 tests:
 2,021 pass, zero fail and three are ignored. Matching verification products
