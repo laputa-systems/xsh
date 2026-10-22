@@ -8,13 +8,32 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Provisional assembly `8bb093c79` passes 629 of 630 selected Rust controls.
-All 630 selectors remain selected. The sole failure is the existing nested
-optional-guard verification case. Proc repair `7ae893201`, integrated as
-`8bb093c79`, passes all 21 focused controls, including the six regressions
-introduced by `4e90fafe1`. Unit and failure-only completions retain their
-resolved success type and nominal error join. Ready same-file callees reuse
-their canonical origin summary without discarding resource provenance.
+Provisional assembly `e0a97e754` passes 662 of 670 selected Rust controls.
+The replay preserves all 668 preceding selectors and adds named-spread Stream
+provenance and dormant callable-record guard controls. Eight failures remain:
+three invalid-Proc diagnostic cascades, three producer-contract disagreements,
+one callback receiver contract, and the flat immutable-alias work bound.
+This selected boundary does not qualify the full suite or campaign.
+
+Repair `2ec846442`, integrated as `5938baae2`, rejects an invalid Proc owner
+before generalization. All eight focused diagnostic, sibling-isolation and
+single-body controls pass; independent review reports no P1/P2. Combined
+qualification of this newer assembly remains pending.
+
+Guarded-read repair `7d6c8130e`, integrated as `e0a97e754`, passes 27 focused
+controls and independent review. Ordinary records retain their ordering proofs;
+callable-bearing records retain precise optional-receiver guard proofs even
+without invocation. Repeated field reads reuse the existing bounded traversal
+without per-read visited-set allocation or a larger work limit. Nine stale
+fixtures are corrected at `6d20e11c4`; all nine pass while preserving corruption,
+cleanup and independent-diagnostic assertions.
+
+The preceding `3c98fe04d` passes 639 of 668 selected controls, with 29 failures.
+The unfiltered library run at `c21be8076` passes 1,917 tests, fails 25, and ignores
+three. Those failures expanded the selected boundary; no failed receipt becomes
+acceptance credit. The earlier `8bb093c79` replay passes 629 of 630 controls,
+with the nested optional-guard failure. Its 21 focused Proc controls pass,
+including the six regressions introduced by `4e90fafe1`.
 
 The preceding `4e90fafe1` passes 623 of 630 selected Rust controls, with six
 Proc regressions and the nested optional-guard failure. Preserve that failed
@@ -69,12 +88,11 @@ pipeline output from its actual input and stages. Both execution routes pass.
 The Set test now targets the actual dedicated operation instead of assuming an
 empty-list conversion. Its receiver, item, alias and method mutations still reject.
 
-The current lanes repair nested optional-record verification and typed callable
-materialization through immutable captured aliases. The original optional-guard
-fixture passes the current isolated candidate, but a nested record-value case
-exceeds its unchanged proof-work bound. The callable candidate passes direct,
-local and driver alias witnesses; its captured-alias witness exposes proof
-ordering that still needs repair. Neither candidate is integrated.
+The reviewed optional-record and immutable callable-alias repairs are now
+integrated. Active source work addresses static literal positional splices,
+the remaining producer/callback verifier contracts, and repeated alias proof
+work. Final-source native, corpus, performance and inherited deployment gates
+remain open. Pyramid remains frozen until inference qualifies.
 
 The generic-body fixture now asserts runtime behavior for an independent generic
 value alongside a live ground mutable capture, and for activation-local mutation.
