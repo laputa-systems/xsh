@@ -8,6 +8,20 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Checked-dynamic repair `38eaa017c`, integrated as `8a40f9df8`, passes eleven
+distinct focused Rust controls across compatible runs and independent review.
+Passive generic calls retain checked opaque arguments, including typed rest
+splices; empty-list and null inference requirements stay unchanged. Cold ground
+and symbolic calls require exact input-binder evidence. Callable references use
+the existing exact declared-signature proof. Ownership, forged Any/Int arguments
+and results, and dynamic-operation rejection remain covered. Combined library
+and native qualification are pending. The new symbolic evidence walk's repeated
+subtree scan remains a bounded-work risk for the mandatory scaling gates.
+
+The completed module-projection checkout is removed, with its branch and small
+scratch artifacts retained. Docker-owned cache permissions required privileged
+removal after restoring Git's registration; active checkouts remain intact.
+
 Matching verification products built from `ce2c89e34` execute all 121 enumerated
 full-inference native controls and eight changed legacy controls: 110 pass and
 19 fail. Every selector executes exactly once, with no previously passing

@@ -1467,6 +1467,12 @@ comprehensions, pipeline sources, method calls, spread operands, `?`,
 `attempt`, and `wait` require validation first. A `List[Any]` or `Map[Any]`
 is a concrete container whose elements remain opaque.
 
+Passive generic calls preserve an explicitly checked `Any` argument as opaque
+data, including checked list-splice items. An explicit callable signature can
+also select an `Any` instance of a generic function (9.4). Operations on that
+instance still require validation. An unannotated empty list or `null` remains
+subject to ordinary inference requirements; neither selects `Any` by default.
+
 Every other use needs a concrete type that the data may not have, and is
 `check.dynamic-boundary`: a typed binding, parameter, return, or field; an
 arithmetic, ordering, or logical operand, including a `sort-by` key and
