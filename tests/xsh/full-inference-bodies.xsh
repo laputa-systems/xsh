@@ -20,7 +20,7 @@ pure count(items) {
 }
 let number = choose(Ok(9), 4)
 let word = choose(Ok("ready"), "waiting")
-let missing: Result[Int, BodyChoiceError] = Err(BodyChoiceError.Missing)
+let missing: Result[Int, BodyChoiceError] = Err(BodyChoiceError.Missing())
 let fallback = choose(missing, 6)
 let numbers = count([1, 2, 3])
 let words = count(["one", "two"])
@@ -85,12 +85,12 @@ let text: StrRow? = {name: "words", items: ["a", "b"]}
 let selected = inspect(present, 1, 3)
 let missing = inspect(absent, 0, 0)
 let word = inspect(text, 1, 2)
-print ${selected.name} ${selected.selected ?? -1} ${selected.slice}
+print ${selected.name} ${selected.selected ?? -1} ${json.encode(selected.slice)?}
 print ${missing.name} ${missing.selected ?? -1} ${missing.slice.len()}
-print ${word.name} ${word.selected ?? "missing"} ${word.slice}
+print ${word.name} ${word.selected ?? "missing"} ${json.encode(word.slice)?}
 """,
     status: 0,
-    stdout: ["numbers 4 [4, 6]\nmissing -1 0\nwords b [b]\n"],
+    stdout: ["numbers 4 [4,6]\nmissing -1 0\nwords b [\"b\"]\n"],
   )?
   assert output.stderr == "", output.stderr
 }
