@@ -104,7 +104,7 @@ impl HostCallContinuation {
     fn phase(&self, method: HostMethod, arguments: &[ExpandedArgument]) -> Option<&HostCallPhase> {
         if !matches!(self.source, HostCallSource::Expression(_))
             || self.receiver_schema.is_some()
-            || method.signature.sig.arg_check != super::ApiArgCheck::Standard
+            || !matches!(method.signature.sig.arg_check, super::ApiArgCheck::Standard | super::ApiArgCheck::PathLikeSingle)
         { return None; }
         match super::method_with_unique_layout(
             api_spec().method_overloads(method.receiver, &self.name).expect("a selected host method remains registered"),
@@ -175,8 +175,17 @@ impl HostMethodCandidates {
         let mut matching = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
             let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
-            let arguments_match =
+            let mut arguments_match =
                 crate::sema::arguments::bind_static_arguments(&params, &self.arguments).is_ok();
+            if candidate.signature.sig.arg_check == super::ApiArgCheck::PathLikeSingle {
+                arguments_match &= match self.arguments.as_slice() {
+                    [argument] => {
+                        let actual = constraints.resolve(&argument.ty)?;
+                        super::super::expr::is_path_like_type(&actual) || matches!(actual, Type::Inference(_))
+                    }
+                    _ => false,
+                };
+            }
             let candidate_matches = if arguments_match {
                 constraints.record_host_candidate_trial();
                 constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, false).map(|_| ()))?
@@ -644,9 +653,11 @@ mod tests {
 
     #[test]
     fn late_host_effects_use_the_original_boundary() {
-        for (source, name) in [
-            ("proc original() { raw.resolve() }\nproc elsewhere() {}\n", "resolve"),
-            ("proc original() { raw.write(\"data\") }\nproc elsewhere() {}\n", "write"),
+        for (source, name, receiver_kind, receiver_type) in [
+            ("proc original() { raw.resolve() }\nproc elsewhere() {}\n", "resolve", MethodReceiver::Path, Type::Path),
+            ("proc original() { raw.write(\"data\") }\nproc elsewhere() {}\n", "write", MethodReceiver::Path, Type::Path),
+            ("proc original() { raw.prepend(p\"data\") }\nproc elsewhere() {}\n", "prepend", MethodReceiver::EnvPathList, Type::EnvPathList),
+            ("proc original() { raw.append(p\"data\") }\nproc elsewhere() {}\n", "append", MethodReceiver::EnvPathList, Type::EnvPathList),
         ] {
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -662,7 +673,7 @@ mod tests {
         let args = parsed.arena.arena.call_args(args);
         let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(callee).kind else { panic!("method receiver") };
         let span = parsed.arena.arena.expr(call).span;
-        let method = &api_spec().method_overloads(MethodReceiver::Path, name).unwrap()[0];
+        let method = &api_spec().method_overloads(receiver_kind, name).unwrap()[0];
         assert!(!method.sig.pure);
         let required = method.sig.effects.to_vec();
         assert!(!required.is_empty());
@@ -678,7 +689,7 @@ mod tests {
             original.boundary.in_pure = pure;
             original.boundary.current_effects = Some(if allowed { required.clone() } else { Vec::new() });
             let mut delayed = original.clone();
-            original.check_method_dispatch_arena(&parsed.arena, source, HostCallSource::Expression(call), base, Type::Path, name, args, span, None);
+            original.check_method_dispatch_arena(&parsed.arena, source, HostCallSource::Expression(call), base, receiver_type.clone(), name, args, span, None);
             original.validate_deferred_effects();
             let receiver = delayed.type_constraints.fresh(span);
             let result = delayed.type_constraints.fresh(span);
@@ -694,7 +705,7 @@ mod tests {
             delayed.boundary.effect_owner = Some(other);
             delayed.boundary.in_pure = false;
             delayed.boundary.current_effects = Some(required.clone());
-            delayed.type_constraints.constrain(&receiver, &Type::Path, span).unwrap();
+            delayed.type_constraints.constrain(&receiver, &receiver_type, span).unwrap();
             assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
             delayed.validate_deferred_effects();
             let diagnostics = |checker: &Checker| checker.diagnostics.iter().map(|diagnostic| (diagnostic.code, diagnostic.message.clone())).collect::<Vec<_>>();
@@ -744,6 +755,120 @@ mod tests {
         let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).map(|diagnostic| diagnostic.labels.iter().map(|label| label.span).collect::<Vec<_>>()).collect::<Vec<_>>();
         assert_eq!(order(&reference).len(), 2, "{:?}", reference.diagnostics);
         assert_eq!(order(&delayed), order(&reference), "{:?}", delayed.diagnostics);
+    }
+
+    #[test]
+    fn late_path_like_nested_effects_precede_argument_effects() {
+        let source = "let raw = env.PATH\nraw.append(p\"inner\".resolve() ?? p\"fallback\")\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
+        let crate::syntax::arena::ArenaStmtKind::Expr(outer) = parsed.arena.arena.stmt(statement).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(outer).kind else { panic!("outer host call") };
+        let crate::syntax::arena::ArenaCallArgKind::Positional(value) = parsed.arena.arena.call_args(args)[0].kind else { panic!("path argument") };
+        let crate::syntax::arena::ArenaExprKind::Binary { left: inner, .. } = parsed.arena.arena.expr(value).kind else { panic!("resolved path fallback") };
+        let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
+        reference.resolved_bindings = std::sync::Arc::new(super::super::super::ResolvedBindings::collect(&parsed.arena));
+        let declaration = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+        reference.check_stmt_arena(&parsed.arena, source, declaration);
+        assert!(reference.diagnostics.is_empty(), "{:?}", reference.diagnostics);
+        reference.boundary.in_pure = true;
+        let mut delayed = reference.clone();
+        reference.check_expr_arena(&parsed.arena, source, outer, None);
+        let outer_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(outer), "append", None);
+        let inner_continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(inner), "resolve", None).finish(&mut delayed);
+        let outer_continuation = outer_continuation.finish(&mut delayed);
+        for (call, name, receiver, continuation, arguments) in [
+            (inner, "resolve", Type::Path, inner_continuation, Vec::new()),
+            (outer, "append", Type::EnvPathList, outer_continuation, crate::sema::arguments::expand_named_arguments(&parsed.arena, parsed.arena.arena.call_args(args), |_| Some(Type::Path)).unwrap()),
+        ] {
+            let span = parsed.arena.arena.expr(call).span;
+            let result = delayed.type_constraints.fresh(span);
+            delayed.local_inference.host_obligations.entries.push(HostObligation {
+                continuation,
+                candidates: HostMethodCandidates { selected: None, receiver, result, expected: None, arguments, candidates: method_candidates(name), span },
+            });
+        }
+        assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
+        let order = |checker: &Checker| checker.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckPureEffect)).flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span)).collect::<Vec<_>>();
+        assert_eq!(order(&reference), [parsed.arena.arena.expr(outer).span, parsed.arena.arena.expr(inner).span]);
+        assert_eq!(order(&delayed), order(&reference));
+        assert!(delayed.local_inference.host_obligations.entries.is_empty());
+        for call in [inner, outer] {
+            let span = parsed.arena.arena.expr(call).span;
+            assert!(std::ptr::eq(delayed.api_calls[&span].sig, reference.api_calls[&span].sig));
+        }
+    }
+
+    #[test]
+    fn late_path_like_methods_preserve_checked_arguments() {
+        for (name, receiver_kind, receiver_type) in [
+            ("strip_prefix", MethodReceiver::Path, Type::Path),
+            ("prepend", MethodReceiver::EnvPathList, Type::EnvPathList),
+            ("append", MethodReceiver::EnvPathList, Type::EnvPathList),
+        ] {
+            for (input, binding_type, accepted) in [
+                ("p\"child\"", None, true),
+                ("\"child\"", None, true),
+                ("value", Some(Type::Str), false),
+                ("value", Some(Type::Any), false),
+                ("false", None, false),
+                ("", None, false),
+                ("p\"one\", p\"two\"", None, false),
+            ] {
+                for actual_receiver in [&receiver_type, &Type::Str] {
+                let accepted = accepted && actual_receiver == &receiver_type;
+                let declaration = binding_type.as_ref().map(|ty| format!("let value: {ty} = \"stored\"\n")).unwrap_or_default();
+                let source = format!("{declaration}raw.{name}({input})\n");
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let _symbols = parsed.arena.symbol_owner().enter();
+                let statement = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
+                let crate::syntax::arena::ArenaStmtKind::Expr(call) = parsed.arena.arena.stmt(statement).kind else { panic!("host call") };
+                let crate::syntax::arena::ArenaExprKind::Call { args, .. } = parsed.arena.arena.expr(call).kind else { panic!("host call") };
+                let args = parsed.arena.arena.call_args(args);
+                let span = parsed.arena.arena.expr(call).span;
+                let mut reference = Checker::new(crate::sema::check::CheckOptions::default());
+                reference.resolved_bindings = std::sync::Arc::new(super::super::super::ResolvedBindings::collect(&parsed.arena));
+                if binding_type.is_some() {
+                    let declaration = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+                    reference.check_stmt_arena(&parsed.arena, &source, declaration);
+                    assert!(reference.diagnostics.is_empty(), "{source}: {:?}", reference.diagnostics);
+                }
+                let mut delayed = reference.clone();
+                reference.check_registered_method_arena(&parsed.arena, &source, receiver_kind, name, args, span, actual_receiver, DiagnosticCode::CheckUnknownMethod, None, None);
+                let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), name, None);
+                let arguments = crate::sema::arguments::expand_named_arguments(&parsed.arena, args, |expression| {
+                    Some(delayed.check_expr_arena(&parsed.arena, &source, expression, Some(&Type::Path)))
+                }).unwrap();
+                let continuation = continuation.finish(&mut delayed);
+                let receiver = delayed.type_constraints.fresh(span);
+                let result = delayed.type_constraints.fresh(span);
+                delayed.local_inference.host_obligations.entries.push(HostObligation {
+                    continuation,
+                    candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
+                });
+                delayed.type_constraints.constrain(&receiver, actual_receiver, span).unwrap();
+                assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
+                if accepted {
+                    assert!(reference.diagnostics.is_empty(), "{source}: {:?}", reference.diagnostics);
+                    assert!(delayed.diagnostics.is_empty(), "{source}: {:?}", delayed.diagnostics);
+                    let actual = delayed.api_calls.get(&span).expect("Path-like continuation publishes its canonical operation");
+                    let expected = reference.api_calls.get(&span).unwrap();
+                    assert!(std::ptr::eq(actual.sig, expected.sig));
+                    assert_eq!(actual.params, expected.params);
+                    assert_eq!(actual.argument_slots, expected.argument_slots);
+                    assert!(delayed.local_inference.host_obligations.entries.is_empty());
+                } else {
+                    assert!(!reference.diagnostics.is_empty(), "{source}");
+                    assert!(!delayed.api_calls.contains_key(&span), "{source}");
+                    assert_eq!(delayed.local_inference.host_obligations.entries.len(), 1, "{source}");
+                    assert!(delayed.local_inference.host_obligations.entries[0].candidates.selected.is_none(), "{source}");
+                }
+                }
+            }
+        }
     }
 
     #[test]

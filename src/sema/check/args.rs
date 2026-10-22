@@ -840,11 +840,15 @@ impl Checker {
             return;
         };
         let ty = self.check_call_arg_arena(arena, source, arg, Some(&Type::Path));
-        if ty == Type::Any {
-            self.expect_type(&Type::Path, &ty, call_arg_span_arena(arena, arg));
-        } else if !is_path_like_type(&ty) {
+        self.check_checked_path_like_argument(&ty, call_arg_span_arena(arena, arg));
+    }
+
+    pub(super) fn check_checked_path_like_argument(&mut self, ty: &Type, span: Span) {
+        if ty == &Type::Any {
+            self.expect_type(&Type::Path, ty, span);
+        } else if !is_path_like_type(ty) {
             self.error(
-                call_arg_span_arena(arena, arg),
+                span,
                 "expected Path",
                 DiagnosticCode::CheckTypeMismatch,
             );
