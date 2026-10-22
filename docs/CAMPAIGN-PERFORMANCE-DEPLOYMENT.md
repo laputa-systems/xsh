@@ -8,14 +8,22 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `934a13003` passes 423 of 447 selected Rust controls.
-Its 24 failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `3cf849c15` passes 428 of 448 selected Rust controls.
+Its 20 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
+
+Host checkpoint `e99bb2cc5` also finalizes argument-dependent Standard method
+overloads from committed argument evidence. Actual before/after argument
+contexts preserve each canonical selection phase and effect owner. All sixteen
+focused controls pass, followed by the combined replay. Schema-bearing and
+specialized method continuations still use their existing checking paths.
+Body probes remain separate work; these checkpoints do not establish one-body
+authority or a performance result.
 
 A subsequent test-only correction retains nested-schema rejection while checking
 supported closed Stream callable identity and both cross-kind rejections. All
@@ -28,8 +36,8 @@ rejection expectations. Generic tail and tail-less block forgeries retain their
 actual type guards. Filesystem scans and walks reject forged Result envelopes
 through the registry signature inside capture and the effect ceiling outside
 capture. Their source programs and mutations are unchanged. No production
-verification rule changes. These focused corrections do not replace the last
-447-control replay or the required full regression gates.
+verification rule changes. All four test corrections pass in the 448-control
+combined replay. Required full regression gates remain open.
 
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
 `ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
@@ -48,14 +56,14 @@ Body checkpoint `426157ef3` passes all 26 isolated controls. Host-continuation
 checkpoint `01ae27f43` passes all 15 isolated controls. The initial combined
 replay exposed a test adapter supplying Pure for an actual Proc; correction
 `a6ac1b984` derives the checked scheme kind and retains both capture assertions.
-All three focused controls pass, followed by the corrected 447-control replay.
+All three focused controls pass, followed by the corrected combined replay.
 The completed export checkout is retired from the active path and Git
 registration. Its scratch and generated artifacts remain in the ignored
 retired-lane archive.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
-44 failures and three existing ignores. Twenty failures are repaired in the
-`934a13003` replay. Remaining failures include producer gaps, malformed mutation
+44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
+the `3cf849c15` replay. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
@@ -96,7 +104,7 @@ The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
 The remaining generic-body families and single-body checking authority stay
-open, alongside 24 baseline failures. The first body checkpoint does not cover
+open, alongside 20 baseline failures. The first body checkpoint does not cover
 run-initialized Guard, Retry/context/error-context, dedicated builtins or the
 remaining conversion forms. The next lanes own those body forms, canonical
 host-call continuations and paired interface completion. Full Rust, native, memory, performance and inherited
