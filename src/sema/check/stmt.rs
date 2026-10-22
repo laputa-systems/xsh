@@ -2738,9 +2738,18 @@ impl Checker {
                 self.define(*name, binding, span);
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
-                let record_fields = match ty.unvalidated() {
+                let resolved = match self.type_constraints.resolve(ty) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        self.error(span, &format!("destructured value type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        Type::Unknown
+                    }
+                };
+                let inferred_record = matches!(ty.unvalidated(), Type::Inference(_))
+                    && matches!(resolved.unvalidated(), Type::Inference(_) | Type::Record(_));
+                let record_fields = match resolved.unvalidated() {
                     Type::Record(fields) => Some(fields),
-                    Type::Unknown => None,
+                    Type::Unknown | Type::Inference(_) => None,
                     _ => {
                         self.error(
                             span,
@@ -2760,11 +2769,19 @@ impl Checker {
                             DiagnosticCode::CheckDestructureField,
                         );
                     }
-                    let field_ty = record_fields
-                        .and_then(|fields| fields.get(&field.name))
-                        .cloned()
-                        .unwrap_or(Type::Unknown);
-                    if let Some(record_fields) = record_fields
+                    let field_ty = if inferred_record {
+                        match self.type_constraints.project_record_field(ty.unvalidated(), field.name, 1, field_span) {
+                            Ok(field_ty) => field_ty,
+                            Err(conflict) => {
+                                self.expect_type(&conflict.expected, &conflict.actual, conflict.contribution);
+                                Type::Unknown
+                            }
+                        }
+                    } else {
+                        record_fields.and_then(|fields| fields.get(&field.name)).cloned().unwrap_or(Type::Unknown)
+                    };
+                    if !inferred_record
+                        && let Some(record_fields) = record_fields
                         && !record_fields.is_empty()
                         && !record_fields.contains_key(&field.name)
                     {
@@ -8265,6 +8282,88 @@ mod reader_binding_identity_tests {
                 diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckProcCommandSyntax)
             }));
         });
+    }
+}
+
+#[cfg(test)]
+mod structural_input_tests {
+    use super::Checker;
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn destructured_formals_retain_independent_nested_rows_without_body_replay() {
+        let source = "pure unpack(row) { let {first: value, nested: {item: other, ..}, ..} = row; {value, other} }\nlet number = unpack({first: 7, nested: {item: false, ignored: 1}, extra: true})\nlet word = unpack({first: \"word\", nested: {item: 9}, extra: \"kept\"})\nlet integer: Int = number.value\nlet boolean: Bool = number.other\nlet text: Str = word.value\nlet nested: Int = word.other\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena(&parsed.arena, source));
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.function_body_check_entries, 1);
+        assert_eq!(work.function_body_check_entries, 1);
+        let declaration = checked.checked_declarations.functions.values().next().unwrap();
+        let scheme = declaration.scheme.as_ref().unwrap();
+        let crate::sema::schemes::SchemeType::Record { fields, tail } = &scheme.params()[0].ty else { panic!("the formal retains its destructured record relationship") };
+        assert!(matches!(tail, crate::sema::schemes::SchemeRowTail::Parameter(_)));
+        assert_eq!(fields.len(), 2);
+        assert_eq!(scheme.type_parameters().len(), 2);
+    }
+
+    #[test]
+    fn destructuring_retains_closed_field_and_dynamic_rejections() {
+        for (source, expected) in [
+            ("pure unpack(row) { let {value} = row; value }\nlet wrong = unpack({other: 7})\n", DiagnosticCode::CheckUnknownField),
+            ("pure unpack(row) { let {nested: {value}} = row; value }\nlet wrong = unpack({nested: {other: 7}})\n", DiagnosticCode::CheckTypeMismatch),
+            ("let {missing} = {known: 7}\n", DiagnosticCode::CheckDestructureField),
+            ("let {value: first, value: second} = {value: 7}\n", DiagnosticCode::CheckDestructureField),
+            ("let {value} = 7\n", DiagnosticCode::CheckDestructureType),
+            ("pure unpack(row: Any) -> Unit { let {value} = row; let _ = value }\n", DiagnosticCode::CheckDestructureType),
+            ("pure unpack(row) { let {value} = row; value }\nlet wrong: Str = unpack({value: 7})\n", DiagnosticCode::CheckTypeMismatch),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn omitted_rest_shapes_share_the_original_item_cell_in_every_callable_kind() {
+        for (definition, integer, text) in [
+            ("pure pack(...items) { let first = items[0]; items.push(first) }", "List[Int]", "List[Str]"),
+            ("proc pack(...items) [] { items }", "Result[List[Int]]", "Result[List[Str]]"),
+            ("stream pack(...items) [] { for item in items { yield item } }", "Stream[Int]", "Stream[Str]"),
+        ] {
+            let source = format!("{definition}\nlet integers: {integer} = pack(1, 2)\nlet words: {text} = pack(\"one\", \"two\")\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena(&parsed.arena, &source));
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            assert_eq!(checked.function_body_check_entries, 1, "{source}");
+            assert_eq!(work.function_body_check_entries, 1, "{source}");
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            let scheme = declaration.scheme.as_ref().unwrap();
+            assert_eq!(scheme.type_parameters().len(), 1, "{source}");
+            assert!(scheme.params()[0].rest);
+            assert!(matches!(&scheme.params()[0].ty, crate::sema::schemes::SchemeType::List(item) if matches!(item.as_ref(), crate::sema::schemes::SchemeType::Parameter(_))));
+        }
+    }
+
+    #[test]
+    fn destructured_formals_preserve_actual_stream_failure_origins() {
+        for fallible in [false, true] {
+            let target = if fallible { "failing" } else { "safe" };
+            let source = format!("error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\nstream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] {{ let _ = other; yield 7 }}\nstream failing(other: Result[Int, OtherFailure]) [error] -> Stream[Int] {{ yield other? }}\npure unpack(row) {{ let {{items}} = row; items }}\nproc captured(other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {{ try {{ for item in unpack({{items: {target}(other), extra: true}}) {{ let _ = item }}; 7 }} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if fallible {
+                assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+                assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch));
+                assert!(errors[0].labels.iter().any(|label| label.message.as_deref() == Some("expected CaptureFailure, found Error")), "{source}\n{errors:?}");
+            } else { assert!(errors.is_empty(), "{source}\n{errors:?}"); }
+        }
     }
 }
 

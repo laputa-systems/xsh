@@ -1686,6 +1686,7 @@ impl Checker {
                     && !self.parameter_types.contains_key(&span)
                 {
                     let ty = self.type_constraints.fresh_at_level(span, 1);
+                    let ty = if parameter.rest { Type::List(Box::new(ty)) } else { ty };
                     self.parameter_types.insert(span, ty);
                 }
             }
