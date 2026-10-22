@@ -846,6 +846,7 @@ impl Checker {
 
     pub(super) fn validate_stream_expression_origins(&mut self, program: &ArenaProgram) {
         let mut generalized = BTreeMap::<Span, bool>::new();
+        let mut nonmaterial = BTreeSet::new();
         for (declaration, pending) in self.declaration_inference.pending_entries() {
             if pending.generalized_body_types().is_none() && pending.generalized_tail_types().is_none() {
                 continue;
@@ -855,6 +856,18 @@ impl Checker {
             let definition = program.arena.function_def(target.definition);
             assert_eq!(owner.namespace, target.namespace);
             assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
+            for (&expression, &kind) in pending.generalized_constructor_producers().into_iter().flatten() {
+                assert!(super::scheme_body::matches_constructor_producer(program, expression, kind));
+                let span = program.arena.expr(expression).span;
+                assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
+                nonmaterial.insert(span);
+                if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
+                    let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
+                    let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
+                    nonmaterial.insert(program.arena.expr(callee).span);
+                    nonmaterial.insert(program.arena.expr(base).span);
+                }
+            }
             for (&expression, ty) in pending.generalized_body_types().into_iter().flatten() {
                 let resource = ty.may_hold_resource();
                 generalized.entry(program.arena.expr(expression).span)
@@ -867,7 +880,7 @@ impl Checker {
             }
         }
         let failures = self.stream_expr_origins.iter().filter_map(|(&span, origin)| {
-            if origin.0.is_empty() { return None; }
+            if origin.0.is_empty() || nonmaterial.contains(&span) { return None; }
             let resource = self.expr_types.get(&span).map(Type::may_hold_resource)
                 .or_else(|| generalized.get(&span).copied());
             match resource {

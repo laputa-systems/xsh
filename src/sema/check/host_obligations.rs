@@ -58,6 +58,7 @@ struct HostCallPhase {
 }
 
 struct HostCallStart {
+    owner: Option<super::super::EffectDeclarationId>,
     source: HostCallSource,
     before_arguments: HostCallPhase,
     name: String,
@@ -68,7 +69,7 @@ impl HostCallStart {
     fn finish(self, checker: &mut Checker, arguments: Vec<super::super::args::CheckedArgumentContext>) -> HostCallContinuation {
         let after_arguments = checker.reserve_host_call_phase();
         HostCallContinuation {
-            source: self.source, before_arguments: self.before_arguments, after_arguments,
+            owner: self.owner, source: self.source, before_arguments: self.before_arguments, after_arguments,
             name: self.name, receiver_schema: self.receiver_schema, arguments,
         }
     }
@@ -76,6 +77,7 @@ impl HostCallStart {
 
 #[derive(Clone)]
 struct HostCallContinuation {
+    owner: Option<super::super::EffectDeclarationId>,
     source: HostCallSource,
     before_arguments: HostCallPhase,
     after_arguments: HostCallPhase,
@@ -247,7 +249,7 @@ impl Checker {
         receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
     ) -> HostCallStart {
         let before_arguments = self.reserve_host_call_phase();
-        HostCallStart { source, before_arguments, name: name.to_owned(), receiver_schema }
+        HostCallStart { owner: self.stream_origin_owner, source, before_arguments, name: name.to_owned(), receiver_schema }
     }
 
     pub(in super::super) fn check_inferred_host_method(
@@ -292,17 +294,36 @@ impl Checker {
             self.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: obligation });
             result
         } else {
-            let (message, code) = if !registered {
-                ("no registered method has this name", DiagnosticCode::CheckUnknownMethod)
-            } else if obligation.candidates.is_empty() {
-                ("no registered method matches this body contract", DiagnosticCode::CheckTypeMismatch)
-            } else if obligation.candidates.len() == 1 && obligation.candidates[0].signature.receiver_ty.is_none() {
-                ("registered method receiver needs an annotation", DiagnosticCode::CheckLocalInference)
-            } else {
-                ("method receiver has no unique registered operation", DiagnosticCode::CheckAmbiguousOverload)
-            };
-            self.error(span, message, code);
+            self.reject_unresolved_host_method(&obligation, registered);
             Type::Invalid
+        }
+    }
+
+    fn reject_unresolved_host_method(&mut self, candidates: &HostMethodCandidates, registered: bool) {
+        let (message, code) = if !registered {
+            ("no registered method has this name", DiagnosticCode::CheckUnknownMethod)
+        } else if candidates.candidates.is_empty() {
+            ("no registered method matches this body contract", DiagnosticCode::CheckTypeMismatch)
+        } else if candidates.candidates.len() == 1 && candidates.candidates[0].signature.receiver_ty.is_none() {
+            ("registered method receiver needs an annotation", DiagnosticCode::CheckLocalInference)
+        } else {
+            ("method receiver has no unique registered operation", DiagnosticCode::CheckAmbiguousOverload)
+        };
+        self.error(candidates.span, message, code);
+    }
+
+    pub(in super::super) fn close_unresolved_host_obligations(&mut self, owner: Option<super::super::EffectDeclarationId>, body: Span) {
+        let pending = std::mem::take(&mut self.local_inference.host_obligations.entries);
+        for obligation in pending {
+            let span = obligation.candidates.span;
+            if obligation.continuation.owner == owner && obligation.candidates.selected.is_none()
+                && (owner.is_some() || (span.source_id == body.source_id && body.start() <= span.start() && span.end() <= body.end()))
+            {
+                self.reject_unresolved_host_method(&obligation.candidates, !method_candidates(&obligation.continuation.name).is_empty());
+                self.expr_types.insert(obligation.candidates.span, Type::Invalid);
+            } else {
+                self.local_inference.host_obligations.entries.push(obligation);
+            }
         }
     }
 

@@ -806,6 +806,13 @@ pub(super) enum DeferredEffectKind {
         message: String,
         subject: String,
     },
+    CallableFit {
+        target: Arc<crate::sema::types::TypedCallable>,
+        actual: super::CallableType,
+        effects: super::InvocationEffects,
+        kind: crate::sema::types::CallableKind,
+        name: Name,
+    },
     Invocation {
         effects: super::InvocationEffects,
         instance: Option<super::PendingCallInstantiation>,
@@ -1009,6 +1016,34 @@ mod deferred_invocation_tests {
 
 
 impl Checker {
+    pub(super) fn defer_named_callable_fit(
+        &mut self,
+        named: &super::CallableAlias,
+        target: Arc<crate::sema::types::TypedCallable>,
+        actual: super::CallableType,
+        span: Span,
+    ) -> bool {
+        let declaration = named.signature.effect_declaration();
+        let effects = self.instantiate_invocation_effects(named.kind, declaration, || {
+            if declaration.is_some_and(|owner| self.effect_graph.contains(owner)) {
+                self.declaration_effects(declaration)
+            } else {
+                super::DeclarationEffects::Checked(named.signature.scheme().effects().clone())
+            }
+        }, None);
+        let effects = match effects {
+            Ok(effects) => effects,
+            Err(_) => {
+                self.error(span, "callable assignment effects escaped their source scope", DiagnosticCode::CheckCallableMismatch);
+                return false;
+            }
+        };
+        self.push_deferred_effect_check(span, DeferredEffectKind::CallableFit {
+            target, actual, effects, kind: named.kind, name: named.name,
+        });
+        true
+    }
+
     pub(super) fn attach_invocation_return(
         &mut self,
         ticket: Option<DeferredInvocationTicket>,
@@ -1357,6 +1392,18 @@ impl Checker {
                         &subject,
                     );
                     self.check_effect_not_excluded(&effect, check.span, &subject);
+                }
+                DeferredEffectKind::CallableFit { target, mut actual, effects, kind, name } => {
+                    match self.resolve_invocation_effects(effects, None) {
+                        Ok(effects) => {
+                            actual.effects = effects;
+                            if let Some(reason) = target.mismatch(kind, &actual, true) {
+                                let expected = Type::Callable(target);
+                                self.error(check.span, &format!("`{name}` does not fit `{expected}`: {reason}"), DiagnosticCode::CheckCallableMismatch);
+                            }
+                        }
+                        Err(_) => self.error(check.span, "callable assignment has no settled source effect contract", DiagnosticCode::CheckCallableMismatch),
+                    }
                 }
                 DeferredEffectKind::Invocation { effects, instance, flow, unknown_chain, name } => {
                     match self.resolve_invocation_effects(effects, instance.as_ref()) {

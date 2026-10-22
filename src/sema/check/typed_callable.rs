@@ -269,6 +269,9 @@ impl Checker {
             );
             return Type::Invalid;
         }
+        if self.collecting_effects && !self.defer_named_callable_fit(&named, target, signature, span) {
+            return Type::Invalid;
+        }
         self.expr_types.insert(span, expected.clone());
         expected
     }

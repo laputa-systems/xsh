@@ -335,6 +335,7 @@ impl Checker {
         if let Err(error) = self.solve_host_obligations(program) {
             self.reject_host_inference_resolution(error, body);
         }
+        self.close_unresolved_host_obligations(self.stream_origin_owner, body);
         let checks = self.local_inference.fixed_storage_checks
             .drain(enclosing.fixed_storage_start..).collect::<Vec<_>>();
         for check in checks {
@@ -698,7 +699,7 @@ impl Checker {
             return ordinary.clone();
         }
         let span = program.arena.expr(expression).span;
-        match (origins.get(&span), ordinary) {
+        let materialized = match (origins.get(&span), ordinary) {
             (Some(FreshAggregateOrigin::List(range)), Type::List(item)) if range.is_empty() => {
                 if **item == Type::Unknown
                     && !source_types.iter().any(|ty| matches!(ty, Type::List(item) if **item == Type::Any))
@@ -762,7 +763,11 @@ impl Checker {
                 }
             }
             _ => ordinary.clone(),
+        };
+        if materialized != *ordinary {
+            self.record_expr_type(span, materialized.clone());
         }
+        materialized
     }
 
     fn has_unshadowed_empty_set(

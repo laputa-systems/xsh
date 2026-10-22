@@ -343,6 +343,21 @@ impl Checker {
                 })
             }) => return None,
             Err(error) => {
+                if matches!(error, crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::RecoveryType)) {
+                    let mut actual = types.last().expect("a callable body retains its actual return contract").clone();
+                    match self.type_constraints.unresolved_local_holes_are_input_bound(declaration.effect_declaration(), component, std::slice::from_ref(&actual), &types[..types.len() - 1]) {
+                        Ok(false) => {
+                            let before = self.diagnostics.len();
+                            super::local_inference::finalize_type(&self.type_constraints, &mut actual, body_span, &mut std::collections::BTreeSet::new(), &mut self.diagnostics);
+                            if self.diagnostics.len() != before { return None; }
+                        }
+                        Ok(true) => {},
+                        Err(resolution) => {
+                            self.error(body_span, &format!("inferred return contract cannot be resolved: {resolution:?}"), DiagnosticCode::CheckLocalInference);
+                            return None;
+                        }
+                    }
+                }
                 self.error(body_span, &format!("callable generalization failed: {error:?}"), DiagnosticCode::CheckLocalInference);
                 return None;
             }
