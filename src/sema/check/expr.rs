@@ -1370,7 +1370,31 @@ impl Checker {
                 {
                     self.discardable_values.insert(expr.span);
                 }
-                self.check_propagation(&ty, expr.span)
+                let propagated = self.check_propagation(&ty, expr.span);
+                if matches!(propagated, Type::Function(_))
+                    && let Some(projection) = self
+                        .projections
+                        .get(&arena.arena.expr(*inner).span)
+                        .cloned()
+                    && let Some(export) = projection.callable.as_ref()
+                    && matches!(
+                        export,
+                        crate::sema::types::ModuleExportType::GenericCallable { .. }
+                    )
+                {
+                    if self
+                        .resolve_generic_module_callable_alias(
+                            arena,
+                            projection.receiver,
+                            projection.field,
+                            export,
+                        )
+                        .is_none()
+                    {
+                        return self.reject_generic_callable_module_value(expr.span);
+                    }
+                }
+                propagated
             }
             ArenaExprKind::Convert { value, target } => {
                 self.check_conversion_arena(arena, source, *value, *target, expr.span)
@@ -3722,10 +3746,19 @@ impl Checker {
             },
             Type::Module(exports) => match exports.get(&name) {
                 Some(export) => {
-                    if let Some(alias) = self.resolve_module_callable_alias(arena, base, name, export) {
+                    if let Some(alias) = self.resolve_generic_module_callable_alias(
+                        arena, base, name, export,
+                    ) {
                         self.record_selected_function_value(span, &alias.signature);
+                        Type::Function(alias.kind)
+                    } else {
+                        if let Some(alias) =
+                            self.resolve_module_callable_alias(arena, base, name, export)
+                        {
+                            self.record_selected_function_value(span, &alias.signature);
+                        }
+                        self.module_export_value_type(export, span)
                     }
-                    self.module_export_value_type(export, span)
                 }
                 None => {
                     self.error(
@@ -4146,9 +4179,27 @@ impl Checker {
                     index,
                     crate::sema::projection::ProjectionOperation::Index,
                 ) {
-                    let ty = projection.value_type.clone();
-                    self.projections.insert(span, projection);
-                    ty
+                    if let Some(export) = projection.callable.as_ref()
+                        && matches!(export, crate::sema::types::ModuleExportType::GenericCallable { .. })
+                    {
+                        if let Some(alias) = self.resolve_generic_module_callable_alias(
+                            arena,
+                            projection.receiver,
+                            projection.field,
+                            export,
+                        ) {
+                            self.record_selected_function_value(span, &alias.signature);
+                            let ty = Type::Function(alias.kind);
+                            self.projections.insert(span, projection);
+                            ty
+                        } else {
+                            self.reject_generic_callable_module_value(span)
+                        }
+                    } else {
+                        let ty = projection.value_type.clone();
+                        self.projections.insert(span, projection);
+                        ty
+                    }
                 } else {
                     Type::Any
                 }

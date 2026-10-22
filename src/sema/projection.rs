@@ -63,7 +63,10 @@ pub fn generic_callable_export_for_key(
     };
     match receiver {
         Type::Module(exports)
-            if matches!(exports.get(&field), Some(ModuleExportType::GenericCallable { .. })) =>
+            if matches!(
+                exports.get(&field),
+                Some(ModuleExportType::GenericCallable { optional: true, .. })
+            ) =>
         {
             Some(field)
         }
@@ -96,11 +99,14 @@ fn projection_for_visible_field(
         Type::Record(fields) => (fields.get(&field)?.clone(), None),
         Type::Module(exports) => {
             let export = exports.get(&field)?;
-            let value_type = export.field_value_type()?;
-            let callable = match export {
-                ModuleExportType::Value { .. } => None,
-                ModuleExportType::GenericCallable { .. } => return None,
-                _ => Some(export.clone()),
+            let (value_type, callable) = match export {
+                ModuleExportType::Value { ty, .. } => (ty.clone(), None),
+                ModuleExportType::GenericCallable {
+                    kind,
+                    optional: false,
+                } => (Type::Function(*kind), Some(export.clone())),
+                ModuleExportType::GenericCallable { optional: true, .. } => return None,
+                _ => (export.field_value_type()?, Some(export.clone())),
             };
             (value_type, callable)
         }
@@ -142,7 +148,10 @@ pub fn generic_callable_export_for_get(
     match get_key(arena, constants, args) {
         Some((_, field)) => match receiver {
             Type::Module(exports)
-                if matches!(exports.get(&field), Some(ModuleExportType::GenericCallable { .. })) =>
+                if matches!(
+                    exports.get(&field),
+                    Some(ModuleExportType::GenericCallable { optional: true, .. })
+                ) =>
             {
                 Some(field)
             }

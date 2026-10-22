@@ -9934,7 +9934,7 @@ impl<'a> FullDecoder<'a> {
         Ok(if optional { Type::Optional(Box::new(sliced)) } else { sliced })
     }
 
-    fn checked_index_result_type(&self, base: usize) -> Result<Type, IrVerifyError> {
+    fn checked_index_result_type(&self, base: usize, index: Option<usize>) -> Result<Type, IrVerifyError> {
         let Some(base_type) = self.expression_checked_type_id(base)? else {
             return Err(IrVerifyError::new(
                 "callable index producer is missing its checked base type",
@@ -9945,6 +9945,15 @@ impl<'a> FullDecoder<'a> {
             && let Some(prefix) = &self.producer_prefix
             && let Some(narrowed) = prefix.runtime_list_read_type(self, base)?
         { return Self::checked_index_type(narrowed); }
+        if let Some(index) = index
+            && let Type::Module(module) = &base_type
+            && module.exact
+            && let Some(key) = self.checked_literal_string(index)?
+            && matches!(module.exports.get(&Name::intern(&key)), Some(ModuleExportType::GenericCallable { optional: false, .. }))
+        {
+            let Some(ModuleExportType::GenericCallable { kind, .. }) = module.exports.get(&Name::intern(&key)) else { unreachable!() };
+            return Ok(Type::Function(*kind));
+        }
         Self::checked_index_type(base_type)
     }
 
@@ -10321,7 +10330,10 @@ impl<'a> FullDecoder<'a> {
         let field = Name::intern(&key);
         let projected = match receiver_type {
             Type::Record(fields) => fields.get(&field).cloned(),
-            Type::Module(exports) => match exports.get(&field) {
+            Type::Module(module) => match module.exports.get(&field) {
+                Some(ModuleExportType::GenericCallable { kind, optional: false }) if module.exact => {
+                    Some(Type::Function(*kind))
+                }
                 Some(ModuleExportType::GenericCallable { .. }) => {
                     return Err(IrVerifyError::new(
                         "generic callable module export cannot be projected as a value",
@@ -10333,7 +10345,10 @@ impl<'a> FullDecoder<'a> {
             _ => None,
         };
         Ok(Some(match projected {
-            Some(value) => Type::Result(Box::new(value), Box::new(Type::Error)),
+            Some(value) => match registered {
+                Type::Result(_, error) => Type::Result(Box::new(value), error),
+                _ => return Err(IrVerifyError::new("registered get method does not return a result")),
+            },
             None => registered,
         }))
     }
@@ -11522,13 +11537,18 @@ impl<'a> FullDecoder<'a> {
                 let source = self.derive_checked_expression_type(base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("checked slice producer has no source contract"))?;
                 if Self::checked_slice_type(source)? != ty { return Err(IrVerifyError::new("checked slice fact disagrees with its input producer")); }
             }
-            schema::ExprView::Index { base, .. }
-            | schema::ExprView::IndexFromEnd { base, .. } => {
-                let actual = self.checked_index_result_type(base.raw() as usize)?;
+            schema::ExprView::Index { base, index, .. } => {
+                let actual = self.checked_index_result_type(base.raw() as usize, Some(index.raw() as usize))?;
                 if actual != ty {
                     return Err(IrVerifyError::new(
                         "checked index fact disagrees with its collection producer",
                     ));
+                }
+            }
+            schema::ExprView::IndexFromEnd { base, .. } => {
+                let actual = self.checked_index_result_type(base.raw() as usize, None)?;
+                if actual != ty {
+                    return Err(IrVerifyError::new("checked index fact disagrees with its collection producer"));
                 }
             }
             schema::ExprView::Try { value, .. } => {

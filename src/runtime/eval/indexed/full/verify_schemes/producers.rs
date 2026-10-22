@@ -3571,7 +3571,19 @@ impl<'a> ProducerProof<'a> {
                     }
                     pending.push((owner, CallableProducer::Expression(receiver.raw() as usize), path));
                 }
-                schema::ExprView::Index { base, .. } | schema::ExprView::IndexFromEnd { base, .. } => {
+                schema::ExprView::Index { base, index, .. } => {
+                    let source = self.need_context(&decoder, base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable index has no receiver contract"))?;
+                    let field = if let Type::Module(module) = source.unvalidated()
+                        && module.exact
+                    {
+                        let key = decoder.checked_literal_string(index.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable module index has no literal key"))?;
+                        let field = Name::intern(&key);
+                        matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { optional: false, .. })).then_some(field)
+                    } else { None };
+                    path.push(field.map_or(FunctionProjection::Element, FunctionProjection::Field));
+                    pending.push((owner, CallableProducer::Expression(base.raw() as usize), path));
+                }
+                schema::ExprView::IndexFromEnd { base, .. } => {
                     path.push(FunctionProjection::Element);
                     pending.push((owner, CallableProducer::Expression(base.raw() as usize), path));
                 }

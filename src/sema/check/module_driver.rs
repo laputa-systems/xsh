@@ -1498,6 +1498,68 @@ mod tests {
     }
 
     #[test]
+    fn imported_generic_module_callables_survive_constant_projections() {
+        let source = concat!(
+            "use shared as models\n",
+            "const identity_name = \"identity\"\n",
+            "let by_field = models.identity\n",
+            "let by_get = models.get(identity_name)?\n",
+            "let by_index = models[identity_name]\n",
+            "let integer: Int = by_field(42)\n",
+            "let text: Str = by_get(\"demo\")\n",
+            "let boolean: Bool = by_index(false)\n",
+        );
+        let workspace = typing_workspace(&[source]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source_id) = workspace.roots[0];
+        let output = session.check(root, source_id, CheckOptions::for_execution());
+
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.call_instantiations.len(), 3);
+        assert_eq!(output.projections.len(), 2);
+        assert!(output.projections.values().any(|projection| {
+            projection.field == crate::symbol::Name::intern("identity")
+                && projection.operation == crate::sema::check::ProjectionOperation::Get
+        }));
+        assert!(output.projections.values().any(|projection| {
+            projection.field == crate::symbol::Name::intern("identity")
+                && projection.operation == crate::sema::check::ProjectionOperation::Index
+        }));
+        let declarations = Checker::compact_declarations(&workspace.program, output);
+        crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
+            &workspace.program,
+            &declarations,
+            source,
+            Arc::clone(&workspace.sources),
+            source_id,
+        )
+        .expect("cold full builder and verifier accept constant generic projections");
+        drop(_symbols);
+
+        let dynamic_workspace = typing_workspace(&[
+            "use shared as models\npure select(key: Str) { models[key] }\n",
+        ]);
+        let _dynamic_symbols = dynamic_workspace.program.symbol_owner().enter();
+        let dynamic_session = CheckSession::new(
+            Arc::clone(&dynamic_workspace.program),
+            Arc::clone(&dynamic_workspace.sources),
+        );
+        let (dynamic_root, dynamic_source) = dynamic_workspace.roots[0];
+        let dynamic_output = dynamic_session.check(
+            dynamic_root,
+            dynamic_source,
+            CheckOptions::default(),
+        );
+        assert!(dynamic_output.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleMember)
+        }));
+    }
+
+    #[test]
     fn generic_proc_effect_contracts_are_finite_and_checked() {
         let helper = "proc mark(label: Str) [io] -> Int { print $label; 1 }\n";
         let source = format!("{helper}proc traced(value, label: Str) [io] {{ let observed = mark(label); value }}\n");

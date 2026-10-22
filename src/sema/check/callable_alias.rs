@@ -44,18 +44,11 @@ impl Checker {
         let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
             return None;
         };
-        let alias = self.resolve_callable_alias_target(program, expression)?;
-        let scheme = alias.signature.scheme();
-        if scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()
-        {
-            return None;
-        }
         let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {
             return None;
         };
-        if !matches!(exports.get(&name), Some(ModuleExportType::GenericCallable { kind, optional: false }) if *kind == scheme.kind()) {
-            return None;
-        }
+        let export = exports.get(&name)?;
+        let alias = self.resolve_generic_module_callable_alias(program, base, name, export)?;
         self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
         self.expr_types.insert(program.arena.expr(expression).span, Type::Function(alias.kind));
         Some(alias)
@@ -206,6 +199,26 @@ impl Checker {
                 true,
             )?,
         })
+    }
+
+    pub(super) fn resolve_generic_module_callable_alias(
+        &self,
+        program: &ArenaProgram,
+        receiver: ExprId,
+        name: Name,
+        export: &ModuleExportType,
+    ) -> Option<CallableAlias> {
+        let ModuleExportType::GenericCallable {
+            kind,
+            optional: false,
+        } = export
+        else {
+            return None;
+        };
+        let alias = self.resolve_module_callable_alias(program, receiver, name, export)?;
+        let scheme = alias.signature.scheme();
+        (alias.kind == *kind && scheme.kind() == *kind && scheme.callable().is_quantified())
+        .then_some(alias)
     }
 
     pub(super) fn resolve_callable_alias_call(
