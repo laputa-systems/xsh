@@ -6390,7 +6390,11 @@ impl<'a> ProducerProof<'a> {
                 let value = payload.raw()? as usize;
                 root_contract = match annotation {
                     Some(annotation) => self.contract_type(annotation.id)?,
-                    None => self.need_context(&decoder, value)?.ok_or_else(|| IrVerifyError::new("storage initializer has no monomorphic contract"))?,
+                    None => match self.need_context(&decoder, value)? {
+                        Some(context) => context,
+                        None if relation == StorageContractRelation::ReadCompatible => Arc::clone(&expected),
+                        None => return Err(IrVerifyError::new("storage initializer has no monomorphic contract")),
+                    },
                 };
                 ensure_closed_type(&root_contract)?;
                 let validates = match validation {

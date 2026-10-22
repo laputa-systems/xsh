@@ -35008,6 +35008,49 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
+    fn producer_storage_reads_authenticate_unannotated_capture_initializers() {
+        run_with_large_stack(|| {
+            let capture_source = "stream rows() [error] -> Stream[Int] { yield [1][9] }\nlet captured = try { for item in rows() { let _ = item } }\nassert captured is Err(_)\n";
+            let capture = fixture("producer-storage-capture.xsh", capture_source);
+            FullVerifier::verify(&capture).unwrap();
+        });
+    }
+
+    #[test]
+    fn producer_storage_reads_authenticate_unannotated_map_initializers() {
+        run_with_large_stack(|| {
+            let map_source = "pure identity(items) { items }\nlet marker = \"source\"\nlet indexed = { item: item for item in identity([3, 4]) }\nassert indexed.get(3)? == 3\n";
+            let map = fixture("producer-storage-map-comprehension.xsh", map_source);
+            let _symbols = map.symbol_owner().enter();
+            FullVerifier::verify(&map).unwrap();
+            let comprehension = map.store.tags.iter().position(|tag| *tag == FullTag::ExprMapComp).unwrap();
+            let step = map.store.driver_steps.iter().enumerate().find_map(|(step, _)| {
+                map.store.driver_instruction_range(step).unwrap().contains(&comprehension).then_some(step)
+            }).expect("map comprehension belongs to an indexed driver step");
+            let decoder = verify_schemes::decoder_for_driver_step(&map.store, step).unwrap();
+            let schema::ExprView::MapComp { mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else {
+                panic!("map comprehension instruction has its schema view")
+            };
+            let decode::CompQualifierView::For { iter, .. } = qualifiers.next().unwrap().unwrap() else {
+                panic!("map comprehension begins with an iteration source")
+            };
+            let call = scheme_fixture_call(&map, "identity");
+            assert_eq!(iter.raw(), call);
+            let (_, input) = scheme_fixture_call_arguments(&map, call).first().copied().unwrap();
+            let schema::ExprView::List(mut items) = decoder.expression_view(input as usize).unwrap() else {
+                panic!("generic iterator input is the list literal")
+            };
+            let integer = items.next().unwrap().unwrap().raw() as usize;
+            assert_eq!(map.store.tags[integer], FullTag::ExprInt, "selected source item is an integer");
+            let string = map.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
+            let mut changed_source = map.clone();
+            changed_source.store.tags[integer] = FullTag::ExprStr;
+            changed_source.store.data[integer] = map.store.data[string];
+            assert!(FullVerifier::verify(&changed_source).is_err(), "map comprehension values must prove the read contract from their actual source");
+        });
+    }
+
+    #[test]
     fn generic_ground_producers_reject_active_parameter_slot_clobber() {
         run_with_large_stack(|| {
             let source = "pure helper(value: Int) -> Int { if true { let inner = false }; value }\npure read(row) -> Int { helper(row.anchor).bit_or(0) }\n";
