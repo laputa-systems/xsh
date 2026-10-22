@@ -8,24 +8,26 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `1682fc689` passes 561 of 569 selected Rust controls.
-Its eight failures belong to the earlier full-library failure set. Every prior
-passing control remains selected and passes. The combined checkpoint includes
-actual host-call selection publication, ordinary generic cleanup and With/Guard
-binding scopes. The dependent Proc cleanup and Guard error-binding failures
-are repaired. Authored recursive records retain their declared dynamic Map
-values and settled provenance. All three original Tokei regressions pass.
-Master has documentation-only changes after `d2453760a`; the assembly is not
-qualified for master. The combined replay retains every prior passing control.
-Its eight failed identities match the preceding 554-control boundary; all
-fifteen added controls pass.
+Runtime assembly `e8f4a17bf` passes 564 of 570 selected Rust controls.
+Its six failures belong to the earlier full-library failure set. Every prior
+passing control remains selected and passes. Compared with the 569-control
+`1682fc689` boundary, two failed controls and one new regression now pass.
+The assembly includes actual host-call selection publication, ordinary generic
+cleanup, With/Guard scopes and immutable environment-path snapshots. Authored
+recursive records retain their dynamic Map values and settled provenance.
+All three original Tokei regressions pass. Master has documentation-only changes
+after `d2453760a`; the assembly is not qualified for master.
 
-Ownership-test checkpoint `1015ffd0e` corrects one of those eight test premises.
-Rejected owners intentionally lose latent Stream facts; a valid owner retains
-the unique call fact. A fallback return makes that valid fixture independent
-of the fact for builder acceptance. The corrected ownership test and three
-existing Stream capture mutation controls pass. The combined 569-control
-boundary above predates this correction and has not been rerun.
+Ownership-test checkpoint `1015ffd0e` corrects a disproved test premise:
+rejected owners intentionally lose latent Stream facts, while a valid owner
+retains the unique call fact. A fallback return makes that valid fixture
+independent of the fact for builder acceptance. Pipeline repair `e8f4a17bf`
+recognizes a physical empty List as a non-Stream source even without an item
+type. Stage-demand analysis and all other producer obligations remain checked.
+Valid empty and typed inputs capture the expected allocation error and produce
+the expected ordinary range output on both execution routes. Each checkpoint
+passes four focused controls; the combined replay preserves the existing
+pipeline and Stream capture mutations and all previous passing controls.
 
 MapKey checkpoint `8808c9281` retains the existing finite key-domain constraint
 through generalization, imports, callbacks and prepared execution. Empty
