@@ -4680,6 +4680,10 @@ impl Checker {
             .flatten();
         self.boundary.expected_schema = self.boundary.return_schema.clone();
         self.boundary.current_return = Some(super::ReturnContext::Function(if checking_application_return { Type::Unknown } else { return_ty.clone() }));
+        self.boundary.proc_completion = checking_application_return.then(|| super::ProcCompletionBoundary {
+            owner: stream_owner,
+            return_ty: return_ty.clone(),
+        });
         self.boundary.in_pure = pure;
         self.boundary.current_effects = if pure {
             None

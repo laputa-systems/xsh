@@ -488,6 +488,41 @@ mod tests {
     }
 
     #[test]
+    fn proc_record_completions_keep_their_result_envelope() {
+        for completion in [
+            "{actual}",
+            "return {actual}",
+            "if flag { return {actual} }; {actual}",
+            "return if flag { {actual} } else { {actual} }",
+            "return match flag { true => {actual}; false => {actual} }",
+        ] {
+            let source = format!(
+                "proc side(value: Int) [error] -> Int {{ assert value > 0; value }}\n\
+                 proc relay(action, value) {{ action(value) }}\n\
+                 proc number(flag: Bool) [error] {{ let actual = relay(side, 7); {completion} }}\n"
+            );
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let checked = super::Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            let declaration = checked.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str().as_str() == "number").unwrap();
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            let result = &checked.function_return_types[&declaration.body];
+            let super::Type::Result(ok, _) = result else { panic!("the Proc retains its Result envelope: {result:?}") };
+            let super::Type::Record(fields) = ok.as_ref() else { panic!("the success value retains its record: {result:?}") };
+            let actual = crate::symbol::Name::intern("actual");
+            assert_eq!(fields.get(&actual), Some(&super::Type::Result(Box::new(super::Type::Int), Box::new(super::Type::Error))));
+            let summary = &checked.stream_origin_summaries.declarations[&owner];
+            assert!(!summary.returned.0.is_empty(), "the returned call retains its source dependency");
+            for (path, _) in &summary.returned.0 {
+                assert!(path.0.starts_with(&[StreamProjection::Success, StreamProjection::Field(actual)]), "{source}\n{summary:?}");
+            }
+        }
+    }
+
+    #[test]
     fn projection_construction_preserves_the_type_depth_bound() {
         let mut value = StreamOrigins::error();
         for _ in 0..crate::sema::constraints::MAX_TYPE_DEPTH { value = value.prefix(StreamProjection::Success).unwrap(); }
@@ -966,6 +1001,9 @@ impl Checker {
 
     pub(super) fn record_stream_return_origin(&mut self, mut origin: StreamOrigins, actual: &Type, expected: &Type, span: Span) {
         let Some(owner) = self.stream_origin_owner else { return };
+        let expected = self.boundary.proc_completion.as_ref()
+            .filter(|completion| completion.owner == owner)
+            .map_or(expected, |completion| &completion.return_ty);
         if expected.is_result() && !actual.is_result() {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(span); return; } }
         }
