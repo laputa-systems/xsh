@@ -14,7 +14,7 @@ Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
 products, with source and product guards intact. Matching `0cc8dc0ff` products
-are rebuilding, followed by the full XSH Rust library suite. The broader check
+build cleanly. The full XSH Rust library suite is running. The broader check
 covers callers of the shared type and producer helpers beyond the focused group.
 Master remains at `d2453760a`.
 
@@ -28,7 +28,10 @@ eight focused controls. The original-program compiler replay then exposes a
 readonly argv mismatch between checker and native verification. Repair
 `9171cfcac` aligns that relation while retaining invariant containers and actual
 producer types. Its eight controls pass. Both repairs are integrated into
-`0cc8dc0ff`; the unchanged paired replay awaits matching products.
+`0cc8dc0ff`. Its unchanged paired replay stops during the original XSH root
+check: `sort` and `system-report` report a ground producer contract mismatch.
+The preceding `28436de64` root checks pass. Minimal reproduction and repair
+are assigned before another paired run. Source and product post-guards pass.
 Reduced-view checks, later behavior tests, interfaces, negative controls and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
@@ -63,7 +66,11 @@ passes for consumer writes before first pull, between pulls and before close,
 including repeated and never-started cancellation. The reproduced stale snapshot
 is fixed by refreshing existing identity-bound captures on every actual pull.
 Exact mutable capture-storage checks also pass, including the no-writer case.
-The candidate remains unintegrated. UInt driver-annotation aliases remain open.
+The candidate remains unintegrated. Two additional controls pass for generic
+Range execution and authenticated UInt driver aliases. Forged validation
+metadata and missing gates reject. Negative UInt values fail the actual runtime
+gate before storage on both execution routes. The bounded combined runtime
+checkpoint remains pending.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
