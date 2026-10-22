@@ -4097,6 +4097,17 @@ impl Checker {
         self.pop_scope();
     }
 
+    pub(super) fn resolve_iteration_source_type(&mut self, ty: Type, span: Span) -> Result<Type, ()> {
+        if !ty.contains_inference() { return Ok(ty); }
+        self.type_constraints.resolve(&ty).map_err(|error| {
+            let message = match error {
+                crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "iteration source type belongs to another inference problem",
+                crate::sema::constraints::ConstraintResolutionError::TypeDepth => "iteration source type exceeds the supported nesting depth",
+            };
+            self.error(span, message, DiagnosticCode::CheckLocalInference);
+        })
+    }
+
     pub(super) fn check_iteration_propagation_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4135,6 +4146,7 @@ impl Checker {
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
+        let iter_ty = self.resolve_iteration_source_type(iter_ty, arena.arena.expr(iter).span).unwrap_or(Type::Unknown);
         self.check_iteration_propagation_arena(arena, iter, &iter_ty);
         let item_ty = iter_ty
             .iteration_item_type()
@@ -8262,6 +8274,85 @@ mod capture_stream_pull_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn solved_iteration_sources_retain_item_types_and_resolution_failures() {
+        use crate::sema::types::Type;
+        let span = crate::source::Span::new(SourceId::new(0), 0, 1);
+        for (source, item) in [
+            (Type::List(Box::new(Type::Int)), Type::Int),
+            (Type::Stream(Box::new(Type::Str)), Type::Str),
+            (Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Error)), Type::Int),
+        ] {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            let variable = checker.type_constraints.fresh(span);
+            checker.type_constraints.constrain(&variable, &source, span).unwrap();
+            let resolved = checker.resolve_iteration_source_type(variable, span).unwrap();
+            assert_eq!(resolved, source);
+            assert_eq!(resolved.iteration_item_type(), Some(item));
+            assert!(checker.diagnostics.is_empty());
+        }
+        for deep in [false, true] {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            let mut foreign = crate::sema::constraints::TypeConstraints::default();
+            let mut ty = if deep { checker.type_constraints.fresh(span) } else { foreign.fresh(span) };
+            if deep { for _ in 0..300 { ty = Type::List(Box::new(ty)); } }
+            assert!(checker.resolve_iteration_source_type(ty, span).is_err());
+            assert_eq!(checker.diagnostics.len(), 1);
+            assert_eq!(checker.diagnostics[0].code, Some(DiagnosticCode::CheckLocalInference));
+            assert_eq!(checker.diagnostics[0].labels[0].span, span);
+            assert!(checker.diagnostics[0].message.contains(if deep { "nesting depth" } else { "another inference problem" }));
+        }
+    }
+
+    #[test]
+    fn generic_iteration_sources_reject_noniterable_and_dynamic_values() {
+        for (parameter, consumer, expected) in [
+            ("value: Int", "for item in relay(value) { let _ = item }", DiagnosticCode::CheckForIterator),
+            ("value: Any", "let copied = [item for item in value]; let _ = copied", DiagnosticCode::CheckDynamicBoundary),
+            ("value: Union[List[Int], List[Str]]", "for item in relay(value) { let _ = item }", DiagnosticCode::CheckUnionNarrow),
+        ] {
+            let source = format!("pure relay(items) {{ items }}\nproc rejected({parameter}) [] -> Unit {{ {consumer} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(expected), "{source}\n{errors:?}");
+        }
+        let source = "pure relay(items) { items }\nproc rejected(value: Any) [] -> Unit { let copied = [item for item in relay(value)]; let _ = copied }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        for expected in [DiagnosticCode::CheckListcompIterator, DiagnosticCode::CheckLocalInference] {
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code == Some(expected)), "{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_iteration_sources_preserve_producer_errors_without_body_replay() {
+        for (forwarding, consumer) in [
+            ("select(...{flag: true, items: items})", "for item in relay(TARGET(other)) { let checked: Int = item; let _ = checked }; 7"),
+            ("let arguments = {flag: true, items: items}; select(...arguments)", "let copied = [item for item in relay(TARGET(other))]; copied.len()"),
+            ("select(...{flag: true, items: items})", "let copied = {item: item for item in relay(TARGET(other))}; copied.len()"),
+        ] {
+            for fallible in [false, true] {
+                let consumer = consumer.replace("TARGET", if fallible { "failing" } else { "safe" });
+                let source = format!("error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\nstream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] {{ let _ = other; yield 7 }}\nstream failing(other: Result[Int, OtherFailure]) [error] -> Stream[Int] {{ yield other? }}\npure select(items, flag: Bool) {{ let _ = flag; items }}\npure relay(items) {{ {forwarding} }}\nproc captured(other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {{ try {{ {consumer} }} }}\n");
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena(&parsed.arena, &source));
+                let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+                if fallible {
+                    assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+                    assert_eq!(errors[0].code, Some(DiagnosticCode::CheckTypeMismatch), "{source}\n{errors:?}");
+                    assert!(errors[0].labels.iter().any(|label| label.message.as_deref() == Some("expected CaptureFailure, found Error")), "{source}\n{errors:?}");
+                } else { assert!(errors.is_empty(), "{source}\n{errors:?}"); }
+                assert_eq!(checked.function_body_check_entries, 5, "{source}");
+                assert_eq!(work.function_body_check_entries, 5, "{source}");
+            }
+        }
+    }
 
     #[test]
     fn generic_proc_record_returns_preserve_field_relationships() {
