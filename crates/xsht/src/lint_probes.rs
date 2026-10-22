@@ -408,8 +408,7 @@ pub(super) fn checked_return_type_shape(ty: &Type) -> String {
                         ModuleExportType::Value { ty, optional } => {
                             format!("value:{optional}:{}", checked_return_type_shape(ty))
                         }
-                        ModuleExportType::Pure { sig, optional }
-                        | ModuleExportType::Proc { sig, optional } => {
+                        ModuleExportType::Callable { kind, sig, optional } => {
                             let params = sig
                                 .params
                                 .iter()
@@ -429,10 +428,10 @@ pub(super) fn checked_return_type_shape(ty: &Type) -> String {
                             };
                             format!(
                                 "{}:{optional}:{params:?}:{}:{effects}",
-                                if matches!(export, ModuleExportType::Pure { .. }) {
-                                    "pure"
-                                } else {
-                                    "proc"
+                                match kind {
+                                    xsh::frontend::check::CallableKind::Pure => "pure",
+                                    xsh::frontend::check::CallableKind::Proc => "proc",
+                                    xsh::frontend::check::CallableKind::Stream => "stream",
                                 },
                                 checked_return_type_shape(&sig.return_ty)
                             )

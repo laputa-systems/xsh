@@ -1967,7 +1967,7 @@ fn prepared_callable_host_call_checks_module_export_signatures() {
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
             let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
             let Type::Module(exports) = &parameters[0] else { panic!("the actual retained input is a typed module") };
-            let Some(crate::sema::types::ModuleExportType::Pure { sig, .. }) = exports.get(&Name::intern("item")) else { panic!("the module retains the actual Pure export contract") };
+            let Some(crate::sema::types::ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure, sig, .. }) = exports.get(&Name::intern("item")) else { panic!("the module retains the actual Pure export contract") };
             assert_eq!(sig.params[0].ty, Type::Int);
             assert_eq!(*sig.return_ty, Type::Int);
         });

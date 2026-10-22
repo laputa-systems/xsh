@@ -2088,23 +2088,21 @@ fn compact_module_exports_for_use(
                     binding: LoweredModuleExportBinding::Semantic(binding),
                 });
             }
-            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) => {
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
                 let name = program.arena.function_def(def).name;
                 let function_name = QualifiedName::new(function_namespace, name);
-                let kind = if matches!(program.arena.stmt(inner).kind, ArenaStmtKind::ProcDef(_)) {
-                    crate::sema::types::CallableKind::Proc
-                } else { crate::sema::types::CallableKind::Pure };
-                let generic = qualified_schemes.get(&function_name).is_some_and(|scheme| {
-                    !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()
-                });
+                let kind = match program.arena.stmt(inner).kind {
+                    ArenaStmtKind::ProcDef(_) => CallableKind::Proc,
+                    ArenaStmtKind::PureDef(_) => CallableKind::Pure,
+                    ArenaStmtKind::StreamDef(_) => CallableKind::Stream,
+                    _ => unreachable!(),
+                };
+                let generic = qualified_schemes.get(&function_name).is_some_and(|scheme| scheme.callable().is_quantified());
                 exports.push(if generic {
                     LoweredModuleExport::GenericCallable { kind, name, function_namespace }
-                } else if kind == crate::sema::types::CallableKind::Pure {
-                    LoweredModuleExport::Pure { name, function_namespace }
-                } else { LoweredModuleExport::Proc { name, function_namespace } });
+                } else { LoweredModuleExport::Callable { kind, name, function_namespace } });
             }
-            ArenaStmtKind::StreamDef(_)
-            | ArenaStmtKind::TypeDef(_)
+            ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::Export(_)
@@ -8243,13 +8241,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 ty: self.canonicalize_checked_type(ty.clone()),
                                 optional: *optional,
                             },
-                            ModuleExportType::Proc { sig, optional } => ModuleExportType::Proc {
-                                sig: self.canonicalize_checked_callable(sig.clone()),
-                                optional: *optional,
-                            },
-                            ModuleExportType::Pure { sig, optional } => ModuleExportType::Pure {
-                                sig: self.canonicalize_checked_callable(sig.clone()),
-                                optional: *optional,
+                            ModuleExportType::Callable { kind, sig, optional } => ModuleExportType::Callable {
+                                kind: *kind, sig: self.canonicalize_checked_callable(sig.clone()), optional: *optional,
                             },
                             ModuleExportType::GenericCallable { kind, optional } => {
                                 ModuleExportType::GenericCallable { kind: *kind, optional: *optional }

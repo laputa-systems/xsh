@@ -1185,8 +1185,7 @@ pub(super) fn finalize_projection(
             finalize_type(constraints, ty, span, reported, diagnostics)
         }
         Some(
-            crate::sema::types::ModuleExportType::Proc { sig, .. }
-            | crate::sema::types::ModuleExportType::Pure { sig, .. },
+            crate::sema::types::ModuleExportType::Callable { sig, .. },
         ) => finalize_callable(constraints, sig, span, reported, diagnostics),
         Some(crate::sema::types::ModuleExportType::GenericCallable { .. }) => {}
         None => {}

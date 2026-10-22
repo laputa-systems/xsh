@@ -64,7 +64,8 @@ fn contract_violations(
     evaluator: &Evaluator,
     module: &BTreeMap<Arc<str>, LoweredValue>,
     contract: &ModuleType,
-) -> Vec<(Name, ContractViolation)> {
+    span: Span,
+) -> Result<Vec<(Name, ContractViolation)>, RuntimeError> {
     let mut violations = Vec::new();
     for (name, expected) in contract.iter() {
         let Some(value) = module.get::<str>(name.as_str().as_str()) else {
@@ -78,7 +79,7 @@ fn contract_violations(
             }
             continue;
         };
-        if let Some(reason) = export_mismatch(evaluator, value, expected) {
+        if let Some(reason) = export_mismatch(evaluator, value, expected, span)? {
             violations.push((
                 *name,
                 ContractViolation::Mismatched {
@@ -102,18 +103,16 @@ fn contract_violations(
             }
         }
     }
-    violations
+    Ok(violations)
 }
 
-/// Why a present export does not satisfy its contract entry, or `None` when
-/// it does. A callable whose signature was not captured at load satisfies any
-/// entry of its own kind.
 fn export_mismatch(
     evaluator: &Evaluator,
     value: &LoweredValue,
     expected: &ModuleExportType,
-) -> Option<String> {
-    match (expected, value) {
+    span: Span,
+) -> Result<Option<String>, RuntimeError> {
+    Ok(match (expected, value) {
         (ModuleExportType::Value { ty, .. }, value) => {
             if matches!(value, LoweredValue::Callable(_)) {
                 Some("the contract declares a value, the module exports a callable".to_string())
@@ -123,33 +122,38 @@ fn export_mismatch(
                 Some("the value type differs".to_string())
             }
         }
-        (
-            ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. },
-            LoweredValue::Callable(function),
-        ) => {
-            let captured = evaluator.lookup_module_export_signature(function.identity());
-            let found = captured.map_or(function.kind(), |captured| captured.kind);
-            let expected_kind = if matches!(expected, ModuleExportType::Pure { .. }) {
-                crate::sema::types::CallableKind::Pure
-            } else { crate::sema::types::CallableKind::Proc };
-            if expected_kind != found {
-                Some(match (expected_kind, found) {
+        (ModuleExportType::Callable { kind, sig, .. }, LoweredValue::Callable(function)) => {
+            let found = function.kind();
+            if *kind != found {
+                Some(match (*kind, found) {
                     (crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Pure) => "the contract declares a proc, the module exports a pure function".to_string(),
                     (crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc) => "the contract declares a pure function, the module exports a proc".to_string(),
-                    _ => format!("the contract declares {}, the module exports {}", expected_kind.value_type_name(), found.value_type_name()),
+                    _ => format!("the contract declares {}, the module exports {}", kind.value_type_name(), found.value_type_name()),
                 })
+            } else if function.instance().is_none()
+                && let Some(captured) = evaluator.lookup_module_export_signature(function.identity())
+            {
+                if captured.kind != *kind {
+                    return Err(RuntimeError::new("indexed-ir", "captured callable kind disagrees with its value").with_span(span));
+                }
+                signature_mismatch(&captured.sig, sig)
             } else {
-                captured.and_then(|captured| signature_mismatch(&captured.sig, sig))
+                let actual = evaluator.retained_callable_type(evaluator.indexed_program.as_deref(), ValueView::Lowered(value), span)?
+                    .ok_or_else(|| RuntimeError::new("indexed-ir", "callable export has no retained signature").with_span(span))?;
+                signature_mismatch(&actual.sig, sig)
             }
         }
-        (ModuleExportType::Proc { .. } | ModuleExportType::Pure { .. }, _) => {
+        (ModuleExportType::Callable { .. }, _) => {
             Some("the contract declares a callable, the module exports a value".to_string())
         }
-        (ModuleExportType::GenericCallable { kind, .. }, LoweredValue::Callable(function)) if *kind == function.kind() => None,
-        (ModuleExportType::GenericCallable { .. }, _) => {
-            Some("the contract declares a generic callable, the module exports a different value kind".to_string())
+        (ModuleExportType::GenericCallable { kind, .. }, _) => {
+            if evaluator.retained_generic_callable_matches(evaluator.indexed_program.as_deref(), ValueView::Lowered(value), *kind, span)? {
+                None
+            } else {
+                Some("the contract declares a generic callable, the module exports a different value kind".to_string())
+            }
         }
-    }
+    })
 }
 
 pub(super) fn signature_mismatch(found: &CallableType, expected: &CallableType) -> Option<String> {
@@ -243,8 +247,7 @@ fn render_callable(keyword: &str, name: Name, sig: &CallableType) -> String {
 fn render_contract_entry(name: Name, entry: &ModuleExportType) -> String {
     match entry {
         ModuleExportType::Value { ty, .. } => format!("export let {name}: {ty}"),
-        ModuleExportType::Proc { sig, .. } => render_callable("proc", name, sig),
-        ModuleExportType::Pure { sig, .. } => render_callable("pure", name, sig),
+        ModuleExportType::Callable { kind, sig, .. } => render_callable(callable_keyword(*kind), name, sig),
         ModuleExportType::GenericCallable { kind, .. } => format!("export {} {name}(...)", match kind {
             crate::sema::types::CallableKind::Pure => "pure",
             crate::sema::types::CallableKind::Proc => "proc",
@@ -280,7 +283,7 @@ pub(super) fn require_module_contract(
     path: &str,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let violations = contract_violations(evaluator, module, contract);
+    let violations = contract_violations(evaluator, module, contract, span)?;
     if violations.is_empty() {
         return Ok(());
     }

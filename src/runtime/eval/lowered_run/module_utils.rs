@@ -60,44 +60,77 @@ pub(super) fn utils_cache_arguments(
     Ok((callee, args, key))
 }
 
+struct ActualCallableTarget<'a> {
+    program: &'a FullProgram,
+    function: usize,
+    invocation: Option<&'a PreparedInvocationBindings>,
+}
+
 impl Evaluator {
-    fn prepared_callable_matches(
-        &self, context: &FullProgram, value: super::ValueView<'_>,
-        expected: crate::runtime::eval::type_view::CallableContractView<'_>, span: Span,
-    ) -> Result<bool, RuntimeError> {
-        let (callable, mut kind) = match value {
-            super::ValueView::Runtime(Value::Callable(callable)) | super::ValueView::Lowered(LoweredValue::Callable(callable)) => (callable, callable.kind()),
-            _ => return Ok(false),
+    fn actual_callable_target<'a>(
+        &'a self, context: Option<&'a FullProgram>, value: super::ValueView<'a>, span: Span,
+    ) -> Result<Option<ActualCallableTarget<'a>>, RuntimeError> {
+        let callable = match value {
+            super::ValueView::Runtime(Value::Callable(callable)) | super::ValueView::Lowered(LoweredValue::Callable(callable)) => callable,
+            _ => return Ok(None),
         };
-        if expected.kind() != kind { return Ok(false); }
+        let kind = callable.kind();
         let identity = callable.identity();
         let mut function = identity.as_name().map(LoweredFunctionKey::Name)
             .or_else(|| identity.as_qualified().map(LoweredFunctionKey::Qualified))
             .ok_or_else(|| RuntimeError::new("indexed-ir", "callable identity is not interned").with_span(span))?;
-        let empty = PreparedInvocationBindings::default();
         let (program, invocation) = if let Some(instance) = callable.instance() {
             if instance.kind != kind || instance.function != function {
                 return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
             }
-            (instance.program.as_ref(), &instance.applications)
+            (instance.program.as_ref(), Some(&instance.applications))
         } else {
             let mut program = context;
-            if program.function_view(function, kind).map_err(|error| super::indexed_run::indexed_error(error, span))?.is_none()
-                && let LoweredFunctionKey::Qualified(name) = function
+            let present = match program {
+                Some(program) => program.function_view(function, kind).map_err(|error| super::indexed_run::indexed_error(error, span))?.is_some(),
+                None => false,
+            };
+            if !present && let LoweredFunctionKey::Qualified(name) = function
                 && let Some(dynamic) = self.indexed_dynamic_functions.get(&name)
             {
-                if dynamic.kind != kind { return Ok(false); }
-                (program, function, kind) = (&dynamic.program, dynamic.function, dynamic.kind);
+                if dynamic.kind != kind { return Err(RuntimeError::new("indexed-ir", "callable kind differs from its dynamic target").with_span(span)); }
+                program = Some(&dynamic.program);
+                function = dynamic.function;
             }
-            (program, &empty)
+            (program.ok_or_else(|| RuntimeError::new("indexed-ir", "callable has no owning program").with_span(span))?, None)
         };
-        let target = program.function_view(function, kind).map_err(|error| super::indexed_run::indexed_error(error, span))?
+        let function = program.function_view(function, kind).map_err(|error| super::indexed_run::indexed_error(error, span))?
             .ok_or_else(|| RuntimeError::new("indexed-ir", "callable signature target is absent").with_span(span))?.index();
-        if callable.instance().is_none() && program.function_requires_invocation(target).map_err(|error| super::indexed_run::indexed_error(error, span))? {
+        Ok(Some(ActualCallableTarget { program, function, invocation }))
+    }
+
+    pub(in crate::runtime::eval) fn retained_callable_type(
+        &self, context: Option<&FullProgram>, value: super::ValueView<'_>, span: Span,
+    ) -> Result<Option<crate::sema::types::TypedCallable>, RuntimeError> {
+        let Some(target) = self.actual_callable_target(context, value, span)? else { return Ok(None) };
+        if target.invocation.is_none() && target.program.function_requires_invocation(target.function).map_err(|error| super::indexed_run::indexed_error(error, span))? {
             return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span));
         }
-        let actual = program.invocation_callable_type(target, invocation).map_err(|error| super::indexed_run::indexed_error(error, span))?;
-        Ok(expected.accepts(&actual))
+        let empty = PreparedInvocationBindings::default();
+        target.program.invocation_callable_type(target.function, target.invocation.unwrap_or(&empty))
+            .map(Some).map_err(|error| super::indexed_run::indexed_error(error, span))
+    }
+
+    pub(in crate::runtime::eval) fn retained_generic_callable_matches(
+        &self, context: Option<&FullProgram>, value: super::ValueView<'_>, kind: crate::sema::types::CallableKind, span: Span,
+    ) -> Result<bool, RuntimeError> {
+        if value.scalar_type() != Some(Type::Function(kind)) { return Ok(false); }
+        let Some(target) = self.actual_callable_target(context, value, span)? else { return Ok(false) };
+        if target.invocation.is_some() { return Ok(false); }
+        target.program.function_has_quantified_contract(target.function).map_err(|error| super::indexed_run::indexed_error(error, span))
+    }
+
+    fn prepared_callable_matches(
+        &self, context: &FullProgram, value: super::ValueView<'_>,
+        expected: crate::runtime::eval::type_view::CallableContractView<'_>, span: Span,
+    ) -> Result<bool, RuntimeError> {
+        if value.scalar_type() != Some(Type::Function(expected.kind())) { return Ok(false); }
+        Ok(self.retained_callable_type(Some(context), value, span)?.is_some_and(|actual| expected.accepts(&actual)))
     }
 
     fn prepared_stream_matches(
@@ -115,6 +148,7 @@ impl Evaluator {
             let matches = crate::runtime::eval::type_view::value_matches_type_with_contracts(super::ValueView::Runtime(&item.value), expected, &mut |value, contract| {
                 let result = match contract {
                     crate::runtime::eval::type_view::RetainedValueContract::Callable(callable) => self.prepared_callable_matches(program, value, callable, span),
+                    crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                     crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
                 };
                 match result { Ok(matches) => matches, Err(error) => { proof_error = Some(error); false } }
@@ -139,6 +173,7 @@ impl Evaluator {
                 || crate::runtime::eval::type_view::value_matches_type_with_contracts(super::ValueView::Lowered(value), ty, &mut |value, expected| {
                     let result = match expected {
                         crate::runtime::eval::type_view::RetainedValueContract::Callable(expected) => self.prepared_callable_matches(program, value, expected, span),
+                        crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                         crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
                     };
                     match result {
@@ -304,7 +339,7 @@ mod tests {
                 let lowered = crate::runtime::eval::LoweredValue::Callable(callable.clone());
                 let signature = evaluator.module_export_signatures.get(&callable.identity()).unwrap();
                 assert_eq!(signature.kind, CallableKind::Pure);
-                assert!(evaluator.prepared_callable_matches(&program, crate::runtime::eval::ValueView::Runtime(&handle), crate::runtime::eval::type_view::CallableContractView::PureExport(&signature.sig), span).unwrap());
+                assert!(evaluator.prepared_callable_matches(&program, crate::runtime::eval::ValueView::Runtime(&handle), crate::runtime::eval::type_view::CallableContractView::Export { kind: CallableKind::Pure, sig: &signature.sig }, span).unwrap());
                 let wrong_kind = crate::runtime::eval::LoweredValue::Callable(crate::runtime::value::CallableValue::named(CallableKind::Proc, callable.identity()));
                 let error = evaluator.eval_lowered_callable_values(&wrong_kind, vec![crate::runtime::eval::LoweredValue::Int(7)], span).unwrap_err();
                 assert_eq!(error.kind, "indexed-ir");

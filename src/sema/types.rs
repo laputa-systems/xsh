@@ -573,8 +573,7 @@ impl std::ops::Deref for ModuleType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModuleExportType {
     Value { ty: Type, optional: bool },
-    Proc { sig: CallableType, optional: bool },
-    Pure { sig: CallableType, optional: bool },
+    Callable { kind: CallableKind, sig: CallableType, optional: bool },
     /// A quantified callable whose scheme is authenticated against its child module.
     GenericCallable { kind: CallableKind, optional: bool },
 }
@@ -585,7 +584,7 @@ impl ModuleExportType {
         size_of::<Self>()
             + match self {
                 Self::Value { ty, .. } => ty.retained_bytes(),
-                Self::Proc { sig, .. } | Self::Pure { sig, .. } => sig.retained_bytes(),
+                Self::Callable { sig, .. } => sig.retained_bytes(),
                 Self::GenericCallable { .. } => 0,
             }
     }
@@ -593,8 +592,7 @@ impl ModuleExportType {
     pub fn optional(&self) -> bool {
         match self {
             Self::Value { optional, .. }
-            | Self::Proc { optional, .. }
-            | Self::Pure { optional, .. }
+            | Self::Callable { optional, .. }
             | Self::GenericCallable { optional, .. } => *optional,
         }
     }
@@ -602,8 +600,7 @@ impl ModuleExportType {
     pub fn field_type(&self) -> Option<Type> {
         match self {
             Self::Value { ty, .. } => Some(ty.clone()),
-            Self::Proc { .. } => Some(Type::Function(crate::sema::types::CallableKind::Proc)),
-            Self::Pure { .. } => Some(Type::Function(crate::sema::types::CallableKind::Pure)),
+            Self::Callable { kind, .. } => Some(Type::Function(*kind)),
             Self::GenericCallable { kind, .. } => Some(Type::Function(*kind)),
         }
     }
@@ -795,7 +792,7 @@ impl Type {
                 for export in module.values() {
                     match export {
                         ModuleExportType::Value { ty, .. } => visit(ty),
-                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
+                        ModuleExportType::Callable { sig, .. } => {
                             for parameter in &sig.params { visit(&parameter.ty); }
                             visit(&sig.return_ty);
                         }
@@ -1134,7 +1131,7 @@ impl Type {
             }
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_recovery(),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     sig.params
                         .iter()
                         .any(|param| param.ty.contains_recovery())
@@ -1201,8 +1198,7 @@ impl Type {
                     for export in exports.values() {
                         match export {
                             ModuleExportType::Value { ty, .. } => pending.push(ty),
-                            ModuleExportType::Proc { sig, .. }
-                            | ModuleExportType::Pure { sig, .. } => {
+                            ModuleExportType::Callable { sig, .. } => {
                                 if sig.effects.has_inference() { return true; }
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|param| &param.ty));
@@ -1255,7 +1251,7 @@ impl Type {
             }
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_any(),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     sig.params.iter().any(|param| param.ty.contains_any())
                         || sig.return_ty.contains_any()
                 }
@@ -1840,13 +1836,9 @@ fn module_export_any_flows_to_concrete(
             ModuleExportType::Value { ty: expected, .. },
         ) => actual.any_flows_to_concrete(expected),
         (
-            ModuleExportType::Proc { sig: actual, .. },
-            ModuleExportType::Proc { sig: expected, .. },
-        )
-        | (
-            ModuleExportType::Pure { sig: actual, .. },
-            ModuleExportType::Pure { sig: expected, .. },
-        ) => callable_any_flows_to_concrete(actual, expected),
+            ModuleExportType::Callable { kind: actual_kind, sig: actual, .. },
+            ModuleExportType::Callable { kind: expected_kind, sig: expected, .. },
+        ) if actual_kind == expected_kind => callable_any_flows_to_concrete(actual, expected),
         (ModuleExportType::GenericCallable { .. }, ModuleExportType::GenericCallable { .. }) => false,
         _ => false,
     }
@@ -1859,13 +1851,9 @@ fn module_export_matches_expected(actual: &ModuleExportType, expected: &ModuleEx
             ModuleExportType::Value { ty: expected, .. },
         ) => actual.matches_expected(expected),
         (
-            ModuleExportType::Proc { sig: actual, .. },
-            ModuleExportType::Proc { sig: expected, .. },
-        )
-        | (
-            ModuleExportType::Pure { sig: actual, .. },
-            ModuleExportType::Pure { sig: expected, .. },
-        ) => callable_matches_expected(actual, expected),
+            ModuleExportType::Callable { kind: actual_kind, sig: actual, .. },
+            ModuleExportType::Callable { kind: expected_kind, sig: expected, .. },
+        ) if actual_kind == expected_kind => callable_matches_expected(actual, expected),
         (ModuleExportType::GenericCallable { kind: actual, .. }, ModuleExportType::GenericCallable { kind: expected, .. }) => actual == expected,
         _ => false,
     }
@@ -1963,7 +1951,7 @@ mod tests {
             )])));
             let proc = Type::Module(module_type(BTreeMap::from([(
                 Name::intern("proc"),
-                ModuleExportType::Proc {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                     sig: CallableType {
                         params: vec![CallableParamType {
                             name: Name::intern("argument"),
@@ -1979,7 +1967,7 @@ mod tests {
             )])));
             let pure = Type::Module(module_type(BTreeMap::from([(
                 Name::intern("pure"),
-                ModuleExportType::Pure {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                     sig: CallableType {
                         params: Vec::new(),
                         return_ty: Box::new(Type::Unknown),
@@ -2139,7 +2127,7 @@ mod tests {
     }
 
     fn proc(effects: Option<Vec<Effect>>) -> ModuleExportType {
-        ModuleExportType::Proc {
+        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -2155,7 +2143,7 @@ mod tests {
     }
 
     fn pure() -> ModuleExportType {
-        ModuleExportType::Pure {
+        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -2302,7 +2290,7 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_count = ModuleExportType::Proc {
+        let wrong_count = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: Vec::new(),
                 return_ty: Box::new(Type::Unit),
@@ -2315,7 +2303,7 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_parameter = ModuleExportType::Proc {
+        let wrong_parameter = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),
@@ -2333,7 +2321,7 @@ mod tests {
                 .matches_expected(&expected)
         );
 
-        let wrong_return = ModuleExportType::Proc {
+        let wrong_return = ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
             sig: CallableType {
                 params: vec![CallableParamType {
                     name: Name::intern("value"),

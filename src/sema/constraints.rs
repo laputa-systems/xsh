@@ -2683,8 +2683,7 @@ impl TypeConstraints {
                                 match export {
                                     ModuleExportType::Value { ty, .. } => pending
                                         .push(LevelNode::Type(ty.clone(), depth + 1)),
-                                    ModuleExportType::Pure { sig, .. }
-                                    | ModuleExportType::Proc { sig, .. } => {
+                                    ModuleExportType::Callable { sig, .. } => {
                                         self.effects.lower_levels(sig.effects.contract(), level, changes, &self.counters)?;
                                         pending.push(LevelNode::Type(
                                             (*sig.return_ty).clone(),
@@ -3687,7 +3686,7 @@ impl TypeConstraints {
                                 access,
                             )?
                         }
-                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
+                        ModuleExportType::Callable { sig, .. } => {
                             self.resolve_callable_depth_inner(
                                 sig,
                                 depth + 1,
@@ -3881,8 +3880,7 @@ impl TypeConstraints {
                                     ModuleExportType::Value { ty, .. } => {
                                         pending.push(OccursNode::Type(ty, depth + 1));
                                     }
-                                    ModuleExportType::Pure { sig, .. }
-                                    | ModuleExportType::Proc { sig, .. } => {
+                                    ModuleExportType::Callable { sig, .. } => {
                                         pending.push(OccursNode::Type(
                                             &sig.return_ty,
                                             depth + 1,
@@ -4331,7 +4329,7 @@ fn module_has_inference(
     for export in exports.values() {
         let found = match export {
             ModuleExportType::Value { ty, .. } => has_inference(ty, depth + 1)?,
-            ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
+            ModuleExportType::Callable { sig, .. } => {
                 let mut found = sig.effects.has_inference();
                 for parameter in &sig.params {
                     if has_inference(&parameter.ty, depth + 2)? {

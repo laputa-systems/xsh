@@ -2,7 +2,7 @@
 
 use super::expr::is_path_like_type;
 use super::{
-    ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
+    ApiArgCheck, BTreeMap, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
     call_arg_expr_id_arena, call_arg_span_arena,
 };
@@ -212,26 +212,6 @@ impl Checker {
         self.warning(arena.arena.expr(value).span,
             &format!("error translation retains only `{failure}.message`; consider `cause: {failure}` to preserve its typed diagnostic chain (no automatic fix)"),
             DiagnosticCode::CheckErrorCause);
-    }
-
-    fn check_module_callable_effects(
-        &mut self,
-        caller_effs: &[Effect],
-        callee_effects: &Option<Vec<Effect>>,
-        callee_name: &str,
-        span: Span,
-    ) {
-        self.record_effect_contract(callee_effects, callee_name);
-        if self.defer_effect_diagnostics {
-            self.defer_callable_effects(
-                callee_effects.clone(),
-                Vec::new(),
-                callee_name,
-                span,
-            );
-            return;
-        }
-        self.check_callee_effects(caller_effs, callee_effects, callee_name, span);
     }
 
     pub(super) fn expect_json_compatible(&mut self, ty: &Type, span: Span) {
@@ -886,59 +866,17 @@ impl Checker {
             && let Some(export) = exports.get(&name)
         {
             match export {
-                ModuleExportType::Proc { sig, .. } => {
-                    let Ok(effects) = sig.effects.concrete() else {
+                ModuleExportType::Callable { kind, sig, .. } => {
+                    if sig.effects.concrete().is_err() {
                         self.error(span, "module callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
                         return Type::Invalid;
-                    };
-                    if self.collecting_effects {
-                        self.provisional_effects_read.set(true);
                     }
-                    self.record_effect_contract(&effects, &name.as_str());
-                    if self.boundary.in_pure {
-                        self.error(
-                            span,
-                            "effectful proc is not allowed in pure functions",
-                            DiagnosticCode::CheckPureEffect,
-                        );
-                    } else if let Some(caller_effs) = self.boundary.current_effects.clone() {
-                        self.check_module_callable_effects(
-                            &caller_effs,
-                            &effects,
-                            &name.as_str(),
-                            span,
-                        );
-                    }
-                    self.check_callee_not_excluded(&effects, &[], &name.as_str(), span);
-                    self.check_module_callable_arg_list_arena(
-                        arena,
-                        source,
-                        args,
-                        &sig.params,
-                        span,
-                        checked_argument,
+                    let callable = Arc::new(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() });
+                    self.expr_types.insert(arena.arena.expr(callee).span, Type::Callable(Arc::clone(&callable)));
+                    return self.check_typed_callable_call_with_checked_argument(
+                        arena, source, callee, args, &callable, span, checked_argument,
                     );
-                    self.record_callee_propagation(effects.as_deref(), &sig.return_ty, span);
-                    return sig.return_ty.as_ref().clone();
                 }
-                ModuleExportType::Pure { sig, .. } => {
-                    let Ok(effects) = sig.effects.concrete() else {
-                        self.error(span, "module callable effect contract is unresolved", DiagnosticCode::CheckCallableMismatch);
-                        return Type::Invalid;
-                    };
-                    self.check_module_callable_arg_list_arena(
-                        arena,
-                        source,
-                        args,
-                        &sig.params,
-                        span,
-                        checked_argument,
-                    );
-                    self.record_callee_propagation(effects.as_deref(), &sig.return_ty, span);
-                    return sig.return_ty.as_ref().clone();
-                }
-                // A module's exported value of a callable type is called
-                // like a record field of one.
                 ModuleExportType::Value {
                     ty: Type::Callable(callable),
                     ..
@@ -1025,45 +963,6 @@ impl Checker {
             self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
         }
         Type::Unit
-    }
-
-    fn check_module_callable_arg_list_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-        params: &[CallableParamType],
-        span: Span,
-        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
-    ) {
-        let params = params
-            .iter()
-            .map(|param| super::FunctionParamSig {
-                name: param.name,
-                ty: param.ty.clone(),
-                schema_expectation: Some(if param.rest {
-                    crate::sema::constants::SchemaExpectation {
-                        instances: Vec::new(),
-                        children: std::sync::Arc::new(BTreeMap::from([(
-                            crate::sema::constants::SchemaComponent::Item,
-                            crate::sema::constants::SchemaExpectation::default(),
-                        )])),
-                    }
-                } else {
-                    crate::sema::constants::SchemaExpectation::default()
-                }),
-                defaulted: param.defaulted,
-                rest: param.rest,
-            })
-            .collect::<Vec<_>>();
-        self.check_function_call_arguments_arena(
-            arena,
-            source,
-            args,
-            &params,
-            span,
-            checked_argument,
-        );
     }
 
     fn check_spread_call_arena(
@@ -1261,8 +1160,7 @@ impl Checker {
                                 Type::Module(exports) => exports.get(&name).is_some_and(|export| {
                                     matches!(
                                         export,
-                                        ModuleExportType::Pure { .. }
-                                            | ModuleExportType::Proc { .. }
+                                        ModuleExportType::Callable { .. }
                                     )
                                 }),
                                 Type::Any

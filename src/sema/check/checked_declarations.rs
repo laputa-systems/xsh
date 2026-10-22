@@ -246,13 +246,13 @@ impl Checker {
                             optional: entry.optional,
                         },
                         ArenaModuleContractEntryKind::Proc { params, return_ty, effects } => {
-                            ModuleExportType::Proc {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                                 sig: self.checked_contract_callable(program, params, return_ty, effects)?,
                                 optional: entry.optional,
                             }
                         }
                         ArenaModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.checked_contract_callable(program, params, return_ty, None)?,
                                 optional: entry.optional,
                             }

@@ -8632,7 +8632,7 @@ mod checked_storage_tests {
         let check = super::super::LoweredTypeCheck {
             schema: None,
             ty: Type::Module(Arc::new(crate::sema::types::ModuleType::open(BTreeMap::from([
-                (name, crate::sema::types::ModuleExportType::Pure { sig: signature(Type::Int), optional: false }),
+                (name, crate::sema::types::ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure, sig: signature(Type::Int), optional: false }),
             ])))),
             name: Arc::from("Service"),
         };

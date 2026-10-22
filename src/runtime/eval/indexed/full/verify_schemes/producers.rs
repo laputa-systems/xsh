@@ -1604,18 +1604,15 @@ impl<'a> ProducerProof<'a> {
         let base = base.raw() as usize;
         let Some(receiver) = self.need_context(decoder, base)? else { return Ok(None) };
         let Type::Module(module) = receiver.unvalidated() else { return Ok(None) };
-        let (pure, signature) = match module.exports.get(&Name::intern(name)) {
-            Some(ModuleExportType::Pure { sig, optional: false }) => (true, sig),
-            Some(ModuleExportType::Proc { sig, optional: false }) => (false, sig),
-            _ => return Ok(None),
-        };
+        let Some(ModuleExportType::Callable { kind, sig: signature, optional: false }) = module.exports.get(&Name::intern(name)) else { return Ok(None) };
+        let kind = *kind;
         ensure_closed_type(&receiver)?;
         let effects = signature.effects.concrete()
             .map_err(|_| IrVerifyError::new("module callable effect contract is unresolved"))?;
         self.budget.charge(signature.params.len() + effects.as_ref().map_or(0, Vec::len) + 1)?;
         self.budget.charge_clone(&signature.return_ty)?;
         for parameter in &signature.params { self.budget.charge_clone(&parameter.ty)?; }
-        let callable = TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig: signature.clone() };
+        let callable = TypedCallable { kind, sig: signature.clone() };
         Ok(Some((base, receiver, callable)))
     }
 

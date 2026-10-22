@@ -103,6 +103,19 @@ pub(super) struct FullScheme {
     pub(super) reserved: [u8; 3],
 }
 
+impl FullScheme {
+    pub(super) fn is_quantified(&self, store: &super::FullStore) -> Result<bool, super::IrVerifyError> {
+        let types = self.type_parameters.bounds(store.scheme_type_parameters.len())
+            .ok_or_else(|| super::IrVerifyError::new("generic callable type binder range is invalid"))?;
+        let rows = self.row_parameters.bounds(store.scheme_row_parameters.len())
+            .ok_or_else(|| super::IrVerifyError::new("generic callable row binder range is invalid"))?;
+        let effects = self.effect_parameters.bounds(store.scheme_effect_parameters.len())
+            .ok_or_else(|| super::IrVerifyError::new("generic callable effect binder range is invalid"))?;
+        Ok(!types.is_empty() || !rows.is_empty() || !effects.is_empty())
+    }
+}
+
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 #[repr(C)]
 pub(super) struct FullEffectContract {

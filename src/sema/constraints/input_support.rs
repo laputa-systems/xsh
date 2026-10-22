@@ -89,7 +89,7 @@ impl TypeConstraints {
                 Type::Callable(callable) => contracts.push(callable.sig.effects.contract()),
                 Type::Module(module) => {
                     for export in module.values() {
-                        if let ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } = export {
+                        if let ModuleExportType::Callable { sig, .. } = export {
                             contracts.push(sig.effects.contract());
                         }
                     }

@@ -10,6 +10,46 @@ use std::mem::size_of;
 const PARAM_DEFAULTED: u32 = 1;
 const PARAM_REST: u32 = 1 << 1;
 const MODULE_EXPORT_OPTIONAL: u32 = 1 << 2;
+const MODULE_EXPORT_CALLABLE: u32 = 1 << 3;
+const MODULE_EXPORT_CALLABLE_KIND_SHIFT: u32 = 4;
+const MODULE_EXPORT_CALLABLE_KIND_MASK: u32 = 0b11 << MODULE_EXPORT_CALLABLE_KIND_SHIFT;
+
+#[derive(Clone, Copy)]
+enum ModuleExportHeader {
+    Value { optional: bool },
+    Callable { kind: crate::sema::types::CallableKind, optional: bool },
+    GenericCallable { optional: bool },
+}
+
+impl ModuleExportHeader {
+    fn decode(flags: u32) -> Result<Self, IrVerifyError> {
+        let optional = flags & MODULE_EXPORT_OPTIONAL != 0;
+        let tag = flags & !(MODULE_EXPORT_OPTIONAL | MODULE_EXPORT_CALLABLE_KIND_MASK);
+        match tag {
+            0 if flags & MODULE_EXPORT_CALLABLE_KIND_MASK == 0 => Ok(Self::Value { optional }),
+            3 if flags & MODULE_EXPORT_CALLABLE_KIND_MASK == 0 => Ok(Self::GenericCallable { optional }),
+            MODULE_EXPORT_CALLABLE => {
+                let kind = crate::sema::types::CallableKind::from_encoded((flags & MODULE_EXPORT_CALLABLE_KIND_MASK) >> MODULE_EXPORT_CALLABLE_KIND_SHIFT)
+                    .ok_or_else(|| IrVerifyError::new("module callable kind is invalid"))?;
+                Ok(Self::Callable { kind, optional })
+            }
+            _ => Err(IrVerifyError::new("module export flags are invalid")),
+        }
+    }
+
+    fn encode(self) -> u32 {
+        match self {
+            Self::Value { optional } => u32::from(optional) * MODULE_EXPORT_OPTIONAL,
+            Self::Callable { kind, optional } => MODULE_EXPORT_CALLABLE | ((kind as u32) << MODULE_EXPORT_CALLABLE_KIND_SHIFT) | (u32::from(optional) * MODULE_EXPORT_OPTIONAL),
+            Self::GenericCallable { optional } => 3 | (u32::from(optional) * MODULE_EXPORT_OPTIONAL),
+        }
+    }
+
+    fn optional(self) -> bool {
+        match self { Self::Value { optional } | Self::Callable { optional, .. } | Self::GenericCallable { optional } => optional }
+    }
+}
+
 const MAX_SEMANTIC_TYPE_DEPTH: usize = 256;
 const MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK: usize = 100_000;
 
@@ -387,22 +427,18 @@ impl SemanticPools {
                         .type_extra
                         .get(offset..end)
                         .ok_or_else(|| IrVerifyError::new("module export is out of bounds"))?;
-                    if export[0] & MODULE_EXPORT_OPTIONAL != 0 {
+                    let header = ModuleExportHeader::decode(export[0])?;
+                    if header.optional() {
                         return Ok(None);
                     }
-                    return match export[0] & 0b11 {
-                        0 => TypeId::from_raw(export[1])
+                    return match header {
+                        ModuleExportHeader::Value { .. } => TypeId::from_raw(export[1])
                             .map(Some)
                             .ok_or_else(|| IrVerifyError::new("module export type id is invalid")),
-                        kind @ (1 | 2) => {
+                        ModuleExportHeader::Callable { kind: callable_kind, .. } => {
                             let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
                                 IrVerifyError::new("module export signature id is invalid")
                             })?;
-                            let callable_kind = if kind == 1 {
-                                crate::sema::types::CallableKind::Proc
-                            } else {
-                                crate::sema::types::CallableKind::Pure
-                            };
                             let Some(index) = self.type_tags.iter().enumerate().find_map(
                                 |(index, tag)| {
                                     (*tag == TypeTag::Callable
@@ -419,8 +455,10 @@ impl SemanticPools {
                                 IrVerifyError::new("module callable type id overflows")
                             })
                         }
-                        3 if export[1] == IR_NONE => Ok(None),
-                        _ => Err(IrVerifyError::new("module export kind is invalid")),
+                        ModuleExportHeader::GenericCallable { .. } => {
+                            crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
+                            Ok(None)
+                        }
                     }
                 }
                 _ => return Ok(None),
@@ -680,43 +718,18 @@ impl SemanticPools {
                     .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                 let mut fields = BTreeMap::new();
                 for (name, export) in names.iter().copied().zip(exports.as_chunks::<2>().0) {
-                    let optional = export[0] & MODULE_EXPORT_OPTIONAL != 0;
-                    let value = match export[0] & 0b11 {
-                        0 => ModuleExportType::Value {
-                            ty: self.to_type_child(export[1], depth, budget)?,
+                    let value = match ModuleExportHeader::decode(export[0])? {
+                        ModuleExportHeader::Value { optional } => ModuleExportType::Value {
+                            ty: self.to_type_child(export[1], depth, budget)?, optional,
+                        },
+                        ModuleExportHeader::Callable { kind, optional } => ModuleExportType::Callable {
+                            kind,
+                            sig: self.to_signature_with_budget(SignatureId::from_raw(export[1]).ok_or_else(|| IrVerifyError::new("module callable signature id is invalid"))?, depth + 1, budget)?,
                             optional,
                         },
-                        1 => ModuleExportType::Proc {
-                            sig: self.to_signature_with_budget(
-                                SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                    IrVerifyError::new("module proc signature id is invalid")
-                                })?,
-                                depth + 1,
-                                budget,
-                            )?,
-                            optional,
-                        },
-                        2 => ModuleExportType::Pure {
-                            sig: self.to_signature_with_budget(
-                                SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                    IrVerifyError::new("module pure signature id is invalid")
-                                })?,
-                                depth + 1,
-                                budget,
-                            )?,
-                            optional,
-                        },
-                        3 => {
-                            let kind = match export[1] {
-                                0 => crate::sema::types::CallableKind::Pure,
-                                1 => crate::sema::types::CallableKind::Proc,
-                                2 => crate::sema::types::CallableKind::Stream,
-                                _ => return Err(IrVerifyError::new("generic module callable kind is invalid")),
-                            };
+                        ModuleExportHeader::GenericCallable { optional } => {
+                            let kind = crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
                             ModuleExportType::GenericCallable { kind, optional }
-                        }
-                        _ => {
-                            return Err(IrVerifyError::new("module export kind is invalid"));
                         }
                     };
                     fields.insert(name, value);
@@ -1200,24 +1213,14 @@ impl SemanticPools {
                         .get(start..end)
                         .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                     for export in exports.as_chunks::<2>().0 {
-                        let kind = export[0] & 0b11;
-                        if export[0] & !(0b11 | MODULE_EXPORT_OPTIONAL) != 0 {
-                            return Err(IrVerifyError::new("module export flags are invalid"));
-                        }
-                        if kind == 3 {
-                            if export[1] > crate::sema::types::CallableKind::Stream as u32 {
-                                return Err(IrVerifyError::new("generic module callable kind is invalid"));
+                        match ModuleExportHeader::decode(export[0])? {
+                            ModuleExportHeader::GenericCallable { .. } => {
+                                crate::sema::types::CallableKind::from_encoded(export[1]).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
                             }
-                        } else if kind == 0 {
-                            verify_type_raw(self, export[1], Some(index))?;
-                        } else {
-                            let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
-                                IrVerifyError::new("module export signature id is invalid")
-                            })?;
-                            if signature.index() >= self.signature_data.len() {
-                                return Err(IrVerifyError::new(
-                                    "module export signature id is out of bounds",
-                                ));
+                            ModuleExportHeader::Value { .. } => { verify_type_raw(self, export[1], Some(index))?; }
+                            ModuleExportHeader::Callable { .. } => {
+                                let signature = SignatureId::from_raw(export[1]).ok_or_else(|| IrVerifyError::new("module export signature id is invalid"))?;
+                                if signature.index() >= self.signature_data.len() { return Err(IrVerifyError::new("module export signature id is out of bounds")); }
                             }
                         }
                     }
@@ -1442,19 +1445,15 @@ impl SemanticPoolBuilder {
                 for export in exports.values() {
                     match export {
                         ModuleExportType::Value { ty, optional } => {
-                            words.push(u32::from(*optional) * MODULE_EXPORT_OPTIONAL);
+                            words.push(ModuleExportHeader::Value { optional: *optional }.encode());
                             words.push(self.intern_type(pools, ty)?.raw());
                         }
-                        ModuleExportType::Proc { sig, optional } => {
-                            words.push(1 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
-                            words.push(self.intern_signature(pools, sig)?.raw());
-                        }
-                        ModuleExportType::Pure { sig, optional } => {
-                            words.push(2 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
+                        ModuleExportType::Callable { kind, sig, optional } => {
+                            words.push(ModuleExportHeader::Callable { kind: *kind, optional: *optional }.encode());
                             words.push(self.intern_signature(pools, sig)?.raw());
                         }
                         ModuleExportType::GenericCallable { kind, optional } => {
-                            words.push(3 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
+                            words.push(ModuleExportHeader::GenericCallable { optional: *optional }.encode());
                             words.push(*kind as u32);
                         }
                     }
@@ -2058,14 +2057,14 @@ mod tests {
                     ),
                     (
                         Name::intern("proc_export"),
-                        ModuleExportType::Proc {
+                        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: callable.clone(),
                             optional: false,
                         },
                     ),
                     (
                         Name::intern("pure_export"),
-                        ModuleExportType::Pure {
+                        ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                             sig: callable.clone(),
                             optional: false,
                         },
@@ -2136,7 +2135,7 @@ mod tests {
             ),
             (
                 Name::intern("name"),
-                ModuleExportType::Pure {
+                ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                     sig: callable(),
                     optional: false,
                 },
@@ -2173,7 +2172,7 @@ mod tests {
 
         let mut corrupted = pools.clone();
         let payload = corrupted.type_data[exact_id.index()].rhs as usize;
-        corrupted.type_extra[payload] = 1 << 3;
+        corrupted.type_extra[payload] = 1 << 6;
         assert!(
             corrupted
                 .verify()
@@ -2181,6 +2180,37 @@ mod tests {
                 .message
                 .contains("module export flags are invalid")
         );
+    }
+
+    #[test]
+    fn module_callable_exports_round_trip_actual_kinds_and_reject_invalid_headers() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for kind in [crate::sema::types::CallableKind::Pure, crate::sema::types::CallableKind::Proc, crate::sema::types::CallableKind::Stream] {
+                let name = Name::intern("create");
+                let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(BTreeMap::from([(
+                    name, ModuleExportType::Callable { kind, sig: callable(), optional: false },
+                )]))));
+                let mut pools = SemanticPools::default();
+                let mut builder = SemanticPoolBuilder::default();
+                let id = builder.intern_type(&mut pools, &module).unwrap();
+                let expected = builder.intern_type(&mut pools, &Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable { kind, sig: callable() }))).unwrap();
+                pools.verify().unwrap();
+                assert_eq!(pools.to_type(id).unwrap(), module);
+                assert_eq!(pools.field_type(id, name).unwrap(), Some(expected));
+                let payload = pools.type_data[id.index()].rhs as usize;
+                for invalid in [1, 2, MODULE_EXPORT_CALLABLE | (3 << MODULE_EXPORT_CALLABLE_KIND_SHIFT), MODULE_EXPORT_CALLABLE | (1 << 6)] {
+                    let mut forged = pools.clone();
+                    forged.type_extra[payload] = invalid;
+                    assert!(forged.verify().is_err());
+                    assert!(forged.to_type(id).is_err());
+                    assert!(forged.field_type(id, name).is_err());
+                }
+                let mut optional = pools.clone();
+                optional.type_extra[payload] |= MODULE_EXPORT_OPTIONAL;
+                optional.verify().unwrap();
+                assert_eq!(optional.field_type(id, name).unwrap(), None);
+            }
+        });
     }
 
     #[test]
