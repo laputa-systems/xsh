@@ -6026,6 +6026,7 @@ enum CheckedValueProjection {
     IterationItem,
     ResultPayload(bool),
     TagField { type_name: Name, name: Name, field: usize },
+    ErrorField { family: Name, variant: Name, field: Name },
 }
 
 #[derive(Clone, Copy)]
@@ -14295,7 +14296,7 @@ impl<'a> FullDecoder<'a> {
                     for field in &mut fields {
                         let (name, pattern) = field?;
                         let Some(schema) = self.store.checked_pattern_variants.get(&key) else {
-                            pending.push((pattern.raw(), None, project(&projection, CheckedValueProjection::Field(name))?));
+                            pending.push((pattern.raw(), None, project(&projection, CheckedValueProjection::ErrorField { family, variant, field: name })?));
                             continue;
                         };
                         let field_index = schema
@@ -14308,7 +14309,7 @@ impl<'a> FullDecoder<'a> {
                                 )
                             })?;
                         let field_type = self.pattern_variant_field_type(key, field_index)?;
-                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::Field(name))?));
+                        pending.push((pattern.raw(), field_type, project(&projection, CheckedValueProjection::ErrorField { family, variant, field: name })?));
                     }
                 }
                 schema::PatternView::Bind { slot } => {
@@ -43167,6 +43168,85 @@ pure use_failure(result: Result[Count, Measure]) -> Int {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn typed_callable_nominal_patterns_follow_actual_constructor_targets() {
+        let source = r#"type Count = pure(text: Str) -> Int
+type Measure = pure(value: Str) -> Int
+enum Choice { Selected(Count), Empty }
+error Failure = Selected(handler: Count) | Other(handler: Measure)
+error OtherFailure = Selected(handler: Measure)
+pure count(text: Str) -> Int { text.byte_len() }
+pure measure(value: Str) -> Int { value.byte_len() }
+pure tag_apply(choice: Choice) -> Int {
+  match choice { Selected(each) => each("tag"), Empty => 0 }
+}
+pure error_apply(failure: Error) -> Int {
+  match failure { Failure.Selected {handler} => handler("error"), _ => 0 }
+}
+let alternate: Measure = measure
+assert tag_apply(Selected(count)) == 3
+assert tag_apply(Empty) == 0
+assert error_apply(Failure.Selected(handler: count)) == 5
+assert error_apply(Failure.Other(handler: measure)) == 0
+assert error_apply(OtherFailure.Selected(handler: measure)) == 0
+"#;
+        let program = Arc::new(fixture("typed-callable-nominal-pattern-targets.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+        let decoder = stage_view_decoder(&program.store);
+        let reference_target = |instruction: usize, expected: &str| {
+            let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            matches!(function, decode::FunctionNameView::Name(name) if name.as_str().as_str() == expected)
+        };
+        let alternate = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+            (*tag == FullTag::ExprFunctionRef && reference_target(instruction, "measure")).then_some(instruction)
+        }).unwrap();
+        let alternate_fact = *program.store.checked_expr_types.iter().find(|fact| fact.instruction as usize == alternate).unwrap();
+        assert!(alternate_fact.function_ref().is_some());
+        let alternate_type = alternate_fact.type_id;
+        let references = program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| {
+            (*tag == FullTag::ExprFunctionRef && reference_target(instruction, "count")).then_some(instruction)
+        }).collect::<Vec<_>>();
+        assert_eq!(references.len(), 2);
+        for reference in references {
+            let mut forged = (*program).clone();
+            forged.store.data[reference] = program.store.data[alternate];
+            let fact = forged.store.checked_expr_types.iter_mut().find(|fact| fact.instruction as usize == reference).unwrap();
+            fact.type_id = alternate_type;
+            fact.purpose = alternate_fact.purpose;
+            FullVerifier::verify(&forged).expect_err("an actual callable with another parameter label cannot inhabit the nominal Count field");
+        }
+        for (name, kind) in [("tag_apply", CheckedPatternVariantKind::Tag), ("error_apply", CheckedPatternVariantKind::Error)] {
+            let function = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let call = program.store.function_instruction_range(function).unwrap().find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall).unwrap();
+            let payload = program.store.payload(program.store.data[call].range()).unwrap();
+            let callee = payload[0] as usize;
+            assert_eq!(program.store.tags[callee], FullTag::ExprParam);
+            let slot = program.store.payload(program.store.data[callee].range()).unwrap()[0] as usize;
+            let fact = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == callee).unwrap();
+            let original_type = program.store.checked_expr_types[fact].type_id;
+            let key = program.store.checked_pattern_variants.iter().find_map(|(key, schema)| (key.kind == kind && schema.fields.iter().any(|field| field.type_id == original_type)).then_some(*key)).unwrap();
+            let mut forged = (*program).clone();
+            let range = forged.store.functions[function].slot_type_facts.bounds(forged.store.slot_type_facts.len()).unwrap();
+            forged.store.slot_type_facts[range.start + slot] = alternate_type.raw();
+            forged.store.checked_expr_types[fact].type_id = alternate_type;
+            let signature = forged.store.data[call].range().start as usize + 2;
+            forged.store.extra[signature] = alternate_type.raw();
+            for field in &mut forged.store.checked_pattern_variants.get_mut(&key).unwrap().fields {
+                if field.type_id == original_type { field.type_id = alternate_type; }
+            }
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("checked nominal pattern schema disagrees with its canonical declaration"), "{name}: {}", error.message);
+        }
     }
 
     #[test]

@@ -1986,6 +1986,32 @@ impl<'a> ProducerProof<'a> {
         Ok(Some(ty))
     }
 
+    fn structured_error_payload(
+        &mut self,
+        owner: u32,
+        family: Name,
+        variant: Name,
+        fields: impl Iterator<Item = Result<(Name, usize), IrVerifyError>>,
+        selected: Option<Name>,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let key = super::super::CheckedPatternVariantKey { kind: super::super::CheckedPatternVariantKind::Error, owner: family, variant };
+        let layout = self.store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("ground error producer has no declared payload layout"))?;
+        self.budget.charge(layout.fields.len())?;
+        let mut expected_fields = layout.fields.iter().map(|field| field.name.map(|name| (name, field.type_id)).ok_or_else(|| IrVerifyError::new("ground error payload declaration has an unnamed field"))).collect::<Result<BTreeMap<_, _>, _>>()?;
+        let mut projection = None;
+        for field in fields {
+            self.budget.charge(1)?;
+            let (name, value) = field?;
+            let ty = expected_fields.remove(&name).ok_or_else(|| IrVerifyError::new("ground error producer repeats or adds a payload field"))?;
+            let ty = self.contract_type(ty)?;
+            self.expression(owner, value, ty, false);
+            if selected == Some(name) { projection = Some(value); }
+        }
+        if !expected_fields.is_empty() { return Err(IrVerifyError::new("ground error producer omits a declared payload field")); }
+        if selected.is_some() && projection.is_none() { return Err(IrVerifyError::new("callable error producer omits its projected field")); }
+        Ok(projection)
+    }
+
     fn driver_record_producer(&mut self, decoder: &FullDecoder<'a>, value: usize, guard: bool) -> Result<Arc<Type>, IrVerifyError> {
         let (producer, ty, success) = if guard {
             let (_, operand, optional) = decoder.driver_guard_source(value)?;
@@ -2773,6 +2799,9 @@ impl<'a> ProducerProof<'a> {
                     }
                     if let Some(source) = self.index.owners[&owner].pattern_sources.get(&binding) {
                         let (source, pattern, preceding) = (source.source, source.pattern, source.preceding.clone());
+                        if self.pattern_binding_type(&decoder, binding, slot)?.is_some_and(|ty| ty.contains_typed_callable()) {
+                            has_contract_source = true;
+                        }
                         let ty = self.need_context(&decoder, source)?.ok_or_else(|| IrVerifyError::new("callable pattern subject has no input contract"))?;
                         let mut subject = Some((*ty).clone());
                         for (pattern, guarded) in preceding { subject = decoder.subject_after_arm(pattern, guarded, subject)?; }
@@ -2956,6 +2985,14 @@ impl<'a> ProducerProof<'a> {
                     if type_name != selected_type || Name::intern(name) != selected_name { continue; }
                     let value = fields.nth(field).ok_or_else(|| IrVerifyError::new("callable tag payload field is absent"))??;
                     pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
+                }
+                schema::ExprView::Error(super::super::ErrorExprView::Structured { family_identity, variant, fields, .. }) => {
+                    let Some(FunctionProjection::ErrorField { family, variant: selected_variant, field }) = path.pop() else { return Err(IrVerifyError::new("callable error projection has no payload field")) };
+                    let actual_family = Name::intern(family_identity);
+                    let actual_variant = Name::intern(variant);
+                    let matches = actual_family == family && actual_variant == selected_variant;
+                    let selected = self.structured_error_payload(owner, actual_family, actual_variant, fields.map(|field| field.map(|(name, value)| (Name::intern(name), value.raw() as usize))), matches.then_some(field))?;
+                    if let Some(value) = selected { pending.push((owner, CallableProducer::Expression(value), path)); }
                 }
                 schema::ExprView::Field { base, name, .. } => {
                     path.push(FunctionProjection::Field(Name::intern(name)));
@@ -3936,16 +3973,7 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Error(super::super::ErrorExprView::Structured { family_identity, variant, mut fields, .. }) => {
-                let key = super::super::CheckedPatternVariantKey { kind: super::super::CheckedPatternVariantKind::Error, owner: Name::intern(family_identity), variant: Name::intern(variant) };
-                let layout = self.store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("ground error producer has no declared payload layout"))?;
-                let mut expected_fields = layout.fields.iter().map(|field| field.name.map(|name| (name, field.type_id)).ok_or_else(|| IrVerifyError::new("ground error payload declaration has an unnamed field"))).collect::<Result<BTreeMap<_, _>, _>>()?;
-                for field in &mut fields {
-                    let (name, value) = field?;
-                    let ty = expected_fields.remove(&Name::intern(name)).ok_or_else(|| IrVerifyError::new("ground error producer repeats or adds a payload field"))?;
-                    let ty = self.contract_type(ty)?;
-                    self.expression(owner, value.raw() as usize, ty, false);
-                }
-                if !expected_fields.is_empty() { return Err(IrVerifyError::new("ground error producer omits a declared payload field")); }
+                self.structured_error_payload(owner, Name::intern(family_identity), Name::intern(variant), (&mut fields).map(|field| field.map(|(name, value)| (Name::intern(name), value.raw() as usize))), None)?;
                 Ok(())
             }
             schema::ExprView::PreparedConstant(value) => decoder.verify_prepared_constant_type(value, &expected, &mut |amount| self.budget.charge(amount)),
