@@ -329,7 +329,7 @@ mod tests {
             let commands = bindings.value_sites.iter().map(|(&site, &binding)| (site, binding)).collect::<BTreeMap<_, _>>();
             let calls = output.module_commands.keys().copied().collect::<super::super::FxHashSet<_>>();
             let accepts = |captures| super::super::scheme_body::supports_generalized_body(
-                program, crate::sema::types::CallableKind::Pure, &output.prepared_constants, &commands, body, bindings, &parameters, captures,
+                program, declaration.scheme.as_ref().unwrap().kind(), &output.prepared_constants, &commands, body, bindings, &parameters, captures,
                 facts.tail_types(), &output.statement_positions, &calls, facts.registered_calls(), facts.expression_types(),
                 facts.constructor_producers(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
             );
