@@ -8,7 +8,22 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `e2b76eaac` passes 584 of 589 selected Rust controls.
+Provisional assembly `dd3f8be86` passes 600 of 607 selected Rust controls.
+The replay retains the previous 589 controls and adds eighteen builtin controls.
+Six failures are existing producer or verifier gaps, including the newly selected
+empty-Set regression. One prior passing inferred-`Any` rejection regresses.
+Repair `276d53bf1` restores that rejection at the recursive return boundary.
+All five focused return controls pass, including authored `Any` and genuine
+generic recursion. The old incidental body-scheme diagnostic becomes the direct
+return-inference diagnostic. Combined qualification remains pending.
+
+The current lanes finish empty-Set and configured-stage producers, literal record
+capture, union receiver authentication and nested optional-guard verification.
+The optional-guard repair must pass the original fixture's unchanged work bound.
+Pyramid remains frozen until inference qualifies. No new full-suite or timing
+gate has started for this assembly.
+
+The last qualified selected boundary, `e2b76eaac`, passes 584 of 589 Rust controls.
 Its five failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The 570-control `e8f4a17bf`
 boundary and all nineteen added controls remain selected. Nominal callable
