@@ -222,8 +222,8 @@ test test_full_inference_exported_proc_and_stream_schemes_are_client_independent
 let preserved = data.preserve(42)?
 let values = data.replay(preserved, 2) |> collect()
 assert values == [42, 42]
-print $values[0]
-print $values[1]
+print ${values[0]}
+print ${values[1]}
 """,
       expected: "42\n42\n",
     },
@@ -233,8 +233,8 @@ print $values[1]
 let preserved = data.preserve("demo")?
 let values = data.replay(preserved, 2) |> collect()
 assert values == ["demo", "demo"]
-print $values[0]
-print $values[1]
+print ${values[0]}
+print ${values[1]}
 """,
       expected: "demo\ndemo\n",
     },
@@ -270,8 +270,8 @@ use numbers as math
 let value = math.increment(40)
 let preserved = data.preserve(value)?
 let rows = data.replay(preserved, 2) |> collect()
-print $rows[0]
-print $rows[1]
+print ${rows[0]}
+print ${rows[1]}
 """,
     },
     {
@@ -279,8 +279,8 @@ print $rows[1]
       source: r"""use numbers as arithmetic
 use transport as wire
 let rows = wire.replay(wire.preserve(arithmetic.increment(40))?, 2) |> collect()
-print $rows[0]
-print $rows[1]
+print ${rows[0]}
+print ${rows[1]}
 """,
     },
   ]

@@ -187,7 +187,7 @@ assert number.outcome == Ok(7)
 assert number.token == 42
 assert word.outcome == Ok(8)
 assert word.token == "kept"
-print attempts
+print $attempts
 """,
     status: 0,
     stdout: ["3\n"],
