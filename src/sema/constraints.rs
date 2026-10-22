@@ -4566,7 +4566,7 @@ mod tests {
             let instance = InstantiatedScheme {
                 params: vec![argument.clone()], return_type: argument.clone(),
                 type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(),
             };
             constraints.constrain(&argument, &outside, span(3)).unwrap();
             let original = constraints.resolve(&outside).unwrap();
@@ -4580,7 +4580,7 @@ mod tests {
         let instance = InstantiatedScheme {
             params: vec![argument.clone()], return_type: argument.clone(),
             type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]),
-            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(),
+            row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: Vec::new(),
         };
         constraints.require_map_key(&argument, span(6)).unwrap();
         assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Any, span(7)).is_err());
