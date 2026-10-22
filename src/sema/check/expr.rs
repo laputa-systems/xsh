@@ -32,7 +32,7 @@ pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun
     }
 }
 
-fn list_literal_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
+pub(super) fn list_literal_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
     fn list_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
         match arena.arena.expr(expression).kind {
             ArenaExprKind::List(items) => Some(items.is_empty()),
@@ -2890,6 +2890,7 @@ impl Checker {
             return expected.cloned().unwrap_or(Type::Unknown);
         }
         let mut inferred = None;
+        let mut inferred_from_empty_list = true;
         let initial_stream_state = self.stream_mutable_state();
         let mut stream_failure = initial_stream_state.clone();
         let mut stream_reaching = Vec::new();
@@ -2917,8 +2918,21 @@ impl Checker {
             let actual = if purpose == super::stmt::TailCheckingPurpose::ProcCompletion {
                 self.check_proc_completion_expression_arena(arena, source, arm.value, arm_expectation)
             } else { self.check_expr_with_expectation_arena(arena, source, arm.value, arm_expectation) };
+            let contextual_error = self.diagnostics.len() != diagnostics_before;
+            let empty_list = list_literal_is_empty(arena, arm.value) == Some(true)
+                && actual == Type::List(Box::new(Type::Unknown))
+                && !contextual_error;
             let merged = if !infer_branches && self.diagnostics.len() == diagnostics_before {
-                inferred.as_ref().and_then(|previous| super::types::merge_checked_branches(arm_expectation, previous, &actual))
+                inferred.as_ref().and_then(|previous| {
+                    if inferred_from_empty_list
+                        && list_literal_is_empty(arena, arm.value).is_some()
+                        && matches!(actual, Type::List(_))
+                    {
+                        merge_list_literal_item_ty(previous, &actual)
+                    } else {
+                        super::types::merge_checked_branches(arm_expectation, previous, &actual)
+                    }
+                })
             } else { None };
             if !infer_branches && merged.is_none() && !arm_expectation.is_some_and(|expectation| expectation.accepts_optional_branch(&actual)) {
                 if let Some(arm_expectation) = arm_expectation { self.expect_type(arm_expectation.context(), &actual, arena.arena.expr(arm.value).span); }
@@ -2928,6 +2942,7 @@ impl Checker {
                     inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span))
                 } else { merged.or(inferred).unwrap_or(actual) });
             }
+            inferred_from_empty_list &= empty_list;
             if self.stream_expr_may_complete(arena, arm.value) { stream_reaching.push(self.stream_mutable_state()); }
             self.pop_scope();
         }

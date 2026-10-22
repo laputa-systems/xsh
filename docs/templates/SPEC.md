@@ -1871,9 +1871,10 @@ value (each ends in a control transfer, a binding, or nothing) is a statement
 even as the last statement of a block: it needs no `else` and gives the block
 no value, so `if done { return x }` may end a block.
 
-An exact `[]` branch in a value `if` can inherit its item type from another
-list-literal branch. A stored list keeps one inferred item type across its
-uses.
+An exact `[]` branch in a value-producing `if` or `match` can inherit its item
+type from another list-literal branch. This rule also applies when a branch
+value is the tail of a nested block. A stored list keeps one inferred item
+type across its uses.
 
 Without an expected type, an `if` expression may use an `Optional[T]` already
 provided by one reachable branch when every other branch value fits it,
