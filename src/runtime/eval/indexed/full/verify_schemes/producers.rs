@@ -2200,6 +2200,29 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::StrByteLen { .. } => Some(Type::Int),
             schema::ExprView::StrByteAt { .. } => FullDecoder::registered_method_return_type(&Type::Str, "byte_at")?,
             schema::ExprView::StrPredicate { .. } => Some(Type::Bool),
+            schema::ExprView::ListComp { value, mut qualifiers, .. } => {
+                let Some(item) = self.need_context(decoder, value.raw() as usize)? else { return Ok(None) };
+                self.budget.charge_clone(&item)?;
+                self.budget.charge(1)?;
+                let list = Type::List(Box::new((*item).clone()));
+                self.budget.charge(2)?;
+                let validation = match qualifiers.next().transpose()? {
+                    Some(super::super::decode::CompQualifierView::For { iter, .. })
+                        if qualifiers.next().transpose()?.is_none() => self.need_context(decoder, iter.raw() as usize)?
+                            .as_ref().and_then(|source| source.validated())
+                            .map(|source| source.validation()).filter(|validation| validation.survives_mapping()),
+                    _ => None,
+                };
+                match validation {
+                    Some(validation) => {
+                        self.budget.charge(1)?;
+                        let validated = crate::sema::validated::ValidatedType::new(validation, list)
+                            .map_err(|_| IrVerifyError::new("comprehension source validation has no mapped list domain"))?;
+                        Some(Type::Validated(Box::new(validated)))
+                    }
+                    None => Some(list),
+                }
+            }
             schema::ExprView::List(mut values) => {
                 let mut items = Vec::new();
                 for value in &mut values {
@@ -3203,6 +3226,7 @@ impl<'a> ProducerProof<'a> {
             let checked_comprehension = if matches!((self.store.tags[instruction], container),
                 (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
                 && let Some(parent) = decoder.instruction_parent_of(instruction)?
+                && self.store.tags[parent].kind() == schema::InstructionKind::Expr
                 && let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)?
                 && value.raw() as usize == instruction && check.schema.is_none()
             { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
@@ -3214,6 +3238,12 @@ impl<'a> ProducerProof<'a> {
                 }
             } else { false };
             if !fits && !narrowed_read && !literal_list && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+                if self.store.tags[instruction] == FullTag::ExprListComp
+                    && let Some(required) = container.validated()
+                    && actual.unvalidated().matches_expected(required.base())
+                {
+                    return Err(IrVerifyError::new("ground list comprehension does not preserve its validation"));
+                }
                 return Err(IrVerifyError::new("ground producer value disagrees with its checked contract"));
             }
         }

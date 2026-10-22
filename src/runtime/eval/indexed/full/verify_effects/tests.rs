@@ -3380,3 +3380,53 @@ fn producer_context_record_loop_fields_keep_empty_list_contracts() {
         }
     });
 }
+
+#[test]
+fn producer_context_typed_comprehension_match_subjects() {
+    on_large_stack(|| {
+        let source = r#"
+pure foreign() -> Str { "outside" }
+pure first_size(items: List[Str]) -> Int {
+    match [item for item in items] {
+        [head, ..tail] => head.count_chars()
+        [] => 0
+    }
+}
+assert first_size(["a", "word"]) == 1
+assert first_size([]) == 0
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let subject = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0))
+            .find(|&expression| matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::ListComp { .. })).unwrap();
+        assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(subject).span), Some(&Type::List(Box::new(Type::Str))));
+        let program = fixture(source);
+        execute_both(&program);
+        let owner = function(&program, "first_size");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let comprehension = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprListComp).unwrap();
+        let schema::ExprView::ListComp { value, mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+        let super::super::decode::CompQualifierView::For { target: super::super::decode::CompTargetView::Slot(slot), iter, .. } = qualifiers.next().unwrap().unwrap() else { panic!("checked comprehension binding") };
+        let scalar = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+        let mut wrong_item = program.clone();
+        wrong_item.store.tags[value.raw() as usize] = FullTag::ExprInt;
+        wrong_item.store.data[value.raw() as usize] = program.store.data[scalar];
+        FullVerifier::verify(&wrong_item).expect_err("actual comprehension element must satisfy its matched consumers");
+        let payload = program.store.data[comprehension].range().bounds(program.store.extra.len()).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+        let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[entries.start + 3], slot as u32);
+        assert_eq!(program.store.extra[entries.start + 4], iter.raw());
+        let mut missing_binding = program.clone();
+        missing_binding.store.extra[entries.start + 3] = slot as u32 + 1;
+        FullVerifier::verify(&missing_binding).expect_err("comprehension value requires its actual iteration binding");
+        let foreign = program.store.function_instruction_range(function(&program, "foreign")).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let mut foreign_iterable = program.clone();
+        foreign_iterable.store.extra[entries.start + 4] = foreign as u32;
+        FullVerifier::verify(&foreign_iterable).expect_err("comprehension iterable must belong to its actual owner");
+    });
+}
