@@ -50,7 +50,9 @@ pub(super) fn supports_generalized_body(
     let terminal_command = matches!(completion, BodyCompletion::Procedure)
         && owner_kind == crate::sema::types::CallableKind::Proc
         && matches!(program.arena.stmt(tail).kind, ArenaStmtKind::Command(_));
-    let prefix = if terminal_command || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
+    let terminal_unit_statement = matches!(program.arena.stmt(tail).kind,
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. });
+    let prefix = if terminal_command || terminal_unit_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
     for &statement in prefix {
         let node = program.arena.stmt(statement);
         match node.kind {
@@ -164,7 +166,7 @@ pub(super) fn supports_generalized_body(
             _ => return false,
         }
     }
-    if terminal_command || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { return true; }
+    if terminal_command || terminal_unit_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { return true; }
     let tail_statement = program.arena.stmt(tail);
     if positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
         match tail_statement.kind {

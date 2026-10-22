@@ -391,6 +391,7 @@ fn make_scope(
     let mut type_binders = BTreeMap::new();
     for (index, parameter) in type_parameters.iter().enumerate() {
         if parameter.id == IR_NONE
+            || parameter.reserved != [0; 3]
             || parameter.binder as usize != index
             || type_binders.insert(parameter.id, index).is_some()
         {
@@ -2008,6 +2009,9 @@ fn build_substitution(
         };
         let ty = ground_call_substitution_type(store, row.ty, &mut materialization)?;
         ensure_substitution_type(&ty)?;
+        if scope.type_parameters[binder].map_key && !ty.is_map_key() {
+            return Err(IrVerifyError::new("generic call violates its MapKey requirement"));
+        }
         if types[binder].replace(ty).is_some() {
             return Err(IrVerifyError::new("generic call type binder is duplicated"));
         }
@@ -2131,6 +2135,14 @@ fn scheme_body_fact_type(
     Ok(found)
 }
 
+fn scheme_map_key(ty: &SchemeType, scope: &SchemeScope) -> bool {
+    match ty {
+        SchemeType::Parameter(parameter) => scope.type_binders.get(&parameter.0)
+            .is_some_and(|&binder| scope.type_parameters[binder].map_key),
+        actual => actual.closed_ground_type().is_some_and(|actual| actual.is_map_key()),
+    }
+}
+
 fn build_symbolic_substitution(
     store: &FullStore,
     callee_scope: &SchemeScope,
@@ -2152,6 +2164,9 @@ fn build_symbolic_substitution(
         };
         let ty = decode_scheme_type(store, caller_scope, row.ty, &mut budget, 0)?;
         validate_symbolic_substitution_type(&ty, caller_scope, 0)?;
+        if callee_scope.type_parameters[binder].map_key && !scheme_map_key(&ty, caller_scope) {
+            return Err(IrVerifyError::new("generic call does not retain its MapKey requirement"));
+        }
         if types[binder].replace(ty).is_some() {
             return Err(IrVerifyError::new("generic call type binder is duplicated"));
         }
@@ -2290,18 +2305,20 @@ fn decode_scheme_type(
             SchemeTypeId::from_raw(node.first)?,
             budget,
         )?)),
-        FullSchemeTypeTag::Map => SchemeType::Map(
-            Box::new(nested(SchemeTypeId::from_raw(node.first)?, budget)?),
-            Box::new(nested(SchemeTypeId::from_raw(node.second)?, budget)?),
-        ),
+        FullSchemeTypeTag::Map => {
+            let key = nested(SchemeTypeId::from_raw(node.first)?, budget)?;
+            if !scheme_map_key(&key, scope) { return Err(IrVerifyError::new("generic Map key has no MapKey requirement")); }
+            SchemeType::Map(Box::new(key), Box::new(nested(SchemeTypeId::from_raw(node.second)?, budget)?))
+        }
         FullSchemeTypeTag::Stream => SchemeType::Stream(Box::new(nested(
             SchemeTypeId::from_raw(node.first)?,
             budget,
         )?)),
-        FullSchemeTypeTag::Set => SchemeType::Set(Box::new(nested(
-            SchemeTypeId::from_raw(node.first)?,
-            budget,
-        )?)),
+        FullSchemeTypeTag::Set => {
+            let item = nested(SchemeTypeId::from_raw(node.first)?, budget)?;
+            if !scheme_map_key(&item, scope) { return Err(IrVerifyError::new("generic Set element has no MapKey requirement")); }
+            SchemeType::Set(Box::new(item))
+        }
         FullSchemeTypeTag::Result => SchemeType::Result(
             Box::new(nested(SchemeTypeId::from_raw(node.first)?, budget)?),
             Box::new(nested(SchemeTypeId::from_raw(node.second)?, budget)?),
@@ -4241,6 +4258,12 @@ fn instantiate_scheme_type(
     {
         return Err(IrVerifyError::new("generic call substitution does not match its binder scope"));
     }
+    budget.charge(scope.type_parameters.len())?;
+    for (parameter, actual) in scope.type_parameters.iter().zip(&substitution.types) {
+        if parameter.map_key && !actual.is_map_key() {
+            return Err(IrVerifyError::new("generic substitution violates its MapKey requirement"));
+        }
+    }
     instantiate_bound_type(store, id, substitution, budget, depth)
 }
 
@@ -4334,6 +4357,9 @@ pub(super) fn instantiate_invocation(
         let argument = type_arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
         let ty = instantiate_bound_type(store, argument.ty, caller, budget, 0)?;
         ensure_substitution_type(&ty)?;
+        if parameter.map_key && !ty.is_map_key() {
+            return Err(IrVerifyError::new("invocation violates its MapKey requirement"));
+        }
         result.types.push(ty);
     }
     for parameter in row_parameters {
@@ -4653,7 +4679,7 @@ mod tests {
 
     fn symbolic_substitution_test_scope() -> SchemeScope {
         SchemeScope {
-            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0 }],
+            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, reserved: [0; 3] }],
             row_parameters: vec![FullSchemeRowParameter {
                 id: 20,
                 binder: 0,
@@ -4747,8 +4773,8 @@ mod tests {
 
         let scope = SchemeScope {
             type_parameters: vec![
-                FullSchemeTypeParameter { id: 10, binder: 0 },
-                FullSchemeTypeParameter { id: 11, binder: 1 },
+                FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, reserved: [0; 3] },
+                FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, reserved: [0; 3] },
             ],
             row_parameters: Vec::new(),
             type_binders: BTreeMap::from([(10, 0), (11, 1)]),

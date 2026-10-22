@@ -52,6 +52,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
+                SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
                 SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",
             };
             format!("generic call instantiation failed: {reason}")
@@ -2162,6 +2163,14 @@ impl Checker {
             && let Some(set) =
                 self.check_set_constructor_arena(arena, source, name, args, span, expected_context)
         {
+            if name == "empty" && args.is_empty() && matches!(set, Type::Set(_)) {
+                let [signature] = module_sig.function_overloads(name).expect("the checked Set factory has its canonical registry entry") else {
+                    panic!("the empty Set factory has one canonical signature")
+                };
+                assert_eq!(signature.op, xsh_registry::RuntimeOp::SetEmpty);
+                let instance = crate::sema::builtin_templates::BuiltinInstantiation::from_result(signature, &set, &mut self.type_constraints, span);
+                self.publish_api_call(arena, args, span, None, signature, &instance.signature);
+            }
             return set;
         }
         if module == "env" && name == "get_path" {
@@ -2286,14 +2295,20 @@ impl Checker {
                 .iter()
                 .find(|candidate| std::ptr::eq(*candidate, sig))
         });
-        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(
-            sig,
-            None,
-            None,
-            &mut self.type_constraints,
-            span,
-        )
-        .expect("a module signature has no receiver constraint");
+        let mut instance = if sig.op == xsh_registry::RuntimeOp::MapEmpty
+            && args.is_empty()
+            && let Some(expected @ Type::Map(_, _)) = expected_context
+        {
+            crate::sema::builtin_templates::BuiltinInstantiation::from_result(sig, expected, &mut self.type_constraints, span)
+        } else {
+            crate::sema::builtin_templates::BuiltinInstantiation::new(
+                sig,
+                None,
+                None,
+                &mut self.type_constraints,
+                span,
+            ).expect("a module signature has no receiver constraint")
+        };
         let descriptor_result = matches!(
             sig.semantic_rule,
             crate::modules::signature::SemanticRule::CliDescriptor

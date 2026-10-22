@@ -20,6 +20,9 @@ mod application_constraints;
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
 #[path = "constraints/input_support.rs"]
 mod input_support;
+#[path = "constraints/map_key.rs"]
+mod map_key_constraints;
+pub(crate) use map_key_constraints::MapKeyConstraintError;
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
@@ -107,6 +110,7 @@ struct Representative {
     earliest_origin: Span,
     binding: Option<Binding>,
     annotation: bool,
+    map_key: Option<Span>,
 }
 
 #[derive(Clone, Debug)]
@@ -704,6 +708,7 @@ impl TypeConstraints {
                 earliest_origin: origin,
                 binding: None,
                 annotation: false,
+                map_key: None,
             }),
         );
         self.counters.fresh_variables.fetch_add(1, Ordering::Relaxed);
@@ -805,6 +810,7 @@ impl TypeConstraints {
             .iter()
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
+        let map_key_parameters = self.generalized_map_keys(&generalization)?;
         Ok(GeneralizedTypes {
             types,
             generalization_scope: CallableGeneralizationScope {
@@ -815,7 +821,7 @@ impl TypeConstraints {
             },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
-            requirements: CallableRequirements { effect_parameters: generalization.effect_parameters, ..CallableRequirements::default() },
+            requirements: CallableRequirements { map_key_parameters, effect_parameters: generalization.effect_parameters.clone(), ..CallableRequirements::default() },
         })
     }
 
@@ -1011,7 +1017,7 @@ impl TypeConstraints {
         CallInstantiation::new(
             callable, type_arguments, row_arguments, effect_arguments, bindings,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
-        caller_applications)
+            caller_applications, &self.generalized_map_keys(generalization)?)
         .map_err(SchemeOperationError::Build)
     }
 
@@ -1105,6 +1111,9 @@ impl TypeConstraints {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
         }
         let mut generalization = Self::callable_generalization(callable, scope);
+        if self.generalized_map_keys(&generalization)? != callable.requirements().map_key_parameters {
+            return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
+        }
         for &(ordinal, id) in &applications {
             let application = self.generalize_callable_application(id, 0, &mut generalization)?;
             if callable.requirements().applications.get(ordinal as usize) != Some(&application) {
@@ -1149,6 +1158,10 @@ impl TypeConstraints {
         let effect_arguments = callable.requirements().effect_parameters.iter().map(|&id| {
             (id, self.fresh_effect_at_level(origin, level))
         }).collect::<BTreeMap<_, _>>();
+        for parameter in &callable.requirements().map_key_parameters {
+            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            self.require_map_key(ty, origin).map_err(SchemeOperationError::from)?;
+        }
         let params = callable
             .params()
             .iter()
@@ -1256,7 +1269,7 @@ impl TypeConstraints {
             Ok((id, contract))
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let bindings = self.callable_application_bindings(instantiated, None)?;
-        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[])
+        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[], &[])
             .map_err(SchemeOperationError::Build)?;
         if callable.is_quantified() {
             self.counters
@@ -2115,6 +2128,9 @@ impl TypeConstraints {
         let root = self
             .representative(id, Some(changes))
             .map_err(|error| (Type::Inference(id), row_type(shape), Some(error)))?;
+        if self.map_key_requirement(root).map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?.is_some() {
+            return Err((Type::Inference(root), row_type(shape), None));
+        }
         if self
             .occurs_in_row(root, shape)
             .map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?
@@ -3251,6 +3267,15 @@ impl TypeConstraints {
                     return Err((expected.clone(), actual.clone(), None));
                 }
             }
+            for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
+                if let Type::Inference(id) = variable
+                    && self.map_key_requirement(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some()
+                    && !matches!(value, Type::Inference(_))
+                    && !value.is_map_key()
+                {
+                    return Err((expected.clone(), actual.clone(), None));
+                }
+            }
             if contribution_to_variable
                 && self
                     .variable_ids(&expected)
@@ -3270,7 +3295,7 @@ impl TypeConstraints {
             match (&expected, &actual) {
                 (Type::Inference(left), Type::Inference(right)) => {
                     self.union(*left, *right, changes)
-                        .map_err(|error| (expected, actual, Some(error)))?;
+                        .map_err(|error| (expected, actual, error))?;
                 }
                 (Type::Inference(id), value) | (value, Type::Inference(id)) => {
                     if !has_anchor(value, annotation)
@@ -4083,7 +4108,7 @@ impl TypeConstraints {
         left: TypeVariableId,
         right: TypeVariableId,
         changes: &mut Vec<ConstraintChange>,
-    ) -> Result<(), ConstraintResolutionError> {
+    ) -> Result<(), Option<ConstraintResolutionError>> {
         let left_root = self
             .representative(left, Some(changes))
             .expect("constraint variable belongs to this problem");
@@ -4144,6 +4169,13 @@ impl TypeConstraints {
         } else {
             (left_root, right_root, left_rank, right_rank)
         };
+        let map_key = match (self.map_key_requirement(left_root).map_err(Some)?, self.map_key_requirement(right_root).map_err(Some)?) {
+            (Some(left), Some(right)) => Some(earlier_span(left, right)),
+            (left, right) => left.or(right),
+        };
+        if map_key.is_some() && (left_binding.is_some() || right_binding.is_some()) {
+            return Err(None);
+        }
         let canonical = left_canonical.min(right_canonical);
         let origin = if left_canonical <= right_canonical {
             left_origin
@@ -4177,6 +4209,7 @@ impl TypeConstraints {
             root_value.origin = origin;
             root_value.earliest_origin = earliest_origin;
             root_value.annotation = annotation;
+            root_value.map_key = map_key;
             root_value.binding = binding.clone();
         }
         match binding {
@@ -4187,7 +4220,7 @@ impl TypeConstraints {
             #[cfg(test)]
             Some(Binding::Rigid { .. }) => Ok(()),
             None => Ok(()),
-        }
+        }.map_err(Some)
     }
 }
 
@@ -4386,6 +4419,119 @@ mod tests {
                 effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
+    }
+
+    #[test]
+    fn map_key_requirements_enforce_the_existing_domain_and_union_identity() {
+        for ty in [Type::Str, Type::Int, Type::UInt, Type::Bool, Type::Bytes, Type::Path, Type::Duration] {
+            let mut constraints = TypeConstraints::default();
+            let key = constraints.fresh(span(1));
+            let alias = constraints.fresh(span(2));
+            constraints.require_map_key(&key, span(3)).unwrap();
+            constraints.constrain(&alias, &key, span(4)).unwrap();
+            constraints.constrain(&alias, &ty, span(5)).unwrap();
+            assert_eq!(constraints.resolve(&key), Ok(ty.clone()));
+            constraints.require_map_key(&ty, span(6)).unwrap();
+        }
+        for ty in [Type::Float, Type::Any, Type::Null, Type::List(Box::new(Type::Int)), Type::Record(Arc::new(BTreeMap::new()))] {
+            let mut constraints = TypeConstraints::default();
+            let key = constraints.fresh(span(1));
+            let alias = constraints.fresh(span(2));
+            constraints.require_map_key(&key, span(3)).unwrap();
+            constraints.constrain(&alias, &key, span(4)).unwrap();
+            assert!(constraints.constrain(&alias, &ty, span(5)).is_err(), "{ty}");
+            assert_eq!(constraints.resolve(&key), Ok(key.clone()));
+            assert!(matches!(constraints.require_map_key(&ty, span(6)), Err(MapKeyConstraintError::Invalid(actual)) if actual == ty));
+            constraints.constrain(&alias, &Type::Int, span(7)).unwrap();
+        }
+    }
+
+    #[test]
+    fn map_key_requirements_follow_trial_rollback_and_problem_ownership() {
+        let mut constraints = TypeConstraints::default();
+        let key = constraints.fresh(span(1));
+        assert_eq!(constraints.trial(|candidate| {
+            candidate.require_map_key(&key, span(2)).unwrap();
+            candidate.constrain(&key, &Type::Int, span(3))
+        }), Ok(true));
+        constraints.constrain(&key, &Type::Float, span(4)).unwrap();
+        let key = constraints.fresh(span(5));
+        constraints.require_map_key(&key, span(6)).unwrap();
+        assert_eq!(constraints.trial(|candidate| candidate.constrain(&key, &Type::Float, span(7))), Ok(false));
+        constraints.constrain(&key, &Type::Str, span(8)).unwrap();
+        let mut foreign = TypeConstraints::default();
+        let foreign_key = foreign.fresh(span(9));
+        assert!(matches!(constraints.require_map_key(&foreign_key, span(10)), Err(MapKeyConstraintError::Resolution(ConstraintResolutionError::ForeignVariable))));
+        let key = constraints.fresh(span(11));
+        let mut probe = constraints.clone();
+        probe.require_map_key(&key, span(12)).unwrap();
+        assert!(probe.constrain(&key, &Type::Float, span(13)).is_err());
+        constraints.constrain(&key, &Type::Float, span(14)).unwrap();
+    }
+
+    #[test]
+    fn map_key_requirements_reject_open_records_in_both_orders() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let field = crate::symbol::Name::intern("field");
+            for reverse in [false, true] {
+                let mut constraints = TypeConstraints::default();
+                let record = constraints.fresh_at_level(span(1), 1);
+                let item = constraints.project_record_field(&record, field, 1, span(2)).unwrap();
+                let original = constraints.record_binding(variable_id(&record)).unwrap().unwrap().shape;
+                assert!(matches!(constraints.require_map_key(&record, span(3)), Err(MapKeyConstraintError::Invalid(Type::Record(_)))));
+                assert_eq!(constraints.map_key_requirement(variable_id(&record)), Ok(None));
+                let key = constraints.fresh_at_level(span(4), 1);
+                constraints.require_map_key(&key, span(5)).unwrap();
+                let (expected, actual) = if reverse { (&record, &key) } else { (&key, &record) };
+                assert!(constraints.constrain(expected, actual, span(6)).is_err());
+                assert_eq!(constraints.record_binding(variable_id(&record)).unwrap().unwrap().shape, original);
+                assert_eq!(constraints.map_key_requirement(variable_id(&record)), Ok(None));
+                assert_eq!(constraints.resolve(&key), Ok(key.clone()));
+                assert_eq!(constraints.resolve(&item), Ok(item.clone()));
+                constraints.constrain(&item, &Type::Bool, span(7)).unwrap();
+                constraints.constrain(&key, &Type::Int, span(8)).unwrap();
+            }
+            let mut constraints = TypeConstraints::default();
+            let key = constraints.fresh_at_level(span(1), 1);
+            constraints.require_map_key(&key, span(2)).unwrap();
+            assert!(constraints.project_record_field(&key, field, 1, span(3)).is_err());
+            constraints.constrain(&key, &Type::Str, span(4)).unwrap();
+        });
+    }
+
+    #[test]
+    fn map_key_requirements_survive_generalization_and_independent_instantiation() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let key = constraints.fresh_at_level(span(1), 1);
+            constraints.require_map_key(&key, span(2)).unwrap();
+            let generalized = constraints.generalize_types(&[key, Type::Unit], 0).unwrap();
+            assert_eq!(generalized.requirements.map_key_parameters, generalized.type_parameters);
+            let callable = CallableScheme::new(
+                generalized.type_parameters, generalized.row_parameters,
+                vec![SchemeParameter { name: crate::symbol::Name::intern("value"), ty: generalized.types[0].clone(), schema_expectation: None, defaulted: false, rest: false }],
+                generalized.types[1].clone(), None, false, generalized.requirements,
+            ).unwrap();
+            for ty in [Type::Int, Type::Str, Type::Bool] {
+                let instance = constraints.instantiate_callable(&callable, 1, span(3), CallableApplicationScope::Invocation).unwrap();
+                constraints.constrain(&instance.params[0], &ty, span(4)).unwrap();
+                assert_eq!(constraints.resolve(&instance.params[0]), Ok(ty));
+            }
+            for ty in [Type::Float, Type::Any, Type::Record(Arc::new(BTreeMap::new()))] {
+                let instance = constraints.instantiate_callable(&callable, 1, span(5), CallableApplicationScope::Invocation).unwrap();
+                assert!(constraints.constrain(&instance.params[0], &ty, span(6)).is_err());
+            }
+            let parameter = callable.type_parameters()[0];
+            assert!(matches!(CallInstantiation::new(&callable,
+                BTreeMap::from([(parameter, SchemeType::Ground(Type::Float))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
+                &[], &[], &[], &[], &[]), Err(SchemeBuildError::MapKey)));
+            assert!(matches!(CallInstantiation::new(&callable,
+                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
+                &[parameter], &[], &[], &[], &[]), Err(SchemeBuildError::MapKey)));
+            CallInstantiation::new(&callable,
+                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
+                &[parameter], &[], &[], &[], &[parameter]).unwrap();
+        });
     }
 
     #[test]

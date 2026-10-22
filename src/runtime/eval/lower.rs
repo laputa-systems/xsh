@@ -3311,6 +3311,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let statement = self.program.arena.core_stmt_id(statement);
         match self.program.arena.stmt(statement).kind {
+            ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. } => {
+                self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
+                let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                Some(value)
+            }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = facts.tail_types().get(&statement)?.clone();
                 let value = self.lower_bare_ident_stmt(statement, name, slots)?;

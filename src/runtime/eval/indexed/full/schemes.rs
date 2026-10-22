@@ -235,6 +235,8 @@ pub(super) struct FullSchemeApplicationReturn {
 pub(super) struct FullSchemeTypeParameter {
     pub(super) id: u32,
     pub(super) binder: u32,
+    pub(super) map_key: bool,
+    pub(super) reserved: [u8; 3],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -547,6 +549,8 @@ impl FullBuilder {
                 binder: u32::try_from(binder).map_err(|_| {
                     IrBuildError::format("scheme_type_binder_overflow", None, 0, 0)
                 })?,
+                map_key: scheme.callable().requirements().map_key_parameters.contains(&id),
+                reserved: [0; 3],
             });
         }
         let type_parameters_range = super::table_range(
@@ -1457,7 +1461,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-             &[])
+             &[], &[])
             .unwrap();
             let mut builder = super::super::FullBuilder::new(crate::source::SourceId::new(0));
             let scheme_id = builder.intern_scheme(&scheme).unwrap();

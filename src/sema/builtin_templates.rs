@@ -26,12 +26,7 @@ impl BuiltinInstantiation {
         if let Some(receiver) = receiver {
             parameters.insert(BuiltinTypeParameter::Receiver, receiver.clone());
         }
-        let mut signature = signature.clone();
-        for parameter in &mut signature.params {
-            parameter.ty = instantiate_type(&parameter.ty, &mut parameters, constraints, span);
-        }
-        signature.return_ty =
-            instantiate_type(&signature.return_ty, &mut parameters, constraints, span);
+        let signature = instantiate_signature(signature, &mut parameters, constraints, span);
         if let (Some(template), Some(actual)) = (receiver_template, receiver) {
             let template = instantiate_type(template, &mut parameters, constraints, span);
             constraints.constrain(&template, actual, span)?;
@@ -39,6 +34,17 @@ impl BuiltinInstantiation {
         let mut instance = Self { signature };
         instance.resolve(constraints);
         Ok(instance)
+    }
+
+    pub(crate) fn from_result(
+        signature: &ModuleFnSig,
+        result: &Type,
+        constraints: &mut TypeConstraints,
+        span: Span,
+    ) -> Self {
+        let mut parameters = BTreeMap::new();
+        seed_receiver_domains(&signature.return_ty, result, &mut parameters);
+        Self { signature: instantiate_signature(signature, &mut parameters, constraints, span) }
     }
 
     pub fn constrain_result(
@@ -130,6 +136,20 @@ pub(crate) fn checked_module_signature(
         || instance.invalid_map_key().is_some()
     { return Ok(None); }
     Ok(Some(instance.signature))
+}
+
+fn instantiate_signature(
+    signature: &ModuleFnSig,
+    parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
+    constraints: &mut TypeConstraints,
+    span: Span,
+) -> ModuleFnSig {
+    let mut signature = signature.clone();
+    for parameter in &mut signature.params {
+        parameter.ty = instantiate_type(&parameter.ty, parameters, constraints, span);
+    }
+    signature.return_ty = instantiate_type(&signature.return_ty, parameters, constraints, span);
+    signature
 }
 
 fn instantiate_type(

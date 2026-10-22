@@ -320,7 +320,7 @@ mod tests {
         }).collect();
         let callable = CallableScheme::new(parameters.clone(), Vec::new(), params,
             SchemeType::Parameter(parameters[2]), None, false,
-            CallableRequirements { effect_parameters: effects.into(), effect_predicates: Vec::new(), applications }).unwrap();
+            CallableRequirements { map_key_parameters: Vec::new(), effect_parameters: effects.into(), effect_predicates: Vec::new(), applications }).unwrap();
         TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap()
     }
 
@@ -375,7 +375,7 @@ mod tests {
                 schema_expectation: None, defaulted: false, rest: false,
             }).collect();
             let callable = CallableScheme::new(parameters, Vec::new(), params, SchemeType::Parameter(SchemeTypeParameterId(13)),
-                None, false, CallableRequirements { effect_parameters: Vec::new(), effect_predicates: Vec::new(), applications }).unwrap();
+                None, false, CallableRequirements { map_key_parameters: Vec::new(), effect_parameters: Vec::new(), effect_predicates: Vec::new(), applications }).unwrap();
             let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
             let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
             let id = builder.intern_scheme(&scheme).unwrap();

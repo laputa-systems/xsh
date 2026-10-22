@@ -111,6 +111,16 @@ carry the ordinary default token to the callee. Every supplied argument evaluate
 before that prefix, and each supplied slot skips its default. Default expression
 scopes expose the declaration's captures; formal names enter scope for the body.
 
+Local empty `map.empty()` and `set.empty()` constructors retain their declaration's
+actual inference cells in expression and binding facts. Map key and Set element
+cells carry the finite `MapKey` requirement defined by `Type::is_map_key`.
+Unification journals and propagates that requirement; generalization retains it
+on callable type parameters, and every invocation enforces it on the actual
+substitution. Imported schemes and callable contracts preserve the same bound.
+Cold verification requires it for symbolic Map and Set domains and rejects
+missing or malformed parameter metadata. These rows belong to the in-memory
+Full IR; they do not define a serialized program format.
+
 Cold generic verification proves actual fixed arguments, rest items and splices
 against the selected callable contract. Default prefixes require unique matching
 parameter entries, concrete checked parameter representations, actual value and

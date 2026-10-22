@@ -20,6 +20,7 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CallableRequirements {
+    pub(crate) map_key_parameters: Vec<SchemeTypeParameterId>,
     pub(crate) effect_parameters: Vec<SchemeEffectParameterId>,
     pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
@@ -199,6 +200,7 @@ pub(crate) enum SchemeBuildError {
     UnresolvedSchema,
     DynamicType,
     BodyTypeNotBound,
+    MapKey,
 }
 
 impl TypeScheme {
@@ -317,6 +319,10 @@ impl CallableScheme {
         explicit_return: bool,
         requirements: CallableRequirements,
     ) -> Result<Self, SchemeBuildError> {
+        let map_keys = requirements.map_key_parameters.iter().copied().collect::<BTreeSet<_>>();
+        if map_keys.len() != requirements.map_key_parameters.len()
+            || !map_keys.is_subset(&type_parameters.iter().copied().collect())
+        { return Err(SchemeBuildError::MapKey); }
         let effect_ids = requirements.effect_parameters.iter().copied().collect::<BTreeSet<_>>();
         if effect_ids.len() != requirements.effect_parameters.len() {
             return Err(SchemeBuildError::DuplicateEffectParameter);
@@ -485,6 +491,7 @@ impl CallableRequirements {
     fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         let mut bytes = size_of::<Self>()
+            .saturating_add(self.map_key_parameters.capacity() * size_of::<SchemeTypeParameterId>())
             .saturating_add(self.effect_parameters.capacity() * size_of::<SchemeEffectParameterId>())
             .saturating_add(self.effect_predicates.capacity() * size_of::<EffectPredicate<SchemeEffectParameterId>>())
             .saturating_add(self.applications.capacity() * size_of::<CallableApplication<SchemeType, SchemeEffectParameterId>>());
@@ -609,11 +616,16 @@ impl CallInstantiation {
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
+        caller_map_keys: &[SchemeTypeParameterId],
     ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable.type_parameters.iter().copied().collect()
         {
             return Err(SchemeBuildError::UnboundTypeParameter);
+        }
+        for parameter in &callable.requirements.map_key_parameters {
+            let actual = type_arguments.get(parameter).ok_or(SchemeBuildError::UnboundTypeParameter)?;
+            if !actual.is_map_key_with(caller_map_keys) { return Err(SchemeBuildError::MapKey); }
         }
         if row_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable
@@ -947,6 +959,13 @@ fn schema_expectation_retained_bytes(
 }
 
 impl SchemeType {
+    pub(crate) fn is_map_key_with(&self, parameters: &[SchemeTypeParameterId]) -> bool {
+        match self {
+            Self::Parameter(parameter) => parameters.contains(parameter),
+            actual => actual.closed_ground_type().is_some_and(|actual| actual.is_map_key()),
+        }
+    }
+
     pub(crate) fn closed_ground_type(&self) -> Option<Type> {
         fn project(ty: &SchemeType, depth: usize) -> Option<Type> {
             if depth > crate::sema::constraints::MAX_TYPE_DEPTH {
@@ -1333,6 +1352,7 @@ mod tests {
             let effect = SchemeEffectParameterId(0);
             let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
             let requirements = CallableRequirements {
+                map_key_parameters: Vec::new(),
                 effect_parameters: vec![effect],
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
                 applications: vec![CallableApplication {
@@ -1380,6 +1400,7 @@ mod tests {
             let field = Name::intern("value");
             let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
             let requirements = CallableRequirements {
+                map_key_parameters: Vec::new(),
                 applications: vec![CallableApplication {
                     callee: SchemeType::Parameter(f),
                     arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Named(Name::intern("payload")),
@@ -1748,7 +1769,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-             &[])
+                &[], &[])
             .is_ok());
             assert!(TypeScheme::new(
                 crate::sema::types::CallableKind::Pure,
@@ -1803,7 +1824,7 @@ mod tests {
                         lacks: BTreeSet::new(),
                     }],
                     &[],
-             &[]),
+                &[], &[]),
                 Err(SchemeBuildError::RowLacksMismatch),
             );
         });
@@ -1916,7 +1937,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-             &[])
+                &[], &[])
             .unwrap();
 
             let required_bytes = std::mem::size_of::<CallInstantiation>()

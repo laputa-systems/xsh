@@ -34,6 +34,76 @@ fn execute_both(program: &FullProgram) {
 }
 
 #[test]
+fn generic_empty_factories_preserve_material_domains_and_unit_completion() {
+    on_large_stack(|| {
+        let source = r#"
+pure map_sample(value) -> Unit {
+    var entries = map.empty()
+    entries["item"] = value
+    let _ = entries
+}
+pure set_sample(value) -> Unit {
+    var seen = set.empty()
+    seen = seen.add(value)
+    let _ = seen
+}
+pure map_value(value) {
+    var entries = map.empty()
+    entries["item"] = value
+    entries
+}
+pure set_value(value) {
+    var seen = set.empty()
+    seen = seen.add(value)
+    seen
+}
+let number: Unit = map_sample(7)
+let text: Unit = map_sample("kept")
+let set_number: Unit = set_sample(7)
+let set_text: Unit = set_sample("kept")
+assert number == text
+assert set_number == set_text
+assert map_value(7).values() == [7]
+assert map_value("kept").values() == ["kept"]
+assert map_value({field: 7}).values() == [{field: 7}]
+assert set_value(7).to_list() == [7]
+assert set_value("kept").to_list() == ["kept"]
+var order = 0
+proc step(value) [] -> Unit {
+    order = order * 10 + 1
+    let _ = value
+}
+step(7)
+step("kept")
+assert order == 11
+"#;
+        let program = fixture(source);
+        execute_both(&program);
+        let constrained = program.store.scheme_type_parameters.iter().enumerate()
+            .filter_map(|(index, parameter)| parameter.map_key.then_some(index)).collect::<Vec<_>>();
+        assert!(!constrained.is_empty());
+        let mut missing = program.clone();
+        for &index in &constrained { missing.store.scheme_type_parameters[index].map_key = false; }
+        assert!(FullVerifier::verify(&missing).is_err());
+        let mut malformed = program.clone();
+        malformed.store.scheme_type_parameters[constrained[0]].reserved[0] = 1;
+        assert!(FullVerifier::verify(&malformed).is_err());
+        for source in [
+            "pure sample(value) -> Bool { var entries = map.empty(); entries[\"item\"] = value; let _ = entries }\n",
+            "pure sample(value) -> Result[Int] { var seen = set.empty(); seen = seen.add(value); let _ = seen }\n",
+            "pure sample(value) -> Unit { var entries = map.empty(); entries[\"item\"] = value; entries[\"item\"] = true; let _ = entries }\nsample(\"wrong\")\n",
+            "pure sample(value) -> Unit { var seen = set.empty(); seen = seen.add(value); let _ = seen }\nsample({field: 7})\n",
+            "type Row = {field: Int}\npure sample(value: Row) -> Unit { var seen = set.empty(); seen = seen.add(value); let _ = seen }\nsample({field: 7})\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}: {:?}", checked.diagnostics);
+        }
+    });
+}
+
+#[test]
 fn result_context_argument_forms_preserve_err_and_ok_values() {
     let source = |arguments: &str| format!(r#"
 error TestBaseError = Base

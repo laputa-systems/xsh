@@ -535,15 +535,30 @@ impl Checker {
         if aggregate { return None; }
         if self.boundary.current_return.is_none()
             || !self.local_inference.seeds.contains(&span)
-            || !matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Set))
-            || !self.has_unshadowed_empty_set(program, initializer)
         {
             return None;
         }
+        let seed = local_seed_kind(program, target, initializer, mutable)?;
+        let eligible = match seed {
+            LocalSeed::Map => empty_map_call_receiver(program, initializer).is_some_and(|base| matches!(self.lookup_value_binding_for_expr(program, base), super::ValueBindingLookup::NoSite)),
+            LocalSeed::Set => self.has_unshadowed_empty_set(program, initializer),
+            _ => false,
+        };
+        if !eligible { return None; }
         let origin = super::expr::expr_or_run_span_arena(program, initializer);
         let variable = self.fresh_local_inference_type(origin);
-        let ty = Type::Set(Box::new(variable.clone()));
-        self.local_inference.bindings.insert(span, LocalBindingInference { ty: ty.clone(), holes: vec![variable], owner: self.local_inference_owner(), initializer: origin });
+        self.type_constraints.require_map_key(&variable, origin).expect("a fresh factory key belongs to its local inference owner");
+        let mut holes = vec![variable.clone()];
+        let ty = match seed {
+            LocalSeed::Map => {
+                let value = self.fresh_local_inference_type(origin);
+                holes.push(value.clone());
+                Type::Map(Box::new(variable), Box::new(value))
+            }
+            LocalSeed::Set => Type::Set(Box::new(variable)),
+            _ => unreachable!("only actual empty factories seed their result before checking"),
+        };
+        self.local_inference.bindings.insert(span, LocalBindingInference { ty: ty.clone(), holes, owner: self.local_inference_owner(), initializer: origin });
         self.type_constraints.resolve(&ty).ok()
     }
 
@@ -652,7 +667,7 @@ impl Checker {
         component: &BTreeSet<super::EffectDeclarationId>,
         formals: &[Type],
     ) -> bool {
-        let failures = self.local_inference.bindings.iter().filter_map(|(&binding, inference)| {
+        let mut failures = self.local_inference.bindings.iter().filter_map(|(&binding, inference)| {
             if inference.owner != Some(owner) { return None; }
             match self.type_constraints.unresolved_local_holes_are_input_bound(owner, component, &inference.holes, formals) {
                 Ok(true) => None,
@@ -660,7 +675,31 @@ impl Checker {
                 Err(error) => Some((binding, inference.initializer, LocalInferenceFailure::Resolution(error))),
             }
         }).collect::<Vec<_>>();
-        let valid = failures.is_empty();
+        let domains = self.local_inference.bindings.iter().filter(|(_, inference)| inference.owner == Some(owner))
+            .map(|(&binding, inference)| (binding, inference.initializer, self.type_constraints.resolve(&inference.ty)))
+            .collect::<Vec<_>>();
+        let mut valid = true;
+        for (binding, initializer, result) in domains {
+            let ty = match result {
+                Ok(ty) => ty,
+                Err(error) => {
+                    failures.push((binding, initializer, LocalInferenceFailure::Resolution(error)));
+                    continue;
+                }
+            };
+            match ty {
+                Type::Map(key, _) if !key.is_map_key() && !key.is_recovery() && !key.contains_inference() => {
+                    self.error(initializer, &format!("unsupported Map key type {key}"), DiagnosticCode::CheckMapKey);
+                    valid = false;
+                }
+                Type::Set(element) if !element.is_map_key() && !element.is_recovery() && !element.contains_inference() => {
+                    self.require_set_element_type(&element, initializer);
+                    valid = false;
+                }
+                _ => {}
+            }
+        }
+        valid &= failures.is_empty();
         for (binding, initializer, failure) in failures {
             if !self.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
                 && diagnostic.labels.iter().any(|label| label.span == initializer))
@@ -910,7 +949,7 @@ impl Checker {
             inference
         };
         let raw = inference.ty;
-        if matches!(seed, LocalSeed::List) {
+        if matches!(seed, LocalSeed::List | LocalSeed::Map | LocalSeed::Set) {
             self.record_expr_type(inference.initializer, raw.clone());
             self.local_inference.checked_bindings.insert(span, raw.clone());
         }
@@ -1332,6 +1371,232 @@ mod tests {
             with_checked_local_source(source, |checked| {
                 assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}: {:?}", checked.diagnostics);
             });
+        }
+    }
+
+    fn with_collected_empty_factory(source: &str, inspect: impl FnOnce(&ArenaProgram, &ArenaFunctionDef, &mut Checker)) {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+            ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
+        }).expect("the actual source owns a Pure body");
+        let definition = parsed.arena.arena.function_def(definition);
+        let (work, mut checker) = crate::sema::inference_work::collect(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+            let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            checker.record_constructors = super::super::RecordConstructors::collect_declarations_bundle(&view);
+            checker.collect_definitions_arena(&parsed.arena, Arc::new(parsed.arena.clone()), source, parsed.arena.arena.stmt_ids(parsed.arena.statements));
+            checker.local_inference = LocalInference::prepare(&view);
+            checker.local_inference.collecting = true;
+            checker.check_function_arena(&parsed.arena, source, definition, true);
+            checker.solve_host_obligations(&parsed.arena).unwrap();
+            let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
+            let formals = parsed.arena.arena.params(definition.params).iter().map(|parameter| checker.checked_parameter_type(&parsed.arena, parameter).unwrap()).collect::<Vec<_>>();
+            assert!(checker.validate_local_inference(owner, &BTreeSet::from([owner]), &formals), "{source}: {:?}", checker.diagnostics);
+            checker
+        });
+        assert_eq!(work.function_body_check_entries, 1);
+        assert!(checker.diagnostics.is_empty(), "{source}: {:?}", checker.diagnostics);
+        inspect(&parsed.arena, definition, &mut checker);
+    }
+
+    #[test]
+    fn empty_factory_material_map_facts_follow_the_original_local_seed() {
+        let source = "pure sample() -> Unit { var entries = map.empty(); entries[p\"first\"] = 7; let _ = entries }\n";
+        with_collected_empty_factory(source, |program, definition, checker| {
+            let statement = program.arena.stmt_ids(program.arena.block(definition.body).statements).next().unwrap();
+            let statement = program.arena.stmt(statement);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = statement.kind else { panic!("the actual Map factory declaration") };
+            let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { panic!("the actual Map local binding") };
+            assert!(checker.resolved_bindings.declaration_sites.contains_key(&(statement.span, name)));
+            let expected = Type::Map(Box::new(Type::Path), Box::new(Type::Int));
+            let inference = &checker.local_inference.bindings[&statement.span];
+            assert_eq!(inference.owner, Some(checker.effect_declaration_id(program, definition.body)));
+            assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
+            let call = checker.api_calls.get(&program.arena.expr(initializer).span).unwrap();
+            assert_eq!(call.receiver, None);
+            assert!(call.params.is_empty() && call.argument_slots.is_empty());
+            assert!(super::super::api_spec().module_overloads("map", "empty").unwrap().iter().any(|signature| std::ptr::eq(signature, call.sig)));
+            checker.resolve_checked_types();
+            assert_eq!(checker.expr_types.get(&program.arena.expr(initializer).span), Some(&expected));
+            assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected));
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+        });
+    }
+
+    #[test]
+    fn empty_factory_material_set_facts_follow_the_original_local_seed() {
+        let source = "pure sample() -> Unit { var seen = set.empty(); seen = seen.add(\"kept\"); let _ = seen }\n";
+        with_collected_empty_factory(source, |program, definition, checker| {
+            let statement = program.arena.stmt_ids(program.arena.block(definition.body).statements).next().unwrap();
+            let statement = program.arena.stmt(statement);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = statement.kind else { panic!("the actual Set factory declaration") };
+            let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { panic!("the actual Set local binding") };
+            assert!(checker.resolved_bindings.declaration_sites.contains_key(&(statement.span, name)));
+            let expected = Type::Set(Box::new(Type::Str));
+            let inference = &checker.local_inference.bindings[&statement.span];
+            assert_eq!(inference.owner, Some(checker.effect_declaration_id(program, definition.body)));
+            assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
+            assert!(checker.has_unshadowed_empty_set(program, ArenaExprOrRun::Expr(initializer)));
+            let call = checker.api_calls.get(&program.arena.expr(initializer).span).unwrap();
+            assert_eq!(call.sig.op, xsh_registry::RuntimeOp::SetEmpty);
+            assert_eq!(call.receiver, None);
+            assert!(call.params.is_empty() && call.argument_slots.is_empty());
+            assert!(super::super::api_spec().module_overloads("set", "empty").unwrap().iter().any(|signature| std::ptr::eq(signature, call.sig)));
+            assert_eq!(checker.type_constraints.resolve(&checker.expr_types[&program.arena.expr(initializer).span]), Ok(expected.clone()));
+            checker.resolve_checked_types();
+            assert_eq!(checker.expr_types.get(&program.arena.expr(initializer).span), Some(&expected));
+            assert_eq!(checker.local_inference.checked_bindings.get(&statement.span), Some(&expected));
+            assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+        });
+    }
+
+    #[test]
+    fn empty_factory_material_input_generic_facts_follow_actual_formals() {
+        for (factory, write) in [("map", "entries[\"item\"] = value"), ("set", "entries = entries.add(value)")] {
+            let source = format!("pure sample(value) -> Unit {{ var entries = {factory}.empty(); {write}; let _ = entries }}\n");
+            with_collected_empty_factory(&source, |program, definition, checker| {
+                let statement = program.arena.stmt_ids(program.arena.block(definition.body).statements).next().unwrap();
+                let statement = program.arena.stmt(statement);
+                let ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(initializer), .. } = statement.kind else { panic!("the actual empty factory") };
+                let formal = checker.checked_parameter_type(program, &program.arena.params(definition.params)[0]).unwrap();
+                let expected = if factory == "map" { Type::Map(Box::new(Type::Str), Box::new(formal.clone())) } else { Type::Set(Box::new(formal.clone())) };
+                let expected = checker.type_constraints.resolve(&expected).unwrap();
+                let inference = &checker.local_inference.bindings[&statement.span];
+                assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected.clone()));
+                let original = &checker.expr_types[&program.arena.expr(initializer).span];
+                assert_eq!(checker.type_constraints.resolve(original), Ok(expected));
+                assert!(checker.type_constraints.unresolved(&formal).unwrap().len() == 1);
+            });
+        }
+    }
+
+    #[test]
+    fn empty_factory_material_full_source_retains_input_schemes() {
+        for (factory, write) in [("map", "entries[\"item\"] = value"), ("set", "entries = entries.add(value)")] {
+            let source = format!("pure sample(value) -> Unit {{ var entries = {factory}.empty(); {write}; let _ = entries }}\nsample(7)\nsample(\"kept\")\n");
+            with_checked_local_source(&source, |checked| {
+                assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+                let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "sample").unwrap();
+                let scheme = declaration.scheme.as_ref().unwrap();
+                assert_eq!(scheme.type_parameters().len(), 1);
+                assert!(matches!(scheme.params()[0].ty, crate::sema::schemes::SchemeType::Parameter(_)));
+                if factory == "map" {
+                    assert!(scheme.callable().requirements().map_key_parameters.is_empty());
+                } else {
+                    assert_eq!(scheme.callable().requirements().map_key_parameters, scheme.type_parameters());
+                }
+                let expected = if factory == "map" {
+                    crate::sema::schemes::SchemeType::Map(Box::new(crate::sema::schemes::SchemeType::Ground(Type::Str)), Box::new(scheme.params()[0].ty.clone()))
+                } else { crate::sema::schemes::SchemeType::Set(Box::new(scheme.params()[0].ty.clone())) };
+                let facts = declaration.scheme_body_facts.as_ref().unwrap();
+                assert!(facts.expression_types().values().any(|ty| ty == &expected));
+            });
+        }
+    }
+
+    #[test]
+    fn empty_factory_material_domains_keep_storage_and_record_meanings() {
+        let mut accepted = Vec::new();
+        for source in [
+            "pure sample() -> Unit { var entries: Map[Float, Int] = map.empty(); entries[1.5] = 7; let _ = entries }\n",
+            "pure sample() -> Unit { var entries = map.empty(); entries[1.5] = 7; let _ = entries }\n",
+            "pure sample() -> Unit { var seen = set.empty(); seen = seen.add(1.5); let _ = seen }\n",
+            "pure sample() -> Unit { var entries = map.empty(); entries[\"x\"] = 7; entries[\"x\"] = \"wrong\"; let _ = entries }\n",
+            "pure sample() -> Unit { let stored: Set[Str] = set.empty(); var seen = stored; seen = seen.add(7); let _ = seen }\n",
+            "pure sample() -> Unit { let stored: Map[Str] = map.empty(); var entries = stored; entries[\"x\"] = 7; let _ = entries }\n",
+            "pure sample() -> Unit { var entries = map.empty(); let _ = entries }\n",
+            "pure sample() -> Unit { var seen = set.empty(); let _ = seen }\n",
+            "pure sample() -> Unit { let set = 1; var seen = set.empty(); let _ = seen }\n",
+            "pure sample(value) -> Unit { var seen = set.empty(); seen = seen.add(value); let _ = seen }\nsample({field: 7})\n",
+        ] {
+            with_checked_local_source(source, |checked| {
+                if !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                    accepted.push(source);
+                }
+            });
+        }
+        assert!(accepted.is_empty(), "invalid domains accepted: {accepted:?}");
+        let source = "pure sample() -> Unit { let record = {}; let selected: Map[Int] = {}; let _ = record; let _ = selected }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let empty_types = checked.expr_types.iter().filter(|(span, _)| &source[span.range()] == "{}").map(|(_, ty)| ty).collect::<Vec<_>>();
+        assert!(empty_types.iter().any(|ty| matches!(ty, Type::Record(fields) if fields.is_empty())));
+        assert!(empty_types.iter().any(|ty| **ty == Type::Map(Box::new(Type::Str), Box::new(Type::Int))));
+    }
+
+    #[test]
+    fn empty_factory_map_key_requirements_survive_exports_and_callback_transport() {
+        use crate::syntax::arena::ArenaProgramBuilder;
+        use crate::source::SourceMap;
+        for reverse in [false, true] {
+            let roots = [
+                "use shared\npure number(value: Int) -> Unit { let _ = shared.relay(value) }\npure invoke(action, value) { action(value) }\nlet _: Unit = invoke(number, 7)\n",
+                "use shared\npure text(value: Str) -> Unit { let _ = shared.relay(value) }\npure invoke(action, value) { action(value) }\nlet _: Unit = invoke(text, \"kept\")\n",
+                "use shared\nlet _ = shared.relay({field: 7})\n",
+                "use shared\nlet _ = shared.relay(1.5)\n",
+                "use shared\npure rejected(value: Any) -> Unit { let _ = shared.relay(value) }\n",
+            ];
+            let module_text = "##! Key-domain helpers.\n## Retains a value in a local set.\nexport pure gather(value) -> Unit { var seen = set.empty(); seen = seen.add(value); let _ = seen }\n## Forwards the required key domain.\nexport pure relay(value) -> Unit { let _ = gather(value) }\n";
+            let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+            let mut sources = SourceMap::new();
+            let mut entries = Vec::new();
+            for (index, source) in roots.iter().enumerate() {
+                let source_id = sources.add_file(format!("entry{index}.xsh"), *source);
+                let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                entries.push((parsed.statements, source_id));
+            }
+            let module_id = sources.add_file("shared.xsh", module_text);
+            let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
+            assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+            let module_name = builder.symbol_owner().intern("shared");
+            builder.push_arena_module("shared".to_string(), module_name, module.statements);
+            for &(statements, _) in &entries {
+                for statement in builder.statement_ids(statements) {
+                    if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                        builder.set_use_resolved(use_id, Arc::from("shared"));
+                    }
+                }
+            }
+            let program = Arc::new(builder.finish_with_statements(entries[0].0));
+            let _symbols = program.symbol_owner().enter();
+            let session = super::super::module_driver::CheckSession::new(program, Arc::new(sources));
+            let order = if reverse { [1, 0, 2, 3, 4, 0] } else { [0, 1, 2, 3, 4, 1] };
+            for index in order {
+                let (statements, source) = entries[index];
+                let checked = session.check(statements, source, super::super::CheckOptions::default());
+                if index < 2 {
+                    assert!(checked.diagnostics.is_empty(), "{}: {:?}", roots[index], checked.diagnostics);
+                    let schemes = checked.checked_declarations.functions.values()
+                        .filter(|declaration| declaration.namespace == Some(module_name))
+                        .map(|declaration| declaration.scheme.as_ref().unwrap()).collect::<Vec<_>>();
+                    assert_eq!(schemes.len(), 2);
+                    for scheme in schemes {
+                        assert_eq!(scheme.callable().requirements().map_key_parameters.len(), 1);
+                        assert_eq!(scheme.callable().requirements().map_key_parameters, scheme.type_parameters());
+                    }
+                } else {
+                    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{}: {:?}", roots[index], checked.diagnostics);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_factory_material_work_counts_the_full_source_body() {
+        for (factory, write) in [("map", "entries[\"item\"] = 7"), ("set", "entries = entries.add(\"kept\")")] {
+            let source = format!("pure sample() -> Unit {{ var entries = {factory}.empty(); {write}; let _ = entries }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution()));
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            assert_eq!(work.function_body_check_entries, 4);
+            assert_eq!(checked.function_body_check_entries, 1);
         }
     }
 

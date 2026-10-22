@@ -25,17 +25,20 @@ pub(super) fn expected_set_element(expected: Option<&Type>) -> Option<&Type> {
 }
 
 impl Checker {
-    /// Reports an element type a set cannot hold. The types are the ones a
-    /// map key can have, since a set is ordered and compared the same way.
     pub(super) fn require_set_element_type(&mut self, element: &Type, span: Span) {
-        if !element.is_map_key() && !element.is_recovery() && !element.contains_inference() {
-            self.error(
-                span,
-                &format!(
-                    "Set elements require Str, Int, UInt, Bool, Bytes, Path, or Duration, not {element}"
-                ),
-                DiagnosticCode::CheckSetElementType,
-            );
+        if element.is_recovery() { return; }
+        match self.type_constraints.require_map_key(element, span) {
+            Ok(()) => {}
+            Err(crate::sema::constraints::MapKeyConstraintError::Resolution(error)) => {
+                let message = match error {
+                    crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "Set element inference does not belong to this checking problem",
+                    crate::sema::constraints::ConstraintResolutionError::TypeDepth => "Set element inference exceeds the supported nesting depth",
+                };
+                self.error(span, message, DiagnosticCode::CheckLocalInference);
+            }
+            Err(crate::sema::constraints::MapKeyConstraintError::Invalid(actual)) => {
+                self.error(span, &format!("Set elements require Str, Int, UInt, Bool, Bytes, Path, or Duration, not {actual}"), DiagnosticCode::CheckSetElementType);
+            }
         }
     }
 
