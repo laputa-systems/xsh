@@ -652,6 +652,7 @@ impl Capture<'_> {
         if let Some(span) = span {
             let site = match node {
                 ArenaChild::Expr(_) => Some((BodyContractSite::Expression(span), SitePath::Expression(path.to_vec()))),
+                ArenaChild::Stmt(statement) if matches!(self.program.arena.stmt(statement).kind, ArenaStmtKind::Export(_)) => None,
                 ArenaChild::Stmt(_) => Some((BodyContractSite::Statement(span), SitePath::Statement(path.to_vec()))),
                 _ => None,
             };
@@ -1508,6 +1509,53 @@ mod tests {
         pending.value_boundaries.clear();
         assert_eq!(pending.canonical_site(BodyContractSite::ValueBoundary(span)), Err(BodyContractError::AmbiguousSite(span)));
     }
+
+    #[test]
+    fn pending_body_contract_sites_map_exported_constant_to_its_declaration() {
+        use crate::syntax::arena::ArenaProgramBuilder;
+        let root_source = "use shared\nlet value = shared.MAX_COUNT\n";
+        let module_source = "##! Shared constants.\n## The largest supported count.\nexport const MAX_COUNT = 9223372036854775807\n";
+        let mut sources = SourceMap::new();
+        let root_id = sources.add_file("entry.xsh", root_source);
+        let module_id = sources.add_file("shared.xsh", module_source);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+        let root = Parser::parse_source_into_arena_builder(root_id, root_source, &mut builder);
+        let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let namespace = builder.symbol_owner().intern("shared");
+        builder.push_arena_module("/canonical/shared.xsh".to_owned(), namespace, module.statements);
+        let import = builder.statement_ids(root.statements)[0];
+        let (use_id, _, _) = builder.use_stmt_for_statement(import).unwrap();
+        builder.set_use_resolved(use_id, Arc::from("/canonical/shared.xsh"));
+        let program = builder.finish_with_statements(root.statements);
+        let checked = Checker::check_arena_with_sources_and_options(&program, &sources, root_id,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let pending = PendingBodyContracts::capture(&checked, &program, &sources).unwrap();
+        let module = &program.modules[0];
+        let exported = program.module_statements(module).next().unwrap();
+        let ArenaStmtKind::Export(declaration) = program.arena.stmt(exported).kind else { panic!("export wrapper") };
+        let span = program.arena.stmt(declaration).span;
+        assert_eq!(span.source_id, module_id);
+        assert_eq!(program.arena.stmt(exported).span, span);
+        assert!(pending.canonical_site(BodyContractSite::Statement(span)).unwrap().is_some());
+    }
+
+    #[test]
+    fn pending_body_contract_sites_reject_competing_nonexport_paths_for_shared_span() {
+        let source = "let value = 1\n";
+        let (program, sources, checked) = checked(source);
+        let mut pending = PendingBodyContracts::capture(&checked, &program, &sources).unwrap();
+        let span = program.arena.stmt(program.statement_ids().next().unwrap()).span;
+        let site = BodyContractSite::Statement(span);
+        assert!(pending.canonical_site(site).unwrap().is_some());
+        let locations = pending.sites.get_mut(&site).unwrap();
+        let owner = locations.first().unwrap().0.clone();
+        locations.insert((owner, CanonicalBodyContractSite(SitePath::Statement(vec![PathStep::Child(usize::MAX)]))));
+        assert_eq!(pending.canonical_site(site), Err(BodyContractError::AmbiguousSite(span)));
+    }
+
     #[test]
     fn generic_operators_contract_preserves_selected_domains_after_generalization() {
         for (parameters, result, expression) in [
