@@ -261,7 +261,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             || match scheme.callable_kind {
                 crate::sema::types::CallableKind::Pure => store.function_metadata[function_index].flags & 1 != 0 || scheme.inferred_effects,
                 crate::sema::types::CallableKind::Proc => store.function_metadata[function_index].flags & 1 == 0 || !scheme.effects.known,
-                crate::sema::types::CallableKind::Stream => true,
+                crate::sema::types::CallableKind::Stream => store.function_metadata[function_index].flags & 1 != 0 || !scheme.effects.known,
             }
         {
             return Err(IrVerifyError::new("generic function contract is invalid"));
@@ -343,7 +343,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             return Err(IrVerifyError::new("scheme callable monotype belongs to multiple type nodes"));
         }
         let callable = store.scheme_callable_monotype(node.first)?;
-        if callable.reserved != [0; 3] || callable.kind == crate::sema::types::CallableKind::Stream {
+        if callable.reserved != [0; 3] {
             return Err(IrVerifyError::new("scheme callable monotype kind or metadata is invalid"));
         }
         if !callable.effects.known && callable.effects.direct.len != 0 {
@@ -1124,17 +1124,20 @@ fn verify_scheme_body_facts(
         decoder.function_signature_index = Some(Arc::clone(function_signatures));
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
-            slots.insert(slot, decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?);
+            slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false });
         }
         for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
             let slot = (capture.slot_and_flags & !(1 << 31)) as usize;
-            if capture.slot_and_flags & (1 << 31) != 0 { return Err(IrVerifyError::new("generic body captures mutable state")); }
             let ty = store.semantic.to_type_with_budget(capture.type_id, &mut budget.semantic_types)?;
             ensure_closed_type(&ty)?;
             if ty.may_hold_resource() { return Err(IrVerifyError::new("generic body captures resource state")); }
-            let actual = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("generic capture has no authenticated lexical writer type"))?;
-            if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
-            if slots.insert(slot, SchemeType::Ground(ty)).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
+            if capture.slot_and_flags & (1 << 31) != 0 {
+                if producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("mutable generic capture has no mandatory storage proof")); }
+            } else {
+                let actual = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("generic capture has no authenticated lexical writer type"))?;
+                if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
+            }
+            if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0 }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
         }
         let body_id = IrBlockId::from_raw(function.body).ok_or_else(|| IrVerifyError::new("generic body block is invalid"))?;
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
@@ -1167,7 +1170,7 @@ fn verify_scheme_body_facts(
         }
         if visited != encoded_expressions || visited_statements != encoded_statements { return Err(IrVerifyError::new("generic body contains an unchecked instruction")); }
         budget.charge(stream_sources.len() + captures.len() + applications.len())?;
-        requests.streams.extend(stream_sources.into_iter().map(|(source, expected_return)| producers::StreamIteration { owner: decoder.owner, source, expected_return }));
+        requests.streams.extend(stream_sources.into_iter().map(|(source, boundary)| producers::StreamIteration { owner: decoder.owner, source, boundary }));
         requests.captures.extend(captures.into_iter().map(|(instruction, expected_error)| producers::CaptureErrorRequest { owner: decoder.owner, instruction, expected_error }));
         requests.applications.extend(applications.into_iter().map(|instruction| (decoder.owner, instruction)));
     }
@@ -1192,14 +1195,48 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
     }
 }
 
-fn body_propagated_error_matches_owner(error: &SchemeType, expected_return: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
-    let compatible = match expected_return {
-        SchemeType::Result(_, expected_error) => body_type_matches(error, expected_error, budget)?,
-        SchemeType::Ground(Type::Result(_, expected_error)) => {
-            budget.charge_clone(expected_error)?;
-            body_type_matches(error, &SchemeType::Ground((**expected_error).clone()), budget)?
+#[derive(Clone)]
+enum PropagationBoundary {
+    ResultError(Arc<SchemeType>),
+    StreamProducer(IrFunctionId),
+    Unavailable,
+}
+
+impl PropagationBoundary {
+    fn for_result(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+        let error = match ty {
+            SchemeType::Result(_, error) => { budget.charge_scheme_clone(error)?; (**error).clone() }
+            SchemeType::Ground(Type::Result(_, error)) => { budget.charge_clone(error)?; SchemeType::Ground((**error).clone()) }
+            _ => return Ok(Self::Unavailable),
+        };
+        Ok(Self::ResultError(Arc::new(error)))
+    }
+
+    fn for_function(store: &FullStore, owner: u32, ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+        let function = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("propagation boundary has no function owner"))?;
+        let declaration = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner is out of bounds"))?;
+        let metadata = store.function_metadata.get(function.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner has no metadata"))?;
+        if let FullCallableContract::Scheme(id) = declaration.contract {
+            if store.scheme(id)?.callable_kind != metadata.callable_kind { return Err(IrVerifyError::new("propagation boundary kind disagrees with its actual scheme")); }
         }
-        _ => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
+        if metadata.callable_kind == crate::sema::types::CallableKind::Stream {
+            if !matches!(ty, SchemeType::Stream(_) | SchemeType::Ground(Type::Stream(_))) { return Err(IrVerifyError::new("stream propagation boundary has no actual stream return")); }
+            return Ok(Self::StreamProducer(function));
+        }
+        Self::for_result(ty, budget)
+    }
+}
+
+fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let compatible = match boundary {
+        PropagationBoundary::ResultError(expected_error) => body_type_matches(error, expected_error, budget)?,
+        PropagationBoundary::StreamProducer(owner) => {
+            if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Stream) {
+                return Err(IrVerifyError::new("stream propagation boundary has no actual producer owner"));
+            }
+            body_type_matches(error, &SchemeType::Ground(Type::Error), budget)?
+        }
+        PropagationBoundary::Unavailable => return Err(IrVerifyError::new("generic propagation has no owner result boundary")),
     };
     if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
     Ok(())
@@ -1262,7 +1299,7 @@ fn verify_body_expression(
     pending: &mut Vec<usize>,
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
-    expected_return: &SchemeType,
+    boundary: &PropagationBoundary,
     budget: &mut SchemeInstantiationBudget,
     constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<SchemeType, IrVerifyError> {
@@ -1572,6 +1609,13 @@ fn verify_body_expression(
             if check.schema.is_some() || expected.contains_any() || expected.contains_inference() || expected.contains_recovery() || expected.may_hold_resource() || !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic storage check has an invalid ground contract")); }
             SchemeType::Result(Box::new(SchemeType::Ground(expected)), Box::new(SchemeType::Ground(Type::Error)))
         }
+        schema::ExprView::Range { start, end, .. } => {
+            for value in [start, end] {
+                let actual = child(value, budget)?;
+                if !body_type_matches(&actual, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic range bound has no actual integer contract")); }
+            }
+            SchemeType::Ground(Type::Stream(Box::new(Type::Int)))
+        }
         schema::ExprView::Try { value, .. } => {
             let actual = child(value, budget)?;
             let (ok, error) = match actual {
@@ -1584,9 +1628,9 @@ fn verify_body_expression(
                 if check.schema.is_some() || required.may_hold_resource() || error != SchemeType::Ground(Type::Error) { return Err(IrVerifyError::new("generic propagation has an invalid ground storage contract")); }
                 let actual_input = types.get(&(input.raw() as usize)).ok_or_else(|| IrVerifyError::new("generic requirement has no checked input contract"))?;
                 !body_type_matches(actual_input, &SchemeType::Ground(required), budget)?
-                    && matches!(expected_return, SchemeType::Result(_, _) | SchemeType::Ground(Type::Result(_, _)))
+                    && matches!(boundary, PropagationBoundary::ResultError(_))
             } else { true };
-            if owner_required { body_propagated_error_matches_owner(&error, expected_return, budget)?; }
+            if owner_required { body_propagated_error_matches_owner(store, &error, boundary, budget)?; }
             ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
@@ -2929,6 +2973,7 @@ fn verify_scheme_list_shape(store: &FullStore, id: SchemeTypeId) -> Result<(), I
 }
 
 enum ArgumentAliasCheck {
+    DriverValidatedAnnotation(TypeId),
     Annotation(TypeId),
     Declared(TypeId),
 }
@@ -2990,9 +3035,13 @@ fn checked_argument_type(
                     ));
                 }
                 verify_driver_annotation_runtime_type(
-                    store, source.runtime_type, source.validation_type, &annotated, materialization,
+                    store, source.runtime_type, source.validation_type, &annotated, &checked, materialization,
                 )?;
-                checks.push(ArgumentAliasCheck::Annotation(annotation));
+                checks.push(if source.validation_type.is_some() {
+                    ArgumentAliasCheck::DriverValidatedAnnotation(annotation)
+                } else {
+                    ArgumentAliasCheck::Annotation(annotation)
+                });
             } else {
                 checks.push(ArgumentAliasCheck::Declared(source.checked_type));
             }
@@ -3036,12 +3085,28 @@ fn checked_argument_type(
     };
     for check in checks.into_iter().rev() {
         let type_id = match check {
-            ArgumentAliasCheck::Annotation(type_id) | ArgumentAliasCheck::Declared(type_id) => type_id,
+            ArgumentAliasCheck::DriverValidatedAnnotation(type_id)
+            | ArgumentAliasCheck::Annotation(type_id)
+            | ArgumentAliasCheck::Declared(type_id) => type_id,
         };
         let declared = store.semantic.to_type_with_budget(
             type_id, &mut materialization.semantic_types,
         )?;
         actual = match check {
+            ArgumentAliasCheck::DriverValidatedAnnotation(_) => {
+                if !runtime_complete_value_check_type(&declared, materialization, 0)? {
+                    return Err(IrVerifyError::new("driver annotation has no complete runtime validation"));
+                }
+                if let CheckedArgumentType::Known(input) = &actual {
+                    if !input.matches_expected(&declared) {
+                        return Err(IrVerifyError::new("local initializer disagrees with its declaration annotation"));
+                    }
+                    materialization.charge_clone(&declared)?;
+                    CheckedArgumentType::Known(declared)
+                } else {
+                    validate_annotated_initializer_type(actual, &declared, materialization)?
+                }
+            }
             ArgumentAliasCheck::Annotation(_) => {
                 validate_annotated_initializer_type(actual, &declared, materialization)?
             }
@@ -3328,30 +3393,17 @@ fn verify_driver_annotation_runtime_type(
     runtime_type: Option<TypeId>,
     validation_type: Option<TypeId>,
     annotation: &Type,
+    checked: &Type,
     materialization: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    let runtime_type = runtime_type
-        .ok_or_else(|| IrVerifyError::new("annotated driver local has no runtime type"))?;
-    let runtime_type = store
-        .semantic
-        .to_type_with_budget(runtime_type, &mut materialization.semantic_types)?;
-    let annotation_kind = super::lowered_type_from_type(annotation)?;
-    if super::lowered_type_from_type(&runtime_type)? != annotation_kind {
-        return Err(IrVerifyError::new(
-            "driver annotation disagrees with its runtime type",
-        ));
-    }
-    if let Some(validation_type) = validation_type {
-        let validation = store
-            .semantic
-            .to_type_with_budget(validation_type, &mut materialization.semantic_types)?;
-        if validation != *annotation {
-            return Err(IrVerifyError::new(
-                "driver annotation disagrees with its runtime validation",
-            ));
-        }
-    }
-    Ok(())
+    let runtime_type = runtime_type.map(|id| {
+        let ty = store.semantic.to_type_with_budget(id, &mut materialization.semantic_types)?;
+        super::lowered_type_from_type(&ty)
+    }).transpose()?;
+    let validation_type = validation_type.map(|id| {
+        store.semantic.to_type_with_budget(id, &mut materialization.semantic_types)
+    }).transpose()?;
+    super::verify_driver_annotation(annotation, runtime_type, validation_type.as_ref(), Some(checked))
 }
 
 fn validate_annotated_initializer_type(
@@ -4148,11 +4200,7 @@ pub(super) fn invocation_callable_type(
 ) -> Result<crate::sema::types::TypedCallable, IrVerifyError> {
     let function = store.functions.get(target).ok_or_else(|| IrVerifyError::new("prepared callable target is out of bounds"))?;
     let metadata = store.function_metadata.get(target).ok_or_else(|| IrVerifyError::new("prepared callable metadata is absent"))?;
-    let pure = match metadata.callable_kind {
-        crate::sema::types::CallableKind::Pure => true,
-        crate::sema::types::CallableKind::Proc => false,
-        crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream declaration has no callable value representation")),
-    };
+    let kind = metadata.callable_kind;
     let mut budget = SchemeInstantiationBudget::new(store);
     let mut sig = match function.contract {
         super::schemes::FullCallableContract::Ground(signature) => {
@@ -4179,8 +4227,8 @@ pub(super) fn invocation_callable_type(
             crate::sema::types::CallableType { params, return_ty, effects: crate::sema::types::CallableEffects::from_clause(effects) }
         }
     };
-    if pure { sig.effects = crate::sema::types::CallableEffects::finite([]); }
-    Ok(crate::sema::types::TypedCallable { kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, sig })
+    if kind == crate::sema::types::CallableKind::Pure { sig.effects = crate::sema::types::CallableEffects::finite([]); }
+    Ok(crate::sema::types::TypedCallable { kind, sig })
 }
 
 pub(super) fn instantiate_invocation(
@@ -4273,11 +4321,7 @@ fn instantiate_scheme_type_inner(
     let ty = match node.tag {
         FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotype(node.first)?;
-            let pure = match callable.kind {
-                crate::sema::types::CallableKind::Pure => true,
-                crate::sema::types::CallableKind::Proc => false,
-                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported checked type")),
-            };
+            let kind = callable.kind;
             let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
             if callable.return_schema.is_some() || parameters.iter().any(|parameter| parameter.schema.is_some()) {
                 return Err(IrVerifyError::new("scheme callable schema contract has no ground representation"));
@@ -4296,7 +4340,7 @@ fn instantiate_scheme_type_inner(
             let effects = effects::instantiate_contract(store, callable.effects, &substitution.effects, budget)?
                 .concrete().map_err(|_| IrVerifyError::new("ground callable effects remain unresolved"))?;
             Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
+                kind,
                 sig: crate::sema::types::CallableType { params, return_ty, effects: crate::sema::types::CallableEffects::from_clause(effects) },
             }))
         }

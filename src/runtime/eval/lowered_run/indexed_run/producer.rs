@@ -15,10 +15,11 @@ use super::explicit_run::{
     CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, StatementCursor,
 };
 use super::{
-    Arc, BindingNamespaceLease, Evaluator, FunctionHeader, LoweredFunctionKey, LoweredFunctionKind, LoweredValue,
+    Arc, BindingNamespaceLease, Evaluator, FunctionHeader, LoweredFunctionKey, CallableKind, LoweredValue,
     RuntimeError, Span, StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
 };
 use crate::runtime::value::{ScriptStreamState, ScriptStreamStep};
+use crate::runtime::eval::indexed::full::PreparedInvocationBindings;
 
 /// Selects a producer's program for this pull and restores the consumer's
 /// selection when the frame suspends or exits with an error.
@@ -64,7 +65,7 @@ pub(super) struct ScriptProducer {
     program: Arc<super::FullProgram>,
     binding_namespace_lease: Option<BindingNamespaceLease>,
     function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
     header: Arc<FunctionHeader>,
     call_span: Span,
     definition_span: Span,
@@ -250,9 +251,10 @@ impl Evaluator {
         &mut self,
         program: Arc<super::FullProgram>,
         function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         view: super::FullFunctionView<'_>,
         slots: Vec<LoweredValue>,
+        invocation: PreparedInvocationBindings,
         call_span: Span,
     ) -> Result<ScriptStreamState, RuntimeError> {
         let execution = view
@@ -267,26 +269,15 @@ impl Evaluator {
             .map_err(|error| super::indexed_error(error, call_span))?;
         // The call scope is entered on the first pull, so a producer whose body
         // never starts never owns one.
-        let frame = ProducerFrameState::begin_body(cursor, slots);
         let header = view
             .header()
             .map_err(|error| super::indexed_error(error, call_span))?;
-        let item_check = header.return_check.clone().and_then(|check| {
-            let ty = match check.ty {
-                crate::sema::types::Type::Stream(item) => *item,
-                crate::sema::types::Type::Result(ok, _) => match *ok {
-                    crate::sema::types::Type::Stream(item) => *item,
-                    _ => return None,
-                },
-                _ => return None,
-            };
-            ty.has_unsigned_constraint()
-                .then(|| super::LoweredTypeCheck {
-                    name: Arc::from(ty.to_string()),
-                    ty,
-                    schema: None,
-                })
+        let item = program.stream_origin_item_type(crate::runtime::eval::PreparedStreamOrigin::Function(view.index()), &invocation)
+            .map_err(|error| super::indexed_error(error, call_span))?;
+        let item_check = item.has_unsigned_constraint().then(|| super::LoweredTypeCheck {
+            name: Arc::from(item.to_string()), ty: item, schema: None,
         });
+        let frame = ProducerFrameState::begin_body(cursor, slots, invocation);
         let binding_namespace_lease =
             self.retain_binding_namespace(program.binding_namespace());
         let state = ScriptStreamState::new(ScriptProducer {
@@ -360,8 +351,9 @@ impl Evaluator {
                     .expect("a suspended producer owns its frame")
                     .start(scope_id);
                 let enter_kind = match producer.kind {
-                    LoweredFunctionKind::Pure => TraceKind::PureEnter,
-                    LoweredFunctionKind::Proc => TraceKind::ProcEnter,
+                    CallableKind::Pure => TraceKind::PureEnter,
+                    CallableKind::Proc => TraceKind::ProcEnter,
+                    CallableKind::Stream => TraceKind::StreamEnter,
                 };
                 if self.trace_enabled {
                     let name = producer.function.display_name();
@@ -386,13 +378,11 @@ impl Evaluator {
                 self.reattach_owned_host_scopes(&scopes);
             }
             let program = Arc::clone(&producer.program);
-            if !just_started {
-                producer
-                    .frame
-                    .as_mut()
-                    .expect("a suspended producer owns its frame")
-                    .hydrate_captures(self, &producer.header, span)?;
-            }
+            producer
+                .frame
+                .as_mut()
+                .expect("a suspended producer owns its frame")
+                .hydrate_captures(self, &producer.header, span)?;
             // The body's nested calls resolve against the program the body belongs
             // to, which is not necessarily the one the consumer is running.
             let step = {
@@ -542,8 +532,9 @@ impl Evaluator {
 
     fn push_producer_traceback_frame(&mut self, producer: &ScriptProducer) {
         let kind = match producer.kind {
-            LoweredFunctionKind::Pure => TracebackFrameKind::Pure,
-            LoweredFunctionKind::Proc => TracebackFrameKind::Proc,
+            CallableKind::Pure => TracebackFrameKind::Pure,
+            CallableKind::Proc => TracebackFrameKind::Proc,
+            CallableKind::Stream => TracebackFrameKind::Stream,
         };
         self.call_stack.push(TracebackFrame {
             kind,

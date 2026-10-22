@@ -249,7 +249,7 @@ mod tests {
             }).unwrap();
             let bindings = &output.resolved_bindings;
             let parameters = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "payload").then_some(id)).collect::<super::super::FxHashSet<_>>();
-            let captures = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "directory").then_some(id)).collect::<super::super::FxHashSet<_>>();
+            let captures = bindings.declarations.iter().filter_map(|(&id, declaration)| (declaration.name == "directory").then_some((id, super::super::scheme_body::CapturedBindingAccess::ReadOnly))).collect::<super::super::scheme_body::CapturedBindings>();
             let commands = bindings.value_sites.iter().map(|(&site, &binding)| (site, binding)).collect::<BTreeMap<_, _>>();
             let calls = output.module_commands.keys().copied().collect::<super::super::FxHashSet<_>>();
             let accepts = |captures| super::super::scheme_body::supports_generalized_body(
@@ -258,7 +258,7 @@ mod tests {
                 facts.constructor_producers(), &output.checked_control_flow.result_constructors, super::super::scheme_body::BodyCompletion::Function,
             );
             assert!(accepts(&captures));
-            assert!(!accepts(&super::super::FxHashSet::default()));
+            assert!(!accepts(&super::super::scheme_body::CapturedBindings::default()));
         });
     }
 

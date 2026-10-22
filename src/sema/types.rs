@@ -26,6 +26,10 @@ pub enum CallableKind {
 }
 
 impl CallableKind {
+    pub(crate) fn value_type_name(self) -> &'static str {
+        match self { Self::Pure => "Pure", Self::Proc => "Proc", Self::Stream => "StreamProducer" }
+    }
+
     pub(crate) fn from_encoded(value: u32) -> Option<Self> {
         match value { 0 => Some(Self::Pure), 1 => Some(Self::Proc), 2 => Some(Self::Stream), _ => None }
     }

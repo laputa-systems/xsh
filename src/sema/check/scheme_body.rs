@@ -2,6 +2,11 @@ use super::{BindingId, FxHashSet, ResolvedBindings};
 use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum CapturedBindingAccess { ReadOnly, Writable }
+
+pub(super) type CapturedBindings = std::collections::BTreeMap<BindingId, CapturedBindingAccess>;
+
 #[derive(Clone, Copy)]
 pub(super) enum BodyCompletion { Function, Value, Statement, Producer }
 
@@ -24,7 +29,7 @@ pub(super) fn supports_generalized_body(
     body: BlockId,
     bindings: &ResolvedBindings,
     parameters: &FxHashSet<BindingId>,
-    captures: &FxHashSet<BindingId>,
+    captures: &CapturedBindings,
     tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
     positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
     checked_calls: &FxHashSet<Span>,
@@ -38,7 +43,7 @@ pub(super) fn supports_generalized_body(
     let nested_completion = if matches!(completion, BodyCompletion::Producer) { BodyCompletion::Producer } else { BodyCompletion::Statement };
     let block = program.arena.block(body);
     if !program.arena.block_params(block.params).is_empty() { return false; }
-    let statements = program.arena.stmt_ids(block.statements).collect::<Vec<_>>();
+    let statements = program.arena.stmt_ids(block.statements).map(|statement| program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
     let Some((&tail, prefix)) = statements.split_last() else { return matches!(completion, BodyCompletion::Statement | BodyCompletion::Producer) };
     let mut available = parameters.clone();
     let prefix = if matches!(completion, BodyCompletion::Statement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
@@ -53,7 +58,7 @@ pub(super) fn supports_generalized_body(
             }
             ArenaStmtKind::Assign { target, value: ArenaExprOrRun::Expr(value), .. } => {
                 let Some(name) = super::assignment_target_root_name(program, target) else { return false };
-                if !bindings.value_sites.get(&(node.span, name)).is_some_and(|binding| available.contains(binding))
+                if !bindings.value_sites.get(&(node.span, name)).is_some_and(|binding| available.contains(binding) || captures.get(binding) == Some(&CapturedBindingAccess::Writable))
                     || !is_body_expression(program, prepared, command_sites, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, value)
                 { return false; }
                 let mut selected = target;
@@ -138,7 +143,7 @@ pub(super) fn supports_generalized_body(
                     while nested_position < nested_spans.len() && nested_spans[nested_position].end() <= site.start() { nested_position += 1; }
                     if nested_spans.get(nested_position).is_some_and(|nested| nested.start() <= site.start() && site.end() <= nested.end()) { continue; }
                     let constant_type = prepared.binding_values.get(binding).and_then(|expression| prepared.types.get(expression));
-                    if !(available.contains(binding) || captures.contains(binding)
+                    if !(available.contains(binding) || captures.contains_key(binding)
                         || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_)))
                             && constant_type.is_some_and(|ty| !ty.contains_inference() && !ty.contains_recovery() && !ty.may_hold_resource())) { return false; }
                 }
@@ -189,12 +194,12 @@ pub(super) fn supports_generalized_body(
 fn read_binding_is_available(
     bindings: &ResolvedBindings,
     available: &FxHashSet<BindingId>,
-    captures: &FxHashSet<BindingId>,
+    captures: &CapturedBindings,
     binding: &BindingId,
     ty: Option<&crate::sema::schemes::SchemeType>,
 ) -> bool {
     available.contains(binding)
-        || (captures.contains(binding)
+        || (captures.contains_key(binding)
             || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_))))
             && ty.is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))
 }
@@ -260,7 +265,7 @@ pub(super) fn is_body_expression(
     command_sites: &std::collections::BTreeMap<(Span, super::Name), BindingId>,
     bindings: &ResolvedBindings,
     available: &FxHashSet<BindingId>,
-    captures: &FxHashSet<BindingId>,
+    captures: &CapturedBindings,
     tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
     positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
     checked_calls: &FxHashSet<Span>,
@@ -323,7 +328,7 @@ pub(super) fn is_body_expression(
                         crate::syntax::arena::ArenaRecordFieldKind::Path { value, .. } => pending.push(value),
                         crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, span } => {
                             let Some(binding) = bindings.value_sites.get(&(program.arena.span(span), name)) else { return false };
-                            if !available.contains(binding) && !captures.contains(binding) { return false; }
+                            if !available.contains(binding) && !captures.contains_key(binding) { return false; }
                         }
                     }
                 }
@@ -962,7 +967,7 @@ mod tests {
                 definition.body,
                 &bindings,
                 &parameters,
-                &FxHashSet::default(),
+                &super::CapturedBindings::default(),
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
                 generic_checked_calls,

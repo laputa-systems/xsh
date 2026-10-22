@@ -3819,6 +3819,13 @@ appear beside quantified parameters. A quantified proc requires a finite
 checked effect contract. Required parameters in callable types and module
 contracts still need annotations.
 
+Captured runtime bindings retain their declaration's monomorphic type. A writable
+capture must refer to mutable storage with exactly that type. Every assignment
+preserves this storage contract; separate calls cannot specialize shared mutable
+storage. Stream producers observe current captured mutable storage before each
+pull and before cleanup of a started body. Cancelling an unstarted producer runs
+no defaults, body, or defers.
+
 A checked quantified body can use lexical `let` and `var` bindings, including
 record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
 `while`, and `loop`, with `break`,

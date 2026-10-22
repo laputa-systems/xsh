@@ -679,7 +679,7 @@ struct RegisteredIndexedSignalBody {
 struct DynamicFunction {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
 }
 
 #[derive(Clone)]
@@ -830,7 +830,7 @@ struct CheckedExprType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CheckedExprPurpose {
     CheckedContract {
-        function_ref: Option<(FunctionName, bool)>,
+        function_ref: Option<(FunctionName, CallableKind)>,
         with_error_source: bool,
     },
     ProducerContext,
@@ -844,11 +844,17 @@ enum ProducerDemand {
 }
 
 impl ProducerDemand {
+    fn for_scheme_body(facts: &crate::sema::schemes::SchemeBodyFacts) -> Self {
+        if facts.scheme().kind() == CallableKind::Stream || !facts.registered_calls().is_empty() {
+            Self::Needed
+        } else { Self::Absent }
+    }
+
     fn for_declarations(
         program: &crate::syntax::arena::ArenaProgram,
         declarations: &crate::sema::check::CompactDeclOutput,
     ) -> Self {
-        if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty())
+        if declarations.scheme_bodies.values().any(|facts| Self::for_scheme_body(facts) == Self::Needed)
             || Self::checked_result_constructors(program, declarations).next().is_some()
             || Self::native_producer_calls(program, declarations).next().is_some()
             || Self::erased_callable_calls(program, declarations).next().is_some()
@@ -1047,7 +1053,7 @@ impl BuildScratch {
             return false;
         };
         let function_ref = match self.expressions.get(id.index()) {
-            Some(BuildExprRow::FunctionRef { function, pure }) => Some((*function, *pure)),
+            Some(BuildExprRow::FunctionRef { function, kind }) => Some((*function, *kind)),
             _ => None,
         };
         let checked = CheckedExprType {
@@ -1220,11 +1226,7 @@ impl LoweredFunctionKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum LoweredFunctionKind {
-    Pure,
-    Proc,
-}
+pub use crate::sema::types::CallableKind;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoweredFunctionBlocker {
@@ -1263,7 +1265,7 @@ impl LoweredFunctionBlocker {
 #[derive(Clone, Debug)]
 pub struct LoweredFunctionUnit {
     key: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
     source_span: Span,
     definition_span: Span,
     owner: Option<Name>,
@@ -1284,7 +1286,7 @@ impl LoweredFunctionUnit {
         self.key
     }
 
-    pub fn kind(&self) -> LoweredFunctionKind {
+    pub fn kind(&self) -> CallableKind {
         self.kind
     }
 
@@ -1356,13 +1358,10 @@ impl LoweredFunctionUnit {
 struct LowerableFunctions<'a> {
     pures: Option<&'a FxHashSet<Name>>,
     procs: Option<&'a FxHashSet<Name>>,
+    streams: Option<&'a FxHashSet<Name>>,
     qualified_pures: Option<&'a FxHashSet<QualifiedName>>,
     qualified_procs: Option<&'a FxHashSet<QualifiedName>>,
-    // In-flight candidates not yet committed to the lowered sets. A single key
-    // for self-recursion, or a whole strongly-connected component for
-    // mutually-recursive co-lowering. Membership only — function-body call
-    // lowering needs `contains`, not the callee's return kind (which is resolved
-    // from the indexed function headers).
+    qualified_streams: Option<&'a FxHashSet<QualifiedName>>,
     candidates: &'a [LoweredFunctionKey],
 }
 
@@ -1370,15 +1369,19 @@ impl<'a> LowerableFunctions<'a> {
     fn all_with_candidates(
         pures: &'a FxHashSet<Name>,
         procs: &'a FxHashSet<Name>,
+        streams: &'a FxHashSet<Name>,
         qualified_pures: &'a FxHashSet<QualifiedName>,
         qualified_procs: &'a FxHashSet<QualifiedName>,
+        qualified_streams: &'a FxHashSet<QualifiedName>,
         candidates: &'a [LoweredFunctionKey],
     ) -> Self {
         Self {
             pures: Some(pures),
             procs: Some(procs),
+            streams: Some(streams),
             qualified_pures: Some(qualified_pures),
             qualified_procs: Some(qualified_procs),
+            qualified_streams: Some(qualified_streams),
             candidates,
         }
     }
@@ -1386,14 +1389,18 @@ impl<'a> LowerableFunctions<'a> {
     fn all(
         pures: &'a FxHashSet<Name>,
         procs: &'a FxHashSet<Name>,
+        streams: &'a FxHashSet<Name>,
         qualified_pures: &'a FxHashSet<QualifiedName>,
         qualified_procs: &'a FxHashSet<QualifiedName>,
+        qualified_streams: &'a FxHashSet<QualifiedName>,
     ) -> Self {
         Self {
             pures: Some(pures),
             procs: Some(procs),
+            streams: Some(streams),
             qualified_pures: Some(qualified_pures),
             qualified_procs: Some(qualified_procs),
+            qualified_streams: Some(qualified_streams),
             candidates: &[],
         }
     }
@@ -1404,6 +1411,7 @@ impl<'a> LowerableFunctions<'a> {
                 LoweredFunctionKey::Name(name) => {
                     self.pures.is_some_and(|pures| pures.contains(&name))
                         || self.procs.is_some_and(|procs| procs.contains(&name))
+                        || self.streams.is_some_and(|streams| streams.contains(&name))
                 }
                 LoweredFunctionKey::Qualified(name) => {
                     self.qualified_pures
@@ -1411,21 +1419,12 @@ impl<'a> LowerableFunctions<'a> {
                         || self
                             .qualified_procs
                             .is_some_and(|procs| procs.contains(&name))
+                        || self.qualified_streams.is_some_and(|streams| streams.contains(&name))
                 }
             }
     }
 
-    fn pure_contains(&self, key: LoweredFunctionKey) -> bool {
-        self.candidates.contains(&key)
-            || match key {
-                LoweredFunctionKey::Name(name) => {
-                    self.pures.is_some_and(|pures| pures.contains(&name))
-                }
-                LoweredFunctionKey::Qualified(name) => self
-                    .qualified_pures
-                    .is_some_and(|pures| pures.contains(&name)),
-            }
-    }
+
 }
 
 #[derive(Clone, Debug)]
@@ -1609,8 +1608,7 @@ enum LoweredType {
     FsRoot,
     FsLock,
     Stream,
-    Pure,
-    Proc,
+    Function(CallableKind),
     Error,
     Record,
     Module,
@@ -2104,8 +2102,12 @@ impl PreparedStreamContract {
 pub(super) struct PreparedCallable {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
+    kind: CallableKind,
     applications: indexed::full::PreparedInvocationBindings,
+}
+
+impl PreparedCallable {
+    pub(in crate::runtime) fn kind(&self) -> CallableKind { self.kind }
 }
 
 #[derive(Clone, Debug)]
@@ -2133,8 +2135,7 @@ enum LoweredValue {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
-    Pure(CallableValue),
-    Proc(CallableValue),
+    Callable(CallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the
@@ -2477,8 +2478,7 @@ impl PartialEq for LoweredValue {
             (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
             (Self::FsLock(left), Self::FsLock(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
-            (Self::Pure(left), Self::Pure(right)) => left == right,
-            (Self::Proc(left), Self::Proc(right)) => left == right,
+            (Self::Callable(left), Self::Callable(right)) => left == right,
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
@@ -2748,8 +2748,7 @@ impl LoweredValue {
             Self::FsRoot(value) => Value::FsRoot(value),
             Self::FsLock(value) => Value::FsLock(value),
             Self::Stream(value) => Value::Stream(value),
-            Self::Pure(value) => Value::Pure(value),
-            Self::Proc(value) => Value::Proc(value),
+            Self::Callable(value) => Value::Callable(value),
             Self::Error(value) => *value,
             Self::Record(value) => Value::Record(RecordMap::from_name_values(
                 crate::runtime::eval::lower::take_shared(value)
@@ -3032,7 +3031,7 @@ impl RuntimeEnv {
 /// `export proc`/`export pure` contract fields.
 #[derive(Clone, Debug)]
 pub(super) struct ModuleExportSignature {
-    pub(super) pure: bool,
+    pub(super) kind: CallableKind,
     pub(super) sig: CallableType,
 }
 
@@ -4583,7 +4582,7 @@ impl Evaluator {
     pub(crate) fn probe_embedded_call(
         identity: &str,
         function: &str,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
         // The interpreter recurses per statement and expression, so the probe
@@ -4605,7 +4604,7 @@ impl Evaluator {
     fn probe_embedded_call_on_this_stack(
         identity: &str,
         function: &str,
-        kind: LoweredFunctionKind,
+        kind: CallableKind,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
         let module = crate::stdlib::find(identity)
@@ -4669,7 +4668,7 @@ impl Evaluator {
         function: &str,
         args: &[Value],
     ) -> Result<Value, RuntimeError> {
-        Self::probe_embedded_call(identity, function, LoweredFunctionKind::Pure, args)
+        Self::probe_embedded_call(identity, function, CallableKind::Pure, args)
     }
 
     pub(crate) fn prepare_compact_indexed_only(
@@ -4965,7 +4964,7 @@ impl Evaluator {
         if auto_main_required
             && !entry_functions.iter().all(|name| {
                 indexed
-                    .contains_function(LoweredFunctionKey::Name(*name), LoweredFunctionKind::Proc)
+                    .contains_function(LoweredFunctionKey::Name(*name), CallableKind::Proc)
             })
         {
             let span = root
@@ -5449,7 +5448,7 @@ impl Evaluator {
             let zero = zero_span();
             let call_result = self.call_indexed_direct_omitting(
                 LoweredFunctionKey::Name(main_function),
-                LoweredFunctionKind::Proc,
+                CallableKind::Proc,
                 &main_arguments,
                 &main_omitted,
                 zero,
@@ -5711,7 +5710,7 @@ impl Evaluator {
             program
                 .function_param_kinds(
                     LoweredFunctionKey::Name(main_name),
-                    LoweredFunctionKind::Proc,
+                    CallableKind::Proc,
                 )
                 .ok()
                 .flatten()
@@ -6007,7 +6006,7 @@ impl Evaluator {
             .as_ref()
             .and_then(|program| {
                 program
-                    .function_view(key, LoweredFunctionKind::Proc)
+                    .function_view(key, CallableKind::Proc)
                     .ok()
                     .flatten()
             })
@@ -6017,7 +6016,7 @@ impl Evaluator {
             Some(_) => vec![ctx],
             None => Vec::new(),
         };
-        match self.call_indexed_direct(key, LoweredFunctionKind::Proc, &args, script_span) {
+        match self.call_indexed_direct(key, CallableKind::Proc, &args, script_span) {
             Some(Ok(value)) => Ok(Some(value)),
             Some(Err(error)) => {
                 let span = error.span.unwrap_or(script_span);
@@ -7509,7 +7508,7 @@ impl Evaluator {
     pub(super) fn record_module_export_signature(
         &mut self,
         function: crate::runtime::value::FunctionName,
-        pure: bool,
+        kind: CallableKind,
         sig: &crate::sema::check::CompactFunctionSig,
     ) {
         let sig = CallableType {
@@ -7518,7 +7517,7 @@ impl Evaluator {
             effects: crate::sema::types::CallableEffects::from_clause(sig.effects.clone()),
         };
         Arc::make_mut(&mut self.module_export_signatures)
-            .insert(function, ModuleExportSignature { pure, sig });
+            .insert(function, ModuleExportSignature { kind, sig });
     }
 
     /// Resolve a `PathValue` to the path handed to the kernel. A relative
@@ -8864,7 +8863,7 @@ mod capture_transfer_tests {
             captured: Arc::clone(&captured),
         }));
         let args = [Value::Stream(Box::new(source))];
-        let kind = [LoweredFunctionKind::Proc, LoweredFunctionKind::Pure]
+        let kind = [CallableKind::Proc, CallableKind::Pure]
             .into_iter()
             .find(|kind| {
                 evaluator

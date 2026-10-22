@@ -1,7 +1,7 @@
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
+    LoweredFunctionKey, CallableKind, LoweredMapCursor,
     LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
@@ -817,13 +817,9 @@ fn indexed_frame_apply_prepares_operands(tag: FullTag) -> bool {
 
 pub(super) fn indexed_function_ref_value(
     function: FunctionName,
-    pure: bool,
+    kind: CallableKind,
 ) -> LoweredValue {
-    if pure {
-        LoweredValue::Pure(function.into())
-    } else {
-        LoweredValue::Proc(function.into())
-    }
+    LoweredValue::Callable(crate::runtime::value::CallableValue::named(kind, function))
 }
 
 pub(super) fn materialize_indexed_callable(
@@ -837,7 +833,7 @@ pub(super) fn materialize_indexed_callable(
     if !execution.program().has_invocation(instruction) { return Ok(value); }
     let (function, kind) = indexed_callable_identity(&value, span)?;
     let callable = match &value {
-        LoweredValue::Pure(callable) | LoweredValue::Proc(callable) => callable,
+        LoweredValue::Callable(callable) => callable,
         _ => unreachable!("callable identity requires a callable value"),
     };
     let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
@@ -845,14 +841,19 @@ pub(super) fn materialize_indexed_callable(
     if callable.instance().is_some_and(|instance| !Arc::ptr_eq(&instance.program, &program)) {
         return Err(RuntimeError::new("indexed-ir", "callable materialization belongs to another program").with_span(span));
     }
-    let target = program.function_view(function, kind).map_err(|error| indexed_error(error, span))?
-        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(span))?.index();
+    let view = program.function_view(function, kind).map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable target is missing").with_span(span))?;
+    let actual_kind = view.callable_kind().map_err(|error| indexed_error(error, span))?;
+    if actual_kind != kind {
+        return Err(RuntimeError::new("indexed-ir", "prepared callable kind disagrees with its actual target").with_span(span));
+    }
+    let target = view.index();
     let applications = program.invocation_applications(instruction, target, invocation)
         .map_err(|error| indexed_error(error, span))?;
     let callable = crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
-        program, function, kind, applications,
+        program, function, kind: actual_kind, applications,
     }));
-    Ok(if kind == LoweredFunctionKind::Pure { LoweredValue::Pure(callable) } else { LoweredValue::Proc(callable) })
+    Ok(LoweredValue::Callable(callable))
 }
 
 pub(super) fn indexed_path_from_value(
@@ -1165,7 +1166,7 @@ pub(super) fn indexed_frame_apply_value(
                 command.span,
             )
         }
-        ExprView::FunctionRef { function, pure } => {
+        ExprView::FunctionRef { function, kind } => {
             assert!(values.next().is_none(), "function reference has no operands");
             let function = match function {
                 crate::runtime::eval::indexed::full::decode::FunctionNameView::Name(name) => {
@@ -1175,7 +1176,7 @@ pub(super) fn indexed_frame_apply_value(
                     FunctionName::qualified(name)
                 }
             };
-            materialize_indexed_callable(evaluator, execution, invocation, instruction, indexed_function_ref_value(function, pure), call_span)
+            materialize_indexed_callable(evaluator, execution, invocation, instruction, indexed_function_ref_value(function, kind), call_span)
         }
         ExprView::PathFrom { span, .. } => {
             let value = values.next().expect("path constructor operand");
@@ -2299,7 +2300,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let result = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(direct_limit),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
             )
@@ -2310,7 +2311,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let recursive = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(countdown),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
             )
@@ -2320,7 +2321,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let piped = evaluator
             .call_indexed_direct(
                 LoweredFunctionKey::Name(pipeline),
-                LoweredFunctionKind::Pure,
+                CallableKind::Pure,
                 &[Value::List(vec![
                     Value::Int(3),
                     Value::Int(1),

@@ -293,14 +293,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn lower_function_ref(&self, key: LoweredFunctionKey) -> Option<BuildExprId> {
-        let pure = match self.function_index().definition(key) {
-            Some(function) => match function.kind {
-                CallableKind::Pure => true,
-                CallableKind::Proc => false,
-                CallableKind::Stream => return None,
-            },
-            None => self.functions.is_none_or(|functions| functions.pure_contains(key)),
-        };
+        let kind = self.function_index().definition(key)?.kind;
         Some(push_build_row!(
             self,
             expr,
@@ -309,7 +302,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     LoweredFunctionKey::Name(name) => name.into(),
                     LoweredFunctionKey::Qualified(name) => name.into(),
                 },
-                pure,
+                kind,
             }
         ))
     }
@@ -364,7 +357,7 @@ mod tests {
                     evaluator.force_frames = force_frames;
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-                    let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::LoweredFunctionKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
+                    let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Pure, &[], Span::at(source_id, 0)).unwrap().unwrap();
                     assert_eq!(actual, crate::runtime::value::Value::Str(Arc::from(expected)), "{definition} {name} frames={force_frames}");
                 }
             }
@@ -494,13 +487,13 @@ mod tests {
             .lower_bare_ident(expression, render, &SlotScope::default())
             .expect("the checked function target lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function values lower as function references");
         };
         assert_eq!(function.as_name(), Some(render));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]
@@ -576,13 +569,13 @@ mod tests {
             .lower_bare_ident_stmt(statement, name, &SlotScope::default())
             .expect("the checked callable tail lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function-valued tails lower as function references");
         };
         assert_eq!(function.as_name(), Some(name));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]
@@ -657,13 +650,13 @@ mod tests {
             .lower_bare_ident_at(span, render, &SlotScope::default())
             .expect("the shorthand's checked function target lowers");
         let scratch = probe.scratch.borrow();
-        let BuildExprRow::FunctionRef { function, pure } =
+        let BuildExprRow::FunctionRef { function, kind } =
             &scratch.expressions[lowered.index()]
         else {
             panic!("function shorthand lowers as a function reference");
         };
         assert_eq!(function.as_name(), Some(render));
-        assert!(*pure);
+        assert_eq!(*kind, CallableKind::Pure);
     }
 
     #[test]

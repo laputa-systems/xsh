@@ -228,18 +228,18 @@ impl Evaluator {
                                 kind: crate::sema::types::CallableKind::Pure, name, function_namespace,
                             } => (
                                 name,
-                                Value::Pure(QualifiedName::new(function_namespace, name).into()),
+                                Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Pure, QualifiedName::new(function_namespace, name).into())),
                             ),
                             crate::runtime::eval::LoweredModuleExport::Proc { name, function_namespace }
                             | crate::runtime::eval::LoweredModuleExport::GenericCallable {
                                 kind: crate::sema::types::CallableKind::Proc, name, function_namespace,
                             } => (
                                 name,
-                                Value::Proc(QualifiedName::new(function_namespace, name).into()),
+                                Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Proc, QualifiedName::new(function_namespace, name).into())),
                             ),
                             crate::runtime::eval::LoweredModuleExport::GenericCallable {
-                                kind: crate::sema::types::CallableKind::Stream, ..
-                            } => return Err(RuntimeError::new("indexed-ir", "generic stream export has no supported callable value projection").with_span(span)),
+                                kind: crate::sema::types::CallableKind::Stream, name, function_namespace,
+                            } => (name, Value::Callable(crate::runtime::value::CallableValue::named(crate::sema::types::CallableKind::Stream, QualifiedName::new(function_namespace, name).into()))),
                         };
                         record_fields.push((name, value));
                     }

@@ -277,12 +277,12 @@ impl SemanticPools {
     pub(super) fn signature_fits_callable(
         &self,
         id: SignatureId,
-        actual_pure: bool,
+        actual_kind: crate::sema::types::CallableKind,
         expected: &crate::sema::types::TypedCallable,
     ) -> Result<bool, IrVerifyError> {
         let actual = self.to_signature(id, 0)?;
         Ok(expected
-            .mismatch(if actual_pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc }, &actual, true)
+            .mismatch(actual_kind, &actual, true)
             .is_none())
     }
 
