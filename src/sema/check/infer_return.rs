@@ -409,7 +409,9 @@ impl Checker {
                 continue;
             };
             let def = program.arena.function_def(definition);
-            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream) {
+            if !def.return_ty_defaulted || declaration.kind() == Some(CallableKind::Stream)
+                || (declaration.kind() == Some(CallableKind::Proc) && !proc_may_return_value(program, def))
+            {
                 self.check_body_before_callers(program, source, declaration, declarations, def);
                 continue;
             }
