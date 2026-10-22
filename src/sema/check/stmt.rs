@@ -2331,6 +2331,16 @@ impl Checker {
         !block_control_flow(arena, block_id, &self.checked_flow_facts()).completes
     }
 
+    pub(super) fn publish_value_block_exit_arena(&mut self, arena: &ArenaProgram, expression: ExprId) {
+        let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expression).kind else {
+            return;
+        };
+        if self.block_never_falls_through_checked_arena(arena, block) {
+            self.definitely_exiting_block_spans
+                .insert(arena.arena.span(arena.arena.block(block).span));
+        }
+    }
+
     pub(super) fn block_has_exit_point_arena(&self, arena: &ArenaProgram, block_id: BlockId) -> bool {
         let flow = block_control_flow(arena, block_id, &self.checked_flow_facts());
         flow.breaks_target || flow.exits || flow.propagates
@@ -5813,6 +5823,7 @@ impl Checker {
             ArenaExprKind::ValueBlock(block) => {
                 self.push_scope();
                 let actual = self.check_tail_block_for_purpose_arena(arena, source, block, expectation, TailCheckingPurpose::ProcCompletion);
+                self.publish_value_block_exit_arena(arena, expression);
                 self.pop_scope();
                 actual
             }

@@ -2400,6 +2400,10 @@ value (each ends in a control transfer, a binding, or nothing) is a statement
 even as the last statement of a block: it needs no `else` and gives the block
 no value, so `if done { return x }` may end a block.
 
+An exact `[]` branch in a value `if` can inherit its item type from another
+list-literal branch. A stored list keeps one inferred item type across its
+uses.
+
 Without an expected type, a value-producing `if` or `match` joins a `null`
 branch and a concrete `T` branch as `Optional[T]`, regardless of branch order.
 An existing `Optional[T]` branch keeps one nullable envelope when the other

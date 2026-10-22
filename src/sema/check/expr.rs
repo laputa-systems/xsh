@@ -32,6 +32,27 @@ pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun
     }
 }
 
+fn list_literal_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
+    fn list_is_empty(arena: &ArenaProgram, expression: ExprId) -> Option<bool> {
+        match arena.arena.expr(expression).kind {
+            ArenaExprKind::List(items) => Some(items.is_empty()),
+            _ => None,
+        }
+    }
+
+    match arena.arena.expr(expression).kind {
+        ArenaExprKind::List(items) => Some(items.is_empty()),
+        ArenaExprKind::ValueBlock(block) => {
+            let statement = arena.arena.stmt_ids(arena.arena.block(block).statements).last()?;
+            match arena.arena.stmt(statement).kind {
+                crate::syntax::arena::ArenaStmtKind::Expr(tail) => list_is_empty(arena, tail),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 #[allow(dead_code)]
 fn capture_success_underconstrained(ty: &Type) -> bool {
     match ty {
@@ -1202,7 +1223,9 @@ impl Checker {
                     .block_written_for_set(arena, *block, expected)
                     .is_some() =>
             {
-                self.check_block_written_for_set_arena(arena, source, *block, expected, expr.span)
+                let actual = self.check_block_written_for_set_arena(arena, source, *block, expected, expr.span);
+                self.publish_value_block_exit_arena(arena, id);
+                actual
             }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena
@@ -1224,6 +1247,7 @@ impl Checker {
                     expectation,
                 );
                 self.pop_scope();
+                self.publish_value_block_exit_arena(arena, id);
                 ty
             }
             ArenaExprKind::If {
@@ -2262,7 +2286,9 @@ impl Checker {
         expectation: Option<super::types::TypeExpectation<'_>>,
         purpose: super::stmt::TailCheckingPurpose,
     ) -> Type {
+        let expectation = expectation.filter(|expectation| expectation.context() != &Type::Unknown);
         let mut inferred = None;
+        let mut inferred_from_empty_list = true;
         let initial_stream_state = self.stream_mutable_state();
         let mut stream_failure = initial_stream_state.clone();
         let mut stream_reaching = Vec::new();
@@ -2293,13 +2319,19 @@ impl Checker {
             } else { self.check_expr_with_expectation_arena(arena, source, branch.value, branch_expectation) };
             let contextual_error = self.diagnostics.len() != diagnostics_before;
             let value_span = arena.arena.expr(branch.value).span;
+            let empty_list = list_literal_is_empty(arena, branch.value) == Some(true)
+                && actual == Type::List(Box::new(Type::Unknown))
+                && !contextual_error;
             let merged = if actual != Type::Unknown && !contextual_error && !infer_branches {
                 inferred.as_ref().and_then(|previous| {
-                    super::types::merge_checked_branches(
-                        branch_expectation,
-                        previous,
-                        &actual,
-                    )
+                    if inferred_from_empty_list
+                        && list_literal_is_empty(arena, branch.value).is_some()
+                        && matches!(actual, Type::List(_))
+                    {
+                        merge_list_literal_item_ty(previous, &actual)
+                    } else {
+                        super::types::merge_checked_branches(branch_expectation, previous, &actual)
+                    }
                 })
             } else {
                 None
@@ -2330,6 +2362,7 @@ impl Checker {
             } else if let Some(branch_expectation) = branch_expectation {
                 self.expect_type(branch_expectation.context(), &actual, value_span);
             }
+            inferred_from_empty_list &= empty_list;
             self.pop_scope();
             if self.stream_expr_may_complete(arena, branch.value) { stream_reaching.push(self.stream_mutable_state()); }
             previous_failure.extend(narrowings.when_false);
@@ -2356,7 +2389,14 @@ impl Checker {
         self.join_stream_mutable_states(&stream_reaching);
         let merged = if else_ty != Type::Unknown && !contextual_error && !infer_branches {
             inferred.as_ref().and_then(|previous| {
-                super::types::merge_checked_branches(else_expectation, previous, &else_ty)
+                if inferred_from_empty_list
+                    && list_literal_is_empty(arena, else_value).is_some()
+                    && matches!(else_ty, Type::List(_))
+                {
+                    merge_list_literal_item_ty(previous, &else_ty)
+                } else {
+                    super::types::merge_checked_branches(else_expectation, previous, &else_ty)
+                }
             })
         } else {
             None
@@ -3070,6 +3110,7 @@ impl Checker {
         let context =
             (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);
         let actual = self.check_tail_block_contents_arena(arena, source, block, context);
+        self.publish_value_block_exit_arena(arena, expression);
         if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.boundary.item_frames.pop() {
             self.error(
                 arena.arena.expr(expression).span,
