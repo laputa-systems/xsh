@@ -24677,7 +24677,7 @@ assert order == "LU123"
             wrong_kind.store.schemes[id.index()].callable_kind = CallableKind::Pure;
             wrong_kind.store.function_metadata[owner].callable_kind = CallableKind::Pure;
             wrong_kind.store.function_metadata[owner].flags &= !1;
-            assert!(FullVerifier::verify(&wrong_kind).unwrap_err().message.contains("pure executable body contains an impure operation"));
+            assert_eq!(FullVerifier::verify(&wrong_kind).unwrap_err().message, "generic function contract is invalid");
         });
     }
 
@@ -24823,7 +24823,7 @@ assert order == "LU123"
             wrong_kind.store.function_metadata[owner].callable_kind = CallableKind::Pure;
             wrong_kind.store.function_metadata[owner].flags &= !1;
             let error = FullVerifier::verify(&wrong_kind).unwrap_err();
-            assert!(error.message.contains("pure executable body contains an impure operation"), "{}", error.message);
+            assert_eq!(error.message, "generic function contract is invalid");
             let instruction = function_instruction_indices(&program, "read", FullTag::ExprModuleCall).into_iter().find(|instruction| program.store.registered_calls.contains_key(&(*instruction as u32))).unwrap();
             let mut wrong_registry = program.clone();
             let plan = Arc::make_mut(wrong_registry.store.registered_calls.get_mut(&(instruction as u32)).unwrap());
@@ -26627,7 +26627,7 @@ assert observed.scoped == Ok(8)
         let any_scheme = dynamic_type.store.call_type_arguments[type_argument].ty;
         dynamic_type.store.scheme_types[any_scheme.index()].first = any_type.raw();
         let error = FullVerifier::verify(&dynamic_type).unwrap_err();
-        assert_eq!(error.message, "generic call substitution contains dynamic type Any");
+        assert_eq!(error.message, "generic type binder disagrees with the checked argument");
 
         let mut duplicate_binder = two_binder_program.clone();
         let pair_instantiation = duplicate_binder

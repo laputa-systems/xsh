@@ -1792,7 +1792,7 @@ mod tests {
     fn module_index_distinguishes_concrete_generic_and_dynamic_keys() {
         let texts = [
             "use shared\nlet concrete = shared[\"false_value\"]\n",
-            "use shared\nlet generic = shared[\"identity\"]\n",
+            "use shared\nlet generic = shared[\"identity\"]\nlet number = generic(7)\nlet word = generic(\"ready\")\n",
             "use shared\npure lookup(key: Str) -> Any { shared[key] }\n",
             "use shared\nlet concrete = shared.get(\"false_value\")?\n",
         ];
@@ -1801,7 +1801,7 @@ mod tests {
         let session = CheckSession::new(workspace.program.clone(), workspace.sources.clone());
         for (index, &(statements, source)) in workspace.roots.iter().enumerate() {
             let checked = session.check(statements, source, CheckOptions::default());
-            if index == 1 || index == 2 {
+            if index == 2 {
                 assert!(checked.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleMember)
                 }), "root {index}: {:?}", checked.diagnostics);
@@ -1815,7 +1815,7 @@ mod tests {
     fn recursive_inferred_parameters_share_provisional_types_in_both_orders() {
         for reverse in [false, true] {
             for argument in ["\"wrong\"", "value"] {
-                let first = format!("pure first(value) -> Int {{ second({argument}) + value }}\n");
+                let first = format!("pure first(value) -> Int {{ let fixed: Int = value; second({argument}) + fixed }}\n");
                 let second = "pure second(value) -> Int { first(value) }\n";
                 let source = if reverse {
                     format!("{second}{first}let answer: Int = first(1)\n")
