@@ -17,6 +17,7 @@ pub(crate) struct CallableGeneralizationScope {
     pub(super) effects: BTreeMap<EffectVariableId, crate::sema::schemes::SchemeEffectParameterId>,
     pub(super) applications: BTreeMap<super::CallableApplicationId, u32>,
     pub(super) application_sources: BTreeMap<super::CallableApplicationId, super::CallableApplicationReference>,
+    pub(super) operations: BTreeMap<super::SealedOperationId, u32>,
 }
 
 pub(crate) type EffectPredicate = crate::sema::effects::EffectPredicate<EffectVariableId>;

@@ -445,6 +445,7 @@ pub enum StatementPosition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CheckedBinaryOperator {
     pub(crate) operator: BinaryOp,
+    pub(crate) operation: Option<super::constraints::SealedOperationId>,
 }
 
 /// A registered method or module function call's selected overload: its

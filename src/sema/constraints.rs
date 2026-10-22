@@ -17,6 +17,9 @@ mod effect_constraints;
 pub(crate) use effect_constraints::{EffectConstraintError, EffectPredicate, EffectVariableId, CallableGeneralizationScope};
 #[path = "constraints/applications.rs"]
 mod application_constraints;
+#[path = "constraints/operations.rs"]
+mod operation_constraints;
+pub(crate) use operation_constraints::{SealedOperationError, SealedOperationId};
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
 #[path = "constraints/input_support.rs"]
 mod input_support;
@@ -177,6 +180,7 @@ enum ConstraintChange {
     Row(RowVariableId, Option<RowVariable>),
     Effect(effect_constraints::EffectChange),
     Application(application_constraints::ApplicationChange),
+    Operation(operation_constraints::OperationChange),
 }
 
 #[derive(Clone, Copy)]
@@ -462,6 +466,7 @@ pub(crate) struct InstantiatedScheme {
     pub(crate) row_arguments: BTreeMap<SchemeRowParameterId, RowVariableId>,
     pub(crate) effect_arguments: BTreeMap<SchemeEffectParameterId, EffectVariableId>,
     pub(crate) applications: Vec<CallableApplicationId>,
+    pub(crate) operations: Vec<SealedOperationId>,
 }
 
 #[derive(Clone, Debug)]
@@ -471,6 +476,7 @@ pub(crate) enum SchemeOperationError {
     Constraint(ConstraintConflict),
     Application(CallableApplicationError),
     Effects(EffectConstraintError),
+    Operation(SealedOperationError),
 }
 
 impl From<ConstraintResolutionError> for SchemeOperationError {
@@ -488,6 +494,7 @@ struct Generalization {
     effect_ids: BTreeMap<EffectVariableId, SchemeEffectParameterId>,
     effect_parameters: Vec<SchemeEffectParameterId>,
     applications: BTreeMap<CallableApplicationId, u32>,
+    operations: BTreeMap<SealedOperationId, u32>,
 }
 
 #[derive(Debug)]
@@ -551,6 +558,7 @@ pub struct TypeConstraints {
     rows: FxHashMap<RowVariableId, RowVariable>,
     effects: effect_constraints::EffectConstraints,
     applications: application_constraints::CallableApplications,
+    operations: operation_constraints::SealedOperations,
     counters: ConstraintCounterStorage,
     trial_changes: Option<Vec<ConstraintChange>>,
 }
@@ -562,6 +570,7 @@ impl Default for TypeConstraints {
             rows: FxHashMap::default(),
             effects: effect_constraints::EffectConstraints::default(),
             applications: application_constraints::CallableApplications::default(),
+            operations: operation_constraints::SealedOperations::default(),
             counters: ConstraintCounterStorage::for_current_work_scope(),
             trial_changes: None,
         }
@@ -576,6 +585,7 @@ impl Clone for TypeConstraints {
             rows: self.rows.clone(),
             effects: self.effects.clone(),
             applications: self.applications.clone(),
+            operations: self.operations.clone(),
             counters: self.counters.clone(),
             trial_changes: None,
         }
@@ -689,6 +699,7 @@ impl TypeConstraints {
             Ok(()) => {
                 self.applications
                     .enqueue_changes(0, &mut changes, &self.counters);
+                self.operations.enqueue_changes(0, &mut changes);
                 self.retain_trial_changes(changes);
                 Ok(())
             }
@@ -793,6 +804,7 @@ impl TypeConstraints {
         for row in self.rows.values() {
             retained = retained.saturating_add(row_owned_payload_bytes(row));
         }
+        retained = retained.saturating_add(self.operations.retained_bytes());
         retained
     }
 
@@ -829,7 +841,7 @@ impl TypeConstraints {
                 owner: CallableApplicationScope::Invocation,
                 application_sources: BTreeMap::new(),
                 types: generalization.type_ids, rows: generalization.row_ids,
-                effects: generalization.effect_ids, applications: generalization.applications,
+                effects: generalization.effect_ids, applications: generalization.applications, operations: generalization.operations,
             },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
@@ -925,7 +937,7 @@ impl TypeConstraints {
                 &mut generalization,
                 environment_level,
                 ground_caller,
-                &requirements.applications,
+                &requirements.applications, &requirements.operations,
             )?;
             call_instantiations.insert(span, call);
         }
@@ -946,7 +958,7 @@ impl TypeConstraints {
                         self.callable_application_reference(id).map(|reference| (id, reference))
                     }).collect::<Result<_, _>>().map_err(SchemeOperationError::Application)?,
                     types: generalization.type_ids, rows: generalization.row_ids,
-                    effects: generalization.effect_ids, applications: generalization.applications,
+                    effects: generalization.effect_ids, applications: generalization.applications, operations: generalization.operations,
                 },
                 type_parameters: generalization.type_parameters,
                 row_parameters: generalization.row_parameters,
@@ -966,6 +978,7 @@ impl TypeConstraints {
         environment_level: u32,
         ground_caller: bool,
         caller_applications: &[super::callable_application::CallableApplication<SchemeType, SchemeEffectParameterId>],
+        caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
     ) -> Result<CallInstantiation, SchemeOperationError> {
         let type_arguments = instantiated
             .type_arguments
@@ -1027,9 +1040,9 @@ impl TypeConstraints {
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let bindings = self.callable_application_bindings(instantiated, Some(generalization))?;
         CallInstantiation::new(
-            callable, type_arguments, row_arguments, effect_arguments, bindings,
+            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, generalization)?,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
-            caller_applications, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
+            caller_applications, caller_operations, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)
     }
 
@@ -1041,14 +1054,15 @@ impl TypeConstraints {
         instance: &InstantiatedScheme,
     ) -> Result<CallInstantiation, SchemeOperationError> {
         self.validate_generalized_applications(caller, scope)?;
+        self.validate_generalized_operations(caller, scope)?;
         let mut generalization = Self::callable_generalization(caller, scope);
         let call = self.generalize_call_instantiation(
             callee, instance, &mut generalization, 0,
             caller.type_parameters().is_empty() && caller.row_parameters().is_empty(),
-            &caller.requirements().applications,
+            &caller.requirements().applications, &caller.requirements().operations,
         )?;
         if generalization.type_ids != scope.types || generalization.row_ids != scope.rows
-            || generalization.effect_ids != scope.effects || generalization.applications != scope.applications
+            || generalization.effect_ids != scope.effects || generalization.applications != scope.applications || generalization.operations != scope.operations
         {
             return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
         }
@@ -1058,7 +1072,7 @@ impl TypeConstraints {
     fn callable_generalization(callable: &CallableScheme, scope: &CallableGeneralizationScope) -> Generalization {
         Generalization {
             type_ids: scope.types.clone(), row_ids: scope.rows.clone(), effect_ids: scope.effects.clone(),
-            applications: scope.applications.clone(), type_parameters: callable.type_parameters().to_vec(),
+            applications: scope.applications.clone(), operations: scope.operations.clone(), type_parameters: callable.type_parameters().to_vec(),
             row_parameters: callable.row_parameters().to_vec(), effect_parameters: callable.requirements().effect_parameters.clone(),
         }
     }
@@ -1097,12 +1111,13 @@ impl TypeConstraints {
             for &row in row_arguments.values() { this.row_representative_root(row)?; }
             for &effect in effect_arguments.values() { this.resolve_effect(&super::effects::EffectContract::variable(effect))?; }
             let applications = this.validate_generalized_applications(callable, scope)?;
+            let operations = this.validate_generalized_operations(callable, scope)?;
             let params = callable.params().iter().map(|parameter| this.instantiate_scheme_type(
                 &parameter.ty, &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0,
             )).collect::<Result<Vec<_>, _>>()?;
             let return_type = this.instantiate_scheme_type(callable.return_type(), &type_arguments, &row_arguments, &effect_arguments, 1, origin, 0)?;
             Ok(InstantiatedScheme { params, return_type, type_arguments, row_arguments, effect_arguments,
-                applications: applications.into_iter().map(|(_, id)| id).collect() })
+                applications: applications.into_iter().map(|(_, id)| id).collect(), operations })
         })
     }
 
@@ -1239,13 +1254,20 @@ impl TypeConstraints {
                 callee, arguments: arguments.into(), result, effects, proc_returns: proc_returns.into(), kind: application.kind, span: application.span,
             }).map_err(SchemeOperationError::Application)?);
         }
+        let mut operations = Vec::new();
+        for operation in &callable.requirements().operations {
+            let left = self.instantiate_scheme_type(&operation.left, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
+            let right = self.instantiate_scheme_type(&operation.right, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
+            let result = self.instantiate_scheme_type(&operation.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
+            operations.push(self.register_sealed_operation(scope, super::sealed_operation::SealedBinaryOperation { operator: operation.operator, left, right, result, span: operation.span }).map_err(SchemeOperationError::Operation)?);
+        }
         for predicate in &callable.requirements().effect_predicates {
             let predicate = predicate.try_map_contracts(|contract| contract.substitute(|id| effect_arguments.get(id).copied()
                 .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
             self.constrain_effect(predicate).map_err(SchemeOperationError::Effects)?;
         }
         Ok(InstantiatedScheme {
-            params, return_type, type_arguments, row_arguments, effect_arguments, applications,
+            params, return_type, type_arguments, row_arguments, effect_arguments, applications, operations,
         })
     }
 
@@ -1302,7 +1324,7 @@ impl TypeConstraints {
             Ok((id, contract))
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let bindings = self.callable_application_bindings(instantiated, None)?;
-        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[], &[], &BTreeMap::new())
+        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, &Generalization::default())?, &[], &[], &[], &[], &[], &[], &BTreeMap::new())
             .map_err(SchemeOperationError::Build)?;
         if callable.is_quantified() {
             self.counters
@@ -4157,6 +4179,7 @@ impl TypeConstraints {
                 }
                 ConstraintChange::Effect(change) => self.effects.rollback(change),
                 ConstraintChange::Application(change) => self.applications.rollback(change),
+                ConstraintChange::Operation(change) => self.operations.rollback(change),
             }
         }
     }
@@ -4606,14 +4629,14 @@ mod tests {
             }
             let parameter = callable.type_parameters()[0];
             assert!(matches!(CallInstantiation::new(&callable,
-                BTreeMap::from([(parameter, SchemeType::Ground(Type::Float))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
+                BTreeMap::from([(parameter, SchemeType::Ground(Type::Float))]), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(),
+                &[], &[], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
             assert!(matches!(CallInstantiation::new(&callable,
-                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[parameter], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
+                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(),
+                &[parameter], &[], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
             CallInstantiation::new(&callable,
-                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[parameter], &[], &[], &[], &[parameter], &BTreeMap::new()).unwrap();
+                BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(),
+                &[parameter], &[], &[], &[], &[], &[parameter], &BTreeMap::new()).unwrap();
         });
     }
 

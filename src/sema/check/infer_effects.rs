@@ -635,14 +635,14 @@ mod joint_effect_tests {
             Vec::new(), Vec::new(), Vec::new(), crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Int), None, false,
             crate::sema::schemes::CallableRequirements {
                 map_key_parameters: Vec::new(),
-                iteration_parameters: BTreeMap::new(),
+                iteration_parameters: BTreeMap::new(), operations: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![parameter],
                 effect_predicates: vec![crate::sema::effects::EffectPredicate::Equal(EffectContract::variable(parameter), EffectContract::variable(parameter))],
                 applications: Vec::new(),
             },
         ).unwrap();
-        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), &[], &[], caller, &[], &[], &BTreeMap::new()).unwrap()
+        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), Vec::new(), &[], &[], caller, &[], &[], &[], &BTreeMap::new()).unwrap()
     }
 
     fn symbolic_owner(graph: &mut EffectGraph, owner: EffectDeclarationId, parameter: SchemeEffectParameterId) {

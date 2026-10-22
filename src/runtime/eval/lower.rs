@@ -4364,6 +4364,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.lower_scheme_expression(right, slots, current_function, facts, visited, lowered_types, body)?
                 };
                 let raw = push_build_row!(self, expr, BuildExprRow::Binary { op, left, right, span });
+                if let Some(operation) = facts.operation_site(expression) {
+                    let mut scratch = self.scratch.borrow_mut();
+                    scratch.scheme_operations.insert(raw.index(), operation);
+                    scratch.non_int_binary_expressions.insert(raw.index());
+                }
                 if [left_type, right_type].iter().flatten().any(|ty| !matches!(ty.unvalidated(), Type::Int | Type::UInt)) {
                     self.scratch.borrow_mut().non_int_binary_expressions.insert(raw.index());
                 }

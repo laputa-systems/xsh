@@ -202,7 +202,7 @@ impl Checker {
             Err(error) => {
                 let code = if matches!(error, crate::sema::constraints::CallableApplicationError::Effects(crate::sema::constraints::EffectConstraintError::Mismatch)) {
                     DiagnosticCode::CheckEffectViolation
-                } else { DiagnosticCode::CheckCallableMismatch };
+                } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType } else { DiagnosticCode::CheckCallableMismatch };
                 self.error(span, &format!("callable application requirement failed: {error}"), code);
                 false
             }

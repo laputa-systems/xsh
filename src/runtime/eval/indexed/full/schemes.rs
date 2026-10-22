@@ -75,6 +75,7 @@ pub(super) enum FullCallableContract {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(super) enum FullSchemeBodyFactKind {
+    Operation,
     Expression,
     Tail,
     LocalImmutable,
@@ -96,6 +97,7 @@ pub(super) struct FullScheme {
     pub(super) effects: FullEffectContract,
     pub(super) effect_predicates: IrRange,
     pub(super) applications: IrRange,
+    pub(super) operations: IrRange,
     pub(super) body_facts: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
     pub(super) explicit_return: bool,
@@ -371,7 +373,20 @@ pub(super) struct FullCallInstantiation {
     pub(super) row_arguments: IrRange,
     pub(super) effect_arguments: IrRange,
     pub(super) application_bindings: IrRange,
+    pub(super) operation_bindings: IrRange,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullSealedOperation {
+    pub(super) left: SchemeTypeId,
+    pub(super) right: SchemeTypeId,
+    pub(super) result: SchemeTypeId,
+    pub(super) operator: xsh_registry::signature::ArithmeticOperator,
+    pub(super) reserved: [u8; 3],
+}
+
+pub(super) use crate::sema::schemes::SealedOperationBinding as FullOperationBinding;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
@@ -413,6 +428,7 @@ pub(super) struct FullSchemeBodyFact {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
 pub(super) enum FullSchemeBodyFactValue {
+    Operation(u32),
     Expression(SchemeTypeId),
     Tail(SchemeTypeId),
     LocalImmutable(SchemeTypeId),
@@ -425,6 +441,7 @@ pub(super) enum FullSchemeBodyFactValue {
 impl FullSchemeBodyFact {
     pub(super) fn kind(self) -> FullSchemeBodyFactKind {
         match self.value {
+            FullSchemeBodyFactValue::Operation(_) => FullSchemeBodyFactKind::Operation,
             FullSchemeBodyFactValue::Expression(_) => FullSchemeBodyFactKind::Expression,
             FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
             FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
@@ -439,7 +456,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer => None,
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) => None,
         }
     }
 }
@@ -688,6 +705,14 @@ impl FullBuilder {
         let applications_start = self.store.scheme_applications.len();
         self.store.scheme_applications.extend(applications);
         let applications = super::table_range(applications_start, self.store.scheme_applications.len())?;
+        let operations_start = self.store.scheme_operations.len();
+        for operation in &scheme.callable().requirements().operations {
+            let left = self.intern_scheme_type(&operation.left, &type_parameters, &row_parameters, &effect_parameters)?;
+            let right = self.intern_scheme_type(&operation.right, &type_parameters, &row_parameters, &effect_parameters)?;
+            let result = self.intern_scheme_type(&operation.result, &type_parameters, &row_parameters, &effect_parameters)?;
+            self.store.scheme_operations.push(FullSealedOperation { left, right, result, operator: operation.operator, reserved: [0; 3] });
+        }
+        let operations = super::table_range(operations_start, self.store.scheme_operations.len())?;
         let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
@@ -699,7 +724,7 @@ impl FullBuilder {
             return_schema,
             effects,
             effect_predicates,
-            applications,
+            applications, operations,
             body_facts: IrRange::default(),
             callable_kind,
             explicit_return: scheme.explicit_return(),
@@ -802,13 +827,16 @@ impl FullBuilder {
             self.store.call_application_bindings.push(binding);
         }
         let application_bindings = super::table_range(bindings_start, self.store.call_application_bindings.len())?;
+        let operations_start = self.store.call_operation_bindings.len();
+        self.store.call_operation_bindings.extend(instantiation.operation_bindings().iter().copied());
+        let operation_bindings = super::table_range(operations_start, self.store.call_operation_bindings.len())?;
         self.store.call_instantiations.push(FullCallInstantiation {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
             type_arguments,
             row_arguments,
             effect_arguments,
-            application_bindings,
+            application_bindings, operation_bindings,
         });
         Ok(())
     }
@@ -834,7 +862,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -1492,11 +1520,11 @@ mod tests {
             let instantiation = CallInstantiation::new(
                 scheme.callable(),
                 BTreeMap::from([(type_parameter, SchemeType::Ground(Type::Bool))]),
-                BTreeMap::from([(row_parameter, evidence)]), BTreeMap::new(), Vec::new(),
+                BTreeMap::from([(row_parameter, evidence)]), BTreeMap::new(), Vec::new(), Vec::new(),
                 &[],
                 &[],
                 &[],
-             &[], &[], &BTreeMap::new())
+             &[], &[], &[], &BTreeMap::new())
             .unwrap();
             let mut builder = super::super::FullBuilder::new(crate::source::SourceId::new(0));
             let scheme_id = builder.intern_scheme(&scheme).unwrap();

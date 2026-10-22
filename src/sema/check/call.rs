@@ -26,6 +26,7 @@ fn call_instantiation_error_message(
     match error {
         SchemeOperationError::Application(error) => format!("callable application requirement failed: {error:?}"),
         SchemeOperationError::Effects(error) => format!("callable effect requirement failed: {error:?}"),
+        SchemeOperationError::Operation(error) => format!("sealed operation requirement failed: {error}"),
         SchemeOperationError::Resolution(error) => {
             format!("generic call inference resolution failed: {error:?}")
         }
@@ -49,6 +50,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::RowLacksMismatch => "row evidence violates its lacks set",
                 SchemeBuildError::UnresolvedEffects => "generic target requires a finite checked effect contract",
                 SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
+                SchemeBuildError::UnresolvedSealedOperation => "sealed arithmetic operation remains unresolved",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",

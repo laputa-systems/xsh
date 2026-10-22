@@ -171,7 +171,7 @@ mod tests {
             let instance = constraints.instantiate_callable(&callable, 1, span(), crate::sema::constraints::CallableApplicationScope::Invocation).unwrap();
             assert!(constraints.constrain(&instance.params[0], &Type::List(Box::new(Type::Int)), span()).is_err());
             for caller in [std::collections::BTreeMap::new(), requirements.conversion_parameters] {
-                let result = crate::sema::schemes::CallInstantiation::new(&callable, BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(), &[parameter], &[], &[], &[], &[], &caller);
+                let result = crate::sema::schemes::CallInstantiation::new(&callable, BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(), &[parameter], &[], &[], &[], &[], &[], &caller);
                 assert_eq!(result.is_ok(), !caller.is_empty());
             }
         });

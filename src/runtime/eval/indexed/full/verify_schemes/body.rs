@@ -534,6 +534,7 @@ fn scoped_block_value(store: &FullStore, statements: &[usize], payload: SchemeTy
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
     constructors: &super::constructors::ConstructorFacts,
+    operation_sites: &BTreeMap<usize, u32>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
@@ -745,7 +746,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -2532,6 +2533,107 @@ mod tests {
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, source, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn sealed_binary_operation_sites_authenticate_opcode_inputs_and_result() {
+        let program = prepare("pure combine(a, b, wrong) { a + b }\npure numbers() -> Int { combine(1, 2, false) }");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
+        assert_eq!(operations.len(), 1);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let binary = program.store.function_instruction_range(owner).unwrap().find(|instruction| match decoder.expression_view(*instruction) {
+            Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. }) => true,
+            _ => false,
+        }).unwrap();
+        let mut opcode = program.clone();
+        let words = opcode.store.data[binary].range().bounds(opcode.store.extra.len()).unwrap();
+        let selected = opcode.store.extra[words.start] as usize;
+        opcode.store.binary_ops[selected] = crate::syntax::node::BinaryOp::Sub;
+        assert_eq!(FullVerifier::verify(&opcode).unwrap_err().message, "generic binary site disagrees with its sealed operation");
+        let mut input = program.clone();
+        input.store.extra.swap(words.start + 1, words.start + 2);
+        assert_eq!(FullVerifier::verify(&input).unwrap_err().message, "generic binary site disagrees with its sealed operation");
+        let params = bounded(scheme.params, &program.store.scheme_params, "parameters").unwrap();
+        let mut result = program.clone();
+        let required = result.store.scheme_operations[operations.start].result;
+        assert_eq!(result.store.scheme_types[required.index()].tag, FullSchemeTypeTag::Parameter);
+        result.store.scheme_types[required.index()] = result.store.scheme_types[params[2].ty.index()];
+        assert_eq!(FullVerifier::verify(&result).unwrap_err().message, "generic binary site disagrees with its sealed operation");
+    }
+
+    #[test]
+    fn sealed_binary_operation_bindings_authenticate_selected_and_forwarded_signatures() {
+        use crate::sema::schemes::SealedOperationBinding;
+        let program = prepare("pure combine(a, b) { a + b }\npure subtract(a, b) { a - b }\npure relay(a, b) { let sum = combine(a, b); let difference = subtract(a, b); sum }\npure numbers() -> Int { relay(4, 2) }");
+        let mut selected = program.clone();
+        let selection = selected.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(_))).unwrap();
+        *selection = SealedOperationBinding::Selected(crate::sema::sealed_operation::ArithmeticSignature::Float);
+        assert_eq!(FullVerifier::verify(&selected).unwrap_err().message, "selected operation differs from its canonical signature");
+        let mut forwarded = program.clone();
+        let forwarding = forwarded.store.call_operation_bindings.iter_mut().find_map(|binding| match binding { SealedOperationBinding::Forwarded(ordinal) => Some(ordinal), _ => None }).unwrap();
+        assert!(*forwarding < 2);
+        *forwarding = 1 - *forwarding;
+        assert_eq!(FullVerifier::verify(&forwarded).unwrap_err().message, "forwarded operation differs from its actual caller requirement");
+    }
+
+    #[test]
+    fn sealed_binary_operation_owners_reject_forged_nonempty_effects() {
+        let program = prepare("pure combine(a, b) { a + b }\npure numbers() -> Int { combine(1, 2) }");
+        let (_, scheme_id) = generic_owner(&program);
+        let mut changed = program.clone();
+        let start = changed.store.scheme_effects.len();
+        changed.store.scheme_effects.push(crate::syntax::node::Effect::Io);
+        let direct = super::super::super::table_range(start, changed.store.scheme_effects.len()).unwrap();
+        changed.store.schemes[scheme_id.index()].effects.direct = direct;
+        changed.store.schemes[scheme_id.index()].effects.known = true;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic function contract is invalid");
+        let mut latent = prepare("pure combine(a, b) { a + b }");
+        let (_, scheme_id) = generic_owner(&latent);
+        let start = latent.store.scheme_effect_parameters.len();
+        latent.store.scheme_effect_parameters.push(super::super::super::schemes::FullEffectParameter { id: 0, binder: 0 });
+        latent.store.schemes[scheme_id.index()].effect_parameters = super::super::super::table_range(start, latent.store.scheme_effect_parameters.len()).unwrap();
+        let start = latent.store.scheme_effect_terms.len();
+        latent.store.scheme_effect_terms.push(super::super::super::schemes::FullEffectTerm { binder: 0, mask: crate::sema::effects::EffectSet::new([crate::syntax::node::Effect::Io]).bits(), reserved: [0; 3] });
+        latent.store.schemes[scheme_id.index()].effects.terms = super::super::super::table_range(start, latent.store.scheme_effect_terms.len()).unwrap();
+        latent.store.schemes[scheme_id.index()].effects.known = true;
+        assert_eq!(FullVerifier::verify(&latent).unwrap_err().message, "generic function contract is invalid");
+    }
+
+    #[test]
+    fn sealed_binary_operation_schemes_preserve_domains_after_frontend_disposal() {
+        let program = Arc::new(prepare("pure combine(a, b) { a + b }\npure divide(a, b) { a / b }\npure subtract(a, b) { a - b }\npure relay(a, b) { combine(a, b) }\npure check_domains() -> Bool {\nlet number: Int = relay(1, 2)\nlet text: Str = relay(\"one\", \" two\")\nlet joined: List[Int] = combine([1], [2])\nlet remaining: Set[Int] = subtract({1, 2, 3, 4}, {3, 4})\nlet ratio: Int = divide(4s, 2s)\nlet scaled: Duration = divide(4s, 2)\nnumber == 3 and text == \"one two\" and joined == [1, 2] and remaining == {1, 2} and ratio == 2 and scaled == 2s\n}"));
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("check_domains")));
+            let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Pure, &[], crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, crate::runtime::value::Value::Bool(true), "frames={force_frames}");
+        }
+    }
+
+    #[test]
+    fn sealed_binary_operations_preserve_directional_list_item_refinements() {
+        prepare("pure join(a: Path, b: RelPath) { [a] + [b] }\npure check_paths(absolute: Path, relative: RelPath) -> List[Path] { join(absolute, relative) }");
+        let program = prepare("pure join(a, b) { [a] + [b] }\npure check_paths(absolute: Path, relative: RelPath) -> List[Path] { join(absolute, relative) }");
+        let (owner, scheme) = generic_owner(&program);
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let scope = scopes[scheme.index()].as_ref().unwrap();
+        let calls = program.store.call_instantiations.iter().filter(|call| program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        let arguments = bounded(calls[0].type_arguments, &program.store.call_type_arguments, "type arguments").unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        let actual = arguments.iter().map(|argument| decode_scheme_type(&program.store, scope, argument.ty, &mut budget, 0).unwrap().closed_ground_type().unwrap()).collect::<Vec<_>>();
+        assert!(actual.contains(&Type::Path));
+        assert!(actual.contains(&Type::rel_path()));
+    }
+
+    #[test]
+    fn sealed_binary_operations_retain_set_item_key_requirements() {
+        prepare("pure remove(values: Set[Int]) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
+        prepare("pure remove(values) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
     }
 
     #[test]

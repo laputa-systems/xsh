@@ -354,3 +354,54 @@ let result = apply_at_two_types(identity, 42, "demo")
     stderr: ["[check.callable-mismatch]"],
   )?
 }
+
+test test_full_inference_sealed_binary_arithmetic_instantiates_independent_domains { |ctx|
+  test.expect(
+    ctx,
+    r"""pure combine(a, b) { a + b }
+let number: Int = combine(1, 2)
+let text: Str = combine("one", " two")
+assert number == 3
+assert text == "one two"
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_sealed_binary_arithmetic_rejects_an_unsupported_tuple { |ctx|
+  test.expect(
+    ctx,
+    r"""pure combine(a, b) { a + b }
+let rejected = combine(1, true)
+""",
+    status: 2,
+    stderr: ["[check.operator-type]"],
+  )?
+}
+
+test test_full_inference_sealed_binary_arithmetic_preserves_dimensions_and_collections { |ctx|
+  test.expect(
+    ctx,
+    r"""pure combine(a, b) { a + b }
+pure divide(a, b) { a / b }
+pure subtract(a, b) { a - b }
+pure relay(a, b) { combine(a, b) }
+pure remove(values) { values - {1, 2} }
+let number: Int = relay(1, 2)
+let text: Str = relay("one", " two")
+let joined: List[Int] = combine([1], [2])
+let remaining: Set[Int] = subtract({1, 2, 3, 4}, {3, 4})
+let ratio: Int = divide(4s, 2s)
+let scaled: Duration = divide(4s, 2)
+let filtered: Set[Int] = remove({1, 2, 3, 4})
+assert number == 3
+assert text == "one two"
+assert joined == [1, 2]
+assert remaining == {1, 2}
+assert ratio == 2
+assert scaled == 2s
+assert filtered == {3, 4}
+""",
+    status: 0,
+  )?
+}

@@ -738,6 +738,8 @@ struct FullStore {
     scheme_effect_terms: Vec<schemes::FullEffectTerm>,
     scheme_effect_predicates: Vec<schemes::FullEffectPredicate>,
     scheme_applications: Vec<schemes::FullSchemeApplication>,
+    scheme_operations: Vec<schemes::FullSealedOperation>,
+    call_operation_bindings: Vec<schemes::FullOperationBinding>,
     scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
     scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
     call_application_bindings: Vec<schemes::FullApplicationBinding>,
@@ -828,6 +830,8 @@ impl Default for FullStore {
             scheme_effect_terms: Vec::new(),
             scheme_effect_predicates: Vec::new(),
             scheme_applications: Vec::new(),
+            scheme_operations: Vec::new(),
+            call_operation_bindings: Vec::new(),
             scheme_application_arguments: Vec::new(),
             scheme_proc_returns: Vec::new(),
             call_application_bindings: Vec::new(),
@@ -1061,6 +1065,8 @@ impl FullStore {
             + self.scheme_effect_terms.capacity() * size_of::<schemes::FullEffectTerm>()
             + self.scheme_effect_predicates.capacity() * size_of::<schemes::FullEffectPredicate>()
             + self.scheme_applications.capacity() * size_of::<schemes::FullSchemeApplication>()
+            + self.scheme_operations.capacity() * size_of::<schemes::FullSealedOperation>()
+            + self.call_operation_bindings.capacity() * size_of::<schemes::FullOperationBinding>()
             + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
             + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
             + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
@@ -1169,6 +1175,8 @@ impl FullStore {
         self.scheme_effect_terms.shrink_to_fit();
         self.scheme_effect_predicates.shrink_to_fit();
         self.scheme_applications.shrink_to_fit();
+        self.scheme_operations.shrink_to_fit();
+        self.call_operation_bindings.shrink_to_fit();
         self.scheme_application_arguments.shrink_to_fit();
         self.scheme_proc_returns.shrink_to_fit();
         self.call_application_bindings.shrink_to_fit();
@@ -3197,6 +3205,8 @@ struct FullCheckpoint {
     scheme_effect_terms: usize,
     scheme_effect_predicates: usize,
     scheme_applications: usize,
+    scheme_operations: usize,
+    call_operation_bindings: usize,
     scheme_application_arguments: usize,
     scheme_proc_returns: usize,
     call_application_bindings: usize,
@@ -4992,6 +5002,8 @@ impl FullBuilder {
             scheme_effect_terms: self.store.scheme_effect_terms.len(),
             scheme_effect_predicates: self.store.scheme_effect_predicates.len(),
             scheme_applications: self.store.scheme_applications.len(),
+            scheme_operations: self.store.scheme_operations.len(),
+            call_operation_bindings: self.store.call_operation_bindings.len(),
             scheme_application_arguments: self.store.scheme_application_arguments.len(),
             scheme_proc_returns: self.store.scheme_proc_returns.len(),
             call_application_bindings: self.store.call_application_bindings.len(),
@@ -5080,6 +5092,8 @@ impl FullBuilder {
         self.store.scheme_effect_terms.truncate(checkpoint.scheme_effect_terms);
         self.store.scheme_effect_predicates.truncate(checkpoint.scheme_effect_predicates);
         self.store.scheme_applications.truncate(checkpoint.scheme_applications);
+        self.store.scheme_operations.truncate(checkpoint.scheme_operations);
+        self.store.call_operation_bindings.truncate(checkpoint.call_operation_bindings);
         self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
         self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
         self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
@@ -10941,18 +10955,8 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_binary_result_type(op: BinaryOp, left_type: &Type, right_type: &Type) -> Option<Type> {
-        match (op, left_type, right_type) {
-            (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem, Type::Int | Type::UInt, Type::Int | Type::UInt) => Some(Type::Int),
-            (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div, Type::Float, Type::Float) => Some(Type::Float),
-            (BinaryOp::Add, Type::Str, Type::Str) => Some(Type::Str),
-            (BinaryOp::Add | BinaryOp::Sub, Type::Duration, Type::Duration)
-            | (BinaryOp::Mul, Type::Duration, Type::Int)
-            | (BinaryOp::Mul, Type::Int, Type::Duration)
-            | (BinaryOp::Div, Type::Duration, Type::Int) => Some(Type::Duration),
-            (BinaryOp::Div, Type::Duration, Type::Duration) => Some(Type::Int),
-            (BinaryOp::Add, Type::List(left), Type::List(right)) if right.matches_expected(left) => Some(left_type.clone()),
-            _ => None,
-        }
+        let operator = crate::sema::sealed_operation::arithmetic_operator(op)?;
+        crate::sema::sealed_operation::arithmetic_selection(operator, left_type, right_type).map(|(_, result)| result)
     }
 
     fn is_empty_list_literal_expression(
@@ -20261,6 +20265,7 @@ macro_rules! impl_build_id_codec {
                 let registered_call = if $checked_expr_type {
                     scratch.registered_calls.get(self.index()).cloned().flatten()
                 } else { None };
+                let operation = if $checked_expr_type { scratch.scheme_operations.get(&self.index()).copied() } else { None };
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
@@ -20407,6 +20412,12 @@ macro_rules! impl_build_id_codec {
                         )
                     })?;
                     builder.record_checked_call_target(target, instruction)?;
+                }
+                if let Some(operation) = operation {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
+                    if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::ExprBinary { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(application) = application_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_application_instruction", None, 0, self.index()))?;
@@ -25982,7 +25993,7 @@ assert observed.scoped == Ok(8)
             match &mut fact.value {
                 schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
-                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer => {},
+                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {

@@ -25,6 +25,8 @@ pub(in crate::signature) use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 mod builders;
+mod arithmetic;
+pub use arithmetic::{ArithmeticDomain, ArithmeticOperator, ArithmeticResult, ArithmeticSignature};
 mod docs;
 mod linux_storage;
 mod methods;

@@ -482,6 +482,7 @@ impl Checker {
             crate::sema::constraints::SchemeOperationError::Constraint(_) => "the selected call has incompatible type relationships",
             crate::sema::constraints::SchemeOperationError::Application(_) => "the callable application has no checked invocation relationship",
             crate::sema::constraints::SchemeOperationError::Effects(_) => "the invocation effect relationships cannot be resolved",
+            crate::sema::constraints::SchemeOperationError::Operation(_) => "the sealed arithmetic relationship cannot be resolved",
         };
         let diagnostic = crate::diagnostic::Diagnostic::error("effect contract cannot be bound to its checked declaration")
             .with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)

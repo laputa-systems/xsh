@@ -10,6 +10,7 @@ pub(crate) mod effects;
 pub mod projection;
 pub mod records;
 pub(crate) mod schemes;
+pub(crate) mod sealed_operation;
 pub mod types;
 pub mod validated;
 

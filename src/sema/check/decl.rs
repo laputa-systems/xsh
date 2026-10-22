@@ -783,6 +783,19 @@ impl Checker {
                 return None;
             }
         };
+        let mut operation_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            if let Some(operation) = self.binary_operators.get(&expression).and_then(|operator| operator.operation) {
+                match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { operation_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(program.arena.expr(expression).span, &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
         let mut proc_return_sites = BTreeMap::new();
         for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
             let mut representative = None;
@@ -808,7 +821,7 @@ impl Checker {
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)) {
+            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)) {
                 Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

@@ -393,6 +393,7 @@ impl<'a> ScopedEffectProof<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::IrRange;
     use crate::source::SourceId;
     use crate::syntax::node::Effect;
 
@@ -402,6 +403,7 @@ mod tests {
         let callee = SchemeEffectParameterId(17);
         let caller = SchemeEffectParameterId(29);
         let scope = |id: SchemeEffectParameterId| SchemeScope {
+            operations: IrRange::default(),
             type_parameters: Vec::new(), row_parameters: Vec::new(),
             type_binders: BTreeMap::new(), row_binders: BTreeMap::new(), row_lacks: Vec::new(),
             effects: EffectScope::new(vec![FullEffectParameter { id: id.0, binder: 0 }]).unwrap(),
@@ -443,6 +445,7 @@ mod tests {
             .union(EffectContract::finite(EffectSet::singleton(Effect::Env)));
         let encoded = builder.intern_effect_contract(&expression, &BTreeMap::from([(parameter, 0)])).unwrap();
         let scope = SchemeScope {
+            operations: IrRange::default(),
             type_parameters: Vec::new(), row_parameters: Vec::new(),
             type_binders: BTreeMap::new(), row_binders: BTreeMap::new(), row_lacks: Vec::new(),
             effects: EffectScope::new(vec![FullEffectParameter { id: parameter.0, binder: 0 }]).unwrap(),

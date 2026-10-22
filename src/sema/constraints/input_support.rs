@@ -36,8 +36,17 @@ impl TypeConstraints {
         let holes = self.unresolved_input_variables(holes)?;
         let mut supported = self.unresolved_input_variables(formals)?;
         let mut visited = BTreeSet::new();
+        let mut operations = BTreeSet::new();
         loop {
             let mut changed = false;
+            for (&id, entry) in &self.operations.entries {
+                if operations.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                let inputs = self.unresolved_input_variables(&[entry.operation.left.clone(), entry.operation.right.clone()])?;
+                if !inputs.is_subset(&supported) { continue; }
+                operations.insert(id);
+                supported.extend(self.unresolved_input_variables(std::slice::from_ref(&entry.operation.result))?);
+                changed = true;
+            }
             for (&id, entry) in &self.applications.entries {
                 if visited.contains(&id)
                     || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source))
@@ -120,6 +129,22 @@ mod tests {
 
     fn owner(start: usize) -> EffectDeclarationId {
         EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), start, start + 1) }
+    }
+
+    #[test]
+    fn local_input_support_follows_all_operation_inputs_without_reversing_results_or_cycles() {
+        let owner = owner(0);
+        let component = BTreeSet::from([owner]);
+        let mut constraints = TypeConstraints::default();
+        let left = constraints.fresh(owner.body);
+        let right = constraints.fresh(owner.body);
+        let result = constraints.fresh(owner.body);
+        constraints.register_sealed_operation(CallableApplicationScope::Declaration(owner), crate::sema::sealed_operation::SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: left.clone(), right: right.clone(), result: result.clone(), span: owner.body }).unwrap();
+        assert!(constraints.unresolved_local_holes_are_input_bound(owner, &component, std::slice::from_ref(&result), &[left.clone(), right.clone()]).unwrap());
+        assert!(!constraints.unresolved_local_holes_are_input_bound(owner, &component, std::slice::from_ref(&result), std::slice::from_ref(&left)).unwrap());
+        assert!(!constraints.unresolved_local_holes_are_input_bound(owner, &component, std::slice::from_ref(&left), std::slice::from_ref(&result)).unwrap());
+        constraints.register_sealed_operation(CallableApplicationScope::Declaration(owner), crate::sema::sealed_operation::SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: result.clone(), right, result: left, span: owner.body }).unwrap();
+        assert!(!constraints.unresolved_local_holes_are_input_bound(owner, &component, &[result], &[]).unwrap());
     }
 
     fn application(constraints: &mut TypeConstraints, owner: EffectDeclarationId, callee: Type, result: Type) {

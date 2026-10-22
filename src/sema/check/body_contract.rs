@@ -1699,7 +1699,7 @@ mod tests {
             let expression = ExprId::from_index(index);
             matches!(program.arena.expr(expression).kind, ArenaExprKind::Int(_)).then_some(expression)
         }).unwrap();
-        shifted.binary_operators.insert(literal, super::super::CheckedBinaryOperator { operator: BinaryOp::Eq });
+        shifted.binary_operators.insert(literal, super::super::CheckedBinaryOperator { operator: BinaryOp::Eq, operation: None });
         assert!(matches!(PendingBodyContracts::capture(&shifted, &program, &sources), Err(BodyContractError::UnmappedFact(_))));
     }
 

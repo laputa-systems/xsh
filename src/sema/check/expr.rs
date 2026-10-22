@@ -1302,7 +1302,7 @@ impl Checker {
                         arena.arena.expr(left).span,
                         arena.arena.expr(right).span,
                     );
-                    self.publish_binary_operator(pair, op, diagnostics);
+                    self.publish_binary_operator(pair, op, diagnostics, None);
                     previous = Some(right_ty);
                 }
                 Type::Bool
@@ -1310,7 +1310,9 @@ impl Checker {
             ArenaExprKind::Binary { op, left, right } => {
                 let diagnostics = self.diagnostics.len();
                 let ty = self.check_binary_arena(arena, source, *op, *left, *right, expected);
-                self.publish_binary_operator(id, *op, diagnostics);
+                let left_span = arena.arena.expr(*left).span;
+                let right_span = arena.arena.expr(*right).span;
+                self.publish_binary_operator(id, *op, diagnostics, Some(Span::new(left_span.source_id, left_span.start(), right_span.end())));
                 ty
             }
             ArenaExprKind::Field { base, name }
@@ -3221,11 +3223,13 @@ impl Checker {
         }
     }
 
-    fn publish_binary_operator(&mut self, expression: ExprId, operator: BinaryOp, diagnostics: usize) {
+    fn publish_binary_operator(&mut self, expression: ExprId, operator: BinaryOp, diagnostics: usize, span: Option<Span>) {
         if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
             self.binary_operators.remove(&expression);
         } else {
-            self.binary_operators.insert(expression, super::CheckedBinaryOperator { operator });
+            let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+            let operation = span.and_then(|span| self.type_constraints.sealed_operation_at(owner, span));
+            self.binary_operators.insert(expression, super::CheckedBinaryOperator { operator, operation });
         }
     }
 
@@ -3464,17 +3468,39 @@ impl Checker {
                         || (op == BinaryOp::Sub && matches!(ty, Type::Set(_)))
                 });
                 let left_ty = self.check_expr_arena(arena, source, left, left_expected);
-                let left_validation = left_ty.validated().map(|validated| validated.validation());
-                let left_ty = left_ty.into_unvalidated();
+                let Ok(left_source) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
+                let left_validation = left_source.validated().map(|validated| validated.validation());
+                let left_ty = left_source.clone().into_unvalidated();
                 let right_expected = match &left_ty {
                     Type::List(item) if **item == Type::Unknown => expected,
                     Type::Duration => None,
+                    ty if ty.contains_inference() => None,
                     Type::Int if op == BinaryOp::Mul => None,
                     _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
-                let right_validation = right_ty.validated().map(|validated| validated.validation());
-                let right_ty = right_ty.into_unvalidated();
+                let Ok(right_source) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
+                let right_validation = right_source.validated().map(|validated| validated.validation());
+                let right_ty = right_source.clone().into_unvalidated();
+                let operator = crate::sema::sealed_operation::arithmetic_operator(op).expect("arithmetic syntax has a sealed operator");
+                if left_source.contains_inference() || right_source.contains_inference() {
+                    let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
+                    let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+                    let result = match self.type_constraints.source_sealed_operation(owner, span) {
+                        Some(operation) => operation.result.clone(),
+                        None => {
+                            let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
+                            self.type_constraints.fresh_at_level(span, level)
+                        }
+                    };
+                    let operation = crate::sema::sealed_operation::SealedBinaryOperation { operator, left: left_source, right: right_source, result: result.clone(), span };
+                    if let Err(error) = self.type_constraints.register_source_sealed_operation(owner, operation).and_then(|_| self.type_constraints.solve_sealed_operations()) {
+                        self.error(span, &error.to_string(), DiagnosticCode::CheckOperatorType);
+                        return Type::Invalid;
+                    }
+                    return result;
+                }
+                if let Some((_, result)) = crate::sema::sealed_operation::arithmetic_selection(operator, &left_source, &right_source) { return result; }
                 if left_ty == Type::Any || right_ty == Type::Any {
                     return self
                         .reject_dynamic_arithmetic(op, &left_ty, &right_ty, left_span, right_span);

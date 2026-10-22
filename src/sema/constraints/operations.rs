@@ -1,0 +1,379 @@
+use super::{Binding, ConstraintChange, ConstraintConflict, ConstraintResolutionError, RowTail, TypeConstraints, Variable, MAX_TYPE_DEPTH};
+use super::application_constraints::ApplicationDependency;
+use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedBinaryOperation, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
+use crate::sema::types::Type;
+use crate::source::Span;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_OPERATION: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct SealedOperationId(NonZeroU64);
+
+#[derive(Clone, Debug)]
+pub(crate) enum SealedOperationError {
+    Resolution(ConstraintResolutionError),
+    Constraint(ConstraintConflict),
+    MapKey(super::MapKeyConstraintError),
+    Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sealed_binary_operations_reject_recursive_list_results_without_binding_the_result() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let result = constraints.fresh_at_level(span, 1);
+        let items = Type::List(Box::new(result.clone()));
+        constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: items.clone(), right: items, result: result.clone(), span }).unwrap();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.resolve(&result).unwrap(), result);
+    }
+
+    #[test]
+    fn sealed_binary_operations_preserve_ambiguity_descendant_wakeups_and_atomic_rollback() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let left = constraints.fresh(span);
+        let right = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: left.clone(), right: right.clone(), result: Type::Int, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&left).unwrap(), left);
+        assert_eq!(constraints.resolve(&right).unwrap(), right);
+        constraints.constrain(&left, &Type::Str, span).unwrap();
+        let before = constraints.operations.clone();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&right).unwrap(), right);
+
+        let mut constraints = TypeConstraints::default();
+        let source = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Subtract, left: source.clone(), right: Type::Set(Box::new(Type::Int)), result: Type::Bool, span }).unwrap();
+        let operations = constraints.operations.clone();
+        let variables = constraints.variables.len();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, operations);
+        assert_eq!(constraints.variables.len(), variables);
+        assert_eq!(constraints.resolve(&source).unwrap(), source);
+
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span);
+        let result = constraints.fresh(span);
+        let list = Type::List(Box::new(item.clone()));
+        let id = constraints.register_sealed_operation(owner, SealedBinaryOperation { operator: crate::sema::sealed_operation::ArithmeticOperator::Add, left: list.clone(), right: list, result: result.clone(), span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.operations.entries[&id].selection, None);
+        constraints.constrain(&item, &Type::Bool, span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::List(Box::new(Type::Bool)));
+        assert_eq!(constraints.operations.entries[&id].selection, Some(ArithmeticSignature::ListConcatenation));
+    }
+}
+
+impl From<ConstraintResolutionError> for SealedOperationError {
+    fn from(error: ConstraintResolutionError) -> Self { Self::Resolution(error) }
+}
+
+impl std::fmt::Display for SealedOperationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
+            Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
+            Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
+            Self::Unsupported { operator, left, right } => write!(formatter, "{operator:?} is not defined for {left} and {right}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ScopedOperation {
+    pub(super) owner: super::CallableApplicationScope,
+    pub(super) operation: SealedBinaryOperation<Type>,
+    pub(super) selection: Option<ArithmeticSignature>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct SealedOperations {
+    pub(super) entries: BTreeMap<SealedOperationId, ScopedOperation>,
+    source_sites: BTreeMap<(super::CallableApplicationScope, Span), SealedOperationId>,
+    watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedOperationId>>,
+    pending: VecDeque<SealedOperationId>,
+    queued: BTreeSet<SealedOperationId>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum OperationChange {
+    Fresh(SealedOperationId),
+    Source((super::CallableApplicationScope, Span), SealedOperationId),
+    Selection(SealedOperationId, Option<ArithmeticSignature>),
+    Watcher(ApplicationDependency, SealedOperationId),
+    Queued(SealedOperationId),
+    Dequeued(SealedOperationId),
+}
+
+impl SealedOperations {
+    #[cfg(test)]
+    pub(super) fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        self.entries.len() * size_of::<(SealedOperationId, ScopedOperation)>()
+            + self.entries.values().flat_map(|entry| entry.operation.types()).map(super::type_owned_payload_bytes).sum::<usize>()
+            + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span), SealedOperationId)>()
+            + self.watchers.len() * size_of::<(ApplicationDependency, BTreeSet<SealedOperationId>)>()
+            + self.watchers.values().map(|ids| ids.len() * size_of::<SealedOperationId>()).sum::<usize>()
+            + self.pending.capacity() * size_of::<SealedOperationId>()
+            + self.queued.len() * size_of::<SealedOperationId>()
+    }
+    pub(super) fn rollback(&mut self, change: OperationChange) {
+        match change {
+            OperationChange::Fresh(id) => { self.entries.remove(&id).expect("operation belongs to its journal"); }
+            OperationChange::Source(site, id) => { assert_eq!(self.source_sites.remove(&site), Some(id)); }
+            OperationChange::Selection(id, selection) => { self.entries.get_mut(&id).expect("operation belongs to its journal").selection = selection; }
+            OperationChange::Watcher(dependency, id) => {
+                let watchers = self.watchers.get_mut(&dependency).expect("operation watcher belongs to its journal");
+                assert!(watchers.remove(&id));
+                if watchers.is_empty() { self.watchers.remove(&dependency); }
+            }
+            OperationChange::Queued(id) => { assert_eq!(self.pending.pop_back(), Some(id)); assert!(self.queued.remove(&id)); }
+            OperationChange::Dequeued(id) => { self.pending.push_front(id); assert!(self.queued.insert(id)); }
+        }
+    }
+
+    fn enqueue(&mut self, id: SealedOperationId, changes: &mut Vec<ConstraintChange>) {
+        if self.queued.insert(id) {
+            self.pending.push_back(id);
+            changes.push(ConstraintChange::Operation(OperationChange::Queued(id)));
+        }
+    }
+
+    fn watch(&mut self, dependency: ApplicationDependency, id: SealedOperationId, changes: &mut Vec<ConstraintChange>) {
+        if self.watchers.entry(dependency).or_default().insert(id) { changes.push(ConstraintChange::Operation(OperationChange::Watcher(dependency, id))); }
+    }
+
+    pub(super) fn enqueue_changes(&mut self, from: usize, changes: &mut Vec<ConstraintChange>) {
+        let dependencies = changes[from..].iter().filter_map(|change| match change {
+            ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
+            ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
+            _ => None,
+        }).collect::<BTreeSet<_>>();
+        for dependency in dependencies {
+            for id in self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>() { self.enqueue(id, changes); }
+        }
+    }
+
+    pub(super) fn is_pending(&self) -> bool { !self.pending.is_empty() }
+}
+
+impl TypeConstraints {
+    fn operation_dependencies(&self, operation: &SealedBinaryOperation<Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
+        enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
+        let mut pending = operation.types().into_iter().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
+        let mut dependencies = BTreeSet::new();
+        while let Some(node) = pending.pop() {
+            match node {
+                Pending::Type(ty, depth) => {
+                    if depth > MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth); }
+                    if let Type::Inference(id) = ty {
+                        let root = self.representative_root(*id)?;
+                        if !dependencies.insert(ApplicationDependency::Type(root)) { continue; }
+                        let Some(Variable::Representative(variable)) = self.variables.get(&root) else { unreachable!() };
+                        match &variable.binding {
+                            Some(Binding::Type { ty, .. }) => pending.push(Pending::Type(ty, depth)),
+                            Some(Binding::Record(record)) => {
+                                pending.extend(record.shape.fields.values().map(|ty| Pending::Type(ty, depth + 1)));
+                                pending.push(Pending::Row(record.shape.tail.clone(), depth));
+                            }
+                            #[cfg(test)]
+                            Some(Binding::Rigid { .. }) => {},
+                            None => {},
+                        }
+                    } else {
+                        ty.for_each_child(|child| pending.push(Pending::Type(child, depth + 1)));
+                    }
+                }
+                Pending::Row(tail, depth) => {
+                    if depth > MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth); }
+                    let RowTail::Variable(id) = tail else { continue; };
+                    let root = self.row_representative_root(id)?;
+                    if !dependencies.insert(ApplicationDependency::Row(root)) { continue; }
+                    let Some(super::RowVariable::Representative(variable)) = self.rows.get(&root) else { unreachable!() };
+                    if let Some(binding) = &variable.binding {
+                        pending.extend(binding.shape.fields.values().map(|ty| Pending::Type(ty, depth + 1)));
+                        pending.push(Pending::Row(binding.shape.tail.clone(), depth));
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
+    }
+
+    pub(crate) fn register_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: SealedBinaryOperation<Type>) -> Result<SealedOperationId, SealedOperationError> {
+        let dependencies = self.operation_dependencies(&operation)?;
+        let id = SealedOperationId(NonZeroU64::new(NEXT_OPERATION.fetch_add(1, Ordering::Relaxed)).expect("operation identities are nonzero"));
+        self.apply_journaled(|this, changes| {
+            assert!(this.operations.entries.insert(id, ScopedOperation { owner, operation, selection: None }).is_none());
+            changes.push(ConstraintChange::Operation(OperationChange::Fresh(id)));
+            for dependency in dependencies { this.operations.watch(dependency, id, changes); }
+            this.operations.enqueue(id, changes);
+            Ok::<_, SealedOperationError>(())
+        })?;
+        Ok(id)
+    }
+
+    pub(crate) fn solve_sealed_operations(&mut self) -> Result<(), SealedOperationError> {
+        self.commit_constraint_transaction(|this| {
+            while this.operations.is_pending() { this.solve_pending_sealed_operations()?; }
+            Ok(())
+        })
+    }
+
+    fn constrain_operation_type(&mut self, expected: &Type, actual: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
+        self.constrain_inner(expected, actual, span, false, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))
+    }
+
+    fn solve_pending_sealed_operations(&mut self) -> Result<(), SealedOperationError> {
+        self.apply_journaled(|this, changes| {
+            while let Some(id) = this.operations.pending.pop_front() {
+                assert!(this.operations.queued.remove(&id));
+                changes.push(ConstraintChange::Operation(OperationChange::Dequeued(id)));
+                let operation = this.operations.entries.get(&id).expect("queued operation belongs to its owner").operation.clone();
+                let dependencies = this.operation_dependencies(&operation)?;
+                let level = dependencies.iter().filter_map(|dependency| match dependency {
+                    ApplicationDependency::Type(id) => Some(this.type_level(*id)),
+                    ApplicationDependency::Row(_) => None,
+                }).collect::<Result<Vec<_>, _>>()?.into_iter().min();
+                if let Some(level) = level {
+                    for ty in operation.types() { this.lower_levels_in_type(ty, level, changes)?; }
+                }
+                for dependency in dependencies { this.operations.watch(dependency, id, changes); }
+                let mut left = this.resolve_with_changes(&operation.left, 0, changes)?;
+                let mut right = this.resolve_with_changes(&operation.right, 0, changes)?;
+                let candidates = ArithmeticSignature::ALL.into_iter().filter(|signature| signature.accepts_operator(operation.operator) && {
+                    let (required_left, required_right) = signature.domains();
+                    (matches!(left.unvalidated(), Type::Inference(_)) || arithmetic_domain_accepts(required_left, &left))
+                        && (matches!(right.unvalidated(), Type::Inference(_)) || arithmetic_domain_accepts(required_right, &right))
+                }).collect::<Vec<_>>();
+                let Some(&signature) = candidates.first() else { return Err(SealedOperationError::Unsupported { operator: operation.operator, left, right }); };
+                if candidates.len() != 1 { continue; }
+                let (left_domain, right_domain) = signature.domains();
+                for (operand, domain) in [(&left, left_domain), (&right, right_domain)] {
+                    if !matches!(operand.unvalidated(), Type::Inference(_)) { continue; }
+                    let required = match domain {
+                        ArithmeticDomain::Integer => None,
+                        ArithmeticDomain::Int => Some(Type::Int),
+                        ArithmeticDomain::Float => Some(Type::Float),
+                        ArithmeticDomain::Str => Some(Type::Str),
+                        ArithmeticDomain::Duration => Some(Type::Duration),
+                        ArithmeticDomain::List => Some(Type::List(Box::new(this.fresh_at_level(operation.span, level.unwrap_or(0))))),
+                        ArithmeticDomain::Set => {
+                            let item = this.fresh_at_level(operation.span, level.unwrap_or(0));
+                            this.require_map_key(&item, operation.span).map_err(SealedOperationError::MapKey)?;
+                            Some(Type::Set(Box::new(item)))
+                        }
+                    };
+                    if let Some(required) = required { this.constrain_operation_type(operand, &required, operation.span, changes)?; }
+                }
+                left = this.resolve_with_changes(&operation.left, 0, changes)?;
+                right = this.resolve_with_changes(&operation.right, 0, changes)?;
+                let partial_result = arithmetic_result(signature, &left, &right);
+                if let Some(result) = partial_result { this.constrain_operation_type(&operation.result, &result, operation.span, changes)?; }
+                if left.contains_inference() || right.contains_inference() { continue; }
+                let Some((selection, result)) = arithmetic_selection(operation.operator, &left, &right) else { return Err(SealedOperationError::Unsupported { operator: operation.operator, left, right }); };
+                this.constrain_operation_type(&operation.result, &result, operation.span, changes)?;
+                let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn sealed_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
+        self.operations.source_sites.get(&(owner, span)).copied()
+    }
+
+    pub(crate) fn source_sealed_operation(&self, owner: super::CallableApplicationScope, span: Span) -> Option<&SealedBinaryOperation<Type>> {
+        self.sealed_operation_at(owner, span).and_then(|id| self.operations.entries.get(&id)).map(|entry| &entry.operation)
+    }
+
+    pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: SealedBinaryOperation<Type>) -> Result<SealedOperationId, SealedOperationError> {
+        self.commit_constraint_transaction(|this| {
+            if let Some(id) = this.sealed_operation_at(owner, operation.span) {
+                let previous = this.operations.entries[&id].operation.clone();
+                if previous.operator != operation.operator { return Err(SealedOperationError::Unsupported { operator: operation.operator, left: operation.left, right: operation.right }); }
+                this.apply_journaled(|this, changes| {
+                    for (expected, actual) in previous.types().into_iter().zip(operation.types()) {
+                        this.constrain_inner(expected, actual, operation.span, true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: operation.span, initializer: None, established: None }))?;
+                    }
+                    Ok::<_, SealedOperationError>(())
+                })?;
+                return Ok(id);
+            }
+            let span = operation.span;
+            let id = this.register_sealed_operation(owner, operation)?;
+            this.apply_journaled(|this, changes| {
+                assert!(this.operations.source_sites.insert((owner, span), id).is_none());
+                changes.push(ConstraintChange::Operation(OperationChange::Source((owner, span), id)));
+                Ok::<_, SealedOperationError>(())
+            })?;
+            Ok(id)
+        })
+    }
+
+    pub(super) fn generalize_sealed_operation(&self, id: SealedOperationId, level: u32, generalization: &mut super::Generalization) -> Result<SealedBinaryOperation<crate::sema::schemes::SchemeType>, super::SchemeOperationError> {
+        let operation = &self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.operation;
+        Ok(SealedBinaryOperation {
+            operator: operation.operator,
+            left: self.generalize_type(&operation.left, level, generalization, 0)?,
+            right: self.generalize_type(&operation.right, level, generalization, 0)?,
+            result: self.generalize_type(&operation.result, level, generalization, 0)?,
+            span: operation.span,
+        })
+    }
+
+    pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedBinaryOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
+        let mut operations = Vec::new();
+        for (&id, entry) in &self.operations.entries {
+            if entry.selection.is_some() || !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner)) { continue; }
+            let ordinal = u32::try_from(operations.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?;
+            generalization.operations.insert(id, ordinal);
+            operations.push(self.generalize_sealed_operation(id, level, generalization)?);
+        }
+        Ok(operations)
+    }
+
+    pub(super) fn validate_generalized_operations(&self, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Vec<SealedOperationId>, super::SchemeOperationError> {
+        let mut operations = scope.operations.iter().map(|(&id, &ordinal)| (ordinal, id)).collect::<Vec<_>>();
+        operations.sort_unstable();
+        if operations.len() != callable.requirements().operations.len() { return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)); }
+        let mut generalization = Self::callable_generalization(callable, scope);
+        for (index, &(ordinal, id)) in operations.iter().enumerate() {
+            if index != ordinal as usize || self.generalize_sealed_operation(id, 0, &mut generalization)? != callable.requirements().operations[index] {
+                return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
+            }
+        }
+        if generalization.type_ids != scope.types || generalization.row_ids != scope.rows { return Err(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::BodyTypeNotBound)); }
+        Ok(operations.into_iter().map(|(_, id)| id).collect())
+    }
+
+    pub(crate) fn generalized_operation_ordinal(&self, id: SealedOperationId, owner: crate::sema::check::EffectDeclarationId, callable: &crate::sema::schemes::CallableScheme, scope: &super::CallableGeneralizationScope) -> Result<Option<u32>, super::SchemeOperationError> {
+        let entry = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if entry.owner != super::CallableApplicationScope::Declaration(owner) || scope.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        self.validate_generalized_operations(callable, scope)?;
+        Ok(scope.operations.get(&id).copied())
+    }
+
+    pub(super) fn sealed_operation_bindings(&self, instance: &super::InstantiatedScheme, generalization: &super::Generalization) -> Result<Vec<crate::sema::schemes::SealedOperationBinding>, super::SchemeOperationError> {
+        instance.operations.iter().map(|id| {
+            let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            Ok(match entry.selection {
+                Some(signature) => crate::sema::schemes::SealedOperationBinding::Selected(signature),
+                None => crate::sema::schemes::SealedOperationBinding::Forwarded(*generalization.operations.get(id).ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?),
+            })
+        }).collect()
+    }
+}

@@ -28,6 +28,9 @@ impl BinderNames {
             names.visit_scheme_type(&parameter.ty);
         }
         names.visit_scheme_type(scheme.return_type());
+        for operation in &scheme.callable().requirements().operations {
+            for ty in operation.types() { names.visit_scheme_type(ty); }
+        }
         for (source, iteration) in &scheme.callable().requirements().iteration_parameters {
             names.visit_scheme_type(&SchemeType::Parameter(*source));
             for ty in iteration.types() { names.visit_scheme_type(ty); }
@@ -176,6 +179,9 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
         parts.push(format!("{source_kind}({}, item={item}, {failure})", names.type_name(*source)));
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
+    for operation in &scheme.callable().requirements().operations {
+        parts.push(format!("arithmetic({:?}, {}, {}) -> {}", operation.operator, render_scheme_type(&operation.left, names, identities), render_scheme_type(&operation.right, names, identities), render_scheme_type(&operation.result, names, identities)));
+    }
     parts.join(" ")
 }
 

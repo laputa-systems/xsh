@@ -891,6 +891,41 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn sealed_binary_arithmetic_retains_independent_input_and_result_domains() {
+        accepts("pure combine(a, b) { a + b }", "let number: Int = combine(1, 2)\nlet text: Str = combine(\"one\", \" two\")");
+    }
+
+    #[test]
+    fn sealed_binary_arithmetic_rejects_an_unsupported_input_tuple() {
+        let source = "pure combine(a, b) { a + b }\nlet rejected = combine(1, true)";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckOperatorType)), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn sealed_binary_arithmetic_preserves_grounded_unsigned_duration_rejection() {
+        for source in [
+            "let unsigned: UInt = 2\nlet rejected = 1s * unsigned",
+            "pure multiply(a, b) { a * b }\nlet unsigned: UInt = 2\nlet rejected = multiply(1s, unsigned)",
+            "pure multiply(a, b) { a * b }\nlet unsigned: UInt = 2\nlet rejected = multiply(unsigned, 1s)",
+            "pure divide(a, b) { a / b }\nlet unsigned: UInt = 2\nlet rejected = divide(1s, unsigned)",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckOperatorType)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn sealed_binary_arithmetic_propagates_unique_structural_input_domains() {
+        accepts("pure append(values) { values + [1] }", "let values: List[Int] = append([2])");
+        accepts("pure numbers() { [] + [1] }", "let values: List[Int] = numbers()");
+    }
+
+    #[test]
     fn generic_iteration_input_relationship_accepts_independent_collection_domains() {
         accepts("pure collect(values) { [value for value in values] }", "let numbers: List[Int] = collect([1, 2])\nlet words: List[Str] = collect([\"a\"])\nlet letters: List[Str] = collect(\"ab\")");
     }
