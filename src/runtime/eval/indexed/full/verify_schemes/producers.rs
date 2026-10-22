@@ -125,13 +125,13 @@ pub(in crate::runtime::eval::indexed::full) struct ProducerPrefixContext<'a> {
 }
 
 impl ProducerPrefixContext<'_> {
-    pub(in crate::runtime::eval::indexed::full) fn immutable_function_reference_source(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+    pub(in crate::runtime::eval::indexed::full) fn immutable_function_reference_source(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<super::super::ImmutableCallableSource>, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
             return Err(IrVerifyError::new("callable source context disagrees with its owner range"));
         }
         let (mut owner, mut instruction) = (decoder.owner, instruction);
         let mut visited = BTreeSet::new();
-        loop {
+        'source: loop {
             self.evidence.work.borrow_mut().charge(1)?;
             if !visited.insert((owner, instruction)) { return Err(IrVerifyError::new("immutable callable source contains a cycle")); }
             let evidence = self.index.owners.get(&owner).ok_or_else(|| IrVerifyError::new("callable source owner was not structurally verified"))?;
@@ -143,7 +143,93 @@ impl ProducerPrefixContext<'_> {
                 return Err(IrVerifyError::new("callable source instruction belongs to another owner"));
             }
             let slot = match source.expression_view(instruction)? {
-                schema::ExprView::FunctionRef { .. } => return Ok(Some(instruction)),
+                schema::ExprView::FunctionRef { .. } => return Ok(Some(super::super::ImmutableCallableSource::Instruction(instruction))),
+                schema::ExprView::Field { base, name, .. } => {
+                    let field = Name::intern(name);
+                    let mut field_instruction = base.raw() as usize;
+                    let schema::ExprView::Param(mut slot) = source.expression_view(field_instruction)? else { return Ok(None); };
+                    let mut binding = evidence.binding(decoder.store, owner, field_instruction, slot)?;
+                    loop {
+                        self.evidence.work.borrow_mut().charge(1)?;
+                        if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
+                            let writers = evidence.writers.get(&binding).map(Vec::as_slice).unwrap_or(&[]);
+                            self.evidence.work.borrow_mut().charge(writers.len())?;
+                            if declared_slot != slot || writers != [declaration] { return Ok(None); }
+                            let schema::StmtView::Let { slot: declared, value, .. } = source.statement_view(declaration)? else { return Ok(None); };
+                            if declared != slot { return Ok(None); }
+                            field_instruction = value.raw() as usize;
+                            match source.expression_view(field_instruction)? {
+                                schema::ExprView::Param(next_slot) => {
+                                    slot = next_slot;
+                                    binding = evidence.binding(decoder.store, owner, field_instruction, next_slot)?;
+                                    continue;
+                                }
+                                schema::ExprView::Field { .. } => {
+                                    instruction = field_instruction;
+                                    continue 'source;
+                                }
+                                _ => return Ok(None),
+                            }
+                        }
+                        break;
+                    }
+                    let ProducerBinding::DriverBinding(_) = binding else { return Ok(None); };
+                    let Some(storage) = evidence.storage_bindings.get(&binding) else { return Ok(None); };
+                    if storage.mutable || storage.identity == IR_NONE { return Ok(None); }
+                    let identity = decoder.store.binding_identities.get(storage.identity as usize).ok_or_else(|| IrVerifyError::new("callable module binding identity is invalid"))?;
+                    if identity.flags != 0 { return Ok(None); }
+                    let Some((_, step, program_owner)) = self.index.binding_writers.get(storage.identity as usize).copied().flatten() else { return Ok(None); };
+                    if program_owner != identity.owner { return Err(IrVerifyError::new("callable source binding owner disagrees with its writer")); }
+                    let Some(current) = super::super::driver_owner_index(owner) else { return Ok(None); };
+                    if step >= current { return Err(IrVerifyError::new("callable source binding is used before its import")); }
+                    let mut same_program = false;
+                    for program in &decoder.store.driver_programs {
+                        self.evidence.work.borrow_mut().charge(1)?;
+                        let steps = program.steps.bounds(decoder.store.driver_steps.len()).ok_or_else(|| IrVerifyError::new("callable source program range is invalid"))?;
+                        if steps.contains(&current) {
+                            same_program = program.owner == identity.owner && steps.contains(&step);
+                            break;
+                        }
+                    }
+                    if !same_program { return Err(IrVerifyError::new("callable source binding belongs to another driver program")); }
+                    if decoder.store.driver_steps[step].tag != super::super::FullDriverTag::Use { return Ok(None); }
+                    let writer_decoder = decoder_for_driver_step(decoder.store, step)?;
+                    let mut payload = super::super::FullCursor::new(decoder.store.payload(decoder.store.driver_steps[step].data.range())?);
+                    let _: Arc<str> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    let alias: Option<Name> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    let path: Vec<Name> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    let _namespace: Name = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    let exports: Vec<super::super::LoweredModuleExport> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    self.evidence.work.borrow_mut().charge(exports.len())?;
+                    let child: u32 = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+                    let Some(local_name) = alias.or_else(|| path.last().copied()) else { return Ok(None); };
+                    if local_name.as_str() != decoder.store.string(identity.name)? { return Ok(None); }
+                    let Some((kind, function_namespace)) = exports.iter().find_map(|export| match export {
+                        super::super::LoweredModuleExport::GenericCallable { name, kind, function_namespace, .. } if *name == field => Some((*kind, *function_namespace)),
+                        _ => None,
+                    }) else { return Ok(None); };
+                    let type_id = TypeId::from_raw(decoder.store.driver_steps[step].registered_module_type)
+                        .ok_or_else(|| IrVerifyError::new("callable module has no registered type"))?;
+                    let Type::Module(module) = decoder.store.semantic.to_type(type_id)? else { return Ok(None); };
+                    if !module.exact
+                        || !matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { kind: registered, optional: false }) if *registered == kind)
+                    { return Ok(None); }
+                    let Some(child_index) = child.checked_sub(1).map(|index| index as usize).filter(|index| *index < decoder.store.driver_programs.len()) else { return Ok(None); };
+                    let child_owner = decoder.store.driver_programs[child_index].owner;
+                    if child_owner == IR_NONE || decoder.store.string(child_owner)? != function_namespace.as_str() { return Ok(None); }
+                    let function = super::super::decode::FunctionNameView::Qualified(crate::symbol::QualifiedName::new(function_namespace, field));
+                    let (target, contract, target_kind) = decoder.function_reference_contract(function)?;
+                    if target_kind != kind { return Ok(None); }
+                    let metadata = decoder.store.function_metadata.get(target.index()).ok_or_else(|| IrVerifyError::new("generic callable target metadata is missing"))?;
+                    if metadata.owner != child_owner || metadata.callable_kind != kind
+                        || metadata.flags != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
+                        || decoder.store.string(decoder.store.functions[target.index()].name)? != field.as_str()
+                    { return Ok(None); }
+                    let super::super::FullCallableContract::Scheme(scheme_id) = contract else { return Ok(None); };
+                    let scheme = decoder.store.scheme(scheme_id)?;
+                    if scheme.callable_kind != kind || !scheme.is_quantified(&decoder.store)? { return Ok(None); }
+                    return Ok(Some(super::super::ImmutableCallableSource::ImportedFunction(function)));
+                }
                 schema::ExprView::Param(slot) => slot,
                 _ => return Ok(None),
             };
@@ -552,6 +638,7 @@ enum CallableProducer {
     Binding(u32),
     Expression(usize),
     PipelinePrefix(usize, usize),
+    Function(usize),
 }
 
 type StreamSummaryKey = (usize, Vec<FunctionProjection>);
@@ -2911,6 +2998,51 @@ impl<'a> ProducerProof<'a> {
             let Type::Module(module) = ty.as_ref() else { return Err(IrVerifyError::new("callable import registration is not a module")) };
             let Some(FunctionProjection::Field(field)) = path.pop() else { return Err(IrVerifyError::new("callable import has no selected export projection")) };
             if !module.exports.contains_key(&field) { return Err(IrVerifyError::new("callable import projection is absent from its registered module")); }
+        self.binding_writer(binding, Arc::clone(&ty))?;
+        let mut payload = super::super::FullCursor::new(self.store.payload(row.data.range())?);
+        let _: Arc<str> = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        let _: Option<Name> = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        let _path: Vec<Name> = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        let _: Name = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        let exports: Vec<super::super::LoweredModuleExport> = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        self.budget.charge(exports.len())?;
+        let child: u32 = super::super::FullCodec::decode(&decoder, &mut payload)?;
+        if module.exact
+            && path.is_empty()
+            && let Some(export) = exports.iter().find(|export| match export {
+                super::super::LoweredModuleExport::GenericCallable { name, .. } => *name == field,
+                _ => false,
+            })
+        {
+            let super::super::LoweredModuleExport::GenericCallable { kind, function_namespace, .. } = export else { unreachable!() };
+            if !matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { kind: registered, optional: false }) if registered == kind) {
+                return Err(IrVerifyError::new("callable import registration disagrees with its generic export"));
+            }
+            let child_index = child.checked_sub(1).map(|index| index as usize)
+                .filter(|index| *index < self.store.driver_programs.len())
+                .ok_or_else(|| IrVerifyError::new("callable import child program is invalid"))?;
+            let child_owner = self.store.driver_programs[child_index].owner;
+            if child_owner == IR_NONE || self.store.string(child_owner)? != function_namespace.as_str() {
+                return Err(IrVerifyError::new("generic callable import is not owned by its child module"));
+            }
+            let function = super::super::decode::FunctionNameView::Qualified(crate::symbol::QualifiedName::new(*function_namespace, field));
+            let (target, contract, target_kind) = decoder.function_reference_contract(function)?;
+            if target_kind != *kind { return Err(IrVerifyError::new("generic callable import kind differs from its target")); }
+            let metadata = self.store.function_metadata.get(target.index())
+                .ok_or_else(|| IrVerifyError::new("generic callable import target metadata is missing"))?;
+            if metadata.owner != child_owner || metadata.callable_kind != *kind
+                || metadata.flags != (0b10 | u8::from(*kind == CallableKind::Proc))
+                || self.store.string(self.store.functions[target.index()].name)? != field.as_str()
+            { return Err(IrVerifyError::new("generic callable import target differs from its export")); }
+            let super::super::FullCallableContract::Scheme(scheme_id) = contract else {
+                return Err(IrVerifyError::new("generic callable import has no scheme contract"));
+            };
+            let scheme = self.store.scheme(scheme_id)?;
+            if scheme.callable_kind != *kind || !scheme.is_quantified(&self.store)? {
+                return Err(IrVerifyError::new("generic callable import has no matching quantified contract"));
+            }
+            return Ok((owner, CallableProducer::Function(target.index())));
+        }
             let exports = self.index.module_exports.get(&owner)
                 .ok_or_else(|| IrVerifyError::new("callable import has no verified export census"))?;
             self.budget.charge(exports.len())?;
@@ -2918,7 +3050,6 @@ impl<'a> ProducerProof<'a> {
             let export = selected.next().map(|(_, binding)| *binding)
                 .ok_or_else(|| IrVerifyError::new("callable import projection has no value binding"))?;
             if selected.next().is_some() { return Err(IrVerifyError::new("callable import projection has duplicate value bindings")); }
-            self.binding_writer(binding, ty)?;
             return Ok((owner, CallableProducer::Binding(export)));
         }
         if row.tag != super::super::FullDriverTag::Let { return Err(IrVerifyError::new("callable capture initializer is not a value declaration")); }
@@ -3026,6 +3157,11 @@ impl<'a> ProducerProof<'a> {
                     continue;
                 }
                 CallableProducer::Expression(instruction) => instruction,
+                CallableProducer::Function(function) => {
+                    if !path.is_empty() { return Err(IrVerifyError::new("imported callable has an unresolved result projection")); }
+                    targets.insert(function);
+                    continue;
+                }
                 CallableProducer::PipelinePrefix(pipeline, end) => {
                     if end == 0 {
                         let schema::ExprView::ListPipeline { input, .. } = decoder.expression_view(pipeline)? else { unreachable!("callable pipeline input has another expression") };

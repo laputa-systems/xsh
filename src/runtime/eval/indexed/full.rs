@@ -6101,6 +6101,11 @@ impl InstructionParentContext<'_> {
 
 enum WithErrorSource { Initializer(usize), Propagation(usize) }
 
+pub(in crate::runtime::eval::indexed::full) enum ImmutableCallableSource {
+    Instruction(usize),
+    ImportedFunction(decode::FunctionNameView),
+}
+
 pub(in crate::runtime::eval) struct FullDecoder<'a> {
     store: &'a FullStore,
     owner: u32,
@@ -9666,13 +9671,13 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn checked_callable_reference_source(&self, instruction: usize) -> Result<usize, IrVerifyError> {
+    fn checked_callable_reference_source(&self, instruction: usize) -> Result<ImmutableCallableSource, IrVerifyError> {
         match self.expression_view(instruction)? {
-            schema::ExprView::FunctionRef { .. } => Ok(instruction),
+            schema::ExprView::FunctionRef { .. } => Ok(ImmutableCallableSource::Instruction(instruction)),
             schema::ExprView::Param(slot) => {
                 let source = match &self.producer_prefix {
                     Some(prefix) => prefix.immutable_function_reference_source(self, instruction)?,
-                    None => self.local_function_ref_initializer(slot)?,
+                    None => self.local_function_ref_initializer(slot)?.map(ImmutableCallableSource::Instruction),
                 };
                 source.ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source"))
             }
@@ -9686,11 +9691,14 @@ impl<'a> FullDecoder<'a> {
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
         let source = self.checked_callable_reference_source(instruction)?;
-        let schema::ExprView::FunctionRef { function, kind } = self.expression_view(source)?
-        else {
-            return Err(IrVerifyError::new(
-                "checked callable initializer is not a function reference",
-            ));
+        let (function, reference_kind) = match source {
+            ImmutableCallableSource::Instruction(source) => {
+                let schema::ExprView::FunctionRef { function, kind } = self.expression_view(source)? else {
+                    return Err(IrVerifyError::new("checked callable initializer is not a function reference"));
+                };
+                (function, Some(kind))
+            }
+            ImmutableCallableSource::ImportedFunction(function) => (function, None),
         };
         let (target, contract, target_kind) = self.function_reference_contract(function)?;
         let Type::Callable(callable) = expected else {
@@ -9699,7 +9707,7 @@ impl<'a> FullDecoder<'a> {
             ));
         };
         let fits = match contract {
-            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, kind, callable)?,
+            FullCallableContract::Ground(signature) => self.store.semantic.signature_fits_callable(signature, reference_kind.unwrap_or(target_kind), callable)?,
             FullCallableContract::Scheme(_) => {
                 let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("function reference instruction is invalid"))?;
                 if self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_err()
@@ -9709,7 +9717,7 @@ impl<'a> FullDecoder<'a> {
                 self.checked_expression_type(instruction as usize)?.as_ref().is_some_and(|actual| self.checked_type_fits(actual, expected))
             }
         };
-        if target_kind != kind || callable.kind != kind || !fits {
+        if reference_kind.is_some_and(|kind| target_kind != kind) || callable.kind != target_kind || !fits {
             return Err(IrVerifyError::new(
                 "checked function reference tail disagrees with its target signature",
             ));
@@ -11956,8 +11964,13 @@ impl<'a> FullDecoder<'a> {
                     self.function_reference_contract(function)?.0
                 }
                 FullTag::ExprParam => {
-                    let source = self.checked_callable_reference_source(instruction)?;
-                    let schema::ExprView::FunctionRef { function, .. } = self.expression_view(source)? else { unreachable!() };
+                    let function = match self.checked_callable_reference_source(instruction)? {
+                        ImmutableCallableSource::Instruction(source) => {
+                            let schema::ExprView::FunctionRef { function, .. } = self.expression_view(source)? else { unreachable!() };
+                            function
+                        }
+                        ImmutableCallableSource::ImportedFunction(function) => function,
+                    };
                     self.function_reference_contract(function)?.0
                 }
                 _ => {
@@ -22209,6 +22222,29 @@ run true
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("generic alias importer exists").expect("generic alias importer executes");
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+        });
+    }
+
+    #[test]
+    fn imported_generic_aliases_authenticate_typed_callable_sources() {
+        run_with_large_stack(|| {
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(
+                "use model as models\ntype StringIdentity = pure(value: Str) -> Str\npure apply(callback: StringIdentity, value: Str) -> Str { callback(value) }\nlet generic = models.identity\nlet forwarded = generic\nlet stored: StringIdentity = forwarded\nassert stored(\"demo\") == \"demo\"\nassert apply(stored, \"callback\") == \"callback\"\n",
+            ));
+            let _symbols = program.symbol_owner().enter();
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                assert!(matches!(
+                    &evaluator.lookup(program_name(&program, "stored")).unwrap().value,
+                    Value::Callable(callable) if callable.kind() == CallableKind::Pure
+                ));
             }
         });
     }
