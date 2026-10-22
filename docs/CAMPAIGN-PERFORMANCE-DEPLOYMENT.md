@@ -8,38 +8,35 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `a0cd0479f` passes 353 of 390 selected Rust controls.
-The remaining 37 failures all belong to the earlier full-library failure set.
-All prior 306 compiler controls, 57 runtime controls and 12 host-adapter controls
-pass on this combined source. The selection retains every earlier failure and
-adds the producer-demand controls. No test is silently omitted.
+Runtime assembly `4302be2ca` passes 366 of 399 selected Rust controls.
+The remaining 33 failures all belong to the earlier full-library failure set.
+Every prior passing control remains selected and passes. The replay also covers
+actual imported callable targets and Proc completion provenance.
 Master remains at `d2453760a`; the assembly is not qualified for master.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
-44 failures and three existing ignores. Seven failures are repaired in the
-assembled replay: obsolete diagnostic inventory, list and rest argument demand,
-producer scope, effect ordering and two alias-counter expectations. The remaining
-failures include actual producer and Stream-provenance gaps, malformed mutation
-fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
-or a demonstrated correction of its former premise. The broad binding-fact
-corpus sweep passes. Focused iteration uses named regressions.
+44 failures and three existing ignores. Eleven failures are repaired in the
+assembled replay. The remaining failures include actual producer and Stream
+provenance gaps, malformed mutation fixtures and obsolete unsupported-policy
+assertions. Each needs a scoped repair or a demonstrated correction of its
+former premise. The broad binding-fact corpus sweep passes.
 
-The practical four-return paired run on matching `c1c7ed1a3` products passes
+The practical four-return paired run on matching `97a0b32dd` products passes
 all 12 XSH roots and three Laputa roots in both unchanged source views.
 All six selected behavior tests pass in each view: 12 passes, zero failures.
-XSH interface qualification then stops at an imported exported constant:
-its Export wrapper and inner declaration share a span and produce ambiguous
-body-site keys. Laputa interface comparison, negative controls, signatures and
-final view comparison do not run. Source and product post-guards pass and owned
-container cleanup resolves. These partial results grant no new removal credit.
+The earlier exported-constant interface ambiguity is repaired. XSH interface
+qualification now stops at a null-safe method receiver in `sort.xsh`.
+Laputa interface comparison, negative controls, signatures and final view
+comparison do not run. Source and product post-guards pass. Owned container
+cleanup resolves. These partial results grant no new removal credit.
 
-Repair `de9517ba4` keeps Export traversal and semantic facts while registering
-the inner declaration as the unique statement site. Its four controls pass
-both in isolation and on integrated source `97a0b32dd`. Ordinary competing
-statement paths still reject. Matching `97a0b32dd` products are rebuilding
-before the unchanged paired replay. Earlier expression-context, literal-row,
-comprehension and readonly argv repairs remain covered by the combined controls.
-Stored containers retain invariant matching.
+Repair `cb07cbd79` captures actual checked null-safe receiver payloads without
+changing ordinary field selection. Eleven isolated controls pass, including
+wrong and missing receiver facts. Repair `995ae6054` preserves the established
+Unit boundary of valueless recursive Procs. Three isolated controls pass,
+including the original recursive body-contract failure and value-returning
+controls. Both repairs are integrated through `6ffdbc9a7`; their combined
+replay and the next matching practical pair remain pending.
 
 Runtime checkpoint `3b96ee9e7` is integrated. One canonical callable kind and
 invocation environment survive aliases, suspension, resume and cleanup.
@@ -54,9 +51,9 @@ The obsolete mandatory Stream return-annotation diagnostic is removed, and its
 existing emission-inventory test now passes. No authored syntax is added.
 
 Five generic-body admission classes, single-body checking authority and the
-37 known regression failures remain open. The next lanes own ordinary body
-forms, scoped Proc completion provenance, imported module target proof and
-paired interface completion. Full Rust, native, memory, performance and inherited
+33 known regression failures remain open. The next lanes own ordinary body
+forms, recursive provenance, canonical Stream module exports and paired
+interface completion. Full Rust, native, memory, performance and inherited
 Laputa acceptance remain pending. The last matching native replay is the earlier
 `7f4dccc80` pair: 27 passes with unchanged source and product guards.
 
