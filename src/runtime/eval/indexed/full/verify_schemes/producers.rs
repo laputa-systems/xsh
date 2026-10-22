@@ -3988,7 +3988,9 @@ impl<'a> ProducerProof<'a> {
                     {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
                             && self.checked_fresh_list_method_receiver(&decoder, input, &checked)?.is_some();
-                        if fresh_set || matches!((self.store.tags[input], checked.as_ref()),
+                        let empty_set = matches!(checked.as_ref(), Type::Set(_))
+                            && self.checked_empty_set_module_call(&decoder, input, &checked)?;
+                        if fresh_set || empty_set || matches!((self.store.tags[input], checked.as_ref()),
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
                             | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprMapComp, Type::Map(_, _))
                             | (FullTag::ExprCapture, Type::Result(_, _)))
@@ -5024,6 +5026,23 @@ impl<'a> ProducerProof<'a> {
         let result = decoder.checked_method_return_type(&receiver_type, name, &arguments)?;
         if result.as_ref() != Some(expected) { return Ok(None); }
         Ok(Some(receiver_type))
+    }
+
+    fn checked_empty_set_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!(expected.unvalidated(), Type::Set(_)) { return Ok(false); }
+        let schema::ExprView::ModuleCall { op: super::super::RuntimeOp::SetEmpty, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
+        let arguments = args.map(|argument| argument.map(|value| value.map(|value| value.raw() as usize))).collect::<Result<Vec<_>, _>>()?;
+        if !arguments.is_empty() { return Ok(false); }
+        let mut matched = false;
+        for signature in crate::modules::signature::native_static_operation_signatures(super::super::RuntimeOp::SetEmpty) {
+            self.budget.charge(1 + signature.params.len())?;
+            if !signature.params.is_empty() { continue; }
+            let Some(specialized) = self.native_signature(decoder, signature, &arguments, Some(expected))? else { continue };
+            if !specialized.return_ty.matches_expected(expected) { continue; }
+            if matched { return Err(IrVerifyError::new("empty set producer has ambiguous native contracts")); }
+            matched = true;
+        }
+        Ok(matched)
     }
 
     fn verify_registered_method(&mut self, decoder: &FullDecoder<'a>, instruction: usize, receiver: usize, name: &str, arguments: &[usize], expected: &Type) -> Result<(), IrVerifyError> {

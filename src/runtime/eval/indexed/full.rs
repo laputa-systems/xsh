@@ -10696,6 +10696,26 @@ impl<'a> FullDecoder<'a> {
                 else if payload.matches_expected(&right) { Ok(Some(right)) }
                 else { Ok(None) }
             }
+            schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                let Some(mut output) = self.derive_checked_expression_type(input.raw() as usize)? else {
+                    return Ok(None);
+                };
+                for stage in &mut stages {
+                    let stage = stage?;
+                    let Some(next) = self.derive_pipeline_stage_output_type(
+                        &stage,
+                        output.iteration_item_type(),
+                    )? else {
+                        return Ok(None);
+                    };
+                    output = next;
+                }
+                if let Type::Stream(item) = output {
+                    Ok(Some(Type::List(item)))
+                } else {
+                    Ok(Some(output))
+                }
+            }
             schema::ExprView::Null
             | schema::ExprView::PreparedRegex(_)
             | schema::ExprView::PreparedConstant(_)
@@ -10709,7 +10729,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Range { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
-            | schema::ExprView::ListPipeline { .. }
             | schema::ExprView::Field { .. }
             | schema::ExprView::Index { .. }
             | schema::ExprView::IndexFromEnd { .. }
@@ -39592,22 +39611,25 @@ proc configured() [] -> Int {
                 assert!(FullVerifier::verify(&malformed).is_err());
             }
             let program = Arc::new(program);
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "configured")),
-                    CallableKind::Proc,
-                    &[],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("configuration function exists");
-            assert_eq!(result.unwrap(), Value::Int(5));
-            assert!(
-                String::from_utf8(evaluator.stdout.clone())
-                    .unwrap()
-                    .contains("row")
-            );
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "configured")),
+                        CallableKind::Proc,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("configuration function exists");
+                assert_eq!(result.unwrap(), Value::Int(5));
+                assert!(
+                    String::from_utf8(evaluator.stdout.clone())
+                        .unwrap()
+                        .contains("row")
+                );
+            }
         });
     }
 
@@ -40959,9 +40981,19 @@ assert make(false, [true])?.len() == 1
         let range = program.store.function_instruction_range(owner).unwrap();
         let (method, receiver) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
             Ok(schema::ExprView::Method { receiver, name: "to_set", .. })
-                if matches!(decoder.expression_view(receiver.raw() as usize), Ok(schema::ExprView::List(values)) if values.len() == 0) => Some((instruction, receiver.raw() as usize)),
+                if matches!(decoder.expression_view(receiver.raw() as usize), Ok(schema::ExprView::List(values)) if values.len() == 1) => Some((instruction, receiver.raw() as usize)),
             _ => None,
         }).unwrap();
+        let set_empty = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: RuntimeOp::SetEmpty, .. }))).unwrap();
+        for replacement in [RuntimeOp::MapEmpty, RuntimeOp::SetFrom] {
+            let mut malformed = (*program).clone();
+            let operation = u32::try_from(malformed.store.runtime_ops.len()).unwrap();
+            malformed.store.runtime_ops.push(replacement);
+            let payload = malformed.store.data[set_empty].range().bounds(malformed.store.extra.len()).unwrap();
+            assert_eq!(malformed.store.runtime_ops[malformed.store.extra[payload.start] as usize], RuntimeOp::SetEmpty);
+            malformed.store.extra[payload.start] = operation;
+            assert!(FullVerifier::verify(&malformed).is_err());
+        }
         let outer = range.clone().find(|&instruction| {
             let Ok(schema::ExprView::List(mut values)) = decoder.expression_view(instruction) else { return false };
             values.len() == 1 && matches!(decoder.expression_view(values.next().unwrap().unwrap().raw() as usize), Ok(schema::ExprView::List(inner)) if inner.len() == 0)
