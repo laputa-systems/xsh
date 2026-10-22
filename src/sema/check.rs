@@ -1696,9 +1696,16 @@ struct ValueLoopResult {
     values: Vec<(Type, Span)>,
 }
 
+#[derive(Clone)]
+struct ProcCompletionBoundary {
+    owner: EffectDeclarationId,
+    return_ty: Type,
+}
+
 #[derive(Clone, Default)]
 struct BoundaryContext {
     current_return: Option<ReturnContext>,
+    proc_completion: Option<ProcCompletionBoundary>,
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
@@ -1911,6 +1918,7 @@ impl Checker {
 
     fn enter_callback_boundary(&mut self) -> BoundaryContext {
         let mut callback = self.boundary.clone();
+        callback.proc_completion = None;
         callback.current_yield = None;
         callback.collect_scope = None;
         callback.loop_depth = 0;
