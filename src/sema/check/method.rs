@@ -651,13 +651,21 @@ impl Checker {
         context: &super::infer_effects::HostMethodContext,
         span: Span,
     ) -> Type {
-        assert_eq!(method.sig.arg_check, ApiArgCheck::Standard);
+        assert!(matches!(method.sig.arg_check, ApiArgCheck::Standard | ApiArgCheck::PathLikeSingle));
         let diagnostics_before = self.diagnostics.len();
         let deferred_before = self.deferred_effect_checks.len();
         self.finalize_host_method_effects(context, &method.sig, name, span);
         let mut instance = crate::sema::builtin_templates::BuiltinInstantiation { signature };
         instance.resolve(&self.type_constraints);
-        self.check_bound_host_arguments(arena, span, arguments, &binding, &instance.signature);
+        match method.sig.arg_check {
+            ApiArgCheck::Standard => self.check_bound_host_arguments(arena, span, arguments, &binding, &instance.signature),
+            ApiArgCheck::PathLikeSingle => {
+                let [argument] = arguments else { panic!("a selected Path-like method retains its single argument") };
+                let actual = self.type_constraints.resolve(&argument.ty).expect("a selected Path-like argument remains in its owning constraints");
+                self.check_checked_path_like_argument(&actual, argument.span);
+            }
+            _ => unreachable!("a host continuation retains its specialized argument checker"),
+        }
         if let Some(key) = instance.invalid_map_key() {
             self.error(span, &format!("unsupported Map key type {key}"), DiagnosticCode::CheckMapKey);
             self.finish_host_method_diagnostics(context, diagnostics_before, deferred_before);
