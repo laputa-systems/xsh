@@ -72,6 +72,11 @@ enum LexicalSlotIdentity {
     Reused,
 }
 
+enum CompletedOptionalRead {
+    WrapperPresence { source: usize, checked: TypeId },
+    RecordValue { actual: Type, expected: Type },
+}
+
 struct ProducerOwner {
     prepared_constant_work: usize,
     work: Rc<RefCell<SchemeInstantiationBudget>>,
@@ -93,7 +98,7 @@ struct ProducerOwner {
     block_statements: BTreeMap<usize, Vec<usize>>,
     block_guards: BTreeMap<usize, Vec<(usize, usize)>>,
     block_can_complete: BTreeMap<usize, bool>,
-    completed_optional_presence: RefCell<BTreeSet<usize>>,
+    completed_optional_reads: RefCell<BTreeMap<usize, CompletedOptionalRead>>,
     completed_union_reads: RefCell<BTreeMap<(usize, TypeId), super::super::LoweredType>>,
     snapshot_predicates: RefCell<BTreeMap<(usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>>>,
     declarations: BTreeMap<usize, Vec<usize>>,
@@ -311,8 +316,73 @@ impl ProducerPrefixContext<'_> {
         Ok(Some(initializer))
     }
 
+    pub(in crate::runtime::eval::indexed::full) fn charge_optional_path(&self, amount: usize) -> Result<(), IrVerifyError> {
+        self.evidence.work.borrow_mut().charge(amount)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn optional_path_is_narrowed(&self, decoder: &FullDecoder<'_>,
+        instruction: usize, target: &(usize, Vec<Name>), payload: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
+            || !self.evidence.range.contains(&instruction) || target.1.len() > 128
+        { return Err(IrVerifyError::new("optional path proof disagrees with its owner range")); }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, charge)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn guarded_record_read_matches_type(&self, decoder: &FullDecoder<'_>,
+        instruction: usize, actual: &Type, expected: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
+            || !self.evidence.range.contains(&instruction)
+        { return Err(IrVerifyError::new("record read proof disagrees with its owner range")); }
+        charge(1)?;
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
+            return Ok(false);
+        }
+        charge(1)?;
+        if let Some(CompletedOptionalRead::RecordValue { actual: stored, expected: proven }) =
+            self.evidence.completed_optional_reads.borrow().get(&instruction)
+        {
+            charge(stored.retained_bytes().div_ceil(size_of::<Type>()))?;
+            if stored == actual {
+                charge(proven.retained_bytes().div_ceil(size_of::<Type>()))?;
+                if proven == expected { return Ok(true); }
+            }
+        }
+        charge(1)?;
+        if !crate::runtime::eval::lower::only_optional_read_narrowing(actual, expected) { return Ok(false); }
+        let Some(target) = decoder.checked_binding_path(instruction, charge)? else { return Ok(false) };
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        let proven = decoder.checked_declared_type_matches_narrowed_fact_with_optional_proof(
+            instruction, target, actual, expected,
+            &mut |target, payload, charge| {
+                if target.1.len() > 128 { return Ok(false); }
+                self.evidence.optional_path_read_is_narrowed(decoder, instruction, target, payload, binding, charge)
+            }, charge)?;
+        if !proven { return Ok(false); }
+        charge(1)?;
+        {
+            let completed = self.evidence.completed_optional_reads.borrow();
+            if completed.len() >= self.evidence.range.len() {
+                charge(1)?;
+                if !completed.contains_key(&instruction) {
+                    return Err(IrVerifyError::new("record read proof exceeds its owner bound"));
+                }
+            }
+        }
+        SchemeInstantiationBudget::charge_clone_with(actual, charge)?;
+        SchemeInstantiationBudget::charge_clone_with(expected, charge)?;
+        let proof = CompletedOptionalRead::RecordValue { actual: actual.clone(), expected: expected.clone() };
+        charge(1)?;
+        self.evidence.completed_optional_reads.borrow_mut().insert(instruction, proof);
+        Ok(true)
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn optional_source_is_narrowed(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
-        checked_id: TypeId, checked: &Type) -> Result<bool, IrVerifyError> {
+        checked_id: TypeId, checked: &Type, target: &(usize, Vec<Name>)) -> Result<bool, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range
             || !self.evidence.range.contains(&instruction) || !self.evidence.range.contains(&source)
         {
@@ -325,8 +395,11 @@ impl ProducerPrefixContext<'_> {
         if check.schema.is_some() || check.ty.id != checked_id || value.raw() as usize != source {
             return Err(IrVerifyError::new("optional presence evidence disagrees with its physical source contract"));
         }
-        self.evidence.work.borrow_mut().charge(1)?;
-        if self.evidence.completed_optional_presence.borrow().contains(&instruction) { return Ok(true); }
+        self.evidence.work.borrow_mut().charge(3)?;
+        if matches!(self.evidence.completed_optional_reads.borrow().get(&instruction),
+            Some(CompletedOptionalRead::WrapperPresence { source: proven_source, checked: proven_checked })
+                if *proven_source == source && *proven_checked == checked_id)
+        { return Ok(true); }
         let narrowed = (|| -> Result<bool, IrVerifyError> {
             if let schema::ExprView::Param(slot) = decoder.expression_view(source)? {
                 let binding = self.evidence.binding(decoder.store, decoder.owner, source, slot)?;
@@ -334,14 +407,14 @@ impl ProducerPrefixContext<'_> {
                     &mut |amount| self.evidence.work.borrow_mut().charge(amount))?
                 { return Ok(true); }
             }
-            let Some(target) = decoder.checked_binding_path(source, &mut |amount| self.evidence.work.borrow_mut().charge(amount))? else { return Ok(false) };
             let binding = self.evidence.binding(decoder.store, decoder.owner, source, target.0)?;
-            self.evidence.optional_path_read_is_narrowed(decoder, source, &target, checked, binding,
+            self.evidence.optional_path_read_is_narrowed(decoder, source, target, checked, binding,
                 &mut |amount| self.evidence.work.borrow_mut().charge(amount))
         })()?;
         if narrowed {
             self.evidence.work.borrow_mut().charge(1)?;
-            self.evidence.completed_optional_presence.borrow_mut().insert(instruction);
+            self.evidence.completed_optional_reads.borrow_mut().insert(instruction,
+                CompletedOptionalRead::WrapperPresence { source, checked: checked_id });
         }
         Ok(narrowed)
     }
@@ -563,7 +636,7 @@ impl ProducerOwner {
                         }
                     }
                 }
-                if !decoder.checked_condition_proves_nonnull(condition, when_true, is_boolean, instruction, target, payload, charge)? { return Ok(false); }
+                if !decoder.checked_condition_proves_nonnull(condition, when_true, is_boolean, instruction, target, payload, stability, charge)? { return Ok(false); }
                 if let Some(key) = key {
                     if self.visible_binding(decoder.store, decoder.owner, condition, target.0)? != Some(binding) { return Ok(false); }
                     charge(1 + target.1.len())?;
@@ -972,7 +1045,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_presence: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -1466,7 +1539,10 @@ impl GroundProducerIndex {
                     + owner.snapshot_predicates.borrow().iter().map(|(_, paths)| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.block_statements.len() * size_of::<(usize, Vec<usize>)>()
                     + owner.block_can_complete.len() * size_of::<(usize, bool)>()
-                    + owner.completed_optional_presence.borrow().len() * size_of::<usize>()
+                    + owner.completed_optional_reads.borrow().values().map(|proof| size_of::<(usize, CompletedOptionalRead)>() + match proof {
+                        CompletedOptionalRead::WrapperPresence { .. } => 0,
+                        CompletedOptionalRead::RecordValue { actual, expected } => actual.retained_bytes().saturating_add(expected.retained_bytes()),
+                    }).sum::<usize>()
                     + owner.completed_union_reads.borrow().len() * size_of::<((usize, TypeId), super::super::LoweredType)>()
                     + owner.block_statements.values().map(|values| values.capacity() * size_of::<usize>()).sum::<usize>()
                     + owner.block_declarations.len() * size_of::<((usize, usize), Vec<(usize, ProducerBinding)>)>()
@@ -2680,8 +2756,13 @@ impl<'a> ProducerProof<'a> {
                 None
             }
             schema::ExprView::Field { base, name, .. } => {
-                if let Some(base) = self.need_context(decoder, base.raw() as usize)? {
-                    match base.unvalidated() {
+                let receiver_instruction = base.raw() as usize;
+                if let Some(base) = self.need_context(decoder, receiver_instruction)? {
+                    let receiver = match base.unvalidated() {
+                        Type::Optional(payload) if self.optional_read_is_narrowed(decoder, receiver_instruction, &base)? => payload.unvalidated(),
+                        receiver => receiver,
+                    };
+                    match receiver {
                         Type::Record(fields) => return Ok(fields.get(&Name::intern(name)).cloned().map(Arc::new)),
                         Type::Module(module) => return Ok(module.exports.get(&Name::intern(name)).and_then(crate::sema::types::ModuleExportType::field_value_type).map(Arc::new)),
                         receiver => return Ok(crate::sema::check::Checker::fixed_field_type(receiver, Name::intern(name)).flatten().map(Arc::new)),
@@ -3731,13 +3812,15 @@ impl<'a> ProducerProof<'a> {
                 && let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)?
                 && value.raw() as usize == instruction && check.schema.is_none()
             { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
-            let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) {
-                match actual.unvalidated() {
+            let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
+                if decoder.checked_guarded_record_read_matches_type(instruction, actual, container, &mut |amount| self.budget.charge(amount))? {
+                    true
+                } else { match actual.unvalidated() {
                     Type::Any | Type::Union(_) => self.declared_read_type(&decoder, instruction, Arc::clone(actual))?.as_ref() == container,
                     Type::Optional(payload) if payload.matches_expected(container)
                         && super::initializer_type_matches_annotation(payload, container, &mut self.budget, 0)? => self.optional_read_is_narrowed(&decoder, instruction, actual)?,
                     _ => false,
-                }
+                } }
             } else { false };
             if !fits && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
@@ -4323,10 +4406,15 @@ impl<'a> ProducerProof<'a> {
                             None => return Err(IrVerifyError::new("checked value input has no producer contract")),
                         };
                         let optional_payload = !runtime_complete && Self::checked_optional_payload_source(&actual, &checked);
-                        if optional_payload && !decoder.producer_prefix.as_ref()
-                            .ok_or_else(|| IrVerifyError::new("checked optional payload has no verified owner prefix"))?
-                            .optional_source_is_narrowed(&decoder, instruction, input, check.ty.id, &checked)?
-                        { return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof")); }
+                        if optional_payload {
+                            let prefix = decoder.producer_prefix.as_ref()
+                                .ok_or_else(|| IrVerifyError::new("checked optional payload has no verified owner prefix"))?;
+                            let target = decoder.checked_binding_path(input, &mut |amount| prefix.charge_optional_path(amount))?
+                                .ok_or_else(|| IrVerifyError::new("checked optional field receiver has no non-null branch proof"))?;
+                            if !prefix.optional_source_is_narrowed(&decoder, instruction, input, check.ty.id, &checked, &target)? {
+                                return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof"));
+                            }
+                        }
                         if !optional_payload && !self.checked_record_field_fits(&decoder, input, &actual, &checked)? {
                             return Err(IrVerifyError::new("checked value input disagrees with its contract"));
                         }

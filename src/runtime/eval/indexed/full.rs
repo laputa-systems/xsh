@@ -6078,6 +6078,7 @@ impl InstructionParentContext<'_> {
         }
         Ok(statement)
     }
+
 }
 
 enum WithErrorSource { Initializer(usize), Propagation(usize) }
@@ -9153,6 +9154,15 @@ impl<'a> FullDecoder<'a> {
             .expression_checked_type_id(instruction)?
             .map(|type_id| self.store.semantic.to_type(type_id))
             .transpose()?;
+        if let Some(actual) = &actual_type {
+            let mut charge = |amount| match &self.producer_prefix {
+                Some(prefix) => prefix.charge_optional_path(amount),
+                None => Ok(()),
+            };
+            if self.checked_guarded_record_read_matches_type(instruction, actual, expected, &mut charge)? {
+                return Ok(());
+            }
+        }
         if (expected.contains_typed_callable()
             || actual_type
                 .as_ref()
@@ -9574,6 +9584,33 @@ impl<'a> FullDecoder<'a> {
                 ))
             }
         }
+    }
+
+    fn checked_guarded_record_read_matches_type(
+        &self,
+        instruction: usize,
+        actual: &Type,
+        expected: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if !matches!(expected, Type::Record(_)) || actual == expected { return Ok(false); }
+        let mut stored = actual;
+        while let Type::Optional(payload) = stored {
+            charge(1)?;
+            stored = payload;
+        }
+        if !matches!(stored, Type::Record(_)) || actual.contains_any()
+            || actual.contains_inference() || actual.contains_recovery()
+        { return Ok(false); }
+        if let Some(prefix) = &self.producer_prefix {
+            return prefix.guarded_record_read_matches_type(self, instruction, actual, expected, charge);
+        }
+        charge(1)?;
+        if !super::super::lower::only_optional_read_narrowing(actual, expected)
+            || !matches!(self.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. })
+        { return Ok(false); }
+        let Some(binding) = self.checked_binding_path(instruction, charge)? else { return Ok(false) };
+        self.checked_declared_type_matches_narrowed_fact_with(instruction, binding, actual, expected, charge)
     }
 
     fn checked_type_fits(&self, actual: &Type, expected: &Type) -> bool {
@@ -12127,15 +12164,49 @@ impl<'a> FullDecoder<'a> {
         self.derive_checked_expression_type(base.raw() as usize)
     }
 
+    fn checked_physical_field_type(
+        &self,
+        instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        if !matches!(self.expression_view(instruction)?, schema::ExprView::Field { .. }) { return Ok(None); }
+        let Some(receiver) = self.checked_field_receiver_type(instruction)? else { return Ok(None) };
+        if !matches!(&receiver, Type::Record(_)) || receiver.contains_any()
+            || receiver.contains_inference() || receiver.contains_recovery()
+        { return Ok(None); }
+        charge(1)?;
+        self.derive_checked_field_type(instruction).map(Some)
+    }
+
     fn checked_binding_path(
+        &self,
+        instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        let mut visited = BTreeSet::new();
+        let mut remaining = self.instruction_range.len().min(257);
+        self.checked_binding_path_with(instruction, charge, &mut visited, &mut remaining)
+    }
+
+    fn checked_binding_path_with(
         &self,
         mut instruction: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+        visited: &mut BTreeSet<usize>,
+        remaining: &mut usize,
     ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
         charge(1)?;
         let mut fields = Vec::new();
         loop {
-        charge(1)?;
+            charge(2)?;
+            if *remaining == 0 { return Ok(None); }
+            *remaining -= 1;
+            if !self.instruction_range.contains(&instruction) {
+                return Err(IrVerifyError::new("checked binding path leaves its owner instruction range"));
+            }
+            if !visited.insert(instruction) {
+                return Err(IrVerifyError::new("checked binding path is cyclic"));
+            }
             match self.expression_view(instruction)? {
                 schema::ExprView::Param(slot) => {
                     charge(fields.len())?;
@@ -12143,8 +12214,22 @@ impl<'a> FullDecoder<'a> {
                     return Ok(Some((slot, fields)));
                 }
                 schema::ExprView::Field { base, name, .. } if fields.len() < 128 => {
+                    charge(1)?;
                     fields.push(Name::intern(name));
                     instruction = base.raw() as usize;
+                }
+                schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => {
+                    let source = value.raw() as usize;
+                    let Some(binding) = self.checked_binding_path_with(source, charge, visited, remaining)? else { return Ok(None) };
+                    let checked = check.ty.materialize()?;
+                    if self.checked_value_optional_source_for_binding(instruction, source, check.ty.id, &checked, &binding, charge)?.is_none() {
+                        return Ok(None);
+                    }
+                    if binding.1.len() + fields.len() > 128 { return Ok(None); }
+                    charge(fields.len())?;
+                    let mut path = binding.1;
+                    path.extend(fields.into_iter().rev());
+                    return Ok(Some((binding.0, path)));
                 }
                 _ => return Ok(None),
             }
@@ -12181,14 +12266,11 @@ impl<'a> FullDecoder<'a> {
                 let payload = self.store.semantic.to_type(payload_id)?;
                 charge(prefix.len())?;
                 let prefix_binding = (binding.0, prefix.clone());
-                if !self.checked_binding_path_is_narrowed(
-                    use_site,
-                    &prefix_binding,
-                    &payload,
-                    charge,
-                )? {
-                    return Ok(None);
-                }
+                let narrowed = match &self.producer_prefix {
+                    Some(context) => context.optional_path_is_narrowed(self, use_site, &prefix_binding, &payload, charge)?,
+                    None => self.checked_binding_path_is_narrowed(use_site, &prefix_binding, &payload, charge)?,
+                };
+                if !narrowed { return Ok(None); }
                 type_id = payload_id;
             }
             let Some(next) = self.store.semantic.field_type(type_id, *field)? else {
@@ -12880,10 +12962,11 @@ impl<'a> FullDecoder<'a> {
         is_boolean: bool,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        stability: GuardPathStability,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
-        let preserves_after_left = if is_boolean {
+        let preserves_after_left = if is_boolean || matches!(stability, GuardPathStability::ImmutableSnapshot) {
             true
         } else {
             self.checked_expression_preserves_binding_path(right, target, charge)?
@@ -12896,6 +12979,7 @@ impl<'a> FullDecoder<'a> {
                 use_site,
                 target,
                 expected_payload,
+                stability,
                 charge,
             )
         };
@@ -13037,6 +13121,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
+        stability: GuardPathStability,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
@@ -13052,7 +13137,7 @@ impl<'a> FullDecoder<'a> {
                 schema::BoolView::Slot(slot) => {
                     let Some(prefix) = &self.producer_prefix else { return Ok(false) };
                     let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-                    self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge)
+                    self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, stability, charge)
                 }
                 schema::BoolView::Not(value) => self.checked_condition_proves_nonnull(
                     value.raw() as usize,
@@ -13061,6 +13146,7 @@ impl<'a> FullDecoder<'a> {
                     use_site,
                     target,
                     expected_payload,
+                    stability,
                     charge,
                 ),
                 schema::BoolView::And(left, right) => self
@@ -13073,6 +13159,7 @@ impl<'a> FullDecoder<'a> {
                         true,
                         target,
                         expected_payload,
+                        stability,
                         charge,
                     ),
                 schema::BoolView::Or(left, right) => self
@@ -13085,6 +13172,7 @@ impl<'a> FullDecoder<'a> {
                         true,
                         target,
                         expected_payload,
+                        stability,
                         charge,
                     ),
                 schema::BoolView::LiteralCompareSlot { op, slot, value }
@@ -13119,12 +13207,12 @@ impl<'a> FullDecoder<'a> {
             else { return Ok(false) };
             if yes == no { return Ok(false); }
             return self.checked_condition_proves_nonnull(nested.raw() as usize, when_true == yes, false,
-                use_site, target, expected_payload, charge);
+                use_site, target, expected_payload, stability, charge);
         }
         if let schema::ExprView::Param(slot) = self.expression_view(condition)? {
             let Some(prefix) = &self.producer_prefix else { return Ok(false) };
             let Some((initializer, boolean)) = prefix.snapshot_condition_initializer(self, condition, slot, use_site, target, charge)? else { return Ok(false) };
-            return self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, charge);
+            return self.checked_condition_proves_nonnull(initializer, when_true, boolean, use_site, target, expected_payload, stability, charge);
         }
         let schema::ExprView::Binary {
             op,
@@ -13154,9 +13242,11 @@ impl<'a> FullDecoder<'a> {
                 if self.checked_binding_path(subject, charge)?.as_ref() != Some(target) {
                     return Ok(false);
                 }
-                let Some(subject_type) = self.checked_binding_path_type(use_site, target, charge)? else {
-                    return Ok(false);
+                let subject_type = match self.checked_physical_field_type(subject, charge)? {
+                    Some(ty) => Some(ty),
+                    None => self.checked_binding_path_type(use_site, target, charge)?,
                 };
+                let Some(subject_type) = subject_type else { return Ok(false) };
                 let Type::Optional(payload) = subject_type.into_unvalidated() else {
                     return Ok(false);
                 };
@@ -13172,6 +13262,7 @@ impl<'a> FullDecoder<'a> {
                 false,
                 target,
                 expected_payload,
+                stability,
                 charge,
             ),
             _ => Ok(false),
@@ -13191,9 +13282,22 @@ impl<'a> FullDecoder<'a> {
     fn checked_declared_type_matches_narrowed_fact_with(
         &self,
         instruction: usize,
+        binding: (usize, Vec<Name>),
+        declared: &Type,
+        checked: &Type,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        self.checked_declared_type_matches_narrowed_fact_with_optional_proof(instruction, binding, declared, checked,
+            &mut |binding, payload, charge| self.checked_binding_path_is_narrowed(instruction, binding, payload, charge), charge)
+    }
+
+    fn checked_declared_type_matches_narrowed_fact_with_optional_proof(
+        &self,
+        instruction: usize,
         mut binding: (usize, Vec<Name>),
         declared: &Type,
         checked: &Type,
+        prove_optional: &mut dyn FnMut(&(usize, Vec<Name>), &Type, &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError>,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
@@ -13210,11 +13314,12 @@ impl<'a> FullDecoder<'a> {
                     };
                     binding.1.push(*field);
                     charge(binding.1.len())?;
-                    let matches = self.checked_declared_type_matches_narrowed_fact_with(
+                    let matches = self.checked_declared_type_matches_narrowed_fact_with_optional_proof(
                         instruction,
                         binding.clone(),
                         declared_field,
                         checked_field,
+                        prove_optional,
                         charge,
                     )?;
                     binding.1.pop();
@@ -13225,14 +13330,15 @@ impl<'a> FullDecoder<'a> {
                 Ok(true)
             }
             (Type::Optional(payload), checked) => {
-                if !self.checked_binding_path_is_narrowed(instruction, &binding, payload, charge)? {
+                if !prove_optional(&binding, payload, charge)? {
                     return Ok(false);
                 }
-                self.checked_declared_type_matches_narrowed_fact_with(
+                self.checked_declared_type_matches_narrowed_fact_with_optional_proof(
                     instruction,
                     binding,
                     payload,
                     checked,
+                    prove_optional,
                     charge,
                 )
             }
@@ -13241,18 +13347,45 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_value_optional_source(&self, instruction: usize, source: usize, checked_id: TypeId, checked: &Type) -> Result<Option<Type>, IrVerifyError> {
-        let binding = self.checked_binding_path(source, &mut |_| Ok(()))?;
-        let actual = match self.derive_checked_expression_type(source)? {
-            Some(actual) => Some(actual),
-            None => match &binding { Some(binding) => self.checked_binding_path_type(instruction, binding, &mut |_| Ok(()))?, None => None },
+        let mut charge = |amount| match &self.producer_prefix {
+            Some(prefix) => prefix.charge_optional_path(amount),
+            None => Ok(()),
+        };
+        let binding = self.checked_binding_path(source, &mut charge)?;
+        if let Some(binding) = binding {
+            return self.checked_value_optional_source_for_binding(instruction, source, checked_id, checked, &binding, &mut charge);
+        }
+        let Some(actual) = self.derive_checked_expression_type(source)? else { return Ok(None) };
+        let Type::Optional(payload) = &actual else { return Ok(None) };
+        if payload.as_ref() != checked { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
+        Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof"))
+    }
+
+    fn checked_value_optional_source_for_binding(
+        &self,
+        instruction: usize,
+        source: usize,
+        checked_id: TypeId,
+        checked: &Type,
+        binding: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        charge(1)?;
+        let source_type = match self.checked_physical_field_type(source, charge)? {
+            Some(ty) => Some(ty),
+            None => self.derive_checked_expression_type(source)?,
+        };
+        let actual = match source_type {
+            Some(actual @ Type::Optional(_)) => Some(actual),
+            _ => self.checked_binding_path_type(instruction, binding, charge)?,
         };
         let Some(actual) = actual else { return Ok(None) };
         let Type::Optional(payload) = &actual else { return Ok(None) };
+        charge(1)?;
         if payload.as_ref() != checked { return Err(IrVerifyError::new("checked callable payload differs from its optional source")); }
-        let Some(binding) = binding else { return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof")) };
         let narrowed = match &self.producer_prefix {
-            Some(prefix) => prefix.optional_source_is_narrowed(self, instruction, source, checked_id, checked)?,
-            None => self.checked_binding_path_is_narrowed(instruction, &binding, payload, &mut |_| Ok(()))?,
+            Some(prefix) => prefix.optional_source_is_narrowed(self, instruction, source, checked_id, checked, binding)?,
+            None => self.checked_binding_path_is_narrowed(instruction, binding, payload, charge)?,
         };
         if !narrowed {
             return Err(IrVerifyError::new("checked optional field receiver has no non-null branch proof"));
@@ -13338,6 +13471,7 @@ impl<'a> FullDecoder<'a> {
                 field_instruction,
                 target,
                 expected_payload,
+                stability,
                 charge,
             )?
             && preserves(parent, &[right], charge)?
@@ -13361,6 +13495,7 @@ impl<'a> FullDecoder<'a> {
                     field_instruction,
                     target,
                     expected_payload,
+                    stability,
                     charge,
                 )? && preserves(parent, &body_roots, charge)? {
                     return Ok(true);
@@ -29738,23 +29873,31 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
                 .iter()
                 .filter_map(|fact| fact.ty()),
         );
-        let append_map = |program: &mut FullProgram, first: SchemeTypeId, second: SchemeTypeId| {
+        let mut field_names = [program.store.functions[identity].name, program.store.params[program.store.functions[identity].params.start as usize].name];
+        field_names.sort_by(|left, right| program.store.string(*left).unwrap().cmp(program.store.string(*right).unwrap()));
+        assert_ne!(field_names[0], field_names[1]);
+        let append_record = |program: &mut FullProgram, first: SchemeTypeId, second: SchemeTypeId| {
+            let fields = program.store.scheme_fields.len();
+            program.store.scheme_fields.extend([
+                schemes::FullSchemeField { name: field_names[0], ty: first },
+                schemes::FullSchemeField { name: field_names[1], ty: second },
+            ]);
             let id = SchemeTypeId::new(program.store.scheme_types.len()).unwrap();
             program.store.scheme_types.push(schemes::FullSchemeTypeNode {
-                first: first.raw(),
-                second: second.raw(),
-                children: IrRange::new(0, 0),
-                tag: schema::FullSchemeTypeTag::Map,
+                first: IR_NONE,
+                second: 0,
+                children: IrRange::new(fields as u32, 2),
+                tag: schema::FullSchemeTypeTag::Record,
                 reserved: [0; 3],
             });
             id
         };
         let mut root = original_roots[0];
         for child in original_roots.iter().copied().skip(1) {
-            root = append_map(&mut program, root, child);
+            root = append_record(&mut program, root, child);
         }
         for _ in 0..48 {
-            root = append_map(&mut program, root, root);
+            root = append_record(&mut program, root, root);
         }
         for param in &mut program.store.scheme_params[parameter_range] {
             param.ty = root;
@@ -41061,7 +41204,18 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
 }
 "#,
         );
+        let _symbols = program.symbol_owner().enter();
         FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "apply_nested");
+        let decoder = function_view_decoder(&program.store, owner);
+        let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+        let (_, container, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+        for instruction in function_instruction_indices(&program, "apply_nested", FullTag::ExprParam) {
+            if matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0))) {
+                assert_eq!(decoder.checked_expression_type_id(instruction).unwrap(), Some(container),
+                    "physical reads retain the complete stored Container contract");
+            }
+        }
         assert_eq!(
             function_instruction_indices(&program, "apply_nested", FullTag::ExprTypedCall).len(),
             1,
@@ -41082,6 +41236,41 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
             })
             .collect::<Vec<_>>();
         assert_eq!(comparisons.len(), 2, "both path prefixes have null guards");
+        let typed_call = function_instruction_indices(&program, "apply_nested", FullTag::ExprTypedCall)[0];
+        let schema::ExprView::TypedCall { callee, .. } = decoder.expression_view(typed_call).unwrap() else { unreachable!() };
+        let callee = callee.raw() as usize;
+        let schema::ExprView::Field { base: holder_read, .. } = decoder.expression_view(callee).unwrap() else { unreachable!() };
+        let schema::ExprView::Field { base: inner_read, .. } = decoder.expression_view(holder_read.raw() as usize).unwrap() else { unreachable!() };
+        assert!(matches!(decoder.expression_view(inner_read.raw() as usize).unwrap(), schema::ExprView::Field { name: "inner", .. }),
+            "the body retains the stored intermediate field read");
+        let Some(Type::Optional(inner)) = decoder.derive_checked_expression_type(inner_read.raw() as usize).unwrap() else { unreachable!() };
+        let Type::Record(inner_fields) = inner.as_ref() else { unreachable!() };
+        assert!(matches!(inner_fields.get(&Name::intern("holder")), Some(Type::Optional(_))),
+            "the intermediate field retains both optional boundaries");
+        assert_eq!(decoder.derive_checked_expression_type(holder_read.raw() as usize).unwrap().as_ref(),
+            inner_fields.get(&Name::intern("holder")), "the later field retains its stored optional type");
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(&program.store);
+        assert!(budget.charge(689).is_err(), "the unchanged fixture stays within its original work bound");
+
+        let mut wrong_call_type = program.clone();
+        let mut semantic = SemanticPoolBuilder::default();
+        let wrong_type = semantic.intern_type(&mut wrong_call_type.store.semantic, &Type::Bool).unwrap();
+        let signature = wrong_call_type.store.data[typed_call].range().start as usize + 2;
+        wrong_call_type.store.extra[signature] = wrong_type.raw();
+        assert!(FullVerifier::verify(&wrong_call_type).is_err());
+
+        let mut missing_call_type = program.clone();
+        let signature = missing_call_type.store.data[typed_call].range().start as usize + 2;
+        missing_call_type.store.extra[signature] = IR_NONE;
+        assert!(FullVerifier::verify(&missing_call_type).is_err());
+
+        let mut cyclic_read = program.clone();
+        let receiver = cyclic_read.store.data[callee].range().start as usize;
+        cyclic_read.store.extra[receiver] = callee as u32;
+        let cyclic_decoder = function_view_decoder(&cyclic_read.store, owner);
+        let error = cyclic_decoder.checked_binding_path(callee, &mut |_| Ok(())).unwrap_err();
+        assert!(error.message.contains("cyclic"), "{error:?}");
+
         for comparison in comparisons {
             let mut malformed = program.clone();
             let op = malformed.store.extra
@@ -41118,6 +41307,45 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
             .expect("the nested callable read belongs to the guarded body");
         statements.swap(assignment_position, call_position);
         assert!(FullVerifier::verify(&malformed).is_err());
+    }
+
+    #[test]
+    fn typed_callable_optional_record_fields_keep_guarded_value_transfers() {
+        for source in [r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Container = {holder: Holder?}
+pure select(container: Container, fallback: Holder) -> Holder {
+  return if container.holder != null { container.holder } else { fallback }
+}
+pure apply(container: Container, fallback: Holder) -> Int {
+  select(container, fallback).callback(1)
+}
+"#, r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type StoredHolder = {callback: Scale, extra: Int}
+type Container = {holder: StoredHolder?}
+pure consume(value: Holder) -> Holder { value }
+pure select(container: Container, fallback: Holder) -> Holder {
+  return if container.holder != null { consume(container.holder) } else { fallback }
+}
+pure apply(container: Container, fallback: Holder) -> Int {
+  select(container, fallback).callback(1)
+}
+"#, r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Inner = {holder: Holder?}
+type RequiredInner = {holder: Holder}
+type Outer = {inner: Inner?}
+pure select(container: Outer, fallback: RequiredInner) -> RequiredInner {
+  return if container.inner != null and container.inner.holder != null { container.inner } else { fallback }
+}
+pure apply(container: Outer, fallback: RequiredInner) -> Int {
+  select(container, fallback).holder.callback(1)
+}
+"#] {
+            let program = fixture("optional-record-field-value-transfer.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+        }
     }
 
     #[test]
@@ -41251,7 +41479,8 @@ assert shared == null
         let mut readonly_reader = (*program).clone();
         readonly_reader.store.captures[reader_index].slot_and_flags &= !(1 << 31);
         let error = FullVerifier::verify(&readonly_reader).expect_err("reader flags must match actual shared storage");
-        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type"), "{error:?}");
+        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type")
+            || error.message == "checked optional field receiver has no non-null branch proof", "{error:?}");
         let decoder = function_view_decoder(&program.store, owner);
         let call = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Call { function, .. }) if function.id.index() == clear)).unwrap();
         let body = first_if_body_block(&program, "apply");
@@ -41272,7 +41501,8 @@ assert shared == null
         malformed.store.captures[reader_capture].slot_and_flags &= !(1 << 31);
         assert!(malformed.store.captures[captures(clear)].iter().any(|capture| capture.binding_identity == apply_capture.binding_identity && capture.slot_and_flags & (1 << 31) != 0));
         let error = FullVerifier::verify(&malformed).unwrap_err();
-        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type"), "{error:?}");
+        assert!(error.message.contains("capture mutability differs from its defining storage") || error.message.contains("checked callable expression slot disagrees with its expected type")
+            || error.message == "checked optional field receiver has no non-null branch proof", "{error:?}");
     }
 
     #[test]
@@ -41640,6 +41870,10 @@ pure apply_nonoptional(holder: Holder) -> Int {
             .semantic
             .to_type(program.store.checked_expr_types[receiver_fact].type_id)
             .unwrap();
+        let receiver_type = match receiver_type {
+            Type::Optional(payload) => *payload,
+            receiver => receiver,
+        };
         let stronger_type = Type::Validated(Box::new(
             crate::sema::validated::ValidatedType::new(
                 crate::sema::validated::Validation::Nominal(program_name(&program, "OtherHolder")),
@@ -41703,8 +41937,9 @@ pure apply_nested(container: Container, n: Int) -> Int {
         };
         let (_, declared_type, _) = program.store.semantic.signature_param(signature, 0).unwrap();
         let declared_type = program.store.semantic.to_type(declared_type).unwrap();
-        let narrowed_fact = function_instruction_indices(&program, "apply_nested", FullTag::ExprParam)
+        let parameter_fact = function_instruction_indices(&program, "apply_nested", FullTag::ExprParam)
             .into_iter()
+            .rev()
             .filter(|instruction| {
                 program
                     .store
@@ -41718,22 +41953,21 @@ pure apply_nested(container: Container, n: Int) -> Int {
                     .binary_search_by_key(&(instruction as u32), |fact| fact.instruction)
                     .ok()?;
                 (program.store.semantic.to_type(program.store.checked_expr_types[fact].type_id).ok()?
-                    != declared_type)
+                    == declared_type)
                     .then_some(fact)
             })
-            .expect("the guarded body has a narrowed Container parameter fact");
-        let narrowed_type = program
+            .expect("the guarded body retains its stored Container parameter fact");
+        let stored_type = program
             .store
             .semantic
-            .to_type(program.store.checked_expr_types[narrowed_fact].type_id)
+            .to_type(program.store.checked_expr_types[parameter_fact].type_id)
             .unwrap();
-        let Type::Record(fields) = narrowed_type else {
-            panic!("narrowed path fact is a record")
+        let Type::Record(fields) = stored_type else {
+            panic!("stored parameter fact is a record")
         };
         let (&holder_name, holder_type) = fields.iter().next().expect("Container has holder");
-        let Type::Record(holder_fields) = holder_type else {
-            panic!("guarded holder field is a record")
-        };
+        let Type::Optional(holder) = holder_type else { panic!("stored holder field remains optional") };
+        let Type::Record(holder_fields) = holder.as_ref() else { panic!("holder payload is a record") };
         let (&callback_name, _) = holder_fields.iter().next().expect("Holder has callback");
         let mut forged_holder_fields = holder_fields.as_ref().clone();
         forged_holder_fields.insert(callback_name, Type::Int);
@@ -41743,7 +41977,7 @@ pure apply_nested(container: Container, n: Int) -> Int {
 
         let mut forged = program.clone();
         let mut semantic = SemanticPoolBuilder::default();
-        forged.store.checked_expr_types[narrowed_fact].type_id = semantic
+        forged.store.checked_expr_types[parameter_fact].type_id = semantic
             .intern_type(&mut forged.store.semantic, &forged_type)
             .unwrap();
         assert!(FullVerifier::verify(&forged).is_err());

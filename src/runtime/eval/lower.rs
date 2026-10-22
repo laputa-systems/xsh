@@ -68,6 +68,23 @@ pub(super) struct SlotScope {
     high_water: usize,
 }
 
+enum PhysicalReadContract<'a> {
+    Stored(&'a Type),
+    OptionalPayload(&'a Type),
+}
+
+pub(super) fn only_optional_read_narrowing(stored: &Type, checked: &Type) -> bool {
+    if stored == checked { return true; }
+    match (stored, checked) {
+        (Type::Optional(stored), Type::Optional(checked)) => only_optional_read_narrowing(stored, checked),
+        (Type::Optional(payload), checked) => only_optional_read_narrowing(payload, checked),
+        (Type::Record(stored), Type::Record(checked)) if stored.len() == checked.len() => {
+            stored.iter().all(|(name, stored)| checked.get(name).is_some_and(|checked| only_optional_read_narrowing(stored, checked)))
+        }
+        _ => false,
+    }
+}
+
 /// Runtime layout snapshot on entering a nested block.
 pub(super) struct SlotSnapshot {
     declared_len: usize,
@@ -6878,7 +6895,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let lowered = self.lower_expr(id, slots, current_function, item_slot)?;
         let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Needed
-            && let Some(ty) = self.bodies.expr_types.get(&id).cloned()
+            && let Some(ty) = self.lowered_expression_contract(id, lowered, slots)
             && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery())
             && !self.scratch.borrow_mut().record_producer_context(lowered, self.canonicalize_checked_type(ty))
         {
@@ -6887,7 +6904,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    fn record_lowered_producer_inputs(&mut self, id: ExprId, lowered: BuildExprId) -> Option<()> {
+    fn record_lowered_producer_inputs(&mut self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<()> {
         let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Absent { return Some(()); }
         let source = match self.program.arena.expr(id).kind {
@@ -6910,7 +6927,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             BuildExprRow::ResultFallback { left, .. } => Some(*left),
             _ => None,
         };
-        if let Some(input) = input && let Some(ty) = self.bodies.expr_types.get(&source).cloned() && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()) {
+        if let Some(input) = input && let Some(ty) = self.lowered_expression_contract(source, input, slots) && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()) {
             let ty = self.canonicalize_checked_type(ty);
             if !self.scratch.borrow_mut().record_producer_context(input, ty) { return None; }
         }
@@ -6933,10 +6950,42 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    fn storage_read_contract<'t>(&self, id: ExprId, slots: &'t SlotScope) -> Option<PhysicalReadContract<'t>> {
+        if !matches!(self.program.arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) { return None; }
+        let stored = self.stored_expression_type(id, slots)?;
+        let checked = self.canonicalize_checked_type(self.bodies.expr_types.get(&id)?.clone());
+        if checked == Type::Any || checked.contains_inference() || checked.contains_recovery() { return None; }
+        if let Type::Optional(payload) = stored
+            && payload.as_ref() == &checked
+        {
+            return Some(if matches!(payload.as_ref(), Type::Record(_))
+                && !payload.contains_any() && !payload.contains_inference() && !payload.contains_recovery()
+            { PhysicalReadContract::Stored(stored) } else { PhysicalReadContract::OptionalPayload(payload) });
+        }
+        if stored.contains_inference() || stored.contains_recovery() || stored.contains_any()
+            || !only_optional_read_narrowing(stored, &checked)
+        { return None; }
+        Some(PhysicalReadContract::Stored(stored))
+    }
+
+    fn lowered_expression_contract(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<Type> {
+        if let Some(contract) = self.storage_read_contract(id, slots) {
+            let scratch = self.scratch.borrow();
+            match (contract, scratch.expressions.get(lowered.index())?) {
+                (PhysicalReadContract::Stored(stored), BuildExprRow::Param(slot)) if self.source_slot(id, slots) == Some(*slot) => return Some(stored.clone()),
+                (PhysicalReadContract::Stored(stored), BuildExprRow::Field { name, .. })
+                    if matches!(self.program.arena.expr(id).kind, ArenaExprKind::Field { name: source, .. } if source.as_str() == *name) => return Some(stored.clone()),
+                (_, BuildExprRow::CheckedValue { check, .. }) => return Some(check.ty.clone()),
+                _ => {}
+            }
+        }
+        self.bodies.expr_types.get(&id).cloned()
+    }
+
     fn narrowed_optional_payload_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
-        let Type::Optional(payload) = self.stored_expression_type(id, slots)? else { return None };
-        let narrowed = self.bodies.expr_types.get(&id)?;
-        (payload.as_ref() == narrowed && *narrowed != Type::Any && !narrowed.contains_inference() && !narrowed.contains_recovery()).then(|| LoweredTypeCheck { ty: narrowed.clone(), name: Arc::from(narrowed.to_string()), schema: None })
+        let PhysicalReadContract::OptionalPayload(payload) = self.storage_read_contract(id, slots)? else { return None };
+        let ty = self.canonicalize_checked_type(payload.clone());
+        Some(LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None })
     }
 
     fn lower_expr_attempt(
@@ -6949,7 +6998,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let uses_postfix_receiver = slots.postfix_receivers.contains_key(&id);
         let lowered_result = self.lower_expr_untyped(id, slots, current_function, item_slot);
         let lowered = lowered_result?;
-        self.record_lowered_producer_inputs(id, lowered)?;
+        self.record_lowered_producer_inputs(id, lowered, slots)?;
         let with_error_source = self.with_error_source_exprs.contains_key(&id);
         let checked_uint_literal = self.bodies.expr_types.get(&id).is_some_and(|ty| {
             ty == &Type::UInt
@@ -6961,14 +7010,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let checked_result_constructor = self.bodies.checked_control_flow.result_constructors
             .get(&self.program.arena.expr(id).span).copied();
         let Some(ty) = self
-            .bodies
-            .expr_types
-            .get(&id)
+            .lowered_expression_contract(id, lowered, slots)
             .filter(|ty| {
                 ty.contains_typed_callable() || matches!(ty, Type::Stream(_) | Type::Result(_, _) | Type::Optional(_)) && super::stream_return_item(ty).is_some() || with_error_source || checked_uint_literal
                     || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
             })
-            .cloned()
         else {
             return Some(lowered);
         };

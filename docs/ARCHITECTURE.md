@@ -332,6 +332,8 @@ Presence queries retain the exact binding and field path through ordered guards.
 They check later fallthrough conditions, completing branches, intervening writes,
 and earlier expression operands in execution order. Immutable snapshot aliases
 can name an actual null predicate without authorizing shared mutable roots.
+Composite predicates retain that snapshot authority. Mutable paths require the
+same ordered preservation checks inside each condition.
 Completed positive predicates belong to one owner, block, guard branch, binding,
 path, and outcome. Reuse retains guard selection, source, writer, and payload proofs.
 
@@ -341,7 +343,16 @@ wrappers before applying runtime validation. Matching record fields can defer
 nonnominal predicates to that gate without changing stored collection variance.
 Typed callable signatures and nominal payloads retain independent producer proof.
 The exact optional-payload carrier preserves the original optional producer for
-those incomplete runtime checks. Matching fresh collection and comprehension
+those incomplete runtime checks. Closed storage-backed parameter and field reads
+retain the stored declaration type when flow checking removes only optional
+layers. Closed record reads retain their stored optional type. Field projection
+proves that an optional receiver is non-null before reading its payload.
+A value consumer that needs a stronger record proves each removed optional layer
+at the actual binding path, including intervening writes.
+Other exact optional-payload reads retain their checked gate, including callable,
+nominal, and validated payloads.
+Checked expression facts and producer contexts use the same physical read contract.
+Guard proofs authenticate each carrier's original binding and field path. Matching fresh collection and comprehension
 inputs retain all element, spread, iterable, filter, and body proofs under the
 actual checked gate. Every comprehension target proves its record nodes and
 selected fields from the actual iterable item, including empty and unused targets. A fresh list receiver can obtain a set element contract only

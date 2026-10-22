@@ -111,9 +111,13 @@ impl SchemeInstantiationBudget {
     }
 
     fn charge_clone(&mut self, ty: &Type) -> Result<(), IrVerifyError> {
+        Self::charge_clone_with(ty, &mut |amount| self.charge(amount))
+    }
+
+    fn charge_clone_with(ty: &Type, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>) -> Result<(), IrVerifyError> {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
-            self.charge(1)?;
+            charge(1)?;
             match ty {
                 Type::List(inner)
                 | Type::Stream(inner)
