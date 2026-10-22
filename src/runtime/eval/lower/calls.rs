@@ -803,7 +803,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if runtime_module
                     && let Some(Type::Module(exports)) = self.checked_expr_type(base)
                     && let Some(
-                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. },
+                        ModuleExportType::Callable { sig, .. },
                     ) = exports.get(&name)
                 {
                     let params = sig.params.clone();

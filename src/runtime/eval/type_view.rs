@@ -343,33 +343,34 @@ impl<'a> ValueView<'a> {
 #[derive(Clone, Copy)]
 pub(super) enum RetainedValueContract<'a> {
     Callable(CallableContractView<'a>),
+    GenericCallable(crate::sema::types::CallableKind),
     Stream(&'a Type),
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum CallableContractView<'a> {
     Value(&'a crate::sema::types::TypedCallable),
-    PureExport(&'a crate::sema::types::CallableType),
-    ProcExport(&'a crate::sema::types::CallableType),
+    Export { kind: crate::sema::types::CallableKind, sig: &'a crate::sema::types::CallableType },
 }
 
 impl CallableContractView<'_> {
     pub(super) fn kind(self) -> crate::sema::types::CallableKind {
-        match self { Self::Value(callable) => callable.kind, Self::PureExport(_) => crate::sema::types::CallableKind::Pure, Self::ProcExport(_) => crate::sema::types::CallableKind::Proc }
+        match self { Self::Value(callable) => callable.kind, Self::Export { kind, .. } => kind }
     }
 
     pub(super) fn accepts(self, actual: &crate::sema::types::TypedCallable) -> bool {
         if self.kind() != actual.kind { return false; }
         match self {
             Self::Value(expected) => expected.mismatch(actual.kind, &actual.sig, true).is_none(),
-            Self::PureExport(expected) | Self::ProcExport(expected) => super::module_contract::signature_mismatch(&actual.sig, expected).is_none(),
+            Self::Export { sig: expected, .. } => super::module_contract::signature_mismatch(&actual.sig, expected).is_none(),
         }
     }
 }
 
 pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool {
     value_matches_type_with_contracts(value, ty, &mut |value, contract| match contract {
-        RetainedValueContract::Callable(callable) => value.scalar_type() == Some(Type::Function(callable.kind())),
+        RetainedValueContract::Callable(callable) => callable.kind() != crate::sema::types::CallableKind::Stream && value.scalar_type() == Some(Type::Function(callable.kind())),
+        RetainedValueContract::GenericCallable(_) => false,
         RetainedValueContract::Stream(_) => value.stream().is_some(),
     })
 }
@@ -412,9 +413,8 @@ pub(super) fn value_matches_type_with_contracts(
                     present += 1;
                     match export {
                         ModuleExportType::Value { ty, .. } => value_matches_type_with_contracts(field, ty, accepts_contract),
-                        ModuleExportType::Proc { sig, .. } => accepts_contract(field, RetainedValueContract::Callable(CallableContractView::ProcExport(sig))),
-                        ModuleExportType::Pure { sig, .. } => accepts_contract(field, RetainedValueContract::Callable(CallableContractView::PureExport(sig))),
-                        export @ ModuleExportType::GenericCallable { .. } => export.field_type().is_some_and(|ty| field.scalar_type() == Some(ty)),
+                        ModuleExportType::Callable { kind, sig, .. } => accepts_contract(field, RetainedValueContract::Callable(CallableContractView::Export { kind: *kind, sig })),
+                        ModuleExportType::GenericCallable { kind, .. } => accepts_contract(field, RetainedValueContract::GenericCallable(*kind)),
                     }
                 }
                 None => export.optional(),

@@ -484,6 +484,16 @@ The semantic codec retains the kind for opaque and typed callables and rejects
 invalid kind tags. Authored callable annotations retain the existing Pure and
 Proc syntax. Stream callable contracts have no authored annotation syntax.
 
+The public Rust module export contract uses
+`ModuleExportType::Callable { kind, sig, optional }` for ground Pure, Proc, and
+Stream declarations. This replaces the separate `Pure` and `Proc` export
+variants. `GenericCallable` identifies contracts with type, row, or effect
+binders. Callable-valued exports retain their actual lexical binding proof.
+The compact export codec records the canonical kind and rejects retired tags,
+reserved bits, foreign owners, and missing signatures. Runtime module contracts
+use retained executable signatures or checked load-time signatures. A callable
+kind alone does not establish a Stream signature.
+
 The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
 Its opaque `CallableValue` carries the canonical `CallableKind`; named values
 require an explicit kind, and prepared values derive it from the authenticated

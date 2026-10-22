@@ -175,29 +175,15 @@ impl Checker {
                 return Some(CallableAlias { name, signature: signature.clone(), kind: crate::sema::types::CallableKind::Stream });
             }
         }
-        let (sig, pure) = match export {
-            ModuleExportType::Pure {
-                sig,
-                optional: false,
-            } => (sig, true),
-            ModuleExportType::Proc {
-                sig,
-                optional: false,
-            } => (sig, false),
-            _ => return None,
-        };
-        if self.collecting_effects && !pure {
+        let ModuleExportType::Callable { kind, sig, optional: false } = export else { return None };
+        if self.collecting_effects && *kind != crate::sema::types::CallableKind::Pure {
             self.provisional_effects_read.set(true);
         }
         Some(CallableAlias {
             name,
-            kind: if pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
+            kind: *kind,
             signature: FunctionSig::ground(
-                if pure {
-                    crate::sema::types::CallableKind::Pure
-                } else {
-                    crate::sema::types::CallableKind::Proc
-                },
+                *kind,
                 None,
                 false,
                 None,

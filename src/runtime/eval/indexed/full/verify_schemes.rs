@@ -4530,7 +4530,7 @@ fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
                 for export in module.values() {
                     match export {
                         crate::sema::types::ModuleExportType::Value { ty, .. } => pending.push(ty),
-                        crate::sema::types::ModuleExportType::Pure { sig, .. } | crate::sema::types::ModuleExportType::Proc { sig, .. } => { pending.push(&sig.return_ty); pending.extend(sig.params.iter().map(|parameter| &parameter.ty)); }
+                        crate::sema::types::ModuleExportType::Callable { sig, .. } => { pending.push(&sig.return_ty); pending.extend(sig.params.iter().map(|parameter| &parameter.ty)); }
                         crate::sema::types::ModuleExportType::GenericCallable { .. } => {}
                     }
                 }

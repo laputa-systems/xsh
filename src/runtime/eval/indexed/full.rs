@@ -1270,6 +1270,14 @@ impl FullProgram {
         Ok(matches!(function.contract, FullCallableContract::Scheme(_)))
     }
 
+    pub(in crate::runtime::eval) fn function_has_quantified_contract(&self, function: usize) -> Result<bool, IrVerifyError> {
+        let function = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("callable target is out of bounds"))?;
+        match function.contract {
+            FullCallableContract::Ground(_) => Ok(false),
+            FullCallableContract::Scheme(id) => self.store.scheme(id)?.is_quantified(&self.store),
+        }
+    }
+
     pub(in crate::runtime::eval) fn invocation_applications(
         &self, instruction: u32, target: usize, caller: &PreparedInvocationBindings,
     ) -> Result<PreparedInvocationBindings, IrVerifyError> {
@@ -5154,8 +5162,7 @@ fn checked_type_contains_typed_callable(ty: &Type) -> bool {
     match ty {
         Type::Module(module) => module.exports.values().any(|export| match export {
             ModuleExportType::Value { ty, .. } => ty.contains_typed_callable(),
-            ModuleExportType::Proc { .. }
-            | ModuleExportType::Pure { .. }
+            ModuleExportType::Callable { .. }
             | ModuleExportType::GenericCallable { .. } => true,
         }),
         _ => ty.contains_typed_callable(),
@@ -5264,13 +5271,8 @@ fn executable_type(ty: &Type) -> Type {
                             ty: executable_type(ty),
                             optional: *optional,
                         },
-                        ModuleExportType::Proc { sig, optional } => ModuleExportType::Proc {
-                            sig: executable_callable_type(sig),
-                            optional: *optional,
-                        },
-                        ModuleExportType::Pure { sig, optional } => ModuleExportType::Pure {
-                            sig: executable_callable_type(sig),
-                            optional: *optional,
+                        ModuleExportType::Callable { kind, sig, optional } => ModuleExportType::Callable {
+                            kind: *kind, sig: executable_callable_type(sig), optional: *optional,
                         },
                         ModuleExportType::GenericCallable { kind, optional } => {
                             ModuleExportType::GenericCallable { kind: *kind, optional: *optional }
@@ -7976,9 +7978,8 @@ impl<'a> FullDecoder<'a> {
         for export in exports {
             let name = match export {
                 LoweredModuleExport::Value { name, .. }
-                | LoweredModuleExport::Pure { name, .. }
-                | LoweredModuleExport::GenericCallable { name, .. }
-                | LoweredModuleExport::Proc { name, .. } => *name,
+                | LoweredModuleExport::Callable { name, .. }
+                | LoweredModuleExport::GenericCallable { name, .. } => *name,
             };
             if !names.insert(name) {
                 return Err(IrVerifyError::new(
@@ -8007,29 +8008,12 @@ impl<'a> FullDecoder<'a> {
                     )?;
                 }
                 (
-                    LoweredModuleExport::Pure {
-                        function_namespace,
-                        ..
-                    },
-                    ModuleExportType::Pure { sig, optional: false },
-                )
-                | (
-                    LoweredModuleExport::Proc {
-                        function_namespace,
-                        ..
-                    },
-                    ModuleExportType::Proc { sig, optional: false },
-                ) => {
-                    let signature = self.verify_registered_module_ground_callable(
-                        child,
-                        *function_namespace,
-                        name,
-                        matches!(export, LoweredModuleExport::Pure { .. }),
-                    )?;
+                    LoweredModuleExport::Callable { kind, function_namespace, .. },
+                    ModuleExportType::Callable { kind: expected, sig, optional: false },
+                ) if kind == expected => {
+                    let signature = self.verify_registered_module_ground_callable(child, *function_namespace, name, *kind)?;
                     if !self.store.semantic.signature_matches_callable(signature, sig)? {
-                        return Err(IrVerifyError::new(
-                            "registered module callable type differs from its child function",
-                        ));
+                        return Err(IrVerifyError::new("registered module callable type differs from its child function"));
                     }
                 }
                 (
@@ -8039,30 +8023,11 @@ impl<'a> FullDecoder<'a> {
                     child, *function_namespace, name, *kind,
                 )?,
                 (
-                    LoweredModuleExport::Value {
-                        binding: LoweredModuleExportBinding::Encoded(binding),
-                        ..
-                    },
-                    ModuleExportType::Pure { sig, optional: false },
-                )
-                | (
-                    LoweredModuleExport::Value {
-                        binding: LoweredModuleExportBinding::Encoded(binding),
-                        ..
-                    },
-                    ModuleExportType::Proc { sig, optional: false },
+                    LoweredModuleExport::Value { binding: LoweredModuleExportBinding::Encoded(binding), .. },
+                    ModuleExportType::Callable { kind, sig, optional: false },
                 ) => {
-                    let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
-                        kind: if matches!(checked, ModuleExportType::Pure { .. }) { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
-                        sig: sig.clone(),
-                    }));
-                    self.verify_registered_module_value(
-                        child,
-                        name,
-                        *binding,
-                        &callable,
-                        identity_writers,
-                    )?;
+                    let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() }));
+                    self.verify_registered_module_value(child, name, *binding, &callable, identity_writers)?;
                 }
                 _ => {
                     return Err(IrVerifyError::new(
@@ -8222,6 +8187,7 @@ impl<'a> FullDecoder<'a> {
             let metadata = self.store.function_metadata.get(index)
                 .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
             if metadata.owner != program_owner
+                || metadata.callable_kind != kind
                 || metadata.flags != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
                 || self.store.string(candidate.name)? != name.as_str()
             {
@@ -8245,18 +8211,8 @@ impl<'a> FullDecoder<'a> {
         if scheme.callable_kind != kind {
             return Err(IrVerifyError::new("generic module export callable kind differs from its child function"));
         }
-        let type_parameters = scheme
-            .type_parameters
-            .bounds(self.store.scheme_type_parameters.len())
-            .ok_or_else(|| IrVerifyError::new("generic callable type binder range is invalid"))?;
-        let row_parameters = scheme
-            .row_parameters
-            .bounds(self.store.scheme_row_parameters.len())
-            .ok_or_else(|| IrVerifyError::new("generic callable row binder range is invalid"))?;
-        if type_parameters.is_empty() && row_parameters.is_empty() {
-            return Err(IrVerifyError::new(
-                "generic callable module export has no quantified binder",
-            ));
+        if !scheme.is_quantified(&self.store)? {
+            return Err(IrVerifyError::new("generic callable module export has no quantified binder"));
         }
         Ok(())
     }
@@ -8266,7 +8222,7 @@ impl<'a> FullDecoder<'a> {
         child: u32,
         namespace: Name,
         name: Name,
-        pure: bool,
+        kind: CallableKind,
     ) -> Result<SignatureId, IrVerifyError> {
         let program_index = child
             .checked_sub(1)
@@ -8279,12 +8235,13 @@ impl<'a> FullDecoder<'a> {
                 "callable export is not owned by its child module",
             ));
         }
-        let expected_flags = 0b10 | u8::from(!pure);
+        let expected_flags = 0b10 | u8::from(kind == CallableKind::Proc);
         let mut signature = None;
         for (index, candidate) in self.store.functions.iter().enumerate() {
             let metadata = self.store.function_metadata.get(index)
                 .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
             if metadata.owner != program_owner
+                || metadata.callable_kind != kind
                 || metadata.flags != expected_flags
                 || self.store.string(candidate.name)? != name.as_str()
             {
@@ -8304,7 +8261,7 @@ impl<'a> FullDecoder<'a> {
         let signature = signature.ok_or_else(|| {
             IrVerifyError::new("registered callable function target is missing or private")
         })?;
-        let indexed = self.registered_module_function_signature(namespace, name, pure)?;
+        let indexed = self.registered_module_function_signature(namespace, name, kind)?;
         if indexed != signature {
             return Err(IrVerifyError::new(
                 "registered callable function index differs from its exported child function",
@@ -8317,12 +8274,12 @@ impl<'a> FullDecoder<'a> {
         &self,
         namespace: Name,
         name: Name,
-        pure: bool,
+        kind: CallableKind,
     ) -> Result<SignatureId, IrVerifyError> {
         self.function_signature_index
             .as_ref()
             .ok_or_else(|| IrVerifyError::new("function signature index is missing"))?
-            .module_export(namespace, name, if pure { CallableKind::Pure } else { CallableKind::Proc })
+            .module_export(namespace, name, kind)
     }
 
     /// Prove the type of every statement-local callable slot of a driver step.
@@ -9334,11 +9291,8 @@ impl<'a> FullDecoder<'a> {
                     .map(Type::into_unvalidated);
                 let actual = match receiver {
                     Some(Type::Module(module)) => match module.exports.get(&Name::intern(name)) {
-                        Some(ModuleExportType::Pure { sig, optional: false }) => {
-                            Some(crate::sema::types::TypedCallable { kind: crate::sema::types::CallableKind::Pure, sig: sig.clone() })
-                        }
-                        Some(ModuleExportType::Proc { sig, optional: false }) => {
-                            Some(crate::sema::types::TypedCallable { kind: crate::sema::types::CallableKind::Proc, sig: sig.clone() })
+                        Some(ModuleExportType::Callable { kind, sig, optional: false }) => {
+                            Some(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() })
                         }
                         _ => None,
                     },
@@ -19488,30 +19442,16 @@ impl FullCodec for LoweredModuleExport {
             Self::Value { name, binding } => {
                 name.encode(builder, output)?;
                 output.push(0);
-                let LoweredModuleExportBinding::Semantic(binding) = binding else {
-                    return Err(IrBuildError::format("module_export_binding", None, 0, 0));
-                };
+                let LoweredModuleExportBinding::Semantic(binding) = binding else { return Err(IrBuildError::format("module_export_binding", None, 0, 0)) };
                 output.push(builder.intern_binding_identity(*binding)?);
             }
-            Self::Pure {
-                name,
-                function_namespace,
-            } => {
+            Self::Callable { kind, name, function_namespace } => {
                 name.encode(builder, output)?;
-                output.push(1);
+                output.push(4);
+                output.push(*kind as u32);
                 function_namespace.encode(builder, output)?;
             }
-            Self::Proc {
-                name,
-                function_namespace,
-            } => {
-                name.encode(builder, output)?;
-                output.push(2);
-                function_namespace.encode(builder, output)?;
-            }
-            Self::GenericCallable {
-                kind, name, function_namespace,
-            } => {
+            Self::GenericCallable { kind, name, function_namespace } => {
                 name.encode(builder, output)?;
                 output.push(3);
                 output.push(*kind as u32);
@@ -19521,32 +19461,17 @@ impl FullCodec for LoweredModuleExport {
         Ok(())
     }
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
         let name = Name::decode(decoder, input)?;
         match input.raw()? {
-            0 => Ok(Self::Value {
-                name,
-                binding: LoweredModuleExportBinding::Encoded(input.raw()?),
-            }),
-            1 => Ok(Self::Pure {
-                name,
-                function_namespace: Name::decode(decoder, input)?,
-            }),
-            2 => Ok(Self::Proc {
-                name,
-                function_namespace: Name::decode(decoder, input)?,
-            }),
+            0 => Ok(Self::Value { name, binding: LoweredModuleExportBinding::Encoded(input.raw()?) }),
             3 => {
-                let kind = match input.raw()? {
-                    0 => crate::sema::types::CallableKind::Pure,
-                    1 => crate::sema::types::CallableKind::Proc,
-                    2 => crate::sema::types::CallableKind::Stream,
-                    _ => return Err(IrVerifyError::new("generic module callable kind is invalid")),
-                };
+                let kind = CallableKind::from_encoded(input.raw()?).ok_or_else(|| IrVerifyError::new("generic module callable kind is invalid"))?;
                 Ok(Self::GenericCallable { kind, name, function_namespace: Name::decode(decoder, input)? })
+            }
+            4 => {
+                let kind = CallableKind::from_encoded(input.raw()?).ok_or_else(|| IrVerifyError::new("module callable kind is invalid"))?;
+                Ok(Self::Callable { kind, name, function_namespace: Name::decode(decoder, input)? })
             }
             _ => Err(IrVerifyError::new("module export kind is invalid")),
         }
@@ -25602,7 +25527,7 @@ assert order == "LU123"
         let mut cursor = 1;
         let mut selected = None;
         for _ in 0..count {
-            let length = if words[cursor + 1] == 3 { 4 } else { 3 };
+            let length = if matches!(words[cursor + 1], 3 | 4) { 4 } else { 3 };
             if Name::from_symbol(Symbol::from_raw(words[cursor])) == name {
                 assert!(field < length);
                 selected = Some(range.start + cursor + field);
@@ -25611,6 +25536,42 @@ assert order == "LU123"
         }
         assert_eq!(cursor, words.len());
         selected.expect("module export row exists")
+    }
+
+    #[test]
+    fn imported_stream_exports_keep_ground_and_generic_contracts_on_both_routes() {
+        run_with_large_stack(|| {
+            let module = "##! Stream exports.\n## Emits one integer.\nexport stream fixed(value: Int) [] -> Stream[Int] { yield value }\n## Emits one supplied value.\nexport stream replay(value) [] { yield value }\n";
+            let entry = "use model\nproc main() [error] -> Result[Unit] {\n let fixed = model.fixed\n let replay = model.replay\n var number = 0\n for item in fixed(7) { number = item }\n var independent = 0\n for item in replay(9) { independent = item }\n var text = \"\"\n for item in replay(\"row\") { text = item }\n assert number == 7\n assert independent == 9\n assert text == \"row\"\n Ok()\n}\n";
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_module(entry, module));
+            FullVerifier::verify(&program).unwrap();
+            let import = scheme_fixture_use_step(&program, program_name(&program, "model"));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                evaluator.eval_indexed_driver_step(import, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                let actual = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "main")), CallableKind::Proc, &[], Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+            let function = scheme_fixture_function(&program, "fixed");
+            let mut wrong_kind = (*program).clone();
+            wrong_kind.store.function_metadata[function].callable_kind = CallableKind::Pure;
+            assert!(FullVerifier::verify(&wrong_kind).is_err());
+            let mut foreign_owner = (*program).clone();
+            let namespace = scheme_fixture_export_word(&program, import, "fixed", 3);
+            foreign_owner.store.extra[namespace] = program_name(&program, "entry").symbol().raw();
+            assert!(FullVerifier::verify(&foreign_owner).is_err());
+            let mut missing_signature = (*program).clone();
+            missing_signature.store.functions[function].contract = FullCallableContract::Ground(SignatureId::from_raw(u32::MAX - 1).unwrap());
+            assert!(FullVerifier::verify(&missing_signature).is_err());
+            for invalid in [1, 2, 5] {
+                let mut retired = (*program).clone();
+                let tag = scheme_fixture_export_word(&program, import, "fixed", 1);
+                retired.store.extra[tag] = invalid;
+                assert!(FullVerifier::verify(&retired).is_err());
+            }
+        });
     }
 
     #[test]
@@ -25715,15 +25676,15 @@ assert order == "LU123"
             );
 
             let mut wrong_contract = program.clone();
-            let unused = scheme_fixture_function(&program, "unused");
-            let dynamic = scheme_fixture_function(&program, "dynamic");
-            let FullCallableContract::Ground(dynamic_signature) =
-                program.store.functions[dynamic].contract
-            else {
-                panic!("dynamic has a ground contract");
-            };
-            wrong_contract.store.functions[unused].contract =
-                FullCallableContract::Ground(dynamic_signature);
+            let Type::Module(module) = program.store.semantic.to_type(semantic_module_type).unwrap() else { panic!("registered module contract") };
+            let mut module = module.as_ref().clone();
+            module.exports.insert(program_name(&program, "dynamic"), ModuleExportType::GenericCallable { kind: CallableKind::Pure, optional: false });
+            let mut semantic = super::super::semantic::SemanticPoolBuilder::default();
+            let generic_module = semantic.intern_type(&mut wrong_contract.store.semantic, &Type::Module(Arc::new(module))).unwrap();
+            wrong_contract.store.driver_steps[use_step_index].registered_module_type = generic_module.raw();
+            let dynamic_tag = scheme_fixture_export_word(&program, use_step, "dynamic", 1);
+            assert_eq!(wrong_contract.store.extra[dynamic_tag], 4);
+            wrong_contract.store.extra[dynamic_tag] = 3;
             let error = FullVerifier::verify(&wrong_contract).unwrap_err();
             assert_eq!(
                 error.message,

@@ -363,8 +363,7 @@ fn measure_compact_type_info(
                     .values()
                     .map(|export| match export {
                         ModuleExportType::Value { .. } => 1,
-                        ModuleExportType::Proc { sig, .. }
-                        | ModuleExportType::Pure { sig, .. } => sig.params.len() + 1,
+                        ModuleExportType::Callable { sig, .. } => sig.params.len() + 1,
                         ModuleExportType::GenericCallable { .. } => 1,
                     })
                     .sum()
@@ -654,7 +653,7 @@ impl OutputTypeNodes {
         for export in module.exports.values() {
             match export {
                 ModuleExportType::Value { ty, .. } => self.add_type(ty),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     self.add_callable_type(sig)
                 }
                 ModuleExportType::GenericCallable { .. } => {}

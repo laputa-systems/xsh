@@ -208,15 +208,6 @@ impl Checker {
         Ok(return_ty.callee_error_flow(Some(if may_error { &[Effect::Error] } else { &[] })))
     }
 
-    pub(super) fn record_callee_propagation(
-        &mut self,
-        effects: Option<&[Effect]>,
-        return_ty: &Type,
-        span: Span,
-    ) {
-        self.record_callee_error_flow(return_ty.callee_error_flow(effects), span);
-    }
-
     fn record_callee_error_flow(&mut self, flow: crate::sema::types::CalleeErrorFlow, span: Span) {
         match flow {
             crate::sema::types::CalleeErrorFlow::None => {}
@@ -851,12 +842,12 @@ impl Checker {
                             params,
                             effects,
                             return_ty,
-                        } => ModuleExportType::Proc {
+                        } => ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: self.callable_type_from_parts(params, effects, return_ty),
                             optional: entry.optional,
                         },
                         ModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.callable_type_from_parts(params, None, return_ty),
                                 optional: entry.optional,
                             }

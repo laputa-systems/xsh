@@ -1521,16 +1521,13 @@ enum LoweredModuleExport {
         name: Name,
         binding: LoweredModuleExportBinding,
     },
-    Pure {
+    Callable {
+        kind: crate::sema::types::CallableKind,
         name: Name,
         function_namespace: Name,
     },
     GenericCallable {
         kind: crate::sema::types::CallableKind,
-        name: Name,
-        function_namespace: Name,
-    },
-    Proc {
         name: Name,
         function_namespace: Name,
     },

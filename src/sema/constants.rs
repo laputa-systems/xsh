@@ -1596,7 +1596,7 @@ impl RecordConstructors {
             Type::Validated(validated) => Self::contains_template_parameter(validated.base()),
             Type::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => Self::contains_template_parameter(ty),
-                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                ModuleExportType::Callable { sig, .. } => {
                     Self::contains_template_parameter(&sig.return_ty)
                         || sig
                             .params
@@ -1706,7 +1706,7 @@ impl RecordConstructors {
                             params,
                             effects,
                             return_ty,
-                        } => ModuleExportType::Proc {
+                        } => ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Proc,
                             sig: self.instance_callable_type(
                                 arena,
                                 params,
@@ -1719,7 +1719,7 @@ impl RecordConstructors {
                             optional: entry.optional,
                         },
                         ArenaModuleContractEntryKind::Pure { params, return_ty } => {
-                            ModuleExportType::Pure {
+                            ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure,
                                 sig: self.instance_callable_type(
                                     arena, params, return_ty, namespace, &bindings, active, None,
                                 )?,

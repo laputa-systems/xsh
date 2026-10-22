@@ -1032,8 +1032,7 @@ impl SchemeType {
                     for export in module.exports.values() {
                         match export {
                             ModuleExportType::Value { ty, .. } => pending.push(ty),
-                            ModuleExportType::Proc { sig, .. }
-                            | ModuleExportType::Pure { sig, .. } => {
+                            ModuleExportType::Callable { sig, .. } => {
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|parameter| &parameter.ty));
                             }

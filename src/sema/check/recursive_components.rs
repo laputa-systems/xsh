@@ -283,6 +283,125 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn inferred_stream_local_aliases_keep_actual_kind_and_independent_items() {
+        for alias in [false, true] {
+            let source = format!("stream values(value) {{ yield value }}\n{}let integer: Stream[Int] = {}(7)\nlet text: Stream[Str] = {}(\"word\")\n", if alias { "let create = values\n" } else { "" }, if alias { "create" } else { "values" }, if alias { "create" } else { "values" });
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution());
+                assert!(checked.diagnostics.is_empty(), "alias={alias}: {:?}", checked.diagnostics);
+                assert_eq!(checked.checked_declarations.functions.len(), 1);
+                let scheme = checked.checked_declarations.functions.values().next().unwrap().scheme.as_ref().unwrap();
+                assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Stream);
+                assert_eq!(scheme.type_parameters().len(), 1);
+                assert_eq!(checked.call_instantiations.len(), 2);
+                assert!(checked.call_instantiations.values().any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Int))));
+                assert!(checked.call_instantiations.values().any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Str))));
+            });
+        }
+    }
+
+    #[test]
+    fn inferred_stream_imported_aliases_keep_the_module_scheme_across_roots() {
+        use crate::sema::check::module_driver::CheckSession;
+        use crate::source::SourceMap;
+        use crate::syntax::arena::ArenaProgramBuilder;
+        for reverse in [false, true] {
+            let mut sources = SourceMap::new();
+            let roots = [
+                "use shared\nlet create = shared.replay\nlet integer: Stream[Int] = create(7)\n",
+                "use shared\nlet create = shared.replay\nlet text: Stream[Str] = create(\"word\")\n",
+            ];
+            let module_text = "##! Generic stream relay.\n## Yields its input without evaluating at creation.\nexport stream replay(value) { yield value }\n";
+            let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+            let mut entries = Vec::new();
+            for (index, source) in roots.iter().enumerate() {
+                let source_id = sources.add_file(format!("alias-entry{index}.xsh"), *source);
+                let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                entries.push((parsed.statements, source_id));
+            }
+            let module_id = sources.add_file("shared.xsh", module_text);
+            let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
+            assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+            let module_name = builder.symbol_owner().intern("shared");
+            builder.push_arena_module("shared".to_string(), module_name, module.statements);
+            for &(statements, _) in &entries {
+                for statement in builder.statement_ids(statements) {
+                    if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("shared")); }
+                }
+            }
+            let program = Arc::new(builder.finish_with_statements(entries[0].0));
+            let session = CheckSession::new(program, Arc::new(sources));
+            let mut published: Option<Arc<crate::sema::schemes::TypeScheme>> = None;
+            for index in if reverse { [1, 0] } else { [0, 1] } {
+                let (statements, source) = entries[index];
+                let checked = session.check(statements, source, CheckOptions::default());
+                assert!(checked.diagnostics.is_empty(), "root={index}: {:?}", checked.diagnostics);
+                let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.namespace == Some(module_name)).unwrap();
+                let scheme = declaration.scheme.as_ref().unwrap();
+                assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Stream);
+                assert_eq!(scheme.type_parameters().len(), 1);
+                assert_eq!(checked.call_instantiations.len(), 1);
+                if let Some(previous) = &published { assert!(Arc::ptr_eq(previous, scheme)); }
+                else { published = Some(Arc::clone(scheme)); }
+            }
+        }
+    }
+    #[test]
+    fn stream_module_exports_preserve_ground_callable_contracts() {
+        use crate::sema::check::module_driver::CheckSession;
+        use crate::source::SourceMap;
+        use crate::syntax::arena::ArenaProgramBuilder;
+        let source = "use shared\nlet create = shared.fixed\nlet output: Stream[Int] = create(7)\n";
+        let module_text = "##! Ground stream export.\n## Yields the requested values.\nexport stream fixed(value: Int, count: Int = 1) [io] -> Stream[Int] { repeat count times { yield value } }\n";
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let source_id = sources.add_file("ground-stream-entry.xsh", source);
+        let entry = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+        let module_id = sources.add_file("shared.xsh", module_text);
+        let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let module_name = builder.symbol_owner().intern("shared");
+        let export_name = builder.symbol_owner().intern("fixed");
+        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        for statement in builder.statement_ids(entry.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("shared")); }
+        }
+        let program = Arc::new(builder.finish_with_statements(entry.statements));
+        let session = CheckSession::new(program, Arc::new(sources));
+        let checked = session.check(entry.statements, source_id, CheckOptions::default());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let callable = checked.expr_types.values().find_map(|ty| {
+            let Type::Module(module) = ty else { return None };
+            let crate::sema::types::ModuleExportType::Callable { kind, sig, optional: false } = module.exports.get(&export_name)? else { return None };
+            Some(Arc::new(crate::sema::types::TypedCallable { kind: *kind, sig: sig.clone() }))
+        }).expect("ground stream export retains its actual callable type");
+        assert_eq!(callable.kind, crate::sema::types::CallableKind::Stream);
+        assert_eq!(callable.sig.params.len(), 2);
+        assert_eq!(callable.sig.params[0].ty, Type::Int);
+        assert!(!callable.sig.params[0].defaulted);
+        assert_eq!(callable.sig.params[1].ty, Type::Int);
+        assert!(callable.sig.params[1].defaulted);
+        assert_eq!(*callable.sig.return_ty, Type::Stream(Box::new(Type::Int)));
+        assert_eq!(callable.sig.effects, crate::sema::types::CallableEffects::finite([crate::syntax::node::Effect::Io]));
+        let actual = Type::Callable(Arc::clone(&callable));
+        for mutation in 0..3 {
+            let mut wrong = callable.as_ref().clone();
+            match mutation {
+                0 => wrong.kind = crate::sema::types::CallableKind::Proc,
+                1 => wrong.sig.params[0].ty = Type::Str,
+                2 => wrong.sig.return_ty = Box::new(Type::Stream(Box::new(Type::Str))),
+                _ => unreachable!(),
+            }
+            assert!(!actual.matches_expected(&Type::Callable(Arc::new(wrong))));
+        }
+    }
+
     #[test]
     fn generic_command_words_require_available_checked_bindings() {
         let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";

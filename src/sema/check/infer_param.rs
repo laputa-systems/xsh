@@ -188,8 +188,7 @@ pub(super) fn parameter_type_is_concrete(ty: &Type) -> bool {
                     crate::sema::types::ModuleExportType::Value { ty, .. } => {
                         parameter_type_is_concrete(ty)
                     }
-                    crate::sema::types::ModuleExportType::Pure { sig, .. }
-                    | crate::sema::types::ModuleExportType::Proc { sig, .. } => {
+                    crate::sema::types::ModuleExportType::Callable { sig, .. } => {
                         parameter_type_is_concrete(&sig.return_ty)
                             && sig
                                 .params

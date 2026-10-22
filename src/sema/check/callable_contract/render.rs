@@ -330,15 +330,10 @@ fn render_module_export(name: crate::symbol::Name, export: &ModuleExportType) ->
             if *optional { "?" } else { "" },
             render_type(ty)
         ),
-        ModuleExportType::Proc { sig, optional } => format!(
+        ModuleExportType::Callable { kind, sig, optional } => format!(
             "{name}{}: {}",
             if *optional { "?" } else { "" },
-            render_callable_type("proc", sig)
-        ),
-        ModuleExportType::Pure { sig, optional } => format!(
-            "{name}{}: {}",
-            if *optional { "?" } else { "" },
-            render_callable_type("pure", sig)
+            render_callable_type(callable_kind(*kind), sig)
         ),
         ModuleExportType::GenericCallable { kind, optional } => format!(
             "{name}{}: generic {}",

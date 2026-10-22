@@ -777,7 +777,7 @@ impl Checker {
                     ) && matches!(namespace_binding,
                         super::ValueBindingLookup::Found(binding)
                             if matches!(&binding.ty, Type::Module(exports)
-                                if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. }))))
+                                if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Callable { .. }))))
                     || matches!(namespace_binding, super::ValueBindingLookup::NoSite)
                         && super::api_spec()
                             .module(&namespace.as_str())

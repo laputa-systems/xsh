@@ -1826,14 +1826,11 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
     for (kind, signatures) in [
         (crate::sema::types::CallableKind::Proc, &module.procs),
         (crate::sema::types::CallableKind::Pure, &module.pures),
+        (crate::sema::types::CallableKind::Stream, &module.streams),
     ] {
         for (name, signature) in signatures {
             let export = if let Some(sig) = callable_type_from_function_signature(signature) {
-                match kind {
-                    crate::sema::types::CallableKind::Proc => super::ModuleExportType::Proc { sig, optional: false },
-                    crate::sema::types::CallableKind::Pure => super::ModuleExportType::Pure { sig, optional: false },
-                    crate::sema::types::CallableKind::Stream => unreachable!(),
-                }
+                super::ModuleExportType::Callable { kind, sig, optional: false }
             } else if signature.scheme().callable().is_quantified()
             {
                 super::ModuleExportType::GenericCallable { kind, optional: false }
