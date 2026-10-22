@@ -462,6 +462,57 @@ mod tests {
     }
 
     #[test]
+    fn partial_proc_tail_if_checks_result_unit_calls_as_statements() {
+        for annotation in ["", " -> Result[Unit, Error]"] {
+            for completion in [
+                "if flag { require(flag) }",
+                "if flag { require(flag) } else if flag == false { if flag { return Err(Failure.Lost(\"nested\")) } }",
+                "if flag { assert flag }",
+                "if flag { require(flag) } else { require(flag) }",
+            ] {
+                let source = format!("error Failure = Lost(message: Str)\nproc require(flag: Bool) [error] {{ assert flag }}\nproc validate(flag: Bool){annotation} {{ if flag {{ return Err(Failure.Lost(\"lost\")) }}; {completion} }}\nlet outcome: Result[Unit, Error] = validate(false)\n");
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                parsed.arena.symbol_owner().with_current(|| {
+                    let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena_with_options(&parsed.arena, &source, CheckOptions::for_execution()));
+                    assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+                    assert_eq!(work.function_body_check_entries, 2, "{source}");
+                    let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "validate").unwrap();
+                    let expected = Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
+                    assert_eq!(checked.function_return_types[&declaration.body], expected, "{source}");
+                    assert_eq!(declaration.scheme.as_ref().unwrap().return_type().closed_ground_type(), Some(expected), "{source}");
+                });
+            }
+        }
+        let source = "proc validate(flag: Bool) -> Unit { if flag { return }; if flag { let _ = true } }\nlet outcome: Unit = validate(false)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            assert_eq!(checked.function_return_types[&declaration.body], Type::Unit);
+        });
+    }
+
+    #[test]
+    fn partial_proc_tail_if_preserves_value_and_return_rejections() {
+        for (source, code) in [
+            ("pure invalid(flag: Bool) { if flag { 7 } }", DiagnosticCode::CheckIfValueElse),
+            ("proc invalid(flag: Bool) { if flag { return 7 }; if flag { let _ = true } }", DiagnosticCode::CheckTypeMismatch),
+            ("error Failure = Lost(message: Str)\nproc invalid(flag: Bool) { if flag { return Err(Failure.Lost(\"lost\")) }; if flag { 7 } }", DiagnosticCode::CheckIgnoredResult),
+            ("error Failure = Lost(message: Str)\nproc invalid(flag: Bool) -> Unit { if flag { return Err(Failure.Lost(\"lost\")) }; if flag { let _ = true } }", DiagnosticCode::CheckTypeMismatch),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena(&parsed.arena, source);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}\n{:?}", checked.diagnostics);
+            });
+        }
+    }
+
+    #[test]
     fn inferred_unit_proc_completions_match_the_result_unit_contract() {
         for (source, expected, expected_return) in [
             ("error Failure = Lost(message: Str)\nproc only_failure() { Err(Failure.Lost(message: \"lost\")) }\n", None, Some("Lost")),

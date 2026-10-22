@@ -6560,8 +6560,11 @@ impl Checker {
             .collect();
         let previous_reachable = self.inference_reachable;
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let valueless_if = matches!(arena.arena.stmt(tail).kind, ArenaStmtKind::If { .. })
-                && !if_stmt_may_produce_value(arena, tail);
+            let valueless_if = match arena.arena.stmt(tail).kind {
+                ArenaStmtKind::If { else_block, .. } => !if_stmt_may_produce_value(arena, tail)
+                    || (purpose == TailCheckingPurpose::ProcCompletion && else_block.is_none()),
+                _ => false,
+            };
             let tail_producing = !valueless_if
                 && matches!(
                     arena.arena.stmt(tail).kind,
