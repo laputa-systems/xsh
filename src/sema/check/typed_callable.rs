@@ -328,6 +328,23 @@ impl Checker {
         span: Span,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
+        let return_ty = self.check_callable_contract_call_with_checked_argument(
+            arena, source, callee, args, callable, span, checked_argument,
+        );
+        self.typed_callable_calls.insert(span, callable.clone());
+        return_ty
+    }
+
+    pub(super) fn check_callable_contract_call_with_checked_argument(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        args: &[ArenaCallArg],
+        callable: &Arc<TypedCallable>,
+        span: Span,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+    ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
         let kind = callable.kind;
         let effects = crate::sema::types::CallableEffects::from_contract(callable.sig.effects.contract().clone().for_invocation(kind));
@@ -351,7 +368,6 @@ impl Checker {
         self.check_function_contract_arguments_arena(arena, source, args, &contract, span, checked_argument);
         if !(callable.kind == crate::sema::types::CallableKind::Pure) { self.invalidate_mutable_narrowings(); }
         self.record_invocation_propagation(&contract.effects, &return_ty, span);
-        self.typed_callable_calls.insert(span, callable.clone());
         return_ty
     }
 
