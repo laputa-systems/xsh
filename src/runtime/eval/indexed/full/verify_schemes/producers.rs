@@ -3393,6 +3393,17 @@ impl<'a> ProducerProof<'a> {
                     self.expression(owner, source, contract, false);
                     Ok(())
                 } else {
+                    if matches!(binding, ProducerBinding::HeaderParameter(_))
+                        && matches!(self.store.functions[function_index(owner)?].contract, FullCallableContract::Ground(_))
+                        && matches!(expected.as_ref(), Type::Record(_))
+                        && actual.as_deref() == Some(expected.as_ref())
+                        && let Some(declared) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)?
+                        && declared.as_ref() != expected.as_ref()
+                        && let Some(checked_slot_type) = decoder.checked_slot_type(slot)?
+                        && self.contract_type(checked_slot_type)?.as_ref() == declared.as_ref()
+                    {
+                        return self.binding_slot(owner, binding, slot, declared);
+                    }
                     if matches!(expected.as_ref(), Type::Record(_))
                         && self.index.owners[&owner].writers.get(&binding).is_some_and(|writers| writers.len() > 1)
                         && let Some(stored) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)?
