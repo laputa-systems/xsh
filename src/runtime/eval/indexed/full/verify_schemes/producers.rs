@@ -30,6 +30,24 @@ pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     work: Option<Rc<RefCell<SchemeInstantiationBudget>>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeParameterDomain {
+    Invariant,
+    ReadonlyArgv,
+}
+
+impl NativeParameterDomain {
+    fn declared(ty: &Type) -> Self {
+        if ty.is_readonly_argv_word_list() { Self::ReadonlyArgv } else { Self::Invariant }
+    }
+
+    fn accepts(self, parameter: &Type, actual: &Type) -> bool {
+        self == Self::ReadonlyArgv
+            && parameter.accepts_readonly_argv_argument(actual)
+            && ensure_closed_type(actual).is_ok()
+    }
+}
+
 struct VerifiedSchemeOwner {
     return_analysis: Rc<super::super::IndexedReturnAnalysis>,
     prepared_constant_work: usize,
@@ -4245,20 +4263,21 @@ impl<'a> ProducerProof<'a> {
         let (result, parameters, effects, pure) = if let Some(bridge) = crate::stdlib::bridge_contract(op) {
             let effects = bridge.sig.effects.concrete()
                 .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
-            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| (parameter.ty, parameter.defaulted)).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.kind == crate::sema::types::CallableKind::Pure)
+            (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| { let domain = NativeParameterDomain::declared(&parameter.ty); (parameter.ty, parameter.defaulted, domain) }).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.kind == crate::sema::types::CallableKind::Pure)
         } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan {
             (plan.signature.return_ty.clone(), plan.signature.params.iter().enumerate().map(|(slot, parameter)| {
                 let ty = if plan.word_conversions.iter().any(|conversion| conversion.slot == slot) {
                     Type::Any
                 } else { parameter.ty.clone() };
-                (ty, parameter.defaulted)
+                (ty, parameter.defaulted, NativeParameterDomain::declared(&parameter.ty))
             }).collect::<Vec<_>>(), plan.signature.effects.to_vec(), plan.signature.pure)
         } else {
-            let mut selected: Option<std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>> = None;
+            let mut selected: Option<(&'static crate::modules::signature::ModuleFnSig, std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>)> = None;
             for signature in crate::modules::signature::native_static_operation_signatures(op) {
                 self.budget.charge(1 + signature.params.len())?;
                 if arguments.len() > signature.params.len() { continue; }
                 let Some(specialized) = self.native_signature(&decoder, signature, &arguments, Some(&expected))? else { continue };
+                let original = signature;
                 let signature = &specialized;
                 let mut fits = true;
                 for (position, parameter) in signature.params.iter().enumerate() {
@@ -4270,6 +4289,7 @@ impl<'a> ProducerProof<'a> {
                             }
                             if let Some(actual) = actuals[position].get().unwrap().ty()
                                 && !actual.matches_expected(&parameter.ty)
+                                && !NativeParameterDomain::declared(&original.params[position].ty).accepts(&parameter.ty, actual)
                                 && !self.contextual_list_argument(&decoder, argument, &parameter.ty)?
                             {
                                 fits = false;
@@ -4282,27 +4302,28 @@ impl<'a> ProducerProof<'a> {
                     }
                 }
                 if !fits { continue; }
-                if let Some(previous) = &selected {
+                if let Some((previous_original, previous)) = &selected {
                     if previous.return_ty != signature.return_ty || previous.pure != signature.pure
                         || previous.effects != signature.effects || previous.params.len() != signature.params.len()
                         || previous.params.iter().zip(&signature.params).any(|(left, right)| left.ty != right.ty || left.defaulted != right.defaulted)
+                        || previous_original.params.iter().zip(&original.params).any(|(left, right)| NativeParameterDomain::declared(&left.ty) != NativeParameterDomain::declared(&right.ty))
                     {
                         return Err(IrVerifyError::new("ground native operation has ambiguous parameter contracts"));
                     }
-                } else { selected = Some(specialized); }
+                } else { selected = Some((original, specialized)); }
             }
-            let signature = selected.ok_or_else(|| IrVerifyError::new("ground native operation arguments have no matching contract"))?;
+            let (original, signature) = selected.ok_or_else(|| IrVerifyError::new("ground native operation arguments have no matching contract"))?;
             let result = match call_plan {
                 Some(crate::runtime::eval::ModuleCallPlan::SignatureCli(descriptor)) => descriptor.return_type(op == super::super::RuntimeOp::CliParseFull),
                 _ => signature.return_ty.clone(),
             };
-            (result, signature.params.iter().map(|parameter| (parameter.ty.clone(), parameter.defaulted)).collect::<Vec<_>>(), signature.effects.to_vec(), signature.pure)
+            (result, signature.params.iter().zip(&original.params).map(|(parameter, declared)| (parameter.ty.clone(), parameter.defaulted, NativeParameterDomain::declared(&declared.ty))).collect::<Vec<_>>(), signature.effects.to_vec(), signature.pure)
         };
         self.require_callable_effects(&decoder, instruction, Some(&effects), pure)?;
         if !result.matches_expected(&expected) { return Err(IrVerifyError::new("ground native result disagrees with its operation contract")); }
         if arguments.len() > parameters.len() { return Err(IrVerifyError::new("ground native operation has excess arguments")); }
         let mut actuals = actuals.into_iter();
-        for (position, (parameter, defaulted)) in parameters.into_iter().enumerate() {
+        for (position, (parameter, defaulted, domain)) in parameters.into_iter().enumerate() {
             let actual = actuals.next().and_then(OnceCell::into_inner);
             match arguments.get(position).copied().flatten() {
                 Some(argument) => {
@@ -4315,7 +4336,7 @@ impl<'a> ProducerProof<'a> {
                     };
                     let expected = if parameter == Type::Any { Arc::new(parameter) }
                     else if let Some(actual) = actual {
-                        if actual.matches_expected(&parameter) {
+                        if actual.matches_expected(&parameter) || domain.accepts(&parameter, &actual) {
                             actual
                         } else if self.contextual_list_argument(&decoder, argument, &parameter)? {
                             Arc::new(parameter)
@@ -5702,6 +5723,19 @@ fn function_owner(index: usize) -> Result<u32, IrVerifyError> {
 #[cfg(test)]
 mod declared_producer_fact_tests {
     use super::*;
+
+    #[test]
+    fn readonly_argv_requires_declared_permission_and_closed_word_items() {
+        let parameter = Type::List(Box::new(Type::process_command_argv_item_type().clone()));
+        let readonly = NativeParameterDomain::declared(&parameter);
+        assert!(readonly.accepts(&parameter, &Type::List(Box::new(Type::Str))));
+        assert!(readonly.accepts(&parameter, &Type::List(Box::new(Type::Path))));
+        for item in [Type::Unknown, Type::Invalid, Type::Any, Type::Int] {
+            assert!(!readonly.accepts(&parameter, &Type::List(Box::new(item))));
+        }
+        let invariant = NativeParameterDomain::declared(&Type::List(Box::new(Type::Any)));
+        assert!(!invariant.accepts(&parameter, &Type::List(Box::new(Type::Str))));
+    }
 
     #[test]
     fn facts_reject_owner_or_instruction_substitution() {
