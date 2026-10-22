@@ -29407,7 +29407,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             reserved: [0; 3],
         };
         let error = FullVerifier::verify(&forged).unwrap_err();
-        assert_eq!(error.message, "generic body tail does not match its scheme return");
+        assert_eq!(error.message, "generic tail disagrees with its scheme return");
     }
 
     fn pipeline_payload_fixture() -> (FullProgram, usize) {
@@ -38819,8 +38819,8 @@ proc walk(root: Path, value: Result[Int, CaptureFailure]) [fs, error] -> Result[
                 wrong.store.extra[payload.start + 5] = 0;
                 let decoder = function_view_decoder(&wrong.store, owner);
                 assert!(matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FsFiles { result_wrapped: false, .. } | schema::ExprView::FsWalk { result_wrapped: false, .. })));
-                let error = FullVerifier::verify(&wrong).expect_err("unwrapped filesystem setup failures belong to the nearest capture");
-                assert!(if captured { error.message.contains("contract") } else { error.message.contains("requires effect error") }, "{error:?}");
+                let error = FullVerifier::verify(&wrong).expect_err("filesystem setup retains its registered Result envelope");
+                assert!(if captured { error.message.contains("disagrees with its registry signature") } else { error.message.contains("requires effect error") }, "{error:?}");
             }
         });
     }
@@ -41151,7 +41151,7 @@ print $value
             },
         }));
         for (instruction, message) in [
-            (block, "checked value block has no value tail"),
+            (block, "checked value block without a tail has an incompatible type"),
             (calls[0], "checked API operation has ambiguous return types"),
         ] {
             let mut forged = program.clone();

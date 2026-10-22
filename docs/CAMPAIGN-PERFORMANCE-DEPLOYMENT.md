@@ -23,6 +23,14 @@ supported closed Stream callable identity and both cross-kind rejections. All
 as unsupported, contrary to the implemented callable-kind contract. This
 corrects one remaining test premise; no production admission changes.
 
+Three existing valid-first forgery controls also pass after correcting obsolete
+rejection expectations. Generic tail and tail-less block forgeries retain their
+actual type guards. Filesystem scans and walks reject forged Result envelopes
+through the registry signature inside capture and the effect ceiling outside
+capture. Their source programs and mutations are unchanged. No production
+verification rule changes. These focused corrections do not replace the last
+447-control replay or the required full regression gates.
+
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
 `ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
 pass, including actual ground and generic Stream exports on both routes,
