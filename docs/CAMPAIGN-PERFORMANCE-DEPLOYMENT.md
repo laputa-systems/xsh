@@ -8,7 +8,7 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `3cf849c15` passes 428 of 448 selected Rust controls.
+Runtime assembly `08e824b91` passes 473 of 493 selected Rust controls.
 Its 20 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
@@ -16,6 +16,19 @@ binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
+
+Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
+operands from their actual checked AST and flow. Exact empty-list branch tails
+may take a peer list literal's item type; stored aliases keep one shared type.
+The SPEC source and generated paragraph match. Exit publication belongs to
+actual ValueBlock expressions, preserving declaration-body comparison across
+annotation removal. All 45 body-contract controls pass. Nine nullable controls
+pass; the existing extra generalization diagnostic remains a required failure.
+Both families pass their prior controls in the combined replay, with that same
+known diagnostic failure retained. No whole-doc generator was run because its
+only entry point also builds release products and renders all documents.
+A matching `08e824b91` product build and the unchanged guarded practical replay
+are active in the corpus lane. Earlier product evidence remains source-bound.
 
 Host checkpoint `e99bb2cc5` also finalizes argument-dependent Standard method
 overloads from committed argument evidence. Actual before/after argument
@@ -37,7 +50,8 @@ actual type guards. Filesystem scans and walks reject forged Result envelopes
 through the registry signature inside capture and the effect ceiling outside
 capture. Their source programs and mutations are unchanged. No production
 verification rule changes. All four test corrections pass in the 448-control
-combined replay. Required full regression gates remain open.
+combined replay and remain passing in the expanded 493-control replay.
+Required full regression gates remain open.
 
 Export checkpoint `2580811ac` unifies the public Rust ground-export variants as
 `ModuleExportType::Callable { kind, sig, optional }`. Eight isolated controls
@@ -63,7 +77,7 @@ retired-lane archive.
 
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
 44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
-the `3cf849c15` replay. Remaining failures include producer gaps, malformed mutation
+the combined replay; its twenty remaining failures persist on `08e824b91`. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
