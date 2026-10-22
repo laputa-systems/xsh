@@ -36,8 +36,28 @@ absent. The combined unfiltered library replay at `82914c14d` selects 1,957 test
 1,947 pass, seven fail and three are ignored. Four failures are stale mutation
 fixture assumptions corrected by `c85e728fe`, integrated as `b0f8a8c88`; all four
 focused controls pass. Three optional-receiver producer controls remain open.
-These three passed on the earlier `c21be8076` source, so they remain regressions
-to diagnose rather than preexisting failures. Broader acceptance remains open.
+These three passed on the earlier `c21be8076` source. Repair `e4560be76` moves
+typed-callee signature proof to the mandatory owner-evidence phase while keeping
+structural call checks in place. All twelve focused controls pass, including
+guard-forgery negatives and the original alias work bounds; independent review
+is clear. Broader acceptance remains open.
+
+Effect repair `6b8e61495`, integrated as `4cd251358`, constrains pending recursive
+effects before generalization and retains owned rejected-call tickets. Already
+diagnosed calls skip duplicate effect reporting while still invalidating their
+static call facts. All eleven focused controls pass, including finite empty
+effects, real I/O rejection, diagnostic multiplicity and resource provenance.
+Independent review is clear.
+
+Unary conversion repair `86c970133`, integrated as `c8d79c2e7`, retains Display
+and the existing distinct Argv requirements in schemes and cold proof. The
+type-parameter metadata uses a reserved byte without changing its size. All six
+latest focused controls pass, including natural work bounds through 512
+parameters, and all three matching native controls pass. Independent review is
+clear. Lists remain outside Display; the affected list fixture uses JSON while
+retaining its value assertions. Bare capturing-command tails and direct run
+returns remain separate mandatory gaps. Generated SPEC output and combined
+full Rust/native qualification of this assembly are pending.
 
 Stream repair `c2149de8e`, integrated as `deb26fe9e`, retains the authenticated
 stream owner and admits the runtime's existing `Str`-to-`Error` return-boundary
