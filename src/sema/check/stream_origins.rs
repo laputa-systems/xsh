@@ -511,6 +511,33 @@ mod tests {
     }
 
     #[test]
+    fn named_spread_forwarding_preserves_stream_failure_provenance() {
+        for local in [false, true] {
+            for fallible in [false, true] {
+                let forwarding = if local { "let arguments = {flag: true, items: items}; select(...arguments)" } else { "select(...{flag: true, items: items})" };
+                let target = if fallible { "failing" } else { "safe" };
+                let source = format!(
+                    "error CaptureFailure = Failed(message: Str)\nerror OtherFailure = Changed(message: Str)\n\
+                    stream safe(other: Result[Int, OtherFailure]) [] -> Stream[Int] {{ let _ = other; yield 7 }}\n\
+                    stream failing(other: Result[Int, OtherFailure]) [error] -> Stream[Int] {{ yield other? }}\n\
+                    pure select(items: Stream[Int], flag: Bool) -> Stream[Int] {{ let _ = flag; items }}\n\
+                    pure relay(items: Stream[Int]) -> Stream[Int] {{ {forwarding} }}\n\
+                    proc captured(other: Result[Int, OtherFailure]) [error] -> Result[Int, CaptureFailure] {{ try {{ for item in relay({target}(other)) {{ let _ = item }}; 7 }} }}\n"
+                );
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let checked = super::Checker::check_arena(&parsed.arena, &source);
+                let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+                if fallible {
+                    assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+                    assert_eq!(errors[0].code, Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch), "{source}\n{errors:?}");
+                    assert!(errors[0].labels.iter().any(|label| label.message.as_deref() == Some("expected CaptureFailure, found Error")), "{source}\n{errors:?}");
+                } else { assert!(errors.is_empty(), "{source}\n{errors:?}"); }
+            }
+        }
+    }
+
+    #[test]
     fn rejected_declarations_remove_only_their_stream_facts() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let body = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
@@ -1019,6 +1046,7 @@ impl Checker {
     }
 
     pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
+        if self.argument_projection_types.contains_key(&expression) { return; }
         let span = arena.arena.expr(expression).span;
         let resolved = if ty.contains_inference() {
             match self.type_constraints.resolve(ty) {
