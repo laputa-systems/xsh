@@ -1541,7 +1541,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     for request in requests.captures {
         proof.budget.charge(1)?;
         let decoder = proof.owner(request.owner)?;
-        if store.tags.get(request.instruction) != Some(&FullTag::ExprCapture) {
+        if !matches!(store.tags.get(request.instruction), Some(FullTag::ExprCapture | FullTag::ExprRetry)) {
             return Err(IrVerifyError::new("generic captured-error request has no capture instruction"));
         }
         for actual in proof.captured_error_types(&decoder, request.instruction)?.iter() {
@@ -2224,6 +2224,20 @@ impl<'a> ProducerProof<'a> {
                     None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(decoder))? => Ok(None),
                     None => Ok(Some(Arc::new(Type::Unit))),
                 };
+            }
+            schema::ExprView::Retry { mut body, .. } => {
+                self.budget.charge(body.len())?;
+                let payload = match decoder.checked_value_block_result(&mut body)? {
+                    super::super::CheckedValueBlockResult::Tail(tail) => match self.need_context(decoder, tail)? { Some(payload) => payload, None => return Ok(None) },
+                    super::super::CheckedValueBlockResult::Unit => Arc::new(Type::Unit),
+                    super::super::CheckedValueBlockResult::DoesNotComplete => return Ok(None),
+                };
+                self.budget.charge_clone(&payload)?;
+                if matches!(payload.as_ref(), Type::Result(..)) { Some((*payload).clone()) }
+                else {
+                    let errors = self.captured_error_types(decoder, instruction)?;
+                    Some(Type::Result(Box::new((*payload).clone()), Box::new(self.join_captured_errors(&errors)?)))
+                }
             }
             schema::ExprView::ContextScope { mut body, .. } => {
                 let block = body.block_identity();
@@ -3745,6 +3759,30 @@ impl<'a> ProducerProof<'a> {
                 }
                 self.verify_block_value(&decoder, body, Arc::new((**ok).clone()), false)
             }
+            schema::ExprView::Retry { delays, mut body, .. } => {
+                let Type::Result(ok, error) = expected.unvalidated() else { return Err(IrVerifyError::new("ground retry has no Result contract")) };
+                self.budget.charge_clone(ok)?;
+                self.budget.charge_clone(error)?;
+                for delay in delays {
+                    self.budget.charge(1)?;
+                    self.expression(owner, delay?.raw() as usize, Arc::new(Type::Duration), false);
+                }
+                for actual in self.captured_error_types(&decoder, instruction)?.iter() {
+                    if !actual.matches_expected(error) { return Err(IrVerifyError::new("retry error producer disagrees with its nominal error contract")); }
+                }
+                self.budget.charge(body.len())?;
+                let body_expected = match decoder.checked_value_block_result(&mut body)? {
+                    super::super::CheckedValueBlockResult::Tail(tail) => {
+                        let actual = self.need_context(&decoder, tail)?.ok_or_else(|| IrVerifyError::new("ground retry body has no producer contract"))?;
+                        if matches!(actual.as_ref(), Type::Result(..)) { Arc::clone(&expected) }
+                        else { Arc::new((**ok).clone()) }
+                    }
+                    super::super::CheckedValueBlockResult::Unit => Arc::new((**ok).clone()),
+                    super::super::CheckedValueBlockResult::DoesNotComplete => Arc::new((**ok).clone()),
+                };
+                let schema::ExprView::Retry { body, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                self.verify_block_value(&decoder, body, body_expected, false)
+            }
             schema::ExprView::ErrorContext { message, body, .. } => {
                 self.expression(owner, message.raw() as usize, Arc::new(Type::Str), false);
                 self.verify_block_value(&decoder, body, expected, returned)
@@ -4263,7 +4301,10 @@ impl<'a> ProducerProof<'a> {
             let mut child = owner.children[instruction - owner.range.start];
             while child != IR_NONE {
                 let next = child as usize;
-                if instruction == capture || !super::super::verify_effects::captures_child_error(decoder, instruction, next)? { pending.push(next); }
+                let captured = super::super::verify_effects::captures_child_error(decoder, instruction, next)?;
+                let visit = if instruction == capture && self.store.tags[instruction] == FullTag::ExprRetry { captured }
+                    else { instruction == capture || !captured };
+                if visit { pending.push(next); }
                 child = owner.siblings[next - owner.range.start];
             }
         }

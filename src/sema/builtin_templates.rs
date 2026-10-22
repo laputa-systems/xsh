@@ -378,8 +378,7 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
     use crate::modules::signature::{ApiArgCheck, ImplBinding, MethodReceiver, SemanticRule};
     let signature = plan.signature;
     if plan.argument_checks.len() != signature.params.len() || plan.argument_checks.iter().flatten().any(|check| matches!(check, super::schemes::RegisteredArgumentCheck::Unsigned(ty) if ty.contains_inference() || ty.contains_recovery())) { return false; }
-    if !signature.pure || !signature.effects.is_empty()
-        || !matches!(signature.binding, ImplBinding::Native)
+    if !matches!(signature.binding, ImplBinding::Native)
         || signature.arg_check != ApiArgCheck::Standard
         || signature.semantic_rule != SemanticRule::Standard
     { return false; }

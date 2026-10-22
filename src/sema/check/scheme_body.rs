@@ -156,35 +156,9 @@ pub(super) fn supports_generalized_body(
                 if owner_kind == crate::sema::types::CallableKind::Pure
                     || matches!(node.kind, ArenaStmtKind::Command(_)) && !checked_calls.contains(&node.span)
                 { return false; }
-                let mut supported = true;
                 let mut children = Vec::new();
                 program.arena.for_each_stmt_child(statement, crate::syntax::arena::SugarView::Core, |child| children.push(child));
-                let mut nested_spans = children.iter().filter_map(|child| match *child {
-                    crate::syntax::arena::ArenaChild::Expr(expression) => Some(program.arena.expr(expression).span),
-                    crate::syntax::arena::ArenaChild::Block(block) => Some(program.arena.span(program.arena.block(block).span)),
-                    _ => None,
-                }).collect::<Vec<_>>();
-                nested_spans.sort_unstable();
-                let mut nested_position = 0;
-                let start = (Span::at(node.span.source_id, node.span.start()), super::Name::UNKNOWN);
-                let end = (Span::at(node.span.source_id, node.span.end()), super::Name::UNKNOWN);
-                for (&(site, _), binding) in command_sites.range(start..end) {
-                    if site.end() > node.span.end() { return false; }
-                    while nested_position < nested_spans.len() && nested_spans[nested_position].end() <= site.start() { nested_position += 1; }
-                    if nested_spans.get(nested_position).is_some_and(|nested| nested.start() <= site.start() && site.end() <= nested.end()) { continue; }
-                    let constant_type = prepared.binding_values.get(binding).and_then(|expression| prepared.types.get(expression));
-                    if !(available.contains(binding) || captures.contains_key(binding)
-                        || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_)))
-                            && constant_type.is_some_and(|ty| !ty.contains_inference() && !ty.contains_recovery() && !ty.may_hold_resource())) { return false; }
-                }
-                for child in children {
-                    supported &= match child {
-                        crate::syntax::arena::ArenaChild::Expr(expression) => is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, expression),
-                        crate::syntax::arena::ArenaChild::Block(block) => supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, nested_completion),
-                        _ => false,
-                    };
-                }
-                if !supported { return false; }
+                if !command_children_are_available(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, node.span, children, nested_completion) { return false; }
             }
             ArenaStmtKind::Continue => {}
             _ => return false,
@@ -344,6 +318,78 @@ fn is_proc_completion_expression(
     }
 }
 
+fn supports_scoped_body(
+    program: &ArenaProgram,
+    owner_kind: crate::sema::types::CallableKind,
+    prepared: &crate::sema::constants::PreparedConstants,
+    command_sites: &std::collections::BTreeMap<(Span, super::Name), BindingId>,
+    bindings: &ResolvedBindings,
+    available: &FxHashSet<BindingId>,
+    captures: &CapturedBindings,
+    tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
+    positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
+    checked_calls: &FxHashSet<Span>,
+    registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
+    types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
+    constructor_producers: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::NonmaterialConstructor>,
+    result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
+    block: BlockId,
+) -> bool {
+    let completion = program.arena.stmt_ids(program.arena.block(block).statements).last()
+        .map(|statement| program.arena.stmt(program.arena.core_stmt_id(statement)))
+        .filter(|statement| positions.get(&statement.span) != Some(&super::StatementPosition::Statement))
+        .map_or(BodyCompletion::Statement, |_| BodyCompletion::Value);
+    supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, completion)
+}
+
+fn command_children_are_available(
+    program: &ArenaProgram,
+    owner_kind: crate::sema::types::CallableKind,
+    prepared: &crate::sema::constants::PreparedConstants,
+    command_sites: &std::collections::BTreeMap<(Span, super::Name), BindingId>,
+    bindings: &ResolvedBindings,
+    available: &FxHashSet<BindingId>,
+    captures: &CapturedBindings,
+    tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
+    positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
+    checked_calls: &FxHashSet<Span>,
+    registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
+    types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
+    constructor_producers: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::NonmaterialConstructor>,
+    result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
+    span: Span,
+    children: Vec<crate::syntax::arena::ArenaChild>,
+    completion: BodyCompletion,
+) -> bool {
+    let mut supported = true;
+    let mut nested_spans = children.iter().filter_map(|child| match *child {
+        crate::syntax::arena::ArenaChild::Expr(expression) => Some(program.arena.expr(expression).span),
+        crate::syntax::arena::ArenaChild::Block(block) => Some(program.arena.span(program.arena.block(block).span)),
+        _ => None,
+    }).collect::<Vec<_>>();
+    nested_spans.sort_unstable();
+    let mut nested_position = 0;
+    let start = (Span::at(span.source_id, span.start()), super::Name::UNKNOWN);
+    let end = (Span::at(span.source_id, span.end()), super::Name::UNKNOWN);
+    for (&(site, _), binding) in command_sites.range(start..end) {
+        if site.end() > span.end() { return false; }
+        while nested_position < nested_spans.len() && nested_spans[nested_position].end() <= site.start() { nested_position += 1; }
+        if nested_spans.get(nested_position).is_some_and(|nested| nested.start() <= site.start() && site.end() <= nested.end()) { continue; }
+        let constant_type = prepared.binding_values.get(binding).and_then(|expression| prepared.types.get(expression));
+        if !(available.contains(binding) || captures.contains_key(binding)
+            || bindings.declarations.get(binding).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Constant(_)))
+                && constant_type.is_some_and(|ty| !ty.contains_inference() && !ty.contains_recovery() && !ty.may_hold_resource())) { return false; }
+    }
+    for child in children {
+        supported &= match child {
+            crate::syntax::arena::ArenaChild::Expr(expression) => is_body_expression(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, expression),
+            crate::syntax::arena::ArenaChild::Block(block) => supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, completion),
+            _ => false,
+        };
+    }
+    supported
+}
+
 pub(super) fn is_body_expression(
     program: &ArenaProgram,
     owner_kind: crate::sema::types::CallableKind,
@@ -447,6 +493,31 @@ pub(super) fn is_body_expression(
                     tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, BodyCompletion::Value)
                 { return false; }
             }
+            ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
+                pending.push(message);
+                if !supports_scoped_body(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, block) { return false; }
+            }
+            ArenaExprKind::Retry { delays, pattern, block, .. } => {
+                pending.extend(program.arena.expr_ids(delays));
+                if let Some(pattern) = pattern {
+                    let mut children = vec![crate::syntax::arena::ArenaChild::Pattern(pattern)];
+                    while let Some(child) = children.pop() {
+                        match child {
+                            crate::syntax::arena::ArenaChild::Pattern(pattern) => program.arena.for_each_pattern_child(pattern, |child| children.push(child)),
+                            crate::syntax::arena::ArenaChild::Expr(expression) => pending.push(expression),
+                            crate::syntax::arena::ArenaChild::TypeExpr(_) => {},
+                            _ => return false,
+                        }
+                    }
+                }
+                if !supports_scoped_body(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, block) { return false; }
+            }
+            ArenaExprKind::Run(_) => {
+                if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
+                let mut children = Vec::new();
+                program.arena.for_each_expr_child(expression, |child| children.push(child));
+                if !command_children_are_available(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, program.arena.expr(expression).span, children, BodyCompletion::Statement) { return false; }
+            }
             ArenaExprKind::Loop { block } => {
                 if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, available, captures, tails, positions, checked_calls, registered_calls, types, constructor_producers, result_constructors, BodyCompletion::Statement) { return false; }
             }
@@ -496,6 +567,25 @@ mod ordinary_body_tests {
         let checked = Checker::check_arena(&parsed.arena, &source);
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn generic_nominal_result_equality_reads_resolved_call_types() {
+        accepts(
+            "error SampleFailure = Missing\npure sample() -> Result[Int, SampleFailure] { Ok(9) }\npure attach(payload) { {payload, result: sample()} }",
+            "let integer = attach(7) == {payload: 7, result: Ok(9)}\nlet text = attach(\"row\") != {payload: \"other\", result: Ok(8)}",
+        );
+        for comparison in [
+            "attach(7) == {payload: \"wrong\", result: sample()}",
+            "attach(7) != {payload: 7, result: other()}",
+        ] {
+            let source = format!("error SampleFailure = Missing\nerror OtherFailure = Missing\npure sample() -> Result[Int, SampleFailure] {{ Ok(9) }}\npure other() -> Result[Int, OtherFailure] {{ Ok(9) }}\npure attach(payload) {{ {{payload, result: sample()}} }}\nlet rejected = {comparison}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+
     }
 
     #[test]
