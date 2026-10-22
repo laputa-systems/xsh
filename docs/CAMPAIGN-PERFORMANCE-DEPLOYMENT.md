@@ -13,9 +13,16 @@ corpus assertions committed at `2aaefda86`, run all 113 enumerated full-inferenc
 native controls and seven changed legacy controls: 80 pass and 40 fail. Every
 listed selector executes exactly once. This wider boundary exposes unfinished
 declaration-side structural and operator relationships, callable composition,
-effect propagation, and prepared verification. One cleanup-effect rejection
-incorrectly succeeds; it remains a required safety repair. The previous selected
-Rust results do not establish full capability completion.
+effect propagation, and prepared verification. The previous selected Rust
+results do not establish full capability completion.
+
+Fixture repairs `51d41a12e` and `071787144` pass all five focused native
+executions. Three corpus controls needed required public documentation and
+valid print interpolation. The cleanup negative incorrectly treated print as
+a capability: XSH print is effect-free. Its corrected Env-read rejection,
+permitted Env construction and original print-only acceptance all pass, as
+does the existing print-effect control. No production capability bug is
+established by the original cleanup receipt.
 
 Static literal-splice repair `10fce8c8d`, integrated as `c06d930d0`, passes the
 matching native source-order/refinement selector, rest-element rejection and
