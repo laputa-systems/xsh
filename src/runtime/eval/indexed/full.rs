@@ -5403,6 +5403,24 @@ fn verify_driver_annotation(
     Ok(())
 }
 
+fn verify_unsigned_parameter_runtime_validation(
+    store: &FullStore,
+    parameter: usize,
+    expected: &Type,
+) -> Result<(), IrVerifyError> {
+    if !expected.has_unsigned_constraint() { return Ok(()); }
+    let cold = store.param_cold.binary_search_by_key(&(parameter as u32), |cold| cold.param)
+        .ok().map(|index| store.param_cold[index]);
+    let validation = cold.map(|cold| cold.validation)
+        .filter(|validation| *validation != IR_NONE)
+        .and_then(|validation| store.validations.get(validation as usize))
+        .ok_or_else(|| IrVerifyError::new("unsigned parameter is missing its runtime validation"))?;
+    if store.semantic.to_type(validation.type_id)? != *expected {
+        return Err(IrVerifyError::new("unsigned parameter validation disagrees with its signature"));
+    }
+    Ok(())
+}
+
 fn scheme_type_physical_kind(
     store: &FullStore,
     type_id: SchemeTypeId,
@@ -9797,7 +9815,8 @@ impl<'a> FullDecoder<'a> {
                     | (V::Float(_), Type::Float) | (V::Duration(_), Type::Duration) | (V::Str(_), Type::Str)
                     | (V::StrView(_), Type::Str) | (V::Bytes(_), Type::Bytes) | (V::BytesView(_), Type::Bytes)
                     | (V::Path(_), Type::Path) | (V::Regex(_), Type::Regex) => {}
-                    (V::Int(value), Type::UInt) if *value >= 0 => {}
+                    (V::Int(value), Type::UInt) if *value >= 0
+                        || (*value < 0 && matches!(evidence, PreparedValueEvidence::DefaultContract)) => {}
                     (V::List(values), Type::List(item)) => pending.extend(values.iter().enumerate().map(|(index, value)| Task::Value(value, Arc::new((**item).clone()), evidence.item(index)))),
                     (V::SharedList(values), Type::List(item)) => pending.extend(values.iter().enumerate().map(|(index, value)| Task::Value(value, Arc::new((**item).clone()), evidence.item(index)))),
                     (V::Record(values), Type::Record(fields)) => {
@@ -18146,6 +18165,7 @@ impl FullVerifier {
                         let (name, type_id, flags) =
                             store.semantic.signature_param(signature, offset)?;
                         store.semantic.type_tag(type_id)?;
+                        let parameter_type = store.semantic.to_type(type_id)?;
                         let encoded_name = Name::intern(store.string(param.name)?);
                         let encoded_flags = u32::from(param.flags & 2 != 0)
                             | (u32::from(param.flags & 1 != 0) << 1);
@@ -18154,13 +18174,36 @@ impl FullVerifier {
                                 "function parameter metadata disagrees with its signature",
                             ));
                         }
+                        verify_unsigned_parameter_runtime_validation(
+                            store,
+                            params.start + offset,
+                            &parameter_type,
+                        )?;
                     }
                     FullCallableContract::Scheme(_) if param.flags & 2 != 0 && param.flags & 4 == 0 => {
                         return Err(IrVerifyError::new(
                             "generic default parameter requires an expression entry",
                         ));
                     }
-                    FullCallableContract::Scheme(_) => {}
+                    FullCallableContract::Scheme(scheme_id) => {
+                        let scheme = store.scheme(scheme_id)?;
+                        let scheme_params = scheme.params.bounds(store.scheme_params.len())
+                            .ok_or_else(|| IrVerifyError::new("scheme parameter range is invalid"))?;
+                        let scheme_param = store.scheme_params.get(scheme_params.start + offset)
+                            .filter(|_| offset < scheme_params.len())
+                            .ok_or_else(|| IrVerifyError::new("scheme parameter is missing"))?;
+                        let node = store.scheme_type(scheme_param.ty)?;
+                        if node.tag == schema::FullSchemeTypeTag::Ground {
+                            let type_id = TypeId::from_raw(node.first)
+                                .ok_or_else(|| IrVerifyError::new("scheme ground parameter type is invalid"))?;
+                            let parameter_type = store.semantic.to_type(type_id)?;
+                            verify_unsigned_parameter_runtime_validation(
+                                store,
+                                params.start + offset,
+                                &parameter_type,
+                            )?;
+                        }
+                    }
                 }
             }
             for capture in &store.captures[captures.clone()] {
@@ -29206,6 +29249,30 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             .unwrap_err();
         assert_eq!(error.kind, "type-error");
         assert!(error.message.contains("List[Int]"), "{}", error.message);
+
+        let nested_source = "pure sink(value: Int) -> Int { value }\n\
+                            pure checked_values() -> List[Int] {\n\
+                              let wrong: Str = \"wrong\"\n\
+                              let values: List[Int] = [sink(7)]\n\
+                              values\n\
+                            }\n\
+                            pure read(row) -> Int { let ignored = row.anchor; checked_values()[0] }\n\
+                            let observed = read({anchor: false})\n";
+        let nested = fixture("runtime-checked-list-call-argument.xsh", nested_source);
+        let _nested_symbols = nested.symbol_owner().enter();
+        FullVerifier::verify(&nested).unwrap();
+        let caller = scheme_fixture_root_function(&nested, "checked_values");
+        let instructions = nested.store.function_instruction_range(caller).unwrap();
+        let literal = instructions.clone().find(|instruction| nested.store.tags[*instruction] == FullTag::ExprStr).unwrap();
+        let call = scheme_fixture_call(&nested, "sink");
+        let argument = scheme_fixture_call_arguments(&nested, call)[0].1 as usize;
+        assert_eq!(nested.store.tags[argument], FullTag::ExprInt, "selected argument instruction {argument}");
+        let mut forged_argument = nested.clone();
+        forged_argument.store.tags[argument] = FullTag::ExprStr;
+        forged_argument.store.data[argument] = nested.store.data[literal];
+        let error = FullVerifier::verify(&forged_argument)
+            .expect_err("runtime container checks do not authenticate nested call arguments");
+        assert_eq!(error.message, "ground producer value disagrees with its checked contract");
     }
 
     #[test]
@@ -38791,6 +38858,43 @@ pure selected() -> Str {
             assert!(
                 FullVerifier::verify(&malformed).is_err(),
                 "checked value types must refer to the semantic pool"
+            );
+            let defaulted = program.store.functions.iter().position(|function| {
+                program.store.string(function.name).ok() == Some("defaulted")
+            }).expect("UInt default function exists");
+            let parameter = program.store.functions[defaulted].params.start;
+            let cold = program.store.param_cold.binary_search_by_key(&parameter, |row| row.param).unwrap();
+            let mut missing_default_check = (*program).clone();
+            missing_default_check.store.param_cold[cold].validation = IR_NONE;
+            assert_eq!(
+                FullVerifier::verify(&missing_default_check).unwrap_err().message,
+                "unsigned parameter is missing its runtime validation"
+            );
+            let mut wrong_default_check = (*program).clone();
+            let int = SemanticPoolBuilder::default()
+                .intern_type(&mut wrong_default_check.store.semantic, &Type::Int)
+                .unwrap();
+            let validation = wrong_default_check.store.param_cold[cold].validation as usize;
+            wrong_default_check.store.validations[validation].type_id = int;
+            assert_eq!(
+                FullVerifier::verify(&wrong_default_check).unwrap_err().message,
+                "unsigned parameter validation disagrees with its signature"
+            );
+            let scheme = fixture(
+                "ground-uint-parameter-in-scheme.xsh",
+                "pure choose(value, fixed: UInt) { fixed }\n",
+            );
+            let choose = scheme.store.functions.iter().position(|function| {
+                scheme.store.string(function.name).ok() == Some("choose")
+            }).expect("scheme function exists");
+            assert!(matches!(scheme.store.functions[choose].contract, FullCallableContract::Scheme(_)));
+            let parameter = scheme.store.functions[choose].params.start + 1;
+            let cold = scheme.store.param_cold.binary_search_by_key(&parameter, |row| row.param).unwrap();
+            let mut missing_scheme_check = scheme.clone();
+            missing_scheme_check.store.param_cold[cold].validation = IR_NONE;
+            assert_eq!(
+                FullVerifier::verify(&missing_scheme_check).unwrap_err().message,
+                "unsigned parameter is missing its runtime validation"
             );
             for name in [
                 "scalar_failure",

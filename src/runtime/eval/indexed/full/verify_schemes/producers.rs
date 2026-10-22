@@ -1692,6 +1692,7 @@ struct ProducerProof<'a> {
     deferred_sources: BTreeMap<(u32, ProducerBinding), usize>,
     contextual_reads: BTreeMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     captured_errors: BTreeMap<(u32, usize), CapturedErrorDerivation>,
+    runtime_checked_inputs: BTreeSet<(u32, usize)>,
     scheme_applications: BTreeSet<(u32, usize)>,
     scheme_captures: BTreeSet<(u32, usize)>,
     incoming: BTreeMap<usize, Vec<usize>>,
@@ -1708,7 +1709,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         if !requests.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
         return Ok(Vec::new());
     }
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     proof.budget.charge(requests.captures.len())?;
     for request in &requests.captures {
         if !proof.scheme_captures.insert((request.owner, request.instruction)) {
@@ -2438,6 +2439,47 @@ impl<'a> ProducerProof<'a> {
             self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
         }
         Ok(Some(candidate))
+    }
+
+    fn mark_runtime_checked_literal_payloads(&mut self, decoder: &FullDecoder<'a>, root: usize) -> Result<(), IrVerifyError> {
+        let mut pending = vec![root];
+        while let Some(instruction) = pending.pop() {
+            self.budget.charge(1)?;
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::Record(mut entries) => {
+                    for entry in &mut entries {
+                        self.budget.charge(1)?;
+                        if let super::super::decode::RecordEntryView::Field(_, value) = entry? { pending.push(value.raw() as usize); }
+                    }
+                }
+                schema::ExprView::List(mut entries) => for entry in &mut entries { pending.push(entry?.raw() as usize); },
+                schema::ExprView::ListBuild(mut entries) => for entry in &mut entries {
+                    let (splice, value, _) = entry?;
+                    if !splice { pending.push(value.raw() as usize); }
+                },
+                schema::ExprView::MapLiteral(mut entries) => for entry in &mut entries {
+                    let (key, value, _) = entry?;
+                    if let Some(key) = key {
+                        pending.push(key.raw() as usize);
+                        pending.push(value.raw() as usize);
+                    }
+                },
+                schema::ExprView::ListComp { value, .. } => pending.push(value.raw() as usize),
+                schema::ExprView::MapComp { key, value, .. } => {
+                    pending.push(key.raw() as usize);
+                    pending.push(value.raw() as usize);
+                }
+                schema::ExprView::CheckedValue { value, .. } => pending.push(value.raw() as usize),
+                schema::ExprView::Null | schema::ExprView::Unit | schema::ExprView::Bool(_)
+                | schema::ExprView::Int(_) | schema::ExprView::UInt(_) | schema::ExprView::Float(_)
+                | schema::ExprView::Str(_) | schema::ExprView::Bytes(_) | schema::ExprView::Duration(_)
+                | schema::ExprView::PreparedRegex(_) | schema::ExprView::Path(_) => {
+                    self.runtime_checked_inputs.insert((decoder.owner, instruction));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn checked_list_accumulator(&mut self, decoder: &FullDecoder<'a>, instruction: usize, checked: &Arc<Type>, runtime_complete: bool) -> Result<bool, IrVerifyError> {
@@ -3822,7 +3864,10 @@ impl<'a> ProducerProof<'a> {
                     _ => false,
                 } }
             } else { false };
-            if !fits && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
+            let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
+            let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
+                && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
+            if !fits && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
                     && let Some(required) = container.validated()
                     && actual.unvalidated().matches_expected(required.base())
@@ -4386,6 +4431,7 @@ impl<'a> ProducerProof<'a> {
                 let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
                 if check.schema.is_none() {
                     let input = value.raw() as usize;
+                    if runtime_complete { self.mark_runtime_checked_literal_payloads(&decoder, input)?; }
                     if !self.checked_record_arguments(&decoder, input, &checked)?
                         && !self.checked_list_accumulator(&decoder, input, &checked, runtime_complete)?
                     {
@@ -5482,10 +5528,22 @@ impl<'a> ProducerProof<'a> {
         Ok(matched)
     }
 
+    fn receiver_pipeline_cannot_complete(&mut self, decoder: &FullDecoder<'a>, receiver: usize) -> Result<bool, IrVerifyError> {
+        let schema::ExprView::Param(slot) = decoder.expression_view(receiver)? else { return Ok(false) };
+        let ProducerBinding::ScopedDeclaration(declaration, _) = self.binding(decoder.owner, receiver, slot)? else { return Ok(false) };
+        let value = match decoder.statement_view(declaration)? {
+            schema::StmtView::Let { slot: declared, value, .. } if declared == slot => value.raw() as usize,
+            _ => return Ok(false),
+        };
+        if self.store.tags[value] != FullTag::ExprPipeline { return Ok(false); }
+        Ok(!super::super::indexed_expr_can_complete(decoder, value, 0)?)
+    }
+
     fn verify_registered_method(&mut self, decoder: &FullDecoder<'a>, instruction: usize, receiver: usize, name: &str, arguments: &[usize], expected: &Type) -> Result<(), IrVerifyError> {
         let (actual_receiver, receiver_fact) = self.operand_context(decoder, receiver)?.into_parts();
         let receiver_type = match actual_receiver {
             Some(actual) => actual,
+            None if self.receiver_pipeline_cannot_complete(decoder, receiver)? => return Ok(()),
             None => self.checked_fresh_list_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
         };
         self.expression_with_fact(decoder.owner, receiver, Arc::clone(&receiver_type), false, receiver_fact);
