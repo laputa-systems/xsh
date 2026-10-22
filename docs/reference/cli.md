@@ -53,10 +53,12 @@ Start here:
 xsht check — Parse and type-check scripts
 
 Usage:
-  xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]
+  xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [--compare-with ORIGINAL_ROOT] [--candidate-root CANDIDATE_ROOT] [PATH...]
 
-  --summary            Append diagnostic counts by code
-  --annotate[=POLICY]  Apply inferred annotations in place
+  --compare-with ORIGINAL_ROOT     Qualify candidate interfaces and checked bodies against original sources
+  --candidate-root CANDIDATE_ROOT  Map candidate entries and imports to the original root
+  --summary                        Append diagnostic counts by code
+  --annotate[=POLICY]              Apply inferred annotations in place
 ```
 
 ### `xsht fmt`

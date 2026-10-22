@@ -166,10 +166,11 @@ print $result
 test test_full_inference_ordering_resolves_an_operand_after_the_other_constrains_it { |ctx|
   let output = test.run_xsh(
     ctx,
-    r"""pure nonnegative(value) {
+    r"""pure nonpositive(value) {
   value <= 0
 }
-assert nonnegative(3)
+assert nonpositive(-3)
+assert nonpositive(3) == false
 print "checked"
 """,
   )?

@@ -296,8 +296,9 @@ let out = ./target/build
 ```
 
 **Globs.** `g"..."` expands against the current directory and produces
-`List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+`List[Path]`. Globbing requires the `fs` effect and is not allowed in pure
+functions. Inferred effects include `fs` when the body expands a glob. A glob
+literal and the methods `Path.glob` and `Path.rglob` (15)
 are the only things that glob; every other string, word, and path is taken
 literally.
 
@@ -1048,11 +1049,6 @@ field spread (`...base`) takes only named arguments. Field defaults are
 constant data (literals, constant lists and records, and earlier constants)
 and apply only to constructor calls. They never fill missing fields in record
 literals, JSON, or `.require`. A schema name is not a callable value.
-
-Constructing a record adds no effects beyond its arguments. Field constraints
-are typed storage boundaries: a violation stops execution and runs cleanup,
-and `try` does not convert the violation to `Err`. Use explicit `.require`
-when validation failure should be returned as data.
 
 Schemas and aliases may take type parameters:
 
@@ -2320,11 +2316,8 @@ evaluated anew per outer binding, a false filter skips the rest, and the
 projection runs once per surviving combination. Sources may be lists, sets,
 streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
-accept `Bool` or `Status`, using the ordinary control-condition rules. A zero
-status selects the remaining clauses; a nonzero status skips them. Filters
-never assert. Each binding becomes visible after its source evaluates and
-remains visible to later clauses and the projection. A failed comprehension
-exposes no partial result. A map comprehension is the only entry in its braces; an entry or
+are `Bool` values, never assertions. A failed comprehension exposes no partial
+result. A map comprehension is the only entry in its braces; an entry or
 spread before it is an error (`parse.map-comprehension-entries`).
 
 Braces around a projection without a `key:` are a set comprehension:
@@ -2405,14 +2398,10 @@ type from another list-literal branch. This rule also applies when a branch
 value is the tail of a nested block. A stored list keeps one inferred item
 type across its uses.
 
-Without an expected type, a value-producing `if` or `match` joins a `null`
-branch and a concrete `T` branch as `Optional[T]`, regardless of branch order.
-An existing `Optional[T]` branch keeps one nullable envelope when the other
-values fit it. A generic payload retains the same type parameter in `T?`;
-each call still instantiates it independently. All-null branches supply no
-nonnull payload type. An explicit nonnullable context still rejects null,
-and nullable joins do not change invariant list elements or map-key domains.
-Unchecked `Any` does not establish a checked nullable type.
+Without an expected type, an `if` expression may use an `Optional[T]` already
+provided by one reachable branch when every other branch value fits it,
+regardless of branch order. A plain `null` branch and plain `T` branch do not
+infer `T?`. Add an `Optional[T]` context or annotate the result.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }
@@ -3074,7 +3063,9 @@ A constructor takes its payload and error types from the expected type. Where
 a `Result[T, E]?` is expected, `Ok(...)` and `Err(...)` are checked against
 the `Result[T, E]` under the `?`, since neither is `null`: `Ok(7)` has the
 error type `E`, and `Err(.Variant(...))` selects the variant from `E`
-(6.8).
+(6.8). An `Err` keeps the expected success type even though it carries only
+an error payload. This also applies when the result is stored in a typed local
+or passed to an inferred generic parameter.
 
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
@@ -3667,12 +3658,6 @@ when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
 type.
 
-Preparation checks the normal value and each propagated error against the
-capture's `Result` contract. Nested captures, retry attempts, and handled
-`with` initializers intercept their own failures. Saving a stream does not
-consume it; iteration includes failures from its actual producers, including
-streams passed through callable returns and `Result` values.
-
 `try` directly before a run form captures that one form: `try run.text cmd`
 is the form's `Result` as a value (11.1). A run form inside a `try` block
 fails into the block like any other failure, so `try { run.text cmd }` is a
@@ -3807,7 +3792,7 @@ when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
 ### 9.2 Parameters
 
 Parameters are `name: Type`, `name: Type = default`, `name = default`, or a
-final rest parameter `...name: List[T]`. A defaulted parameter may omit its type
+final rest parameter `...name` or `...name: List[T]`. A defaulted parameter may omit its type
 when the default alone determines one concrete type; `null` and empty
 containers need annotations.
 
@@ -3855,6 +3840,13 @@ the ordinary item order and snapshot behavior. Result sources propagate their
 actual error family. Stream sources remain lazy, and leaving a loop releases
 its source through ordinary cleanup. The enclosing result contract must admit
 both source errors and errors from pulling a stream.
+An inferred iteration parameter retains the relationship between its source and
+item types. Independent calls may supply a `List`, `Set`, `Map`, `Str`, `Bytes`,
+`Stream`, or one `Result` around those sources. A map yields records with `key`
+and `value` fields; text yields `Str` items, and bytes yield `Int` items.
+Source and stream errors must fit the enclosing error boundary and effect
+contract. An explicit empty effect clause still excludes fallible iteration.
+Nested `Result` sources are not supported.
 List and map comprehensions retain the item or value relationship to quantified
 parameters. Set comprehensions require a checked scalar key domain. Qualifiers
 keep their ordinary sequential scope, lazy source evaluation, filter behavior,
@@ -3902,9 +3894,17 @@ expression still evaluates in source order. Computed map keys keep a checked
 scalar key domain; map values may retain the callable's type parameters.
 Map spreads preserve both domains. Scalar-key set literals use the ordinary
 set conversion and remove duplicates. Text and path interpolation use the
-ordinary display and formatting rules. Each interpolated operand must have a
-checked display type in the declaration; a caller cannot supply a display
-operation for an unconstrained parameter.
+ordinary display and formatting rules. An inferred operand retains the display
+requirement imposed by interpolation or `print`. Each concrete call must satisfy
+that requirement. Generic forwarding preserves it with the same type parameter.
+
+Command arguments retain the conversion required by their syntax. A typed
+argument requires an argv scalar; a standalone interpolation accepts an argv
+scalar or a list of them; an explicit splice requires a list of argv scalars.
+An interpolation within a larger word uses display conversion. These requirements
+preserve the ordinary domains: Float can be displayed but cannot be an argv
+scalar, and a list cannot be displayed. An incompatible instance is rejected
+before execution.
 Static record updates retain a known base shape and disjoint existing paths.
 The base evaluates once before the replacements; replacements preserve their
 field contracts, including ordinary unsigned validation, and a failure exposes
@@ -3955,6 +3955,9 @@ assert successful("demo") == Ok("demo")
 assert named(false).value == false
 assert choose(true, 42, 0) == 42
 assert choose(false, "first", "second") == "second"
+pure display_value(value) { f"value:{value}" }
+assert display_value(42) == "value:42"
+assert display_value("demo") == "value:demo"
 ```
 
 A checked value return keeps an explicit `Bool` value, including `false`.
@@ -3969,16 +3972,19 @@ checked value is already `Unit`. A generic proc's early value return uses the
 same success-envelope rule as its terminal value. Instantiating that value
 with a `Result` preserves the nested result as data.
 
-At a direct call to an inferred quantified pure declaration, supply all fixed
-required parameters first. Zero or more trailing rest items or list splices may
-then fill only the final rest parameter, whose annotation is `List[T]`. Each
-rest item must match the annotated list element type. A splice must be a list
-whose element type matches it. The fixed required arguments provide type
-evidence for instantiating quantified parameters. This call form also works
-through a direct immutable alias. Ordinary monomorphic calls keep their
-existing behavior. A positional splice that could expand into a fixed parameter before
-the final rest parameter currently blocks lowering. The body restriction above
-still applies to quantified declarations that have rest parameters.
+At a direct call to an inferred quantified pure declaration, fixed required arguments
+may be positional or named. A final rest parameter has type `List[T]`; omitting
+its annotation introduces an inferred item type `T`. Each supplied rest item
+must match `T`. Literal positional list splices without
+nested splices expand into fixed and rest slots in source order. Empty literal
+splices consume no parameter. Each expanded item receives its parameter's type
+and schema context, while the source list still requires one homogeneous item
+type. Supplied expressions are evaluated once in source order.
+
+A positional splice with an unknown length may fill the final rest parameter;
+it cannot supply a fixed slot before that parameter. Defaulted parameters and
+immutable callable aliases follow the same binding rules. Omitted defaults
+retain their declaration scope and evaluation order described above.
 
 A quantified declaration may have defaulted parameters under the same concrete
 default-type rules above. A default can call a selected function and propagate
@@ -4003,19 +4009,13 @@ record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
 renaming while preserving nominal types, labels, schemas, and effects.
 
-A return inferred from a checked record constructor retains that constructor's
-schema identity through immutable aliases and agreeing completing branches or
-early returns. A proc's inferred success envelope retains the same identity.
-A structurally equal raw record or a different constructor does not establish
-that schema identity.
-
 The checker infers mutually recursive parameters and returns before checking
 callers. Variables that are independent of the captured environment can become
 rank-1 scheme parameters after the component is solved. Infinite types and
 recursive calls that require a fresh polymorphic instance are rejected. A failed
 component publishes no member scheme.
 
-- A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
+- A `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is
   Unit-like (no tail value, an `if` without `else`, a bare `return`, or a
   failure-only `Err(...)`), the proc returns `Result[Unit]`. Value tails that
@@ -4023,9 +4023,30 @@ component publishes no member scheme.
   Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
   `?` propagations join into the error type: variants of one family join to
   the family, anything else to `Error`.
-- An exported `proc` with value returns and `proc main` need explicit return
-  types (`check.required-return`). Empty collections, error-only bodies, and
+- Recursive `proc` value returns are solved within the same monomorphic
+  component before generalization. `proc main` still needs an explicit value
+  return type (`check.required-return`). Empty collections, error-only bodies, and
   dynamic shapes cannot be inferred (`check.infer-return`).
+
+An inferred proc can quantify body-owned type and row variables when its checked
+effect contract is finite. `proc wrap(value) { value }` has the relation
+`forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
+always constructs `Ok`; passing `Ok(7)` therefore returns `Ok(Ok(7))`.
+Exported and statically imported procs keep the same relation. Mutable or
+resource-bearing captures and calls with unrestricted effects cannot enter
+this quantified body contract. Symbolic callback effects remain unsupported.
+
+```xsh
+proc wrap(value) { value }
+let number: Int = wrap(42)?
+let text: Str = wrap("demo")?
+let nested: Result[Int] = wrap(Ok(7))?
+let failed: Result[Int, Str] = wrap(Err("kept"))?
+assert failed == Err("kept")
+assert number == 42
+assert text == "demo"
+assert nested == Ok(7)
+```
 
 A quantified proc that returns its formal value `T` treats that value as data:
 instantiating `T` with a `Result` preserves the inner value inside the proc's
@@ -4282,7 +4303,7 @@ proc read_config(file: Path) [fs, error] -> Result[Config] {
 | `fs` | filesystem APIs (`fs`, `archive`, `diff`, `patch`, `user`, `group`, `module`, path I/O methods) |
 | `net` | `net`, `dns`, and the socket operations listed below |
 | `process` | `run`, `spawn`, `wait`, handle cancellation, effectful `process` APIs, `unix`, `linux`, `applet` |
-| `env` | `env`, `cd`, `system` |
+| `env` | `env`, `cd`, host-dependent `system` operations |
 | `time` | `time` APIs and delayed `retry` |
 | `io` | stdin/stdout APIs; also implies `fs`, `net`, `process`, and `env` |
 | `error` | propagating an `Err` out of the proc |
@@ -4295,8 +4316,6 @@ bound.
 The file-backed operations `bytes.resize`, `bytes.read_at`, `bytes.write_at`,
 `bytes.zero_at`, `bytes.copy`, and `bytes.copy_file` require `fs`. Operations
 on in-memory bytes require no host effect.
-
-On Linux, `unix.uptime_seconds` reads `/proc/uptime` and requires `fs`.
 
 These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,

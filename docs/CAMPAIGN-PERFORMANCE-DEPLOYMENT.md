@@ -8,7 +8,17 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Matching verification products built from `2137456d9` execute all 113 enumerated
+Matching verification products built from `e885b64c5` execute all 121 enumerated
+full-inference native controls and seven changed legacy controls: 105 pass and
+23 fail. Every selector executes exactly once. All previously passing selectors
+remain passing, and six previous failures are resolved. Four new controls fail
+on fixture mistakes. Correcting their assertions, reserved names and error
+constructor calls gives two focused passes and exposes two cold driver-annotation
+validation failures. Keep those focused receipts separate from the complete run.
+The existing invalid-comparison-domain control also passes with these products.
+Documentation regeneration succeeds through the existing checked generator.
+
+The preceding verification products built from `2137456d9` execute all 113 enumerated
 full-inference native controls and seven changed legacy controls: 95 pass and
 25 fail. Every listed selector executes exactly once. This resolves eight
 failures from the preceding `f8771f5b2` products with assertions through
@@ -43,12 +53,13 @@ domains. Polymorphic arithmetic remains open.
 Nominal producer repair `73ce589a9`, integrated as `54f03d86d`, passes three
 focused Rust controls and independent review. The unchanged nominal example
 verifies and executes through both routes. Forged nominal targets remain
-rejected. Documentation regeneration still needs matching rebuilt products.
+rejected. Documentation regeneration passes with matching `e885b64c5` products.
 
 Documentation regeneration through the existing `docs.generate` API with
 `2137456d9` tools fails on the unchanged `70-nominal-type.xsh` example: a physical
 record constructor is rechecked as its nominal result. No generated files were
-written. Repair this producer boundary before claiming generated docs current.
+written. The nominal repair above resolves this failure, and regeneration passes
+with `e885b64c5` products.
 Iteration review also retains two separate open refinement programs: an
 annotated local `RelPath` passed through an inferred iterator, and a grounded
 `List[RelPath]`-to-`List[Path]` helper called with a contextual `p"relative"`

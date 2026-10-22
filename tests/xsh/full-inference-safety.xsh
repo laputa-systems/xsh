@@ -276,13 +276,13 @@ test test_full_inference_iteration_result_domains_preserve_grounded_behavior { |
 stream items() [] -> Stream[Int] { yield 4; yield 8 }
 let list: Result[List[Int]] = Ok([1, 2])
 let text: Result[Str] = Ok("ab")
-let bytes: Result[Bytes] = Ok(b"ab")
-let map: Result[Map[Str, Int]] = Ok({["key"]: 7})
+let byte_source: Result[Bytes] = Ok(b"ab")
+let map_source: Result[Map[Str, Int]] = Ok({["key"]: 7})
 let producer: Result[Stream[Int]] = Ok(items())
 assert collect(list)? == [1, 2]
 assert collect(text)? == ["a", "b"]
-assert collect(bytes)? == [97, 98]
-assert collect(map)? == [{key: "key", value: 7}]
+assert collect(byte_source)? == [97, 98]
+assert collect(map_source)? == [{key: "key", value: 7}]
 assert collect(producer)? == [4, 8]
 assert collect(items())? == [4, 8]
 """,
@@ -298,7 +298,7 @@ stream values() [io, error] -> Stream[Int] {
   defer { print "stream-closed" }
   print "pulled"
   yield 1
-  let stopped: Result[Int, IterationFailure] = Err(IterationFailure.Stopped)
+  let stopped: Result[Int, IterationFailure] = Err(IterationFailure.Stopped())
   yield stopped?
 }
 proc collect(values) [io, error] {
@@ -312,7 +312,7 @@ print "created"
 let result = try { collect(source)? }
 assert match result { Ok(_) => false, Err(_) => true }
 print "caught"
-let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped)
+let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped())
 let rejected = try { collect(stopped)? }
 assert match rejected { Ok(_) => false, Err(_) => true }
 print "input-caught"
@@ -344,7 +344,7 @@ pure captured(values) { try { [value for value in values] } }
 assert from_factory(numbers) == [1, 2]
 assert from_factory(words) == ["a", "b"]
 assert captured([1, 2]) == Ok([1, 2])
-let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped)
+let stopped: Result[List[Int], IterationFailure] = Err(IterationFailure.Stopped())
 assert match captured(stopped) { Ok(_) => false, Err(_) => true }
 """,
     status: 0,
