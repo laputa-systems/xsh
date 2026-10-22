@@ -8,19 +8,27 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Current inference assembly `28436de64` passes all 301 focused controls without
+Current inference assembly `0cc8dc0ff` passes all 305 focused controls without
 failures or ignores. The combined group covers type, scheme, semantic-codec,
 Range, constructor, shorthand, structured Proc returns, resource transfers,
 counters, mutable callables and independent solver comparisons. All 27 unchanged
 native regression cases pass on the earlier matching `7f4dccc80` verification
-products, with source and product guards intact. Matching `28436de64` products
-build without warnings. Master remains at `d2453760a`.
+products, with source and product guards intact. Matching `0cc8dc0ff` products
+are rebuilding, followed by the full XSH Rust library suite. The broader check
+covers callers of the shared type and producer helpers beyond the focused group.
+Master remains at `d2453760a`.
 
 The practical four-return paired gate on `28436de64` passes the original-view
 checks for all 12 XSH roots and three Laputa roots. The wc invalid-byte and sort
 numeric-order behavior tests pass. The next selector,
 `test_awk_arrays_functions_and_loops`, fails during indexed preparation:
 a ground match lacks a subject contract for a lowered list comprehension.
+Repair `09c9c8452` derives the actual comprehension element contract and passes
+eight focused controls. The original-program compiler replay then exposes a
+readonly argv mismatch between checker and native verification. Repair
+`9171cfcac` aligns that relation while retaining invariant containers and actual
+producer types. Its eight controls pass. Both repairs are integrated into
+`0cc8dc0ff`; the unchanged paired replay awaits matching products.
 Reduced-view checks, later behavior tests, interfaces, negative controls and
 signature comparisons do not run. Source and product guards remain clean.
 The initial saved-view permission mismatch is resolved by regenerating a new
@@ -49,8 +57,13 @@ A reproduced propagation-boundary defect is repaired in the isolated candidate:
 actual declaration kind now controls latent Stream errors. The negative case
 first demonstrated incorrectly accepted IR. The repaired case and 22 boundary,
 delegation and Result controls pass, preserving local Result catches.
-The runtime candidate is not integrated or fully qualified; the original
-captured-write and Repeat witness remains open.
+The original captured-write, Repeat, defaults and cleanup witness now passes
+on both execution routes in the isolated runtime candidate. A separate control
+passes for consumer writes before first pull, between pulls and before close,
+including repeated and never-started cancellation. The reproduced stale snapshot
+is fixed by refreshing existing identity-bound captures on every actual pull.
+Exact mutable capture-storage checks also pass, including the no-writer case.
+The candidate remains unintegrated. UInt driver-annotation aliases remain open.
 
 Test-only follow-ups are integrated through `4baec41cf`. On `3924bb34e`,
 all 14 independent type, row and finite-effect oracle controls pass, including
@@ -85,6 +98,13 @@ execution. Deferred host solving must publish those facts through canonical
 finalization before the second traversal can disappear. Total inference-work
 counters must qualify this requirement. Output-only body counts omit probe work.
 Proc return-shape probing needs separate treatment.
+
+Source review also identifies five remaining generic-body admission classes:
+Proc defer and errdefer, With and Guard scopes, retry and context expressions,
+nonregistry builtins, and authored conversions or require targets. These are
+existing-language implementation gaps. Their completion remains mandatory.
+The deferred host-call continuation must retain its committed instantiation,
+checked argument layout and original effect scope before the probe can disappear.
 
 Master includes the four foundation commits through `c44e47016` and the
 independent effect-analysis repair `d6d71cb4f`. A fresh isolated replay passes
