@@ -3122,7 +3122,7 @@ mod generic_alias_call_tests {
     }
 
     #[test]
-    fn immutable_generic_alias_instantiates_direct_calls_and_rejects_callable_conversion() {
+    fn immutable_generic_alias_instantiates_direct_calls_and_checked_callable_conversion() {
         let accepted = checked(
             "pure identity(value) { value }\n\
              let shared = identity\n\
@@ -3145,19 +3145,29 @@ mod generic_alias_call_tests {
             );
         }
 
-        let rejected = checked(
+        let converted = checked(
             "type IntIdentity = pure(value: Int) -> Int\n\
              pure identity(value) { value }\n\
              let shared = identity\n\
-             let converted: IntIdentity = shared\n",
+             let converted: IntIdentity = shared\n\
+             let integer: Int = converted(7)\n\
+             let text: Str = shared(\"demo\")\n",
+        );
+        assert!(converted.diagnostics.is_empty(), "{:?}", converted.diagnostics);
+
+        let incompatible = checked(
+            "type WrongIdentity = pure(value: Int) -> Str\n\
+             pure identity(value) { value }\n\
+             let shared = identity\n\
+             let converted: WrongIdentity = shared\n",
         );
         assert!(
-            rejected
+            incompatible
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)),
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)),
             "{:?}",
-            rejected.diagnostics
+            incompatible.diagnostics
         );
     }
 
