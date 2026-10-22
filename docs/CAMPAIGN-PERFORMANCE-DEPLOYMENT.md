@@ -8,6 +8,21 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Source `7d9f4c6ac` builds matching verification products and passes the complete
+four-return practical comparison. Both original and reduced views check all
+twelve XSH roots and three Laputa roots. Six runtime selectors execute in each
+view; signature comparisons, all 1,991 callable interfaces and three retained
+wc negative controls pass. Source, product, pinned-input and final view guards
+pass, and owned cleanup completes. This qualifies only that practical slice;
+the historical 1,040-site cohort and final migration remain required.
+
+The causal Proc repair `b67962c51`, integrated as `7d9f4c6ac`, checks a partial
+tail `if` through the existing statement path when completing a Proc. Unit
+fallthrough and Result[Unit] propagation survive early error returns. Ten
+focused controls pass across compatible receipts, with both reviews clear.
+Value-context conditionals, exhaustive branches, ignored non-Unit values and
+authored Unit return restrictions retain their existing checks.
+
 The combined unfiltered library replay at `865b8aac2` selects 2,024 tests:
 2,021 pass, zero fail and three are ignored. Matching verification products
 build successfully. The complete native inference family executes 132 selectors
