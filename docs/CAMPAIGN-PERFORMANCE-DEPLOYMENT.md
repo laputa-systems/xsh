@@ -8,14 +8,29 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `b9294922e` passes 481 of 499 selected Rust controls.
-Its 18 failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `6cf8c3a25` passes 509 of 523 selected Rust controls.
+Its 14 failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
 are repaired. Authored recursive records retain their declared dynamic Map
 values and settled provenance. All three original Tokei regressions pass.
 Master remains at `d2453760a`; the assembly is not qualified for master.
+
+Scoped-body checkpoint `73596f399` passes seventeen controls and a separate
+symbolic resource control, then the combined replay. Ordinary generic guarded
+commands, retry, error contexts and context scopes reuse the existing executor
+and retain actual values, nominal errors, effect boundaries and restoration.
+Known Stream escape remains statically rejected; symbolic output retains the
+runtime escape guard. Equality reads existing resolved operand types without
+relaxing storage. Dedicated Path/env and authored conversion/require forms,
+Stream-carrier producer proof and single-body authority remain open.
+
+Four test-premise corrections pass the combined replay: scalar reads and local
+storage execute against annotated references on both routes; supported default
+arguments construct and verify; forged default calls retain the complete effect
+rejection; discarded container arguments use their actual lowered statement.
+The original sources and forgeries remain. No production guard is weakened.
 
 Path-like checkpoint `55c681c25` passes eighteen focused controls and the
 combined replay. It reuses the canonical Path-like validator for all three
@@ -39,8 +54,8 @@ exact empty literals can inherit another literal branch's element type in
 value-producing `if` and `match`, including nested block tails. Ten focused
 controls and the inherited stored-domain control pass. Stored aliases and
 incompatible known element types remain constrained. The SPEC template and
-generated paragraph match. It is locally integrated; combined qualification
-and matching practical products remain pending.
+generated paragraph match. It passes the combined replay; matching practical products and interface
+qualification remain pending.
 
 Interface checkpoint `ccc954553` authenticates empty-list and divergent-block
 operands from their actual checked AST and flow. Exact empty-list branch tails
@@ -107,7 +122,8 @@ retired-lane archive.
 The preceding full XSH library run on `0cc8dc0ff` finishes with 1,754 passes,
 44 failures and three existing ignores. Twenty-four failures are repaired or their obsolete test premises corrected in
 the combined replay. The two diagnostic cascades are also repaired on
-`2321053f2`, leaving eighteen required failures. Remaining failures include producer gaps, malformed mutation
+`2321053f2`. Four further test-premise corrections leave fourteen required
+failures on `6cf8c3a25`. Remaining failures include producer gaps, malformed mutation
 fixtures and obsolete unsupported-policy assertions. Each needs a scoped repair
 or a demonstrated correction of its former premise. The broad binding-fact
 corpus sweep passes.
