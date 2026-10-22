@@ -34840,6 +34840,52 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
+    fn generic_literal_record_capture_preserves_pure_data_expressions() {
+        run_with_large_stack(|| {
+            let source = "let marker = {negative: -1, arithmetic: (2 + 3) * 4, selected: {value: 7}.value}\npure read(row) -> List[Int] { let ignored = row.anchor; [marker.negative, marker.arithmetic.bit_or(0), marker.selected.bit_or(0)] }\n";
+            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for tag in [FullTag::ExprBinary, FullTag::ExprField] {
+                assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&tag)));
+            }
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(value, Value::List(vec![Value::Int(-1), Value::Int(20), Value::Int(7)]));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_literal_record_capture_preserves_boolean_and_float_unary_values() {
+        run_with_large_stack(|| {
+            let source = "type Marker = {negative: Float, flag: Bool}\nlet marker = {negative: -1.25, flag: !false}\npure read(row) -> Marker { let ignored = row.anchor; marker }\n";
+            let program = Arc::new(fixture("generic-capture-literal-expressions.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for tag in [FullTag::ExprIf] {
+                assert!((0..program.store.driver_steps.len()).any(|step| program.store.tags[program.store.driver_instruction_range(step).unwrap()].contains(&tag)));
+            }
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("read")), CallableKind::Pure, &[Value::Record(BTreeMap::from([(Arc::from("anchor"), Value::Bool(false))]).into())], Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                assert_eq!(value, Value::Record(BTreeMap::from([(Arc::from("negative"), Value::Float(crate::runtime::value::FloatValue::new(-1.25))), (Arc::from("flag"), Value::Bool(true))]).into()));
+            }
+        });
+    }
+
+    #[test]
     fn generic_literal_record_capture_requires_producer_demand_without_host_calls() {
         run_with_large_stack(|| {
             let source = "type Marker = {value: Int}\nlet marker = {value: 1}\nlet alternate = false\npure read(row) -> Marker { let ignored = row.anchor; marker }\n";

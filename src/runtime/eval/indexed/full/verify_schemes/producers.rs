@@ -3390,6 +3390,28 @@ impl<'a> ProducerProof<'a> {
                     self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
                 }
             }
+            schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add | crate::syntax::node::BinaryOp::Sub
+                | crate::syntax::node::BinaryOp::Mul | crate::syntax::node::BinaryOp::Div | crate::syntax::node::BinaryOp::Rem
+                | crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne | crate::syntax::node::BinaryOp::Lt
+                | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge
+                | crate::syntax::node::BinaryOp::And | crate::syntax::node::BinaryOp::Or
+                | crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, right, .. } => {
+                self.pending.push(Obligation::LiteralPayload(owner, left.raw() as usize));
+                self.pending.push(Obligation::LiteralPayload(owner, right.raw() as usize));
+            }
+            schema::ExprView::Field { base, .. } => self.pending.push(Obligation::LiteralPayload(owner, base.raw() as usize)),
+            schema::ExprView::IfExpr { mut branches, else_value, .. } => {
+                self.budget.charge(branches.len() + 2)?;
+                let Some((condition, value)) = branches.next().transpose()? else { return Err(IrVerifyError::new("generic record capture has a nonliteral payload")); };
+                if branches.next().is_some()
+                    || !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Bool(false))
+                    || !matches!(decoder.expression_view(else_value.raw() as usize)?, schema::ExprView::Bool(true))
+                { return Err(IrVerifyError::new("generic record capture has a nonliteral payload")); }
+                self.verify_condition(owner, condition.raw() as usize, ConditionRole::Boolean)?;
+                self.pending.push(Obligation::LiteralPayload(owner, condition.raw() as usize));
+                self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                self.pending.push(Obligation::LiteralPayload(owner, else_value.raw() as usize));
+            }
             schema::ExprView::PreparedConstant(value) => {
                 let work = super::super::prepared_constant_data_work(&value.0, 0).ok_or_else(|| IrVerifyError::new("generic capture literal contains a runtime payload"))?;
                 self.budget.charge(work)?;
