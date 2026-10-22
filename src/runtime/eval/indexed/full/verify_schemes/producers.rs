@@ -115,9 +115,86 @@ struct ProducerOwner {
 pub(in crate::runtime::eval::indexed::full) struct ProducerPrefixContext<'a> {
     owner: u32,
     evidence: &'a ProducerOwner,
+    index: &'a GroundProducerIndex,
 }
 
 impl ProducerPrefixContext<'_> {
+    pub(in crate::runtime::eval::indexed::full) fn immutable_function_reference_source(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("callable source context disagrees with its owner range"));
+        }
+        let (mut owner, mut instruction) = (decoder.owner, instruction);
+        let mut visited = BTreeSet::new();
+        loop {
+            self.evidence.work.borrow_mut().charge(1)?;
+            if !visited.insert((owner, instruction)) { return Err(IrVerifyError::new("immutable callable source contains a cycle")); }
+            let evidence = self.index.owners.get(&owner).ok_or_else(|| IrVerifyError::new("callable source owner was not structurally verified"))?;
+            let source = match super::super::driver_owner_index(owner) {
+                Some(step) => decoder_for_driver_step(decoder.store, step)?,
+                None => decoder_for_function(decoder.store, function_index(owner)?)?,
+            };
+            if source.owner != owner || source.instruction_range != evidence.range || !evidence.range.contains(&instruction) {
+                return Err(IrVerifyError::new("callable source instruction belongs to another owner"));
+            }
+            let slot = match source.expression_view(instruction)? {
+                schema::ExprView::FunctionRef { .. } => return Ok(Some(instruction)),
+                schema::ExprView::Param(slot) => slot,
+                _ => return Ok(None),
+            };
+            let binding = evidence.binding(decoder.store, owner, instruction, slot)?;
+            if let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding {
+                let writers = evidence.writers.get(&binding).map(Vec::as_slice).unwrap_or(&[]);
+                self.evidence.work.borrow_mut().charge(writers.len())?;
+                if declared_slot != slot || writers != [declaration] { return Ok(None); }
+                match source.statement_view(declaration)? {
+                    schema::StmtView::Let { slot: declared, value, .. } if declared == slot => {
+                        instruction = value.raw() as usize;
+                        continue;
+                    }
+                    _ => return Ok(None),
+                }
+            }
+            let identity = match binding {
+                ProducerBinding::HeaderCapture(identity) => identity,
+                ProducerBinding::DriverBinding(_) => {
+                    let Some(storage) = evidence.storage_bindings.get(&binding) else { return Ok(None) };
+                    storage.identity
+                }
+                _ => return Ok(None),
+            };
+            if identity == IR_NONE || evidence.storage_bindings.get(&binding).is_none_or(|storage| storage.mutable) { return Ok(None); }
+            let origin = decoder.store.binding_identities.get(identity as usize).ok_or_else(|| IrVerifyError::new("callable source binding identity is invalid"))?;
+            if origin.flags != 0 { return Ok(None); }
+            let Some((_, step, program_owner)) = self.index.binding_writers.get(identity as usize).copied().flatten() else { return Ok(None) };
+            if program_owner != origin.owner { return Err(IrVerifyError::new("callable source binding owner disagrees with its writer")); }
+            if let Some(current) = super::super::driver_owner_index(owner) {
+                if step >= current { return Err(IrVerifyError::new("callable source binding is used before its declaration")); }
+                let mut same_program = false;
+                for program in &decoder.store.driver_programs {
+                    self.evidence.work.borrow_mut().charge(1)?;
+                    let steps = program.steps.bounds(decoder.store.driver_steps.len()).ok_or_else(|| IrVerifyError::new("callable source program range is invalid"))?;
+                    if steps.contains(&current) {
+                        same_program = program.owner == origin.owner && steps.contains(&step);
+                        break;
+                    }
+                }
+                if !same_program { return Err(IrVerifyError::new("callable source binding belongs to another driver program")); }
+            }
+            if decoder.store.driver_steps[step].tag != super::super::FullDriverTag::Let { return Ok(None); }
+            let writer_decoder = decoder_for_driver_step(decoder.store, step)?;
+            let mut payload = super::super::FullCursor::new(decoder.store.payload(decoder.store.driver_steps[step].data.range())?);
+            let name: Name = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+            let _: Option<super::super::LoweredType> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+            let _: Option<super::super::LoweredTypeCheck> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+            let _: Option<Type> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+            let mutable: bool = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+            if mutable { return Ok(None); }
+            if name.as_str() != decoder.store.string(origin.name)? { return Err(IrVerifyError::new("callable source writer disagrees with its binding identity")); }
+            owner = writer_decoder.owner;
+            instruction = payload.raw()? as usize;
+        }
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn instruction_forest(&self) -> super::super::InstructionParentContext<'_> {
         super::super::InstructionParentContext { owner: self.owner, range: self.evidence.range.clone(),
             parents: &self.evidence.parents, statements: &self.evidence.statements, children: &self.evidence.children, siblings: &self.evidence.siblings }
@@ -835,11 +912,35 @@ impl GroundProducerIndex {
         if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(None); }
         let evidence = self.owners.get(&owner).ok_or_else(|| IrVerifyError::new("producer prefix owner was not structurally verified"))?;
         if evidence.range != *range { return Err(IrVerifyError::new("producer prefix owner range differs from its structural proof")); }
-        Ok(Some(ProducerPrefixContext { owner, evidence }))
+        Ok(Some(ProducerPrefixContext { owner, evidence, index: self }))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn demand(&self) -> crate::runtime::eval::ProducerDemand {
         self.demand
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn verify_callable_facts(&self, store: &FullStore) -> Result<(), IrVerifyError> {
+        if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
+        for (&owner, evidence) in &self.owners {
+            let driver = super::super::driver_owner_index(owner);
+            let mut decoder = match driver {
+                Some(step) => decoder_for_driver_step(store, step)?,
+                None => decoder_for_function(store, function_index(owner)?)?,
+            };
+            if decoder.owner != owner || decoder.instruction_range != evidence.range {
+                return Err(IrVerifyError::new("callable fact owner disagrees with its structural proof"));
+            }
+            decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: evidence.range.clone(), parents: &evidence.parents, statements: &evidence.statements, children: &evidence.children, siblings: &evidence.siblings });
+            decoder.producer_prefix = self.prefix_context(owner, &decoder.instruction_range)?;
+            decoder.producer_demand = self.demand;
+            decoder.function_signature_index.clone_from(&self.function_signatures);
+            *decoder.return_analysis.borrow_mut() = Some(super::super::ReturnAnalysisSource::Shared(Rc::clone(&evidence.return_analysis)));
+            decoder.prepared_constant_work.set(evidence.prepared_constant_work);
+            decoder.verify_checked_expression_facts()?;
+            decoder.verify_callable_slot_initializers()?;
+            if driver.is_some() { decoder.verify_temporary_driver_slot_types()?; }
+        }
+        Ok(())
     }
 
     pub(super) fn scheme_return_analysis(&self, function: IrFunctionId) -> Result<Rc<super::super::IndexedReturnAnalysis>, IrVerifyError> {

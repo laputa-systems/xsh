@@ -2136,7 +2136,7 @@ impl FullProgram {
         let instruction_range = self.store.driver_instruction_range(step_index)?;
         let owner =
             driver_owner(step_index).map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
-        let mut decoder = FullDecoder {
+        let decoder = FullDecoder {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
@@ -2321,10 +2321,11 @@ impl FullProgram {
         decoder.finish_function()?;
         decoder.verify_driver_module_slots(registered_module_types)?;
         producer_index.record(&decoder)?;
-        decoder.producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
-        decoder.verify_checked_expression_facts()?;
-        decoder.verify_callable_slot_initializers()?;
-        decoder.verify_temporary_driver_slot_types()?;
+        if producer_index.demand() == crate::runtime::eval::ProducerDemand::Absent {
+            decoder.verify_checked_expression_facts()?;
+            decoder.verify_callable_slot_initializers()?;
+            decoder.verify_temporary_driver_slot_types()?;
+        }
         decoder.copy_in_place_marks_into(in_place_marks)?;
         Ok(registered_import)
     }
@@ -9587,8 +9588,13 @@ impl<'a> FullDecoder<'a> {
     fn checked_callable_reference_source(&self, instruction: usize) -> Result<usize, IrVerifyError> {
         match self.expression_view(instruction)? {
             schema::ExprView::FunctionRef { .. } => Ok(instruction),
-            schema::ExprView::Param(slot) => self.local_function_ref_initializer(slot)?
-                .ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source")),
+            schema::ExprView::Param(slot) => {
+                let source = match &self.producer_prefix {
+                    Some(prefix) => prefix.immutable_function_reference_source(self, instruction)?,
+                    None => self.local_function_ref_initializer(slot)?,
+                };
+                source.ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source"))
+            }
             _ => Err(IrVerifyError::new("materialized callable has no function reference producer")),
         }
     }
@@ -18071,7 +18077,7 @@ impl FullVerifier {
             let owner = IrFunctionId::new(index)
                 .map_err(|_| IrVerifyError::new("function id is invalid"))?
                 .raw();
-            let mut decoder = FullDecoder {
+            let decoder = FullDecoder {
                 store,
                 owner,
                 instruction_range: instructions.clone(),
@@ -18127,9 +18133,10 @@ impl FullVerifier {
             verify_effects::verify_owner(&decoder, index, producer_index.scheme_scopes(store)?)?;
             drop(decoder.return_analysis()?);
             producer_index.record(&decoder)?;
-            decoder.producer_prefix = producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?;
-            decoder.verify_checked_expression_facts()?;
-            decoder.verify_callable_slot_initializers()?;
+            if producer_index.demand() == crate::runtime::eval::ProducerDemand::Absent {
+                decoder.verify_checked_expression_facts()?;
+                decoder.verify_callable_slot_initializers()?;
+            }
             decoder.copy_in_place_marks_into(&mut in_place_marks)?;
             let body_payload = store.payload(body_block.instructions)?;
             let mut default_slots = BTreeSet::new();
@@ -18462,6 +18469,7 @@ impl FullVerifier {
                 "full IR contains instructions outside executable owner ranges",
             ));
         }
+        producer_index.verify_callable_facts(store)?;
         let used_contexts = verify_schemes::verify(store, &producer_index, contexts, &function_signature_index)?;
         let marks = store.in_place.get_or_init(|| in_place_marks.clone());
         if marks != &in_place_marks {
@@ -24833,6 +24841,62 @@ assert observed.scoped == Ok(8)
             wrong_layout.store.params[identity_parameters.start].name = program.store.params[other_parameters.start].name;
             let error = FullVerifier::verify(&wrong_layout).unwrap_err();
             assert!(error.message.contains("callable reference disagrees with its actual scheme instance"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn typed_generic_callable_storage_authenticates_immutable_alias_chains() {
+        run_with_large_stack(|| {
+            let program = fixture("typed-generic-callable-storage.xsh", concat!(
+                "type StringIdentity = pure(value: Str) -> Str\n",
+                "pure identity(value) { value }\n",
+                "let direct: StringIdentity = identity\n",
+                "let shared = identity\n",
+                "print direct(\"direct\")\n",
+                "let repeated = shared\n",
+                "let stored: StringIdentity = repeated\n",
+                "print stored(\"driver\")\n",
+                "pure captured(value) -> Str { let stored: StringIdentity = repeated; stored(value) }\n",
+                "print captured(\"capture\")\n",
+                "pure exercise() -> Str { let first = identity; let second = first; var spare: StringIdentity = identity; spare = identity; let stored: StringIdentity = second; stored(\"local\") }\n",
+                "pure nested() -> Str { let first = identity; if true { let second = first; let stored: StringIdentity = second; stored(\"nested\") } else { \"unused\" } }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let captured = scheme_fixture_root_function(&program, "captured");
+            let captures = program.store.functions[captured].captures.bounds(program.store.captures.len()).unwrap();
+            let alias_capture = captures.into_iter().find(|&index| program.store.string(program.store.captures[index].name).unwrap() == "repeated").expect("captured alias retains its lexical identity");
+            let mut mutable_capture = program.clone();
+            mutable_capture.store.captures[alias_capture].slot_and_flags ^= 1 << 31;
+            assert!(FullVerifier::verify(&mutable_capture).is_err());
+            let function = scheme_fixture_root_function(&program, "exercise");
+            let range = program.store.function_instruction_range(function).unwrap();
+            let lets = range.clone().filter(|&instruction| program.store.tags[instruction] == FullTag::StmtLet).collect::<Vec<_>>();
+            assert_eq!(lets.len(), 4);
+            let first_slot = program.store.extra[program.store.data[lets[0]].range().start as usize];
+            let spare_slot = program.store.extra[program.store.data[lets[2]].range().start as usize];
+            let assignment = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssign).expect("spare callable has an independent assignment");
+            let mut additional_writer = program.clone();
+            additional_writer.store.extra[program.store.data[assignment].range().start as usize] = first_slot;
+            assert!(FullVerifier::verify(&additional_writer).is_err());
+
+            let second_value = program.store.extra[program.store.data[lets[1]].range().start as usize + 1] as usize;
+            assert_eq!(program.store.tags[second_value], FullTag::ExprParam);
+            let mut before_declaration = program.clone();
+            before_declaration.store.extra[program.store.data[second_value].range().start as usize] = spare_slot;
+            assert!(FullVerifier::verify(&before_declaration).is_err());
+
+            let instance = program.store.call_instantiations.iter().find(|instance| {
+                range.contains(&(instance.instruction as usize)) && program.store.tags[instance.instruction as usize] == FullTag::ExprParam
+            }).expect("typed alias use has its own scheme instance");
+            let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            assert_eq!(arguments.len(), 1);
+            let ty = program.store.call_type_arguments[arguments.start].ty;
+            assert_eq!(program.store.scheme_types[ty.index()].tag, schema::FullSchemeTypeTag::Ground);
+            let mut wrong_instance = program.clone();
+            let integer = SemanticPoolBuilder::default().intern_type(&mut wrong_instance.store.semantic, &Type::Int).unwrap();
+            wrong_instance.store.scheme_types[ty.index()].first = integer.raw();
+            assert!(FullVerifier::verify(&wrong_instance).is_err());
         });
     }
 

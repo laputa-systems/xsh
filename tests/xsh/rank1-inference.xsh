@@ -180,7 +180,7 @@ print $boolean
   assert result.stdout == "7\n8\n9\n10\ndemo\nfalse\n"
 }
 
-test rank1_generic_function_cannot_be_stored_as_typed_callable { |ctx|
+test rank1_generic_function_selects_typed_callable_instance { |ctx|
   let result = test.run_xsh(
     ctx,
     r"""type StringIdentity = pure(value: Str) -> Str
@@ -188,9 +188,11 @@ pure identity(value) {
   value
 }
 let stored: StringIdentity = identity
+print stored("direct")
 """,
   )?
-  assert !result.success, result.stderr
+  assert result.success, result.stderr
+  assert result.stdout == "direct\n"
 
   let aliased = test.run_xsh(
     ctx,
@@ -200,10 +202,11 @@ pure identity(value) {
 }
 let shared = identity
 let stored: StringIdentity = shared
+print stored("alias")
 """,
   )?
-  assert !aliased.success, aliased.stderr
-  assert "[check.callable-mismatch]" in aliased.stderr, aliased.stderr
+  assert aliased.success, aliased.stderr
+  assert aliased.stdout == "alias\n"
 }
 
 test rank1_generic_rest_items_reject_wrong_element_types { |ctx|
@@ -248,20 +251,18 @@ let result: Int = selected()
   )?
 }
 
-test rank1_generic_default_parameters_fail_closed_in_lowering { |ctx|
-  test.expect(
+test rank1_generic_default_parameters_use_defaults { |ctx|
+  let output = test.run_xsh(
     ctx,
     r"""pure first(value, ignored = 0) {
   value
 }
 let result: Str = first("ok")
+print $result
 """,
-    status: 2,
-    stderr: [
-      "[compact.indexed-build]",
-      "generic function parameters with defaults are not lowerable",
-    ],
   )?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\n"
 }
 
 test rank1_private_and_exported_projections_accept_different_rows { |ctx|

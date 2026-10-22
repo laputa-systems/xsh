@@ -217,8 +217,10 @@ impl TypedCallable {
         mut resolve: impl FnMut(TypeExprId) -> Result<Type, E>,
     ) -> Result<Self, E> {
         let callable = arena.callable_type_expr(id);
+        let kind = if callable.pure { CallableKind::Pure } else { CallableKind::Proc };
+        let effects = CallableEffects::from_clause(callable.effects.map(|effects| arena.effects(effects)));
         Ok(Self {
-            kind: if callable.pure { CallableKind::Pure } else { CallableKind::Proc },
+            kind,
             sig: CallableType {
                 params: arena
                     .params(callable.params)
@@ -237,7 +239,7 @@ impl TypedCallable {
                     })
                     .collect::<Result<_, E>>()?,
                 return_ty: Box::new(resolve(callable.return_ty)?),
-                effects: CallableEffects::from_clause(callable.effects.map(|effects| arena.effects(effects))),
+                effects: CallableEffects::from_contract(effects.contract().clone().for_invocation(kind)),
             },
         })
     }
