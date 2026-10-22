@@ -196,12 +196,12 @@ proc read_environment_again(value: Int) [env] -> Int {
 }
 proc exercise_environment(value: Int) [env, error] -> Int {
   var operation = read_environment
-  let first = operation(value)?
+  let first = operation(value)
   operation = read_environment_again
-  let second = operation(value)?
+  let second = operation(value)
   first + second
 }
-let proc_total = exercise_environment(21)?
+let proc_total = exercise_environment(21)
 assert incremented == 42
 assert decremented == 42
 assert proc_total == 42
