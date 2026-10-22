@@ -235,6 +235,27 @@ impl Checker {
             );
         }
         let body_span = program.arena.span(program.arena.block(def.body).span);
+        let rejected_annotation = |annotation| {
+            let span = program.arena.type_expr_span(annotation);
+            self.diagnostics.iter().any(|diagnostic| {
+                diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == crate::diagnostic::LabelStyle::Primary
+                            && label.span.source_id == span.source_id
+                            && label.span.start() >= span.start() && label.span.end() <= span.end()
+                    })
+            })
+        };
+        let rejected_interface = params.iter().zip(&types).any(|(parameter, ty)| {
+            ty.contains_recovery() && parameter.annotation.is_some_and(rejected_annotation)
+        }) || !def.return_ty_defaulted && shape.return_ty().contains_recovery() && rejected_annotation(def.return_ty)
+            || matches!(self.function_return_types.get(&body_span), Some(Type::Invalid));
+        if rejected_interface {
+            self.declaration_inference.pending_mut(declaration)
+                .expect("a provisional function retains its declaration")
+                .reject_generalization();
+            return None;
+        }
         if let Err(error) = self.type_constraints.solve_callable_applications() {
             self.error(body_span, &format!("callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
             return None;
