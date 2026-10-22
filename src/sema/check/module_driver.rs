@@ -2598,6 +2598,76 @@ mod tests {
     }
 
     #[test]
+    fn recovery_generalization_does_not_hide_independent_inference_errors() {
+        use crate::diagnostic::{DiagnosticCode, LabelStyle};
+        let continuation = "pure continuation(data, at: Int) -> Bool {\n  let byte = data.byte_at(at) ?? 0\n  byte >= 128 and byte < 192\n}\n\npure use_bytes(data: Bytes, at: Int) -> Bool {\n  continuation(data, at)\n}\n";
+        let independent = "pure empty() { let state = {items: []}; state.items }\n";
+
+        for reversed in [false, true] {
+            let source = if reversed {
+                format!("{independent}{continuation}")
+            } else {
+                format!("{continuation}{independent}")
+            };
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
+            }), "{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckResultFallback)
+            }), "{:?}", checked.diagnostics);
+
+            let continuation_start = source.find("pure continuation").unwrap();
+            let continuation_end = continuation_start + continuation.len();
+            assert!(!checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.message.contains("callable generalization failed: Build(RecoveryType)")
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == LabelStyle::Primary
+                            && label.span.start() >= continuation_start
+                            && label.span.end() <= continuation_end
+                    })
+            }), "the reported operation errors already explain this recovery: {:?}", checked.diagnostics);
+
+            let independent_start = source.find(independent).unwrap();
+            let independent_end = independent_start + independent.len();
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                    && diagnostic.labels.iter().any(|label| {
+                        label.style == LabelStyle::Primary
+                            && label.span.start() >= independent_start
+                            && label.span.end() <= independent_end
+                    })
+            }), "independent generic inference diagnostic is retained: {:?}", checked.diagnostics);
+        }
+
+        let same_body = "pure continuation(data, at: Int) -> Bool {\n  let byte = data.byte_at(at) ?? 0\n  let state = {items: []}\n  let _ = state.items\n  byte >= 128 and byte < 192\n}\n\npure use_bytes(data: Bytes, at: Int) -> Bool {\n  continuation(data, at)\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), same_body);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, same_body);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
+        }), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckResultFallback)
+        }), "{:?}", checked.diagnostics);
+        let state_start = same_body.find("{items: []}").unwrap();
+        let state_end = state_start + "{items: []}".len();
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                && diagnostic.message == "local type needs an annotation"
+                && diagnostic.labels.iter().any(|label| {
+                    label.style == LabelStyle::Primary
+                        && label.span.start() >= state_start
+                        && label.span.end() <= state_end
+                })
+        }), "same-body local inference diagnostic is retained: {:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn cached_module_facts_match_fresh_checks_for_every_option_order() {
         let mut sources = SourceMap::new();
         let root_text = "use shared\nproc main(value: Int) {}\n";

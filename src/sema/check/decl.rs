@@ -328,6 +328,20 @@ impl Checker {
                 );
                 return None;
             }
+            Err(crate::sema::constraints::SchemeOperationError::Build(
+                crate::sema::schemes::SchemeBuildError::RecoveryType,
+            )) if body_types.iter().any(|(&expression, ty)| {
+                if !ty.contains_recovery() {
+                    return false;
+                }
+                let span = program.arena.expr(expression).span;
+                self.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == crate::diagnostic::Severity::Error
+                        && diagnostic.labels.iter().any(|label| {
+                            label.style == crate::diagnostic::LabelStyle::Primary && label.span == span
+                        })
+                })
+            }) => return None,
             Err(error) => {
                 self.error(body_span, &format!("callable generalization failed: {error:?}"), DiagnosticCode::CheckLocalInference);
                 return None;
