@@ -8,8 +8,8 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-Runtime assembly `6a082af02` passes 531 of 540 selected Rust controls.
-Its nine failures belong to the earlier full-library failure set. Every prior
+Runtime assembly `8b44a7615` passes 533 of 541 selected Rust controls.
+Its eight failures belong to the earlier full-library failure set. Every prior
 passing control remains selected and passes. The combined checkpoint includes
 actual host-call selection publication, ordinary generic cleanup and With/Guard
 binding scopes. The dependent Proc cleanup and Guard error-binding failures
@@ -49,6 +49,14 @@ read only when the checked slot matches the declared signature. Five focused
 controls pass; declared call/slot contracts and forged-path guards remain.
 Both checkpoints pass the combined replay without increasing work limits.
 
+Diagnostic checkpoint `3f839a3fa` suppresses only a recovery-type generalization
+cascade with an existing primary error on the same owned recovery-bearing
+expression. Earlier local validation and other scheme failures remain intact.
+The new declaration-order and same-body controls and three existing controls
+pass, followed by the 541-control combined replay. The unchanged List-to-Set
+forgery now expects its earlier declaration/initializer rejection; its original
+source executes on both routes. These changes grant no corpus removal credit.
+
 Local-fact checkpoint `7351fd426` publishes the original empty-list owner's
 existing inference type to its initializer and binding. Constructor publication
 resolves its own pending suffix while preserving earlier pending expressions.
@@ -62,9 +70,18 @@ bodies within each selected entry context, preserving nominal identity and
 old/new contracts. Seven comparator controls pass in isolation and on integrated
 `25d47071a`. Matching products pass every original/reduced XSH and Laputa root,
 the twelve selected behavior executions, and both interface qualifications.
-The first negative control stops on an additional local-inference diagnostic
-at `wc.xsh::continuation`. Its cause is under review; later negative controls
-and final comparisons remain unrun. No new removal credit follows.
+The first negative control exposed the recovery cascade repaired by
+`3f839a3fa`. Signature probing then exposed input-mode drift from restoring
+modified frozen files. Adapter checkpoint `bd1a6b280` probes scratch copies;
+its new regression and existing adapter family pass. The guarded practical
+replay on integrated `d225795ad` passes both views' twelve XSH and three Laputa
+roots, twelve exact behavior executions, all three negative controls, six
+signatures per view, interface comparison, unchanged-view postconditions and
+cleanup. The accumulated interface count is 1,991 callable and zero CLI
+contracts. This qualifies the named four-return view, not the historical cohort
+or annotation-removal targets. One preceding invocation exited silently before
+stages; its exact argv was not retained, so its failing predicate is unknown.
+The successful traced run records the exact inputs and complete guards.
 
 Four test-premise corrections pass the combined replay: scalar reads and local
 storage execute against annotated references on both routes; supported default
