@@ -240,7 +240,6 @@ diagnostic_codes! {
         ParsePatternTestAlternation = "parse.pattern-test-alternation", error, "Reject an ungrouped alternation in a pattern test; write `(P | Q)`";
         ParsePipelineHole = "parse.pipeline-hole", error, "Reject a value pipeline call without exactly one `_` argument placeholder";
         ParsePipelineRun = "parse.pipeline-run", error, "Reject a byte pipeline segment that does not start with `run`";
-        ParseRequiredReturn = "parse.required-return", error, "Reject a `stream` producer without a return type annotation";
         ParseRequiredSignature = "parse.required-signature", error, "Reject a function or `stream` producer declared without a parameter list";
         ParseRequiredValue = "parse.required-value", error, "Reject `yield` without a value";
         ParseRestDefault = "parse.rest-default", error, "Reject a default value on a rest parameter";

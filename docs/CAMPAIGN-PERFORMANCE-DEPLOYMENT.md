@@ -19,9 +19,14 @@ build cleanly. Its full XSH Rust library suite finishes with 1,754 passes,
 policy assertions, malformed mutation fixtures, missing producer demand and
 Stream provenance failures. Each requires a scoped repair or demonstrated
 correction of its former premise. No full-suite pass follows from the focused
-group. The slow binding-fact corpus test passes, but needs a bounded loop repair.
+group. The binding-fact corpus sweep passes. Focused iteration continues through
+the named regressions rather than repeating that broad sweep.
 Matching `c1c7ed1a3` products are rebuilding.
 Master remains at `d2453760a`.
+
+The diagnostic catalogue no longer advertises a mandatory Stream return-type
+annotation error. The parser already permits omission. Its emission-inventory
+regression exposed the obsolete entry; focused validation remains pending.
 
 The practical four-return paired gate on `28436de64` passes the original-view
 checks for all 12 XSH roots and three Laputa roots. The wc invalid-byte and sort
