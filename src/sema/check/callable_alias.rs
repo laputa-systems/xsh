@@ -44,6 +44,15 @@ impl Checker {
         let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
             return None;
         };
+        if let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind
+            && matches!(
+                self.lookup_value_binding_for_expr(program, base),
+                super::ValueBindingLookup::NoSite
+            )
+            && super::api_spec().module(&namespace.as_str()).is_some()
+        {
+            return None;
+        }
         let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {
             return None;
         };
