@@ -40770,6 +40770,77 @@ pure apply_nonoptional(holder: Holder) -> Int {
     }
 
     #[test]
+    fn typed_callable_nested_optional_parameter_rejects_a_forged_path_fact() {
+        let program = fixture(
+            "typed-callable-nested-optional-record-forged-param.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Container = {holder: Holder?}
+pure apply_nested(container: Container, n: Int) -> Int {
+  if container.holder != null { container.holder.callback(n) } else { 0 }
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "apply_nested"))
+            .expect("nested callable function exists");
+        let FullCallableContract::Ground(signature) = program.store.functions[function].contract else {
+            unreachable!("fixture callable is ground")
+        };
+        let (_, declared_type, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+        let declared_type = program.store.semantic.to_type(declared_type).unwrap();
+        let narrowed_fact = function_instruction_indices(&program, "apply_nested", FullTag::ExprParam)
+            .into_iter()
+            .filter(|instruction| {
+                program
+                    .store
+                    .payload(program.store.data[*instruction].range())
+                    .is_ok_and(|payload| payload.first() == Some(&0))
+            })
+            .find_map(|instruction| {
+                let fact = program
+                    .store
+                    .checked_expr_types
+                    .binary_search_by_key(&(instruction as u32), |fact| fact.instruction)
+                    .ok()?;
+                (program.store.semantic.to_type(program.store.checked_expr_types[fact].type_id).ok()?
+                    != declared_type)
+                    .then_some(fact)
+            })
+            .expect("the guarded body has a narrowed Container parameter fact");
+        let narrowed_type = program
+            .store
+            .semantic
+            .to_type(program.store.checked_expr_types[narrowed_fact].type_id)
+            .unwrap();
+        let Type::Record(fields) = narrowed_type else {
+            panic!("narrowed path fact is a record")
+        };
+        let (&holder_name, holder_type) = fields.iter().next().expect("Container has holder");
+        let Type::Record(holder_fields) = holder_type else {
+            panic!("guarded holder field is a record")
+        };
+        let (&callback_name, _) = holder_fields.iter().next().expect("Holder has callback");
+        let mut forged_holder_fields = holder_fields.as_ref().clone();
+        forged_holder_fields.insert(callback_name, Type::Int);
+        let mut forged_fields = fields.as_ref().clone();
+        forged_fields.insert(holder_name, Type::Record(Arc::new(forged_holder_fields)));
+        let forged_type = Type::Record(Arc::new(forged_fields));
+
+        let mut forged = program.clone();
+        let mut semantic = SemanticPoolBuilder::default();
+        forged.store.checked_expr_types[narrowed_fact].type_id = semantic
+            .intern_type(&mut forged.store.semantic, &forged_type)
+            .unwrap();
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
     fn typed_callable_optional_field_rejects_preceding_overlapping_writes() {
         let program = fixture(
             "typed-callable-optional-record-overlapping-write.xsh",
