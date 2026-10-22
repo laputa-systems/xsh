@@ -1565,7 +1565,7 @@ impl Checker {
                         None,
                         arena.arena.expr(expr_id).span,
                     );
-                } else if !ty.can_display() && !matches!(ty, Type::Unknown) {
+                } else if !self.require_value_conversion(&ty, crate::sema::schemes::ValueConversion::Display, arena.arena.expr(expr_id).span) {
                     let span = arena.arena.expr(expr_id).span;
                     self.report_conversion(
                         span,

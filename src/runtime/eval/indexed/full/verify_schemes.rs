@@ -21,7 +21,7 @@ use super::{
 use super::super::semantic::TypeMaterializationBudget;
 use crate::sema::types::{Type, merge_list_literal_item_ty};
 use crate::sema::effects::{EffectContract, EffectPredicate};
-use crate::sema::schemes::SchemeEffectParameterId;
+use crate::sema::schemes::{SchemeEffectParameterId, ValueConversion, ValueConversionSet};
 use crate::sema::schemes::{CallableMonotype, SchemeParameter, SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
 use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
@@ -395,7 +395,8 @@ fn make_scope(
     let mut type_binders = BTreeMap::new();
     for (index, parameter) in type_parameters.iter().enumerate() {
         if parameter.id == IR_NONE
-            || parameter.reserved != [0; 3]
+            || parameter.reserved != [0; 2]
+            || !ValueConversionSet::from_bits(parameter.conversions).is_some_and(|set| set.is_satisfiable(parameter.map_key))
             || parameter.binder as usize != index
             || type_binders.insert(parameter.id, index).is_some()
         {
@@ -1342,6 +1343,7 @@ fn verify_body_expression(
     instruction: usize,
     types: &BTreeMap<usize, SchemeType>,
     constructors: &constructors::ConstructorFacts,
+    scheme_scope: &SchemeScope,
     slots: &body::LexicalScope,
     scopes: &body::LexicalScopes,
     pending: &mut Vec<usize>,
@@ -1436,8 +1438,7 @@ fn verify_body_expression(
                 let part = parts.next().ok_or_else(|| IrVerifyError::new("generic interpolation part is absent"))??;
                 if let super::decode::FmtPartView::Expr(value, _, _) = part {
                     let actual = child(value, budget)?;
-                    let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic interpolation has no checked display domain"))?;
-                    if !actual.can_display() { return Err(IrVerifyError::new("generic interpolation producer cannot be displayed")); }
+                    if !scheme_conversion(&actual, ValueConversion::Display, scheme_scope, budget)? { return Err(IrVerifyError::new("generic interpolation producer cannot be displayed")); }
                 }
             }
             SchemeType::Ground(if store.tags[instruction] == FullTag::ExprPathFmtString { Type::Path } else { Type::Str })
@@ -1712,7 +1713,7 @@ fn verify_body_expression(
             } else { SchemeType::Ground(commands::nullary_method(&receiver, name, &arguments, budget)?) }
         }
         schema::ExprView::RunCapture(run) => {
-            commands::operands(run.operands, &mut child, budget)?;
+            commands::operands(run.operands, scheme_scope, &mut child, budget)?;
             SchemeType::Ground(Type::run_capture_output(run.kind, run.assert_success).ok_or_else(|| IrVerifyError::new("generic process capture has no output contract"))?)
         }
         schema::ExprView::RunPipeline { segments, propagate, .. } => {
@@ -1721,7 +1722,7 @@ fn verify_body_expression(
                 budget.charge(1)?;
                 let segment = segment?;
                 head.get_or_insert(segment.kind);
-                commands::operands(segment.operands, &mut child, budget)?;
+                commands::operands(segment.operands, scheme_scope, &mut child, budget)?;
             }
             let head = head.ok_or_else(|| IrVerifyError::new("generic process pipeline has no head"))?;
             SchemeType::Ground(Type::run_pipeline_output(head, propagate).ok_or_else(|| IrVerifyError::new("generic process pipeline has no output contract"))?)
@@ -2026,6 +2027,7 @@ fn build_substitution(
         };
         let ty = ground_call_substitution_type(store, row.ty, &mut materialization)?;
         ensure_substitution_type(&ty)?;
+        ground_conversions(&scope.type_parameters[binder], &ty)?;
         if scope.type_parameters[binder].map_key && !ty.is_map_key() {
             return Err(IrVerifyError::new("generic call violates its MapKey requirement"));
         }
@@ -2152,6 +2154,23 @@ fn scheme_body_fact_type(
     Ok(found)
 }
 
+fn scheme_conversion(ty: &SchemeType, conversion: ValueConversion, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    budget.charge_scheme_clone(ty)?;
+    Ok(ty.satisfies_conversion(conversion, &|parameter: SchemeTypeParameterId| {
+        scope.type_binders.get(&parameter.0)
+            .and_then(|&binder| scope.type_parameters.get(binder))
+            .and_then(|parameter| ValueConversionSet::from_bits(parameter.conversions))
+    }))
+}
+
+fn ground_conversions(parameter: &FullSchemeTypeParameter, ty: &Type) -> Result<(), IrVerifyError> {
+    let set = ValueConversionSet::from_bits(parameter.conversions).ok_or_else(|| IrVerifyError::new("scheme conversion requirements are invalid"))?;
+    if !set.is_satisfiable(parameter.map_key) || !set.accepts(ty) {
+        return Err(IrVerifyError::new("generic substitution violates its conversion requirements"));
+    }
+    Ok(())
+}
+
 fn scheme_map_key(ty: &SchemeType, scope: &SchemeScope) -> bool {
     match ty {
         SchemeType::Parameter(parameter) => scope.type_binders.get(&parameter.0)
@@ -2181,6 +2200,12 @@ fn build_symbolic_substitution(
         };
         let ty = decode_scheme_type(store, caller_scope, row.ty, &mut budget, 0)?;
         validate_symbolic_substitution_type(&ty, caller_scope, 0)?;
+        let conversions = ValueConversionSet::from_bits(callee_scope.type_parameters[binder].conversions).ok_or_else(|| IrVerifyError::new("scheme conversion requirements are invalid"))?;
+        for conversion in ValueConversion::ALL {
+            if conversions.contains(conversion) && !scheme_conversion(&ty, conversion, caller_scope, &mut budget)? {
+                return Err(IrVerifyError::new("generic call does not retain its conversion requirement"));
+            }
+        }
         if callee_scope.type_parameters[binder].map_key && !scheme_map_key(&ty, caller_scope) {
             return Err(IrVerifyError::new("generic call does not retain its MapKey requirement"));
         }
@@ -4277,6 +4302,7 @@ fn instantiate_scheme_type(
     }
     budget.charge(scope.type_parameters.len())?;
     for (parameter, actual) in scope.type_parameters.iter().zip(&substitution.types) {
+        ground_conversions(parameter, actual)?;
         if parameter.map_key && !actual.is_map_key() {
             return Err(IrVerifyError::new("generic substitution violates its MapKey requirement"));
         }
@@ -4374,6 +4400,7 @@ pub(super) fn instantiate_invocation(
         let argument = type_arguments.get(&parameter.id).ok_or_else(|| IrVerifyError::new("invocation type argument is absent"))?;
         let ty = instantiate_bound_type(store, argument.ty, caller, budget, 0)?;
         ensure_substitution_type(&ty)?;
+        ground_conversions(parameter, &ty)?;
         if parameter.map_key && !ty.is_map_key() {
             return Err(IrVerifyError::new("invocation violates its MapKey requirement"));
         }
@@ -4696,7 +4723,7 @@ mod tests {
 
     fn symbolic_substitution_test_scope() -> SchemeScope {
         SchemeScope {
-            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, reserved: [0; 3] }],
+            type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, reserved: [0; 2] }],
             row_parameters: vec![FullSchemeRowParameter {
                 id: 20,
                 binder: 0,
@@ -4790,8 +4817,8 @@ mod tests {
 
         let scope = SchemeScope {
             type_parameters: vec![
-                FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, reserved: [0; 3] },
-                FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, reserved: [0; 3] },
+                FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, reserved: [0; 2] },
+                FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, conversions: 0, reserved: [0; 2] },
             ],
             row_parameters: Vec::new(),
             type_binders: BTreeMap::from([(10, 0), (11, 1)]),

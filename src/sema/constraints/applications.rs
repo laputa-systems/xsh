@@ -413,7 +413,7 @@ mod tests {
             ] {
                 assert_eq!(crate::sema::schemes::CallInstantiation::new(
                     &selected, evidence.type_arguments().clone(), evidence.row_arguments().clone(), evidence.effect_arguments().clone(), vec![binding],
-                    &generalized.type_parameters, &generalized.row_parameters, &generalized.requirements.effect_parameters, requirements, &[]), Err(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
+                    &generalized.type_parameters, &generalized.row_parameters, &generalized.requirements.effect_parameters, requirements, &[], &BTreeMap::new()), Err(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
             }
         });
     }
@@ -495,7 +495,7 @@ mod tests {
                 Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))));
             let mut constraints = TypeConstraints::default();
             let scheme = generic_application_scheme(&mut constraints);
-            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), &[], &[], &[], &[], &[]),
+            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), &[], &[], &[], &[], &[], &BTreeMap::new()),
                 Err(crate::sema::schemes::SchemeBuildError::UnboundTypeParameter)));
             let instance = constraints.instantiate_callable(&scheme, 1, span(), CallableApplicationScope::Invocation).unwrap();
             assert!(matches!(constraints.resolve_call_instantiation(&scheme, &instance), Err(super::super::SchemeOperationError::Build(_))));
@@ -848,6 +848,7 @@ impl TypeConstraints {
         Ok(crate::sema::schemes::CallableRequirements {
             applications, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
             map_key_parameters: self.generalized_map_keys(generalization)?,
+            conversion_parameters: self.generalized_conversions(generalization)?,
         })
     }
 

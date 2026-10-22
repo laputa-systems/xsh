@@ -738,7 +738,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -839,8 +839,8 @@ pub(super) fn verify_body(
                         for argument in args {
                             budget.charge(1)?;
                             let argument = argument?;
-                            let actual = expression_type(types, argument.raw() as usize, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic print argument has no checked display contract"))?;
-                            if !actual.can_display() { return Err(IrVerifyError::new("generic print argument cannot be displayed")); }
+                            let actual = expression_type(types, argument.raw() as usize, budget)?;
+                            if !super::scheme_conversion(&actual, crate::sema::schemes::ValueConversion::Display, scheme_scope, budget)? { return Err(IrVerifyError::new("generic print argument cannot be displayed")); }
                             expressions.push(argument.raw() as usize);
                         }
                     }
@@ -856,7 +856,7 @@ pub(super) fn verify_body(
                         for assignment in env {
                             budget.charge(1)?;
                             let assignment = assignment?;
-                            super::commands::word(assignment.value, super::producers::ProcessWordRole::Environment, &mut |value, budget| {
+                            super::commands::word(assignment.value, super::producers::ProcessWordRole::Environment, scheme_scope, &mut |value, budget| {
                                 expressions.push(value.raw() as usize);
                                 expression_type(types, value.raw() as usize, budget)
                             }, budget)?;
@@ -1133,9 +1133,61 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
         let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
-        let program = FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).unwrap();
+        let program = FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_display_operations_authenticate_owner_conversion_requirements() {
+        for definition in [
+            "pure show(value) { f\"item:{value}\" }",
+            "proc show(value) [io] { print (value); value }",
+        ] {
+            let program = prepare(definition);
+            for mode in [0, 2, 128] {
+                let mut changed = program.clone();
+                let parameter = changed.store.scheme_type_parameters.iter_mut().find(|parameter| parameter.conversions != 0).unwrap();
+                assert_eq!(parameter.conversions, 1);
+                parameter.conversions = mode;
+                assert!(FullVerifier::verify(&changed).is_err(), "{definition}: {mode}");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_argv_operations_authenticate_exact_physical_conversion_modes() {
+        for (argument, expected) in [("(value)", 2), ("$value", 4), ("@value", 8)] {
+            let program = prepare(&format!("proc send(value) [io, process, error] {{ run echo {argument}; value }}"));
+            for mode in [0, 1, 128] {
+                let mut changed = program.clone();
+                let parameter = changed.store.scheme_type_parameters.iter_mut().find(|parameter| parameter.conversions != 0).unwrap();
+                assert_eq!(parameter.conversions, expected);
+                parameter.conversions = mode;
+                assert!(FullVerifier::verify(&changed).is_err(), "{argument}: {mode}");
+            }
+        }
+    }
+
+    #[test]
+    fn generic_conversion_proofs_follow_natural_body_work_bounds() {
+        for width in [64, 128, 256, 512] {
+            let names = (0..width).map(|index| format!("value{index}")).collect::<Vec<_>>();
+            let parameters = names.join(", ");
+            let parts = names.iter().map(|name| format!("{{{name}}}")).collect::<String>();
+            prepare(&format!("pure render({parameters}) {{ f\"{parts}\" }}"));
+        }
+    }
+
+    #[test]
+    fn generic_conversion_returns_authenticate_the_owner_return_contract() {
+        let program = prepare("proc choose(value, wrong: Result[Str]) [io] { print f\"{value}\"; let _ = wrong; 7 }");
+        let (_, scheme) = generic_owner(&program);
+        let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_params[parameters.start + 1].ty;
+        let mut changed = program.clone();
+        changed.store.schemes[scheme.index()].return_type = wrong;
+        assert!(FullVerifier::verify(&changed).is_err());
     }
 
     fn generic_owner(program: &FullProgram) -> (usize, FullSchemeId) {

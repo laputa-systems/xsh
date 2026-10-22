@@ -12,4 +12,7 @@ assert successful("demo") == Ok("demo")
 assert named(false).value == false
 assert choose(true, 42, 0) == 42
 assert choose(false, "first", "second") == "second"
+pure display_value(value) { f"value:{value}" }
+assert display_value(42) == "value:42"
+assert display_value("demo") == "value:demo"
 # end example

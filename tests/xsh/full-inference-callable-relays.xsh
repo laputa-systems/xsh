@@ -57,13 +57,13 @@ print "text producer created"
 let rows = text_producer |> collect()
 assert integers == [7, 7]
 assert rows == ["row"]
-print $integers
-print $rows
+print (json.encode(integers)?)
+print (json.encode(rows)?)
 """,
     env: {XSH_MODULE_PATH: modules},
   )?
   assert output.success, output.stderr
-  assert output.stdout == "integer producer created\npull:7\npull:7\ntext producer created\npull:row\n[7, 7]\n[row]\n"
+  assert output.stdout == "integer producer created\npull:7\npull:7\ntext producer created\npull:row\n[7,7]\n[\"row\"]\n"
 }
 
 test test_full_inference_compatible_generic_callable_selection_instantiates_per_call { |ctx|

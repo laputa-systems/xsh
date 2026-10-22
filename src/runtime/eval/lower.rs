@@ -2930,6 +2930,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let binding = self.declaration_binding(self.program.arena.span(parameter.span), name)
                 .ok_or(CompactFunctionBlocker::ParamType)?;
             slots.bind_source_at(binding, name, slot, ty);
+            if let Some(parameter) = scheme.as_ref().and_then(|scheme| scheme.params().get(slot)) {
+                slots.types.insert(binding, parameter.ty.clone());
+            }
         }
         let (mut body, scheme_body_types, scheme_tail_types) =
             if let Some(facts) = scheme_body_facts.as_ref() {

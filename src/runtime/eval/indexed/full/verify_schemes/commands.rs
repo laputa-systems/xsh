@@ -2,7 +2,7 @@ use super::{IrVerifyError, SchemeInstantiationBudget, SchemeType, Type, producer
 use super::super::decode::{ExprInstructionId, RunArgKindView, RunArgView, RunOperandsView, RunOptionView, RunTailOperandView};
 
 pub(super) fn word<'a>(
-    argument: RunArgView<'a>, role: producers::ProcessWordRole,
+    argument: RunArgView<'a>, role: producers::ProcessWordRole, scope: &super::SchemeScope,
     child: &mut impl FnMut(ExprInstructionId<'a>, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError>,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<bool, IrVerifyError> {
@@ -12,13 +12,19 @@ pub(super) fn word<'a>(
         RunArgKindView::SingleOrSplice(value) => (value, false, true),
         RunArgKindView::Splice(value) => (value, true, false),
     };
-    let actual = child(value, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic command word has no closed conversion contract"))?;
+    let actual = child(value, budget)?;
+    if matches!(role, producers::ProcessWordRole::Argument) {
+        let conversion = if spliced { super::ValueConversion::ArgvList } else if optional_splice { super::ValueConversion::ArgvOrList } else { super::ValueConversion::Argv };
+        if !super::scheme_conversion(&actual, conversion, scope, budget)? { return Err(IrVerifyError::new("generic command word disagrees with its conversion requirement")); }
+        return Ok(false);
+    }
+    let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic command word has no closed conversion contract"))?;
     super::ensure_substitution_type(&actual)?;
     producers::process_word_type(&actual, spliced, optional_splice, role)
 }
 
 pub(super) fn operands<'a>(
-    operands: RunOperandsView<'a>,
+    operands: RunOperandsView<'a>, scope: &super::SchemeScope,
     child: &mut impl FnMut(ExprInstructionId<'a>, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError>,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
@@ -32,16 +38,16 @@ pub(super) fn operands<'a>(
         let actual = child(value, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic process option has no closed contract"))?;
         producers::process_option_contract(name, Some(&actual), budget)?;
     }
-    for assignment in operands.env { word(assignment?.value, producers::ProcessWordRole::Environment, child, budget)?; }
-    word(operands.target, producers::ProcessWordRole::Argument, child, budget)?;
+    for assignment in operands.env { word(assignment?.value, producers::ProcessWordRole::Environment, scope, child, budget)?; }
+    word(operands.target, producers::ProcessWordRole::Argument, scope, child, budget)?;
     let mut stdin_sources = 0usize;
     let mut bytes_input = false;
     for operand in operands.tail {
         match operand? {
-            RunTailOperandView::Argument(argument) => { word(argument, producers::ProcessWordRole::Argument, child, budget)?; }
+            RunTailOperandView::Argument(argument) => { word(argument, producers::ProcessWordRole::Argument, scope, child, budget)?; }
             RunTailOperandView::Redirection(redirection) => {
                 stdin_sources += usize::from(matches!(redirection.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup));
-                bytes_input |= word(redirection.target, producers::ProcessWordRole::Redirection(redirection.kind), child, budget)?;
+                bytes_input |= word(redirection.target, producers::ProcessWordRole::Redirection(redirection.kind), scope, child, budget)?;
             }
         }
     }

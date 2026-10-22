@@ -23,6 +23,9 @@ mod input_support;
 #[path = "constraints/map_key.rs"]
 mod map_key_constraints;
 pub(crate) use map_key_constraints::MapKeyConstraintError;
+#[path = "constraints/conversions.rs"]
+mod conversion_constraints;
+pub(crate) use conversion_constraints::ConversionConstraintError;
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_ROW_VARIABLE: AtomicU64 = AtomicU64::new(1);
@@ -111,6 +114,7 @@ struct Representative {
     binding: Option<Binding>,
     annotation: bool,
     map_key: Option<Span>,
+    conversions: super::schemes::ValueConversionSet,
 }
 
 #[derive(Clone, Debug)]
@@ -709,6 +713,7 @@ impl TypeConstraints {
                 binding: None,
                 annotation: false,
                 map_key: None,
+                conversions: super::schemes::ValueConversionSet::default(),
             }),
         );
         self.counters.fresh_variables.fetch_add(1, Ordering::Relaxed);
@@ -811,6 +816,7 @@ impl TypeConstraints {
             .map(|ty| self.generalize_type(ty, environment_level, &mut generalization, 0))
             .collect::<Result<Vec<_>, _>>()?;
         let map_key_parameters = self.generalized_map_keys(&generalization)?;
+        let conversion_parameters = self.generalized_conversions(&generalization)?;
         Ok(GeneralizedTypes {
             types,
             generalization_scope: CallableGeneralizationScope {
@@ -821,7 +827,7 @@ impl TypeConstraints {
             },
             type_parameters: generalization.type_parameters,
             row_parameters: generalization.row_parameters,
-            requirements: CallableRequirements { map_key_parameters, effect_parameters: generalization.effect_parameters.clone(), ..CallableRequirements::default() },
+            requirements: CallableRequirements { map_key_parameters, conversion_parameters, effect_parameters: generalization.effect_parameters.clone(), ..CallableRequirements::default() },
         })
     }
 
@@ -1017,7 +1023,7 @@ impl TypeConstraints {
         CallInstantiation::new(
             callable, type_arguments, row_arguments, effect_arguments, bindings,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
-            caller_applications, &self.generalized_map_keys(generalization)?)
+            caller_applications, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)
     }
 
@@ -1114,6 +1120,9 @@ impl TypeConstraints {
         if self.generalized_map_keys(&generalization)? != callable.requirements().map_key_parameters {
             return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
         }
+        if self.generalized_conversions(&generalization)? != callable.requirements().conversion_parameters {
+            return Err(SchemeOperationError::Build(SchemeBuildError::Conversion));
+        }
         for &(ordinal, id) in &applications {
             let application = self.generalize_callable_application(id, 0, &mut generalization)?;
             if callable.requirements().applications.get(ordinal as usize) != Some(&application) {
@@ -1161,6 +1170,12 @@ impl TypeConstraints {
         for parameter in &callable.requirements().map_key_parameters {
             let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
             self.require_map_key(ty, origin).map_err(SchemeOperationError::from)?;
+        }
+        for (parameter, conversions) in &callable.requirements().conversion_parameters {
+            let ty = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            for conversion in super::schemes::ValueConversion::ALL {
+                if conversions.contains(conversion) { self.require_conversion(ty, conversion, origin).map_err(SchemeOperationError::from)?; }
+            }
         }
         let params = callable
             .params()
@@ -1269,7 +1284,7 @@ impl TypeConstraints {
             Ok((id, contract))
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let bindings = self.callable_application_bindings(instantiated, None)?;
-        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[], &[])
+        let evidence = CallInstantiation::new(callable, type_arguments, row_arguments, effect_arguments, bindings, &[], &[], &[], &[], &[], &BTreeMap::new())
             .map_err(SchemeOperationError::Build)?;
         if callable.is_quantified() {
             self.counters
@@ -2129,6 +2144,9 @@ impl TypeConstraints {
             .representative(id, Some(changes))
             .map_err(|error| (Type::Inference(id), row_type(shape), Some(error)))?;
         if self.map_key_requirement(root).map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?.is_some() {
+            return Err((Type::Inference(root), row_type(shape), None));
+        }
+        if !self.conversion_requirements(root).map_err(|error| (Type::Inference(root), row_type(shape), Some(error)))?.is_empty() {
             return Err((Type::Inference(root), row_type(shape), None));
         }
         if self
@@ -3214,6 +3232,7 @@ impl TypeConstraints {
                     }
                     return Err((expected.clone(), actual.clone(), None));
                 }
+
             }
             #[cfg(test)]
             for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
@@ -3265,6 +3284,21 @@ impl TypeConstraints {
                     && !matches!(value, Type::Inference(_))
                 {
                     return Err((expected.clone(), actual.clone(), None));
+                }
+            }
+            for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
+                if let Type::Inference(id) = variable
+                    && !matches!(value, Type::Inference(_) | Type::Unknown | Type::Invalid)
+                {
+                    let required = self.conversion_requirements(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                    for conversion in super::schemes::ValueConversion::ALL {
+                        if required.contains(conversion) {
+                            self.require_conversion_inner(value, conversion, contribution, changes).map_err(|error| {
+                                let resolution = match error { ConversionConstraintError::Resolution(error) => Some(error), _ => None };
+                                (expected.clone(), actual.clone(), resolution)
+                            })?;
+                        }
+                    }
                 }
             }
             for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
@@ -4173,6 +4207,9 @@ impl TypeConstraints {
             (Some(left), Some(right)) => Some(earlier_span(left, right)),
             (left, right) => left.or(right),
         };
+        let conversions = self.conversion_requirements(left_root).map_err(Some)?.union(self.conversion_requirements(right_root).map_err(Some)?);
+        if !conversions.is_satisfiable(map_key.is_some()) { return Err(None); }
+        if !conversions.is_empty() && (left_binding.is_some() || right_binding.is_some()) { return Err(None); }
         if map_key.is_some() && (left_binding.is_some() || right_binding.is_some()) {
             return Err(None);
         }
@@ -4210,6 +4247,7 @@ impl TypeConstraints {
             root_value.earliest_origin = earliest_origin;
             root_value.annotation = annotation;
             root_value.map_key = map_key;
+            root_value.conversions = conversions;
             root_value.binding = binding.clone();
         }
         match binding {
@@ -4524,13 +4562,13 @@ mod tests {
             let parameter = callable.type_parameters()[0];
             assert!(matches!(CallInstantiation::new(&callable,
                 BTreeMap::from([(parameter, SchemeType::Ground(Type::Float))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[], &[], &[], &[], &[]), Err(SchemeBuildError::MapKey)));
+                &[], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
             assert!(matches!(CallInstantiation::new(&callable,
                 BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[parameter], &[], &[], &[], &[]), Err(SchemeBuildError::MapKey)));
+                &[parameter], &[], &[], &[], &[], &BTreeMap::new()), Err(SchemeBuildError::MapKey)));
             CallInstantiation::new(&callable,
                 BTreeMap::from([(parameter, SchemeType::Parameter(parameter))]), BTreeMap::new(), BTreeMap::new(), Vec::new(),
-                &[parameter], &[], &[], &[], &[parameter]).unwrap();
+                &[parameter], &[], &[], &[], &[parameter], &BTreeMap::new()).unwrap();
         });
     }
 

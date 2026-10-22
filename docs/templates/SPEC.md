@@ -3057,7 +3057,7 @@ when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
 ### 9.2 Parameters
 
 Parameters are `name: Type`, `name: Type = default`, `name = default`, or a
-final rest parameter `...name: List[T]`. A defaulted parameter may omit its type
+final rest parameter `...name` or `...name: List[T]`. A defaulted parameter may omit its type
 when the default alone determines one concrete type; `null` and empty
 containers need annotations.
 
@@ -3067,10 +3067,11 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure`, `proc`, or `stream` declaration may omit its type annotation. The
-checker infers that type from the declaration body. An explicit `Any` remains a
-dynamic type and is never treated as a type variable; it may appear beside
-quantified parameters. Required parameters in callable types and module
+A required parameter in a `pure`, `proc`, or `stream` declaration may omit its type
+annotation. The checker infers that type from the declaration body. An explicit
+`Any` remains a dynamic type and is never treated as a type variable; it may
+appear beside quantified parameters. A quantified proc requires a finite
+checked effect contract. Required parameters in callable types and module
 contracts still need annotations.
 
 Captured runtime bindings retain their declaration's monomorphic type. A writable
@@ -3080,32 +3081,117 @@ storage. Stream producers observe current captured mutable storage before each
 pull and before cleanup of a started body. Cancelling an unstarted producer runs
 no defaults, body, or defers.
 
-When a checked pure or finite-effect proc signature retains quantified type or row variables, its
-executable body may contain immutable `let` bindings followed by one value
-tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, closed nonresource runtime captures, required `.field` projections,
-list literals without splices, records with named fields, `Ok` and `Err`
-constructors, value blocks, value-producing `if` branches, or statically
-selected calls whose finite effects fit the declaration. Conditions constrain unannotated parameters to `Bool`;
-branch results share constraints from the declaration body. Branches evaluate
-only the selected value, in ordinary source order. User function calls must
-supply every fixed required parameter, by position or name. Registered calls must have a selected pure
-signature with no host effects; their receiver domain and argument layout are
-fixed while checking the declaration. A caller never supplies type evidence
-for choosing that declaration's operations. Unsigned argument and map-key
-contracts keep the ordinary checked conversions and failure propagation.
+A checked quantified body can use lexical `let` and `var` bindings, including
+record destructuring, nested blocks, local assignment, `if`, `match`, `for`,
+`while`, and `loop`, with `break`,
+`continue`, explicit value returns, and ordinary `?` propagation through the
+callable's checked error boundary. Each mutable local has one type within
+an activation: every assignment must fit the same type, even when different
+calls instantiate that type differently. Field, list-index, and map-key
+assignments retain the selected storage type, including a shared type parameter.
+Compound assignments use the ordinary operator domains and keep that storage
+type. Selectors evaluate once before the right side; a compound assignment reads
+the current target value after the right side. Ordinary unsigned checks remain
+active, including within records that also contain quantified fields. Earlier
+aliases keep their contents, and a failed update returns no partial value.
+A nested binding cannot escape its scope. Pattern bindings belong to their own match arm; guards retain the
+ordinary strict `Bool` contract. Value-loop results share constraints from
+reachable breaks belonging to that loop, including `Unit` for a bare break.
+Breaks in an inner loop do not determine an outer loop's result.
+Destructuring evaluates its source once before publishing its bindings. Each
+renamed or nested binding retains the selected field's type. A `for` binding is
+immutable and belongs only to its body. The source evaluates once and retains
+the ordinary item order and snapshot behavior. Result sources propagate their
+actual error family. Stream sources remain lazy, and leaving a loop releases
+its source through ordinary cleanup. The enclosing result contract must admit
+both source errors and errors from pulling a stream.
+List and map comprehensions retain the item or value relationship to quantified
+parameters. Set comprehensions require a checked scalar key domain. Qualifiers
+keep their ordinary sequential scope, lazy source evaluation, filter behavior,
+and cleanup. A single unfiltered mapping of a `NonEmpty` list preserves that
+validation; filters and additional sources do not.
 
-This body subset excludes mutation, destructuring, operators, loops,
-optional field access, indexing, map and set literals, record spreads,
-interpolated text, dynamically selected calls, expression statements before
-the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
-quantified body subset. Registered calls
-with specialized argument rules, script implementations, or resource receiver
-domains are outside this subset. A registered method may omit only trailing
-defaulted parameters. Calls to user functions with defaulted or rest
-parameters remain outside this body subset. The checker reports
-`check.local-inference` for unsupported quantified body shapes. A fully
-concrete inferred signature has no such body restriction.
+Values may be scalar literals, parameter or local reads, ground immutable
+runtime captures, required `.field` projections, list literals without splices,
+records with named fields, `Ok` and `Err` constructors, value blocks,
+value-producing `if` and `match` branches, loops, or statically selected pure
+calls. Unguarded list indexing and slicing preserve the element relationship;
+literal record keys preserve the selected field relationship through
+compiler-created immutable temporaries. Negative literal indexes retain the ordinary from-end rule, while computed negative indexes
+still fail. Numeric, text, and duration arithmetic with concrete operand types,
+concrete-list concatenation, and unary operations retain their ordinary
+contracts. Concatenation preserves `NonEmpty` when either operand has it.
+List element storage remains invariant: concatenating `List[UInt]` with
+`List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
+Equality can retain a shared type parameter, including list membership with
+the same item parameter. Ordering uses concrete checked operand domains.
+Boolean `and` and `or` evaluate the left operand first and evaluate the right
+operand only when needed. Ordering chains evaluate each reached operand once
+and stop at the first false pair. Map membership preserves its declared key
+domain and ordinary unsigned key validation. Set union, intersection, and
+difference preserve the checked element domain; sharing an integer runtime
+representation does not erase an unsigned element guarantee.
+
+Optional parameters and returns retain their nullable contract. Guarded field,
+index, slice, and selected method access use the ordinary postfix rules: a null
+receiver returns null without evaluating its index, slice bounds, or method
+arguments. A present receiver runs the selected operation, including literal
+from-end indexing; an operation that already returns Optional keeps one
+Optional envelope. An Optional containing Result keeps both success and error
+values as data. A guarded Result receiver propagates its actual error to the
+function's Result boundary and runs the operation only on success. The error
+family must fit that boundary.
+
+List splices preserve the checked item domain, including a shared type
+parameter. Shorthand fields use the same lexical binding as an ordinary name
+read, including shadowed locals and checked immutable captures. Their ordinary
+record, map, or contextual set interpretation is unchanged.
+Named record fields and record spreads use the ordinary ordered
+field rules: later permitted fields replace earlier fields, while every
+expression still evaluates in source order. Computed map keys keep a checked
+scalar key domain; map values may retain the callable's type parameters.
+Map spreads preserve both domains. Scalar-key set literals use the ordinary
+set conversion and remove duplicates. Text and path interpolation use the
+ordinary display and formatting rules. An inferred operand retains the display
+requirement imposed by interpolation or `print`. Each concrete call must satisfy
+that requirement. Generic forwarding preserves it with the same type parameter.
+
+Command arguments retain the conversion required by their syntax. A typed
+argument requires an argv scalar; a standalone interpolation accepts an argv
+scalar or a list of them; an explicit splice requires a list of argv scalars.
+An interpolation within a larger word uses display conversion. These requirements
+preserve the ordinary domains: Float can be displayed but cannot be an argv
+scalar, and a list cannot be displayed. An incompatible instance is rejected
+before execution.
+Static record updates retain a known base shape and disjoint existing paths.
+The base evaluates once before the replacements; replacements preserve their
+field contracts, including ordinary unsigned validation, and a failure exposes
+no partial update. Complete typed storage checks remain active in a quantified
+body; an annotation does not replace proof of its actual input.
+
+A quantified proc may also call a selected finite proc whose effects fit its
+own checked ceiling. Branches evaluate only the selected value, in ordinary
+source order.
+User function calls bind fixed required parameters by position, name, or a
+finite record's named spread. Source entries evaluate once in written order;
+spreads project the checked record fields before the next entry. Trailing items
+and positional list splices fill only the final rest parameter. Omitted defaults
+run in the callee's declaration scope after supplied entries, in parameter
+order; an explicit argument skips its default. The same rules apply when the
+selected callee has an ordinary concrete signature. Registered calls must have a selected pure signature with no host
+effects; their receiver domain and argument layout are fixed while checking
+the declaration. A caller never supplies type evidence for choosing that
+declaration's operations. Unsigned argument and map-key contracts keep the
+ordinary checked conversions and failure propagation.
+
+Unsupported quantified body shapes still produce a checking or preparation
+diagnostic, including dynamically selected calls and captured mutable or
+resource state. Compile-time constant bindings and registered calls with specialized
+argument rules, script implementations, or resource receiver domains are not
+yet supported in these bodies. A registered method may omit only trailing
+defaulted parameters. Their named spreads retain the selected argument layout
+and ordinary checks. A fully concrete inferred signature has no such body
+restriction.
 
 Ordinary ground pure helpers called from a quantified body keep their usual
 syntax, including branches, loops, mutation, patterns, defaults, rest arguments,
@@ -3122,23 +3208,31 @@ Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
 kind is itself a bare quantified parameter retains the constructor's checked
 `Ok` or `Err` envelope without a runtime payload type guess. Statement
-assertion or discard elaboration is outside this quantified body subset;
-annotated `Unit` returns are supported when their terminal checked value is
-already `Unit`.
+assertion elaboration remains unsupported in quantified bodies. Explicit
+`let _ = value` discards preserve `Result` values as data without propagating
+their errors. Annotated `Unit` returns are supported when their terminal
+checked value is already `Unit`. A generic proc's early value return uses the
+same success-envelope rule as its terminal value. Instantiating that value
+with a `Result` preserves the nested result as data.
 
-At a direct call to an inferred quantified pure declaration, supply all fixed
-required parameters first. Zero or more trailing rest items or list splices may
-then fill only the final rest parameter, whose annotation is `List[T]`. Each
-rest item must match the annotated list element type. A splice must be a list
-whose element type matches it. The fixed required arguments provide type
-evidence for instantiating quantified parameters. This call form also works
-through a direct immutable alias. Ordinary monomorphic calls keep their
-existing behavior. A positional splice that could expand into a fixed parameter before
-the final rest parameter currently blocks lowering. The body restriction above
-still applies to quantified declarations that have rest parameters.
+At a direct call to an inferred quantified pure declaration, fixed required arguments
+may be positional or named. A final rest parameter has type `List[T]`; omitting
+its annotation introduces an inferred item type `T`. Each supplied rest item
+must match `T`. Literal positional list splices without
+nested splices expand into fixed and rest slots in source order. Empty literal
+splices consume no parameter. Each expanded item receives its parameter's type
+and schema context, while the source list still requires one homogeneous item
+type. Supplied expressions are evaluated once in source order.
 
-Even after `xsht check` succeeds, a well-typed quantified pure declaration with
-any defaulted parameter currently blocks lowering for the whole function.
+A positional splice with an unknown length may fill the final rest parameter;
+it cannot supply a fixed slot before that parameter. Defaulted parameters and
+immutable callable aliases follow the same binding rules. Omitted defaults
+retain their declaration scope and evaluation order described above.
+
+A quantified declaration may have defaulted parameters under the same concrete
+default-type rules above. A default can call a selected function and propagate
+its actual error when the enclosing callable permits that error. Defaults retain
+the ordinary failure and cleanup behavior, including lazy stream ownership.
 
 ### 9.3 Return types
 

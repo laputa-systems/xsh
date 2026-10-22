@@ -9,6 +9,37 @@ use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
 #[test]
+fn generic_value_conversions_execute_after_frontend_disposal() {
+    for (argument, number, text, prefix) in [
+        ("(value)", "7", "\"word\"", ""),
+        ("$value", "7", "\"word\"", ""),
+        ("$value", "[7, 8]", "[\"word\", \"other\"]", ""),
+        ("@value", "[7, 8]", "[\"word\", \"other\"]", ""),
+        ("item:${value}", "7", "\"word\"", "item:"),
+    ] {
+        let number_output = if number.starts_with('[') { "7 8" } else { "7" };
+        let text_output = if text.starts_with('[') { "word other" } else { "word" };
+        let source = format!(r#"
+pure display(value) {{ f"item:{{value}}" }}
+proc send(value) {{ return (run.text /bin/echo {argument} ?) }}
+assert display(7) == "item:7"
+assert display("word") == "item:word"
+assert send({number}) == Ok("{prefix}{number_output}\n")
+assert send({text}) == Ok("{prefix}{text_output}\n")
+"#);
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("{argument} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+}
+
+#[test]
 fn ordinary_generic_bodies_execute_after_frontend_disposal() {
     for definition in [
         "pure keep(value) { match true { true => value; false => value } }",

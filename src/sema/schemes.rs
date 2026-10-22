@@ -18,9 +18,48 @@ pub(crate) struct SchemeRowParameterId(pub(crate) u32);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList }
+
+impl ValueConversion {
+    pub(crate) const ALL: [Self; 4] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList];
+
+    pub(crate) fn accepts(self, ty: &Type) -> bool {
+        if ty.contains_recovery() || ty.contains_any() { return false; }
+        match self {
+            Self::Display => ty.can_display(),
+            Self::Argv => ty.can_be_argv_item(),
+            Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
+            Self::ArgvList => matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ValueConversionSet(u8);
+
+impl ValueConversionSet {
+    pub(crate) fn from_bits(bits: u8) -> Option<Self> {
+        (bits & !((1 << ValueConversion::ALL.len()) - 1) == 0).then_some(Self(bits))
+    }
+
+    pub(crate) fn bits(self) -> u8 { self.0 }
+    pub(crate) fn is_empty(self) -> bool { self.0 == 0 }
+    pub(crate) fn contains(self, conversion: ValueConversion) -> bool { self.0 & (1 << conversion as u8) != 0 }
+    pub(crate) fn insert(&mut self, conversion: ValueConversion) { self.0 |= 1 << conversion as u8; }
+    pub(crate) fn union(self, other: Self) -> Self { Self(self.0 | other.0) }
+    pub(crate) fn accepts(self, ty: &Type) -> bool { ValueConversion::ALL.into_iter().all(|conversion| !self.contains(conversion) || conversion.accepts(ty)) }
+    pub(crate) fn is_satisfiable(self, map_key: bool) -> bool {
+        !self.contains(ValueConversion::ArgvList)
+            || !(map_key || self.contains(ValueConversion::Display) || self.contains(ValueConversion::Argv))
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CallableRequirements {
     pub(crate) map_key_parameters: Vec<SchemeTypeParameterId>,
+    pub(crate) conversion_parameters: BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     pub(crate) effect_parameters: Vec<SchemeEffectParameterId>,
     pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
@@ -201,6 +240,7 @@ pub(crate) enum SchemeBuildError {
     DynamicType,
     BodyTypeNotBound,
     MapKey,
+    Conversion,
 }
 
 impl TypeScheme {
@@ -323,6 +363,9 @@ impl CallableScheme {
         if map_keys.len() != requirements.map_key_parameters.len()
             || !map_keys.is_subset(&type_parameters.iter().copied().collect())
         { return Err(SchemeBuildError::MapKey); }
+        if requirements.conversion_parameters.iter().any(|(parameter, conversions)| {
+            !type_parameters.contains(parameter) || conversions.is_empty() || !conversions.is_satisfiable(map_keys.contains(parameter))
+        }) { return Err(SchemeBuildError::Conversion); }
         let effect_ids = requirements.effect_parameters.iter().copied().collect::<BTreeSet<_>>();
         if effect_ids.len() != requirements.effect_parameters.len() {
             return Err(SchemeBuildError::DuplicateEffectParameter);
@@ -492,6 +535,7 @@ impl CallableRequirements {
         use std::mem::size_of;
         let mut bytes = size_of::<Self>()
             .saturating_add(self.map_key_parameters.capacity() * size_of::<SchemeTypeParameterId>())
+            .saturating_add(self.conversion_parameters.len() * size_of::<(SchemeTypeParameterId, ValueConversionSet)>())
             .saturating_add(self.effect_parameters.capacity() * size_of::<SchemeEffectParameterId>())
             .saturating_add(self.effect_predicates.capacity() * size_of::<EffectPredicate<SchemeEffectParameterId>>())
             .saturating_add(self.applications.capacity() * size_of::<CallableApplication<SchemeType, SchemeEffectParameterId>>());
@@ -617,6 +661,7 @@ impl CallInstantiation {
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
         caller_map_keys: &[SchemeTypeParameterId],
+        caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable.type_parameters.iter().copied().collect()
@@ -626,6 +671,10 @@ impl CallInstantiation {
         for parameter in &callable.requirements.map_key_parameters {
             let actual = type_arguments.get(parameter).ok_or(SchemeBuildError::UnboundTypeParameter)?;
             if !actual.is_map_key_with(caller_map_keys) { return Err(SchemeBuildError::MapKey); }
+        }
+        for (parameter, conversions) in &callable.requirements.conversion_parameters {
+            let actual = type_arguments.get(parameter).ok_or(SchemeBuildError::UnboundTypeParameter)?;
+            if !actual.satisfies_conversions(*conversions, caller_conversions) { return Err(SchemeBuildError::Conversion); }
         }
         if row_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable
@@ -956,6 +1005,20 @@ fn schema_expectation_retained_bytes(
 }
 
 impl SchemeType {
+    pub(crate) fn satisfies_conversion(&self, conversion: ValueConversion, parameters: &impl Fn(SchemeTypeParameterId) -> Option<ValueConversionSet>) -> bool {
+        match self {
+            Self::Parameter(parameter) => parameters(*parameter).is_some_and(|required| required.contains(conversion)),
+            Self::Validated(_, inner) => inner.satisfies_conversion(conversion, parameters),
+            Self::List(item) if matches!(conversion, ValueConversion::ArgvList | ValueConversion::ArgvOrList) => item.satisfies_conversion(ValueConversion::Argv, parameters),
+            Self::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList) => members.iter().all(|member| member.satisfies_conversion(ValueConversion::Argv, parameters)),
+            actual => actual.closed_ground_type().is_some_and(|actual| conversion.accepts(&actual)),
+        }
+    }
+
+    pub(crate) fn satisfies_conversions(&self, conversions: ValueConversionSet, parameters: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>) -> bool {
+        ValueConversion::ALL.into_iter().all(|conversion| !conversions.contains(conversion) || self.satisfies_conversion(conversion, &|parameter| parameters.get(&parameter).copied()))
+    }
+
     pub(crate) fn is_map_key_with(&self, parameters: &[SchemeTypeParameterId]) -> bool {
         match self {
             Self::Parameter(parameter) => parameters.contains(parameter),
@@ -1350,6 +1413,7 @@ mod tests {
             let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
             let requirements = CallableRequirements {
                 map_key_parameters: Vec::new(),
+                conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![effect],
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
                 applications: vec![CallableApplication {
@@ -1792,7 +1856,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &[], &[])
+            &[], &[], &BTreeMap::new())
             .is_ok());
             assert!(TypeScheme::new(
                 crate::sema::types::CallableKind::Pure,
@@ -1847,7 +1911,7 @@ mod tests {
                         lacks: BTreeSet::new(),
                     }],
                     &[],
-                &[], &[]),
+                &[], &[], &BTreeMap::new()),
                 Err(SchemeBuildError::RowLacksMismatch),
             );
         });
@@ -1960,7 +2024,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &[], &[])
+                &[], &[], &BTreeMap::new())
             .unwrap();
 
             let required_bytes = std::mem::size_of::<CallInstantiation>()

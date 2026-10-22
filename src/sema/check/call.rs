@@ -52,6 +52,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
+                SchemeBuildError::Conversion => "type argument does not satisfy its value conversion requirements",
                 SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",
             };
             format!("generic call instantiation failed: {reason}")

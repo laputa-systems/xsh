@@ -18,6 +18,7 @@ impl TypeConstraints {
             match constraints.resolve_with_changes(ty, 0, changes)? {
                 Type::Inference(id) => {
                     let root = constraints.representative(id, Some(changes))?;
+                    if !constraints.conversion_requirements(root)?.is_satisfiable(true) { return Err(MapKeyConstraintError::Invalid(Type::Inference(root))); }
                     if let Some(record) = constraints.record_binding(root)? {
                         return Err(MapKeyConstraintError::Invalid(super::row_type(&record.shape)));
                     }
