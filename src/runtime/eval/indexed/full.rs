@@ -24241,6 +24241,78 @@ assert order == "LU123"
     }
 
     #[test]
+    fn generic_native_effects_authenticate_owner_and_registry_authority() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-native-effects.xsh", "proc read(payload) [fs] { {payload, cwd: fs.cwd()} }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "read");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("the payload retains its binder") };
+            let effect_range = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[effect_range.clone()], &[Effect::Fs]);
+            let mut wrong_effect = program.clone();
+            wrong_effect.store.scheme_effects[effect_range.start] = Effect::Env;
+            let error = FullVerifier::verify(&wrong_effect).unwrap_err();
+            assert!(error.message.contains("requires effect fs"), "{}", error.message);
+            let mut wrong_kind = program.clone();
+            wrong_kind.store.schemes[scheme.index()].callable_kind = CallableKind::Pure;
+            wrong_kind.store.function_metadata[owner].callable_kind = CallableKind::Pure;
+            wrong_kind.store.function_metadata[owner].flags &= !1;
+            let error = FullVerifier::verify(&wrong_kind).unwrap_err();
+            assert!(error.message.contains("pure executable body contains an impure operation"), "{}", error.message);
+            let instruction = function_instruction_indices(&program, "read", FullTag::ExprModuleCall).into_iter().find(|instruction| program.store.registered_calls.contains_key(&(*instruction as u32))).unwrap();
+            let mut wrong_registry = program.clone();
+            let plan = Arc::make_mut(wrong_registry.store.registered_calls.get_mut(&(instruction as u32)).unwrap());
+            plan.signature = &crate::modules::api_spec().module_overloads("env", "get").unwrap()[0];
+            let error = FullVerifier::verify(&wrong_registry).unwrap_err();
+            assert!(error.message.contains("selected registry signature"), "{}", error.message);
+        });
+    }
+
+    #[test]
+    fn generic_scoped_blocks_authenticate_delays_messages_and_context_inputs() {
+        run_with_large_stack(|| {
+            for annotation in [": Int", ""] {
+                let source = format!(r#"
+proc keep(payload{annotation}) [time, env, error] {{
+  let retried = retry [0ms] {{ 7 }}
+  let scoped = within 1h {{ 8 }}
+  let decorated = ctx "note" {{ 9 }}
+  let _ = "wrong"
+  {{payload, retried, scoped, decorated}}
+}}
+pure consume(value) {{ value }}
+let observed = consume(keep(1)?)
+assert observed.decorated == 9
+assert observed.retried == Ok(7)
+assert observed.scoped == Ok(8)
+"#);
+                let program = fixture("generic-scoped-block-producers.xsh", &source);
+                FullVerifier::verify(&program).unwrap();
+                let decoder = return_analysis_decoder(&program, "keep");
+                let delay = function_instruction_indices(&program, "keep", FullTag::ExprDuration).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Duration(value)) if value.millis == 0)).unwrap();
+                let wrong = function_instruction_indices(&program, "keep", FullTag::ExprStr).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
+                let message = function_instruction_indices(&program, "keep", FullTag::ExprStr).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("note")))).unwrap();
+                let integer = function_instruction_indices(&program, "keep", FullTag::ExprInt).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(9)))).unwrap();
+                for (left, right) in [(delay, wrong), (message, integer)] {
+                    let mut forged = program.clone();
+                    forged.store.tags.swap(left, right);
+                    forged.store.data.swap(left, right);
+                    let error = FullVerifier::verify(&forged).unwrap_err();
+                    assert!(error.message.contains("producer") || error.message == "generic body expression disagrees with its checked type" || error.message.contains("contract"), "{}", error.message);
+                }
+                let context = function_instruction_indices(&program, "keep", FullTag::ExprContextScope).into_iter().next().unwrap();
+                assert!(matches!(decoder.expression_view(context).unwrap(), schema::ExprView::ContextScope { kind: crate::syntax::arena::ContextScopeKind::Within, .. }));
+                let mut forged = program.clone();
+                let payload = forged.store.data[context].range().bounds(forged.store.extra.len()).unwrap();
+                assert_eq!(forged.store.extra[payload.start], 2);
+                forged.store.extra[payload.start] = 1;
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("scope input") || error.message.contains("requires effect env"), "{}", error.message);
+            }
+        });
+    }
+
+    #[test]
     fn generic_body_arguments_authenticate_schema_checked_sources() {
         run_with_large_stack(|| {
             let program = fixture("generic-schema-argument.xsh", concat!(

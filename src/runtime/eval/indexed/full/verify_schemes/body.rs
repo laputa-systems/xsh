@@ -495,6 +495,35 @@ fn with_error_types(decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeTyp
     }, |amount| work.borrow_mut().charge(amount))
 }
 
+fn context_scope_has_known_escape(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        budget.charge(1)?;
+        match ty {
+            SchemeType::Ground(ty) => {
+                budget.charge_clone(ty)?;
+                if !ty.can_escape_context_scope() { return Ok(true); }
+            }
+            SchemeType::Stream(_) => return Ok(true),
+            SchemeType::List(inner) | SchemeType::Optional(inner) | SchemeType::Validated(_, inner) => pending.push(inner),
+            SchemeType::Map(_, value) => pending.push(value),
+            SchemeType::Result(ok, error) => { pending.push(ok); pending.push(error); }
+            SchemeType::Record { fields, .. } => { budget.charge(fields.len())?; pending.extend(fields.values()); }
+            SchemeType::Union(members) => { budget.charge(members.len())?; pending.extend(members); }
+            SchemeType::Parameter(_) | SchemeType::Callable { .. } | SchemeType::Set(_) => {},
+        }
+    }
+    Ok(false)
+}
+
+fn scoped_block_value(store: &FullStore, statements: &[usize], payload: SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    if statements.last().is_some_and(|statement| store.tags[*statement] == FullTag::StmtValue) { return Ok(Some(payload)); }
+    if !body_type_matches(&SchemeType::Ground(Type::Unit), &payload, budget)? {
+        return Err(IrVerifyError::new("generic scoped block fallthrough disagrees with its value contract"));
+    }
+    Ok(None)
+}
+
 pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
     constructors: &super::constructors::ConstructorFacts,
@@ -579,6 +608,71 @@ pub(super) fn verify_body(
                                 }
                                 None
                             };
+                        let mut inner = branch_scope(&scope, &mut scopes, budget)?;
+                        inner.error_boundary = Some(scopes.error_boundaries.len());
+                        scopes.error_boundaries.push(PropagationBoundary::for_result(&claimed, budget)?);
+                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
+                    }
+                    schema::ExprView::ErrorContext { message, body, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        if !body_type_matches(&expression_type(types, message.raw() as usize, budget)?, &SchemeType::Ground(Type::Str), budget)? {
+                            return Err(IrVerifyError::new("generic error context message is not Str"));
+                        }
+                        pending.push(Obligation::Expression(message.raw() as usize, scope));
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        let value = scoped_block_value(store, &statements, claimed, budget)?;
+                        pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value });
+                    }
+                    view @ (schema::ExprView::ContextScope { .. } | schema::ExprView::Retry { .. }) => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        if BodyTypeRef::Scheme(&claimed).validation().is_some() { return Err(IrVerifyError::new("generic scoped expression cannot establish a validation")); }
+                        let (ok, error) = BodyTypeRef::Scheme(&claimed).result_parts().ok_or_else(|| IrVerifyError::new("generic scoped expression has no Result contract"))?;
+                        let ok = ok.materialize(budget)?;
+                        let error = error.materialize(budget)?;
+                        let (body, retry) = match view {
+                            schema::ExprView::ContextScope { kind, input, body, .. } => {
+                                if store.function_metadata[owner.index()].callable_kind == crate::sema::types::CallableKind::Pure {
+                                    return Err(IrVerifyError::new("generic context scope has a Pure owner"));
+                                }
+                                let input_type = expression_type(types, input.raw() as usize, budget)?;
+                                budget.charge_scheme_clone(&input_type)?;
+                                let input_type = input_type.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic context scope input is unresolved"))?;
+                                if !input_type.accepts_context_scope_input(kind) { return Err(IrVerifyError::new("generic context scope input disagrees with its kind")); }
+                                if !body_type_matches(&SchemeType::Ground(Type::Error), &error, budget)? { return Err(IrVerifyError::new("generic context scope has an incompatible error contract")); }
+                                if context_scope_has_known_escape(&ok, budget)? {
+                                    return Err(IrVerifyError::new("generic context scope result escapes its restored context"));
+                                }
+                                pending.push(Obligation::Expression(input.raw() as usize, scope));
+                                (body, false)
+                            }
+                            schema::ExprView::Retry { delays, body, .. } => {
+                                for delay in delays {
+                                    budget.charge(1)?;
+                                    let delay = delay?.raw() as usize;
+                                    if !body_type_matches(&expression_type(types, delay, budget)?, &SchemeType::Ground(Type::Duration), budget)? {
+                                        return Err(IrVerifyError::new("generic retry delay is not Duration"));
+                                    }
+                                    pending.push(Obligation::Expression(delay, scope));
+                                }
+                                captures.push((instruction, error));
+                                (body, true)
+                            }
+                            _ => unreachable!(),
+                        };
+                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(statements.len())?;
+                        let preserves_result = if retry {
+                            match statements.last().map(|statement| decoder.statement_view(*statement)).transpose()? {
+                                Some(schema::StmtView::Value { value }) => matches!(expression_type(types, value.raw() as usize, budget)?, SchemeType::Result(..) | SchemeType::Ground(Type::Result(..))),
+                                _ => false,
+                            }
+                        } else { false };
+                        let payload = if preserves_result {
+                            budget.charge_scheme_clone(&claimed)?;
+                            claimed.clone()
+                        } else { ok };
+                        let value = scoped_block_value(store, &statements, payload, budget)?;
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
                         inner.error_boundary = Some(scopes.error_boundaries.len());
                         scopes.error_boundaries.push(PropagationBoundary::for_result(&claimed, budget)?);

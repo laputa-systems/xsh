@@ -3304,9 +3304,7 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Eq | BinaryOp::Ne => {
-                // A target-typed variant compares against the other operand's
-                // type; only checking order changes, never evaluation order.
-                let (left_ty, right_ty) = if self.is_inferred_variant_expr(arena, left)
+                let (mut left_ty, mut right_ty) = if self.is_inferred_variant_expr(arena, left)
                     && !self.is_inferred_variant_expr(arena, right)
                 {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
@@ -3315,8 +3313,6 @@ impl Checker {
                 } else if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_))
                     && !matches!(arena.arena.expr(right).kind, ArenaExprKind::Str(_))
                 {
-                    // A literal on the left takes its type from the right
-                    // operand, as one on the right does from the left.
                     let right_ty = self.check_expr_arena(arena, source, right, None);
                     let expected = self.path_literal_expectation(arena, left, &right_ty);
                     let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
@@ -3333,6 +3329,20 @@ impl Checker {
                 };
                 for (operand, other) in [(right, &left_ty), (left, &right_ty)] {
                     self.note_compared_variant_qualifier(arena, operand, other);
+                }
+                for (ty, span) in [(&mut left_ty, left_span), (&mut right_ty, right_span)] {
+                    if !ty.contains_inference() { continue; }
+                    *ty = match self.type_constraints.resolve(ty) {
+                        Ok(resolved) => resolved,
+                        Err(error) => {
+                            let message = match error {
+                                crate::sema::constraints::ConstraintResolutionError::ForeignVariable => "compared type belongs to another inference problem",
+                                crate::sema::constraints::ConstraintResolutionError::TypeDepth => "compared type exceeds the supported nesting depth",
+                            };
+                            self.error(span, message, DiagnosticCode::CheckLocalInference);
+                            return Type::Invalid;
+                        }
+                    };
                 }
                 let (left_ty, right_ty) = (left_ty.equality_operand_type(), right_ty.equality_operand_type());
                 if left_ty != Type::Any

@@ -2527,3 +2527,209 @@ fn generic_proc_cleanup_pure_callbacks_keep_owner_restriction() {
         }
     }
 }
+
+fn on_scoped_body_test_stack(test: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(test).unwrap().join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+}
+
+#[test]
+fn generic_guard_run_initializers_preserve_success_and_failure_handlers() {
+    on_scoped_body_test_stack(|| {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let mut source = format!(r#"
+proc keep(payload{annotation}, failing: Bool) [process, error] {{
+  guard let text = (try run.text sh -c (if failing {{ "exit 7" }} else {{ "printf kept" }})) else {{ |failure|
+    let _ = failure
+    return {{payload, text: "failed"}}
+  }}
+  {{payload, text}}
+}}
+assert keep(7, false) == Ok({{payload: 7, text: "kept"}})
+assert keep(7, true) == Ok({{payload: 7, text: "failed"}})
+"#);
+        if generic { source.push_str("assert keep(\"row\", false) == Ok({payload: \"row\", text: \"kept\"})\n"); }
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+    });
+}
+
+#[test]
+fn generic_retry_blocks_preserve_attempt_selection_and_result_data() {
+    on_scoped_body_test_stack(|| {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let mut source = format!(r#"
+error RetryFailure = Transient(message: Str)
+var attempts = 0
+proc attempt() [error] -> Result[Int, RetryFailure] {{
+  attempts += 1
+  if attempts < 2 {{ return Err(RetryFailure.Transient(message: "retry")) }}
+  Ok(9)
+}}
+proc keep(payload{annotation}) [time, error] {{
+  let result = retry [0ms] on (RetryFailure) {{ attempt()? }}
+  let data = retry [] {{ Ok(payload) }}
+  {{payload, result, data}}
+}}
+assert keep(7) == Ok({{payload: 7, result: Ok(9), data: Ok(7)}})
+assert attempts == 2
+"#);
+        if generic { source.push_str("attempts = 0\nassert keep(\"row\") == Ok({payload: \"row\", result: Ok(9), data: Ok(\"row\")})\nassert attempts == 2\n"); }
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+    });
+}
+
+#[test]
+fn generic_error_context_blocks_decorate_propagation_and_preserve_error_data() {
+    on_scoped_body_test_stack(|| {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let mut source = format!(r#"
+error ContextFailure = Failed(message: Str)
+pure fail() -> Result[Int, ContextFailure] {{ Err(ContextFailure.Failed(message: "original")) }}
+proc keep(payload{annotation}) [error] {{
+  let failed = try {{ ctx "outer" {{ ctx "inner" {{ fail()? }} }} }}
+  let data = ctx "stored" {{ fail() }}
+  {{payload, failed, data}}
+}}
+let actual = keep(7)?
+assert actual.payload == 7
+if let Err(failure) = actual.failed {{ assert failure.message == "original (ctx: inner) (ctx: outer)" }} else {{ assert false }}
+if let Err(failure) = actual.data {{ assert failure.message == "original" }} else {{ assert false }}
+"#);
+        if generic { source.push_str("let other = keep(\"row\")?\nassert other.payload == \"row\"\n"); }
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+    });
+}
+
+#[test]
+fn generic_context_scopes_restore_state_and_preserve_nested_results() {
+    on_scoped_body_test_stack(|| {
+    for generic in [false, true] {
+        let annotation = if generic { "" } else { ": Int" };
+        let mut source = format!(r#"
+proc keep(payload{annotation}) [env, fs, time, error] {{
+  let before = env.get("XSH_GENERIC_CONTEXT_PROBE")
+  let inside = env ({{XSH_GENERIC_CONTEXT_PROBE: "inside"}}) {{ env.get("XSH_GENERIC_CONTEXT_PROBE") }}?
+  let after = env.get("XSH_GENERIC_CONTEXT_PROBE")
+  let original = fs.cwd()?
+  let cwd = cd (p".") {{ fs.cwd()? }}?
+  let restored = fs.cwd()?
+  let nested = within 1h {{ Ok(9) }}?
+  {{payload, before, inside, after, original, cwd, restored, nested}}
+}}
+let actual = keep(7)?
+assert actual.payload == 7
+assert actual.inside == Ok("inside")
+assert actual.before == actual.after
+assert actual.original == actual.cwd
+assert actual.original == actual.restored
+assert actual.nested == Ok(9)
+"#);
+        if generic { source.push_str("let other = keep(\"row\")?\nassert other.payload == \"row\"\nassert other.nested == Ok(9)\n"); }
+        let (program, sources, source_id) = record_form_program(&source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("generic={generic} frames={force_frames}: {error:?}"));
+            }
+        }
+    }
+    });
+}
+
+#[test]
+fn generic_native_effects_preserve_proc_and_stream_contracts() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+proc read(payload) [fs] { {payload, cwd: fs.cwd()} }
+stream rows(payload) [fs] { yield {payload, cwd: fs.cwd()} }
+let cwd = fs.cwd()?
+assert read(7) == Ok({payload: 7, cwd: Ok(cwd)})
+assert read("row") == Ok({payload: "row", cwd: Ok(cwd)})
+var count = 0
+for row in rows(7) { assert row.payload == 7; assert row.cwd == Ok(cwd); count += 1 }
+for row in rows("row") { assert row.payload == "row"; assert row.cwd == Ok(cwd); count += 1 }
+assert count == 2
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+            }
+        }
+        for definition in ["pure wrong(payload) { {payload, cwd: fs.cwd()} }", "proc wrong(payload) [] { {payload, cwd: fs.cwd()} }"] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), definition);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, definition);
+            assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckPureEffect | crate::diagnostic::DiagnosticCode::CheckEffectViolation))), "{:?}", checked.diagnostics);
+        }
+    });
+}
+
+#[test]
+fn generic_context_scopes_preserve_symbolic_outputs_and_runtime_escape_guards() {
+    on_scoped_body_test_stack(|| {
+        let source = r#"
+stream rows() [] -> Stream[Int] { yield 7 }
+proc scoped(payload) [time] { within 1h { payload } }
+proc number() [time] -> Result[Int] { scoped(7) }
+proc text() [time] -> Result[Str] { scoped("row") }
+proc escape() [time] -> Result[Stream[Int]] { scoped(rows()) }
+"#;
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for (name, expected) in [("number", Value::Int(7)), ("text", Value::Str(Arc::from("row")))] {
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+                assert_eq!(evaluator.call_indexed_direct(key, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Result(ResultValue::Ok(Box::new(expected))), "{name} frames={force_frames}");
+            }
+            let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("escape")));
+            let error = evaluator.call_indexed_direct(key, CallableKind::Proc, &[], span).unwrap().unwrap_err();
+            assert_eq!(error.kind, "context-scope-escape", "frames={force_frames}");
+            assert_eq!(&source[error.span.unwrap().range()], "scoped(rows())");
+            assert!(evaluator.within_deadlines.is_empty());
+        }
+        let source = "stream rows() [] -> Stream[Int] { yield 7 }\nproc known() [time] -> Result[Stream[Int]] { within 1h { rows() } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckContextScopeEscape)), "{:?}", checked.diagnostics);
+    });
+}

@@ -457,6 +457,21 @@ bindings become visible. The body and producer verifiers preserve these same
 regions. Argument queries sample actual checked guards and closed conditional
 arms; incomplete runtime guards still require independent proof of their inputs.
 
+Generalized captured runs, retry attempts, error contexts, and restored context
+scopes use the existing command and scoped-block executor. Retry preserves an
+actual Result body and wraps other completing values; its delays remain outside
+the attempt's error boundary. Error contexts preserve the body's value type.
+Context scopes wrap the body in Result without flattening nested Results. They
+retain the ordinary static escape rule and check symbolic values before resource
+transfer and context restoration.
+
+Selected native calls retain their registry identity, argument layout, and
+ordinary effect contract in generalized bodies. Native selection does not imply
+purity: every owner still proves the operation's actual effects and invocation
+permission. Equality reads resolved operands from the same constraint problem
+before applying the ordinary compatibility rules; this does not change invariant
+storage writes or nominal error identity.
+
 Each invocation retains the checked application layouts selected by its canonical
 call substitution. Forwarded entries share the caller's actual layout instead of
 building a chain of unresolved applications. Argument evaluation retains source

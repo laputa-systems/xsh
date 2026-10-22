@@ -3400,7 +3400,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(value)
     }
 
-    fn lower_scheme_capture_block(
+    fn lower_scheme_tail_block(
         &mut self, block: BlockId, slots: &mut SlotScope, current_function: Name,
         facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
@@ -4102,8 +4102,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut registered = None;
         let lowered = match self.program.arena.expr(expression).kind {
             ArenaExprKind::Capture(block) => {
-                let body = self.lower_scheme_capture_block(block, slots, current_function, facts, visited, lowered_types)?;
+                let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::Capture { body, span })
+            }
+            ArenaExprKind::ErrorContext { message, block } => {
+                let message = self.lower_scheme_lazy_expression(message, slots, current_function, facts, visited, lowered_types)?;
+                let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
+                push_build_row!(self, expr, BuildExprRow::ErrorContext { message, body, span })
+            }
+            ArenaExprKind::ContextScope { kind, input, block, .. } => {
+                let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
+                let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
+                push_build_row!(self, expr, BuildExprRow::ContextScope { kind, input, body, span })
+            }
+            ArenaExprKind::Retry { schedule, delays, pattern, block } => {
+                let mut values = Vec::new();
+                for delay in self.program.arena.expr_ids(delays).collect::<Vec<_>>() {
+                    values.push(self.lower_scheme_lazy_expression(delay, slots, current_function, facts, visited, lowered_types)?);
+                }
+                let pattern = match pattern {
+                    Some(pattern) => {
+                        self.consume_scheme_pattern(pattern, facts, visited)?;
+                        Some(self.lower_pattern(pattern, slots, None, None)?.0)
+                    }
+                    None => None,
+                };
+                let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
+                push_build_row!(self, expr, BuildExprRow::Retry { delays: values, pattern, body, span, schedule })
+            }
+            ArenaExprKind::Run(run) => {
+                let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
             }
             ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
