@@ -474,9 +474,16 @@ test rank1_quantified_bodies_accept_collections_and_guard_optional_fields { |ctx
     r"""pure optional_name(value) {
   value?.name
 }
+type TextRow = {name: Str}
+type IntRow = {name: Int}
+let text: TextRow? = {name: "demo"}
+let number: IntRow? = {name: 7}
+let absent: TextRow? = null
+assert (optional_name(text) ?? "missing") == "demo"
+assert (optional_name(number) ?? 0) == 7
+assert optional_name(absent) == null
 """,
-    status: 2,
-    stderr: ["[check.local-inference]"],
+    status: 0,
   )?
   test.expect(
     ctx,

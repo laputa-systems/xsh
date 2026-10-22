@@ -351,6 +351,6 @@ pure identity(value) { value }
 let result = apply_at_two_types(identity, 42, "demo")
 """,
     status: 2,
-    stderr: ["[check.type-mismatch]"],
+    stderr: ["[check.callable-mismatch]"],
   )?
 }

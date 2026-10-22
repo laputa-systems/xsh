@@ -162,12 +162,14 @@ test test_typing_recursive_parameter_conflicts_in_both_orders { |ctx|
   }
 }
 
-test test_typing_recursive_parameters_need_declaration_evidence { |ctx|
+test test_typing_recursive_parameters_generalize_without_caller_evidence { |ctx|
   for source in [
-    "pure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\n",
-    "let answer = first(1)\npure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\n",
+    "pure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\nlet answer = first(1)\nlet text_answer = first(\"text\")\n",
+    "let answer = first(1)\nlet text_answer = first(\"text\")\npure first(value) -> Int { second(value) }\npure second(value) -> Int { first(value) }\n",
   ] {
-    test.expect(ctx, source, status: 2, stderr: ["[check.local-inference]"])?
+    let file = test.temp_file(ctx, name: "recursive-checked.xsh", contents: bytes.from_text(source))?
+    let checked = run.capture --text "xsht" check $file
+    assert checked.status.exited_with(0), checked.stderr
   }
 }
 
