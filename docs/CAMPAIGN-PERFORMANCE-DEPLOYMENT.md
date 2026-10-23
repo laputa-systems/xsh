@@ -68,6 +68,16 @@ can remain valid through runtime validation and are not rejection controls for
 this invariant. Matching verification products and the API selectors still
 require replay.
 
+Callable ownership repair `2b107877a`, integrated as `b4175a43d`, passes all
+thirteen focused callable-value controls with independent source review clear.
+Checked nested signatures rebase into the final owner, and module `get`
+retains the actual Result success contract through propagation. Both execution
+routes preserve prepared relationships after frontend disposal. Publication
+rejects foreign programs, instantiated values regaining quantified authority,
+and a real two-target relationship whose visible identity disagrees with its
+prepared function. Matching combined products and native regression replay
+remain pending.
+
 Constructor error inference repair `2ed526d67`, integrated as `c69597e25`,
 passes four initial controls, three existing wrapper controls, and eleven
 expanded controls with independent source review clear. Constructor-owned
