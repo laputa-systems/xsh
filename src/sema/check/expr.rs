@@ -1790,6 +1790,21 @@ impl Checker {
                 let list_expected = item_expected.cloned().map(|ty| Type::List(Box::new(ty)));
                 let actual =
                     self.check_expr_arena(arena, source, item.value, list_expected.as_ref());
+                let actual = if actual.contains_inference() {
+                    match self.type_constraints.resolve(&actual) {
+                        Ok(actual) => actual,
+                        Err(error) => {
+                            self.error(
+                                span,
+                                &format!("list splice source type could not be resolved: {error:?}"),
+                                DiagnosticCode::CheckLocalInference,
+                            );
+                            Type::Unknown
+                        }
+                    }
+                } else {
+                    actual
+                };
                 match actual.into_unvalidated() {
                     Type::List(ty) => *ty,
                     Type::Unknown => Type::Unknown,
