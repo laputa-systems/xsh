@@ -70,12 +70,32 @@ no formatter or autofixer is run. The real current Laputa `pm.make` import still
 fails its unique-temporary-binding guard with these products and is under an
 actual owner/slot trace, without a guard relaxation.
 
+Reviewed follow-ons integrate canonical SortKey/CountKey predicates, proven
+local structural comparison and canonical wire-enum schema comparison. Their
+focused checks pass; matching combined-product qualification remains pending.
+Pipeline fixtures now use one shared semantic companion each, with ordinary
+native wrappers and the same Rust frontend-disposal checks. Original assertions,
+pulls, counters, errors and cleanup stay intact. The separate callback fixture
+repair passes actual native execution once per route with the c0e6 products.
+The failed earlier native roster runs remain failed evidence.
+
+Comprehension repair `c99ae7ba2`, integrated as `c4681acce`, derives actual item
+types from lexical empty-list storage and its complete append-writer census.
+All six final focused controls pass, with independent review. The exact current
+Laputa `pm.make` import now prepares and verifies; inferred and annotated minimal
+programs execute on both routes. This is not world, boot or final-source credit.
+Three pre-existing ground-IR admission limits remain recorded in XSH-22, assumed
+priority P3; the repair does not claim universal field/iterable verification.
+
 Open expert work covers nullable-target arguments, scoped parametric constructor
-schemas, actual sort/count key predicates, collection-expression bodies, local
-structural comparison and the real Laputa `pm.make` temporary-binding failure.
+schemas, collection-expression bodies, remaining pipeline families and callable
+aliases. Result error widening and closed-record/open-row comparison require
+canonical relation evidence; bare Error callable restrictions remain distinct.
 The canonical application, scheme and execution authorities remain mandatory.
-Pyramid caller retirement proceeds independently; supported selectors and
-historical evidence remain until actual consumers justify their removal.
+Pyramid caller fix `9614fc7c5` is integrated as `257c285b3`: read-only canonical
+Full closure validation precedes replay Docker operations. Fifty-two Python and
+three focused native controls pass. Manual Full authority and receipt readers
+remain unchanged. Pyramid P0 still waits for accepted full inference.
 
 Earlier return-repair source `ae7128949` integrates the strict process-word,
 boxed Null-return and pure conditional Result-tail repairs. Focused checks
