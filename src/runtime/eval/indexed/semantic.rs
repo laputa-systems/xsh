@@ -1784,6 +1784,28 @@ fn checked_u32(value: usize, construct: &'static str) -> Result<u32, IrBuildErro
 #[cfg(test)]
 mod tests {
     #[test]
+    fn scheme_callable_pools_reject_foreign_handles_and_decode_destination_owners() {
+        let mut source = super::SemanticPools::default();
+        let mut destination = super::SemanticPools::default();
+        let source_callable = source.register_scheme_callable().unwrap();
+        let destination_callable = destination.register_scheme_callable().unwrap();
+        assert_ne!(source_callable, destination_callable);
+        assert_eq!(source.scheme_callable_index(source_callable).unwrap(), 0);
+        assert_eq!(destination.scheme_callable_index(destination_callable).unwrap(), 0);
+        assert!(source.scheme_callable_index(destination_callable).is_err());
+        assert!(destination.scheme_callable_index(source_callable).is_err());
+        let mut builder = super::SemanticPoolBuilder::default();
+        let foreign = crate::sema::types::Type::SchemeCallable(source_callable);
+        assert!(builder.intern_type(&mut destination, &foreign).is_err());
+        let local = crate::sema::types::Type::SchemeCallable(destination_callable);
+        let physical = builder.intern_type(&mut destination, &local).unwrap();
+        assert_eq!(destination.to_type(physical).unwrap(), local);
+        assert_ne!(destination.to_type(physical).unwrap(), foreign);
+        assert!(destination.scheme_callable_id(1).is_err());
+        destination.verify().unwrap();
+    }
+
+    #[test]
     fn typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys() {
         let mut pools = super::SemanticPools::default();
         let mut builder = super::SemanticPoolBuilder::default();

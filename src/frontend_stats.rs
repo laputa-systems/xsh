@@ -1769,7 +1769,8 @@ fn json_string(value: &str) -> String {
 mod tests {
     use super::{
         CorpusFrontendStats, FileFrontendStats, aggregate_maxima, aggregate_totals, file_json,
-        measure_check_output, measure_compact_declarations, measure_output_type_nodes,
+        measure_check_output, measure_check_output_with_allocations, measure_compact_declarations,
+        measure_compact_declarations_with_allocations, measure_output_type_nodes,
         measure_source, OutputTypeNodes,
     };
     use crate::sema::inference_work;
@@ -1808,6 +1809,40 @@ mod tests {
         assert_eq!(one, repeated, "repeated aliases retain one interned relationship");
         assert!(distinct.0 > one.0, "checked output must retain the complete target table");
         assert!(distinct.1 > one.1, "compact output must retain the complete target table");
+    }
+
+    #[test]
+    fn scheme_callable_shared_pool_accounting_counts_union_tables_once() {
+        let measure = |count: usize| {
+            let mut source = String::new();
+            for index in 0..count { source.push_str(&format!("pure copy{index}(value) {{ value }}\n")); }
+            source.push_str("let selected0 = copy0\n");
+            for index in 1..count { source.push_str(&format!("let selected{index} = if true {{ let candidate = selected{}; candidate }} else {{ let candidate = copy{index}; candidate }}\n", index - 1)); }
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let mut isolated = CheckOutput::default();
+            isolated.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let mut compact = CompactDeclOutput::default();
+            compact.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let standalone = measure_check_output(Some(&isolated)).1 + measure_compact_declarations(&compact).1;
+            let mut allocations = Default::default();
+            let shared = measure_check_output_with_allocations(Some(&isolated), &mut allocations).1
+                + measure_compact_declarations_with_allocations(&compact, &mut allocations).1;
+            let table = checked.scheme_callables.retained_bytes(&mut Default::default(), &Default::default());
+            assert_eq!(standalone - shared, table, "the actual shared pool allocation belongs to the aggregate once");
+            let relationship = checked.expr_types.values().find_map(|ty| if let Type::SchemeCallable(id) = ty { Some(*id) } else { None }).unwrap();
+            let canonical = checked.scheme_callables.get(relationship).unwrap().canonical().scheme();
+            let counted = std::collections::BTreeSet::from([std::sync::Arc::as_ptr(canonical) as usize]);
+            let with_existing_contract = checked.scheme_callables.retained_bytes(&mut Default::default(), &counted);
+            assert_eq!(table - with_existing_contract, canonical.retained_bytes(), "an already counted canonical allocation is excluded exactly once");
+            (table, with_existing_contract)
+        };
+        let one = measure(1);
+        let unions = measure(16);
+        assert!(unions.0 > one.0);
+        assert!(unions.1 > one.1);
     }
 
     #[test]

@@ -129,3 +129,41 @@ impl Checker {
         contract.return_ty
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checker_probes_share_append_identity_without_mutating_published_snapshots() {
+        let source = "pure first(value) { value }\npure second(value) { value }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let targets = checked.checked_declarations.functions.iter().map(|(&definition, function)| (
+            super::super::CheckedFunctionTarget { definition, namespace: function.namespace, name: function.name },
+            function.callable_contract().unwrap(),
+        )).collect::<Vec<_>>();
+        let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+        let first = checker.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[0].clone()]).unwrap()).unwrap();
+        let published = checker.scheme_callables.lock().unwrap().snapshot();
+        let mut probe = checker.clone();
+        assert!(Arc::ptr_eq(&checker.scheme_callables, &probe.scheme_callables));
+        let second = probe.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[1].clone()]).unwrap()).unwrap();
+        assert!(checker.scheme_callable_relationship(second).is_ok());
+        assert!(published.get(first).is_ok());
+        assert_eq!(published.get(second).unwrap_err(), SchemeCallableError::UnknownRelationship);
+        assert_eq!(checker.intern_scheme_callable_relationship(SchemeCallableRelationship::new(vec![targets[1].clone()]).unwrap()).unwrap(), second);
+        let complete = probe.scheme_callables.lock().unwrap().snapshot();
+        let mut rebaser = crate::sema::scheme_callable::SchemeCallableRebaser::new(Arc::new(std::sync::Mutex::new(Default::default())));
+        rebaser.import_table(&complete).unwrap();
+        let rebased = rebaser.ty(&Type::SchemeCallable(second), &complete).unwrap();
+        let Type::SchemeCallable(rebased) = rebased else { panic!("rebasing must preserve the relationship leaf"); };
+        assert_ne!(rebased, second);
+        assert!(rebaser.snapshot().get(rebased).is_ok());
+        assert_eq!(complete.get(rebased).unwrap_err(), SchemeCallableError::ForeignOwner);
+        assert!(published.get(first).is_ok());
+        assert_eq!(published.get(second).unwrap_err(), SchemeCallableError::UnknownRelationship);
+    }
+}

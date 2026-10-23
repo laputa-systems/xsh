@@ -767,6 +767,75 @@ mod tests {
         record.check_once(None, || unreachable!("module check is cached"))
     }
 
+    #[test]
+    fn scheme_callable_nested_module_cache_rebases_fresh_entries_without_mutating_sources() {
+        let texts = [
+            ("first.xsh", "use bridge\nassert bridge.actions.apply(7) == 7\n"),
+            ("second.xsh", "use bridge\nassert bridge.actions.apply(\"demo\") == \"demo\"\n"),
+            ("bridge.xsh", "##! Forward callable data.\nuse leaf\n## Retained operations.\nexport let actions = leaf.actions\n"),
+            ("leaf.xsh", "##! Callable data.\n## Copy a value.\nexport pure identity(value) { value }\n## Retained operations.\nexport let actions = {apply: identity}\n"),
+        ];
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let mut parsed = Vec::new();
+        for (path, text) in texts {
+            let source = sources.add_file(path, text);
+            let result = Parser::parse_source_into_arena_builder(source, text, &mut builder);
+            assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+            parsed.push((result.statements, source));
+        }
+        for (index, name) in [(2, "bridge"), (3, "leaf")] {
+            let symbol = builder.symbol_owner().intern(name);
+            builder.push_arena_module(name.to_string(), symbol, parsed[index].0);
+        }
+        for (index, name) in [(0, "bridge"), (1, "bridge"), (2, "leaf")] {
+            for statement in builder.statement_ids(parsed[index].0) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from(name));
+                }
+            }
+        }
+        let actions_name = builder.symbol_owner().intern("actions");
+        let apply_name = builder.symbol_owner().intern("apply");
+        let program = Arc::new(builder.finish_with_statements(parsed[0].0));
+        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
+        USER_MODULE_CHECKS.with(|checks| checks.set(0));
+        let first = session.check(parsed[0].0, parsed[0].1, CheckOptions::for_execution());
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        let leaf = checked_module_facts(&session, parsed[3].1);
+        let bridge = checked_module_facts(&session, parsed[2].1);
+        let exported_handle = |facts: &CheckedModuleFacts| {
+            let signature = facts.signature.as_ref().unwrap();
+            assert!(Arc::ptr_eq(signature.scheme_callables.as_ref().unwrap(), &facts.output.scheme_callables));
+            let Type::Record(fields) = &signature.values[&actions_name] else { panic!("the export retains its record type"); };
+            let Type::SchemeCallable(handle) = fields[&apply_name] else { panic!("the record leaf retains its scheme"); };
+            assert!(facts.output.scheme_callables.get(handle).is_ok());
+            handle
+        };
+        let leaf_handle = exported_handle(&leaf);
+        let bridge_handle = exported_handle(&bridge);
+        assert_ne!(leaf_handle, bridge_handle);
+        let second = session.check(parsed[1].0, parsed[1].1, CheckOptions::for_execution());
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2, "both imported module checks are reused");
+        assert!(Arc::ptr_eq(&leaf, &checked_module_facts(&session, parsed[3].1)));
+        assert!(Arc::ptr_eq(&bridge, &checked_module_facts(&session, parsed[2].1)));
+        assert_eq!(exported_handle(&leaf), leaf_handle);
+        assert_eq!(exported_handle(&bridge), bridge_handle);
+        let entry_handle = |output: &CheckOutput, source| {
+            *output.scheme_callable_calls.iter().find(|(site, _)| site.source.source_id == source
+                && site.role == crate::sema::schemes::InstantiationRole::Call).unwrap().1
+        };
+        let first_handle = entry_handle(&first, parsed[0].1);
+        let second_handle = entry_handle(&second, parsed[1].1);
+        assert_ne!(first_handle, second_handle);
+        assert!(first.scheme_callables.get(first_handle).is_ok());
+        assert!(second.scheme_callables.get(second_handle).is_ok());
+        assert_eq!(first.scheme_callables.get(second_handle).unwrap_err(), crate::sema::scheme_callable::SchemeCallableError::ForeignOwner);
+        assert_eq!(second.scheme_callables.get(first_handle).unwrap_err(), crate::sema::scheme_callable::SchemeCallableError::ForeignOwner);
+    }
+
     fn exported_scheme(facts: &CheckedModuleFacts, name: &str) -> Arc<TypeScheme> {
         facts
             .signature
