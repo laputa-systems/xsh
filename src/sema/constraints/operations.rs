@@ -401,11 +401,14 @@ impl TypeConstraints {
                         if let Type::Inference(variable) = key.unvalidated() {
                             if let Some(record) = this.record_binding(*variable)? {
                                 let fields = this.resolve_row(&record.shape)?.fields;
-                                if domain != crate::sema::sealed_operation::TypeDomain::SortKey {
-                                    return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key });
-                                }
-                                for ty in fields.values() {
-                                    if !domain.may_accept(ty) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: ty.clone() }); }
+                                match domain {
+                                    crate::sema::sealed_operation::TypeDomain::SortKey => {
+                                        for ty in fields.values() {
+                                            if !domain.may_accept(ty) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: ty.clone() }); }
+                                        }
+                                    }
+                                    crate::sema::sealed_operation::TypeDomain::CollectItem => {},
+                                    crate::sema::sealed_operation::TypeDomain::CountKey => return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }),
                                 }
                             }
                             continue;

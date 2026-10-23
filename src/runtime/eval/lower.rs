@@ -62,7 +62,7 @@ pub(super) struct SlotScope {
     /// The `?` written on a deferred call. `defer f()?` is `defer f()`, so its
     /// failure is placed at the call, as the bare form's is.
     deferred_propagation: Option<ExprId>,
-    collect_slots: FxHashMap<ExprId, usize>,
+    collect_slots: FxHashMap<ExprId, control::CollectSlot>,
     // Layout entries restore the enclosing runtime names when a block ends.
     declared: Vec<(Name, Option<usize>)>,
     high_water: usize,
@@ -3729,6 +3729,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 },
                 ArenaStmtKind::Break { value: None } => BuildStmtRow::Break,
                 ArenaStmtKind::Continue => BuildStmtRow::Continue,
+                ArenaStmtKind::Yield(ArenaExprOrRun::Expr(expression)) if self.bodies.collect_yields.contains_key(&statement) => {
+                    let lowered = self.lower_scheme_collect_yield(statement, expression, control::CollectYieldKind::Item, slots, current_function, facts, visited, lowered_types, body)?;
+                    if self.require_resource_transfer_fact(statement, ResourceTransferSite::Yield(statement))? { self.scratch.borrow_mut().mark_resource_transfer(lowered); }
+                    body.push(lowered);
+                    return Some(());
+                }
+                ArenaStmtKind::YieldDelegate(expression) if self.bodies.collect_yields.contains_key(&statement) => {
+                    let lowered = self.lower_scheme_collect_yield(statement, expression, control::CollectYieldKind::List, slots, current_function, facts, visited, lowered_types, body)?;
+                    if self.require_resource_transfer_fact(statement, ResourceTransferSite::Yield(statement))? { self.scratch.borrow_mut().mark_resource_transfer(lowered); }
+                    body.push(lowered);
+                    return Some(());
+                }
                 ArenaStmtKind::Yield(ArenaExprOrRun::Expr(expression)) if facts.scheme().kind() == CallableKind::Stream => BuildStmtRow::Yield {
                     value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
                 },
@@ -5036,6 +5048,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             }
             ArenaExprKind::PatternCondition { .. } => self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)?.0,
+            ArenaExprKind::Collect { block } => self.lower_collect_in_domain(expression, block, span, slots, Some(current_function), None,
+                &mut control::CollectLoweringDomain::Generalized { facts, visited, types: lowered_types })?,
             ArenaExprKind::ValueBlock(block) => self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?,
             ArenaExprKind::Loop { block } => {
                 let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
@@ -8944,62 +8958,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
-            // A block that binds an empty list to a local of its own, runs
-            // the body as an inner block, and has the local as its value. The
-            // body's yields append to that local (`lower_collect_yield`).
-            ArenaExprKind::Collect { block } => {
-                let mut transfers_resource = false;
-                for (&yield_stmt, &collect_expr) in &self.bodies.collect_yields {
-                    if collect_expr != id {
-                        continue;
-                    }
-                    let Some(yield_transfer) = self
-                        .bodies
-                        .resource_transfer(ResourceTransferSite::Yield(yield_stmt))
-                    else {
-                        self.last_blocker_detail = Some((
-                            self.program.arena.stmt(yield_stmt).span,
-                            "missing checked resource-transfer fact for collected yield".into(),
-                        ));
-                        return None;
-                    };
-                    transfers_resource |= yield_transfer;
-                }
-                let saved = slots.enter();
-                let slot = slots.reserve("collect list");
-                slots.collect_slots.insert(id, slot);
-                let lowered = (|| {
-                    let empty = push_build_row!(self, expr, BuildExprRow::List(Vec::new()));
-                    let bind =
-                        push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::Let {
-                                slot,
-                                value: empty,
-                                annotation: None,
-                            }
-                        );
-                    let body = self.lower_block(block, slots, current_function, item_slot)?;
-                    let body = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
-                    let run = push_build_row!(self, stmt, BuildStmtRow::Expr { value: body, span });
-                    let list = push_build_row!(self, expr, BuildExprRow::Param(slot));
-                    let value = push_build_row!(self, stmt, BuildStmtRow::Value { value: list });
-                    if transfers_resource {
-                        self.scratch.borrow_mut().mark_resource_transfer(value);
-                    }
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::ValueBlock {
-                            body: vec![bind, run, value],
-                            span,
-                        }
-                    ))
-                })();
-                slots.exit(saved);
-                lowered
-            }
+            ArenaExprKind::Collect { block } => self.lower_collect_in_domain(id, block, span, slots, current_function, item_slot, &mut control::CollectLoweringDomain::Ordinary),
             ArenaExprKind::Binary { .. } => None,
             ArenaExprKind::Retry {
                 schedule,

@@ -1325,7 +1325,7 @@ fn verify_scheme_body_facts(
         let completion_group = wrappers::verify_completion_groups(store, scheme, scope, &wrapper_sites, &expected_return, &mut budget)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, completion_contributions } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1355,6 +1355,7 @@ fn verify_scheme_body_facts(
         budget.charge(stream_sources.len() + captures.len() + applications.len() + method_sites.len())?;
         requests.streams.extend(stream_sources.into_iter().map(|(source, boundary)| producers::StreamIteration { owner: decoder.owner, source, boundary }));
         requests.captures.extend(captures);
+        requests.checked_accumulators.extend(checked_accumulators.into_iter().map(|instruction| (decoder.owner, instruction)));
         requests.applications.extend(applications.into_iter().map(|instruction| (decoder.owner, instruction)));
         match completion_group {
             Some(group) => requests.completions.push(producers::CompletionContributionsRequest { owner: decoder.owner, group, actual: completion_contributions }),
@@ -1719,6 +1720,7 @@ fn verify_body_expression(
     expected_return: &SchemeType,
     completion_group: Option<u32>,
     completion_contributions: &mut Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
+    checked_accumulators: &mut Vec<usize>,
     budget: &mut SchemeInstantiationBudget,
     constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<SchemeType, IrVerifyError> {
@@ -2212,7 +2214,10 @@ fn verify_body_expression(
                 let source_matches = if materialized {
                     matches!(actual, SchemeType::SchemeCallable(_) | SchemeType::Ground(Type::SchemeCallable(_))) && matches!(expected, Type::Callable(_))
                 } else { body_type_matches_ground(&actual, &expected) };
-                if !source_matches || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
+                let checked_accumulator = !source_matches && matches!(&expected, Type::List(_)) && expected.has_unsigned_constraint()
+                    && actual.closed_ground_type().is_some_and(|actual| matches!(actual, Type::List(_)) && !actual.contains_any() && !actual.contains_recovery());
+                if (!source_matches && !checked_accumulator) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
+                if checked_accumulator { checked_accumulators.push(instruction); }
                 SchemeType::Ground(expected)
             }
         }

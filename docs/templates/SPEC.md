@@ -1995,6 +1995,12 @@ expected type (`check.collect-item`). A `yield` takes no stream, and
 `yield @` takes no stream either: collect it first
 (`yield @rows.collect()`).
 
+An inferred callable keeps the yielded item type related to its arguments.
+Each call must satisfy the same item rule: an explicit `Any` item remains
+passive data, but a `Stream` cannot be yielded as one item. An inferred
+`yield @values` requires `values` to be a `List` and keeps its item type; it
+does not unwrap a `Result` or consume another iteration domain.
+
 The block is no boundary. `?` and a statement's failure leave it as they
 would leave a bare block, and the list is then discarded; `return`, `break`,
 and `continue` keep their targets, so a `break` ends a loop around the

@@ -11,8 +11,8 @@ proc make(payload, count: Int) [io] {
   let brand = Brand(value: count)
   {payload, explicit, defaulted, brand}
 }
-let integer = make(7, 3)
-let text = make("kept", 4)
+let integer = make(7, 3)?
+let text = make("kept", 4)?
 assert integer.payload == 7
 assert integer.explicit.left == 3
 assert integer.explicit.right == 4
