@@ -30,7 +30,11 @@ verified ordinal mapping, Ground selection and lazy guarded-key evaluation.
 Budget repair `a8115ebe9`, integrated as `addf396ac`, prefers the existing scoped
 Optional narrowing proof before structural initializer work. Ten guard, record
 and forgery controls pass with unchanged limits. Both latter repairs have clear
-independent reviews. Combined replay and rebuilt products remain required.
+independent reviews. Combined source `c8384fe30` passes all thirteen focused
+controls, including all six former failures and the new cold-producer, record
+and wrapper-publication controls. The log is
+`.work/wt/full-inference-integration/.work/tmp/combined-repair13.log`.
+Full-library replay and rebuilt products remain required.
 
 The previous combined replay uses source `2da01f69b` and completes the full Rust library run:
 2,183 pass, one fails, and three remain ignored. Its log is
@@ -104,9 +108,14 @@ focused controls and independent review. It preserves exact left/right stream
 projections for same-signature callbacks, finite known-target unions, mixed
 unknown forwarding and imported stream aliases. Selection uses the actual
 settled layout and unique formal identities, without signature matching.
-Omitted defaults, rest signatures and grounded argument origins remain outside
-this expansion. Their valid-source discriminators remain open; an empty origin
-for a freshly created global stream is not itself evidence of a defect.
+Typed-argument follow-up `7a1bd555d`, integrated as `08323a734`, passes five
+focused controls, including local and imported explicit argument types. Both
+new controls fail on the preceding source and pass after the repair. Exact
+source/formal binding identities preserve their stream projections; immutable
+lookup maps share storage across checker probes. Independent review is clear.
+Omitted defaults and rest signatures remain outside this expansion. Their
+valid-source discriminators remain open; an empty origin for a freshly created
+global stream is not itself evidence of a defect.
 The pristine system-report fixture exposed a separate record-field proof
 failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
 the existing structural initializer proof beneath an actual complete storage

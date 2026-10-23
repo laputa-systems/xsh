@@ -534,9 +534,13 @@ application identity and settled argument layout. Unique formal type identities
 locate the supplied argument origins; known callable origins select the target
 summary and preserve its exact projections. Equal callable signatures do not
 identify a target. Imported normalized application ordinals remain independent
-of local pending declarations. Mixed or unsupported origins retain their
-unresolved relationship. This expansion excludes omitted defaults, rest
-signatures and arguments whose explicit types erase the formal type identity.
+of local pending declarations. Explicitly typed arguments retain their original
+expression origins; imported bare formal arguments use the exact resolved
+binding and declaring body. Ambiguous or foreign identities fail closed. A
+checker-local derived source index shares immutable maps across probes and is
+invalidated when resolved bindings change. Mixed or unsupported origins retain
+their unresolved relationship. This expansion excludes omitted defaults and
+rest signatures.
 
 Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
 `FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable
