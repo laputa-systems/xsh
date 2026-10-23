@@ -735,6 +735,43 @@ assert selected_union_right.collect() == [22]
 }
 
 #[test]
+fn selected_rest_stream_callbacks_execute_after_frontend_disposal() {
+    let mut source = r#"
+type Pair = {left: Stream[Int], right: Stream[Int]}
+pure rest_left(head: Pair, ...rows: List[Pair]) -> Stream[Int] { rows[0].left }
+pure rest_right(head: Pair, ...rows: List[Pair]) -> Stream[Int] { rows[0].right }
+pure select_items(first, second, head: Pair, left_row: Pair, right_row: Pair) { second(head, left_row, right_row) }
+pure select_splice(first, second, head: Pair, rows: List[Pair]) { second(head, @rows) }
+pure relay_items_left(head: Pair, first: Pair, second: Pair) -> Stream[Int] { select_items(rest_right, rest_left, head, first, second) }
+pure relay_items_right(head: Pair, first: Pair, second: Pair) -> Stream[Int] { select_items(rest_left, rest_right, head, first, second) }
+pure relay_splice_left(head: Pair, rows: List[Pair]) -> Stream[Int] { select_splice(rest_right, rest_left, head, rows) }
+pure relay_splice_right(head: Pair, rows: List[Pair]) -> Stream[Int] { select_splice(rest_left, rest_right, head, rows) }
+stream values(value: Int) [] -> Stream[Int] { yield value }
+"#.to_string();
+    let head = "{left: values(1), right: values(2)}";
+    let first = "{left: values(11), right: values(12)}";
+    let second = "{left: values(21), right: values(22)}";
+    for (relay, splice, expected) in [
+        ("relay_items_left", false, 11),
+        ("relay_items_right", false, 12),
+        ("relay_splice_left", true, 11),
+        ("relay_splice_right", true, 12),
+    ] {
+        let arguments = if splice { format!("[{first}, {second}]") } else { format!("{first}, {second}") };
+        source.push_str(&format!("let selected_{relay} = {relay}({head}, {arguments})\nassert selected_{relay}.collect() == [{expected}]\n"));
+    }
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
 fn materialized_named_callable_arguments_execute_after_frontend_disposal() {
     let source = r#"
 pure identity(payload) { payload }

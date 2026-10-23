@@ -539,8 +539,10 @@ expression origins; imported bare formal arguments use the exact resolved
 binding and declaring body. Ambiguous or foreign identities fail closed. A
 checker-local derived source index shares immutable maps across probes and is
 invalidated when resolved bindings change. Mixed or unsupported origins retain
-their unresolved relationship. This expansion excludes omitted defaults and
-rest signatures.
+their unresolved relationship. Settled rest layouts prefix individual item
+origins once and retain the element projection of spliced lists. Bare splice
+arguments use their exact AST operand binding. Omitted/defaulted callback
+layouts remain unresolved.
 
 Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
 `FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable

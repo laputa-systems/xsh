@@ -12,29 +12,35 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
-The latest combined replay uses frozen source `4fafeefbb`: 2,193 Rust library
-tests pass, six fail, and three remain ignored. Matching verification products
-build without warnings. Logs are under
-`.work/wt/full-inference-qualified-uint/.work/tmp/joint-uint-{full-library,verification-build}.log`.
-Four failures concern ground index evidence or its work bound; two concern
-selected and forwarded index relationships. The new system-report fixture
-selector also fails before execution with missing ground index receiver
-evidence. This source is unqualified; the joint corpus adapter has not run.
+The latest combined source `f87c6d69a` passes the full Rust library boundary:
+2,205 pass, zero fail, and three remain ignored. Matching XSH and XSHT
+verification products build without warnings. The source tree is
+`19d8eda5efd1eeb42601354bd79194123df8d753`. The full-library log is
+`.work/wt/full-inference-integration/.work/tmp/repaired-full-library.log`;
+matching build and products are in
+`.work/wt/full-inference-repaired-qualification/.work/`.
 
-Focused repairs cover all six observed failures. Guard repair `9579ef283`,
-integrated as `39eca66cd`, skips receiver work only when the declared error
-channel already accepts Error. The three affected ground controls pass, as do
-the unsafe UInt-to-Str rejection and cold List/Any-narrowing controls. Binding
-repair `e91ebde50`, integrated as `be4a6fe93`, passes five controls, retaining
-verified ordinal mapping, Ground selection and lazy guarded-key evaluation.
-Budget repair `a8115ebe9`, integrated as `addf396ac`, prefers the existing scoped
-Optional narrowing proof before structural initializer work. Ten guard, record
-and forgery controls pass with unchanged limits. Both latter repairs have clear
-independent reviews. Combined source `c8384fe30` passes all thirteen focused
-controls, including all six former failures and the new cold-producer, record
-and wrapper-publication controls. The log is
-`.work/wt/full-inference-integration/.work/tmp/combined-repair13.log`.
-Full-library replay and rebuilt products remain required.
+The XSH product is 42,429,240 bytes with SHA-256
+`60ec49f6f0e97ea1fc5c93a2a8adcaece0cb2b48d17f384217489114a222f476`.
+The XSHT product is 50,784,152 bytes with SHA-256
+`54ffcce8d56cc5f5461f028ba67c2fa2b599d30280757e52d8c8d60641a2be65`.
+The system-report orchestration and joint corpus checks now use these frozen
+products. Native capability, corpus and final campaign qualification remain open.
+
+The preceding frozen source `4fafeefbb` has 2,193 library passes, six failures
+and three ignores. Its matching system-report selector also fails before its
+body with missing ground index receiver evidence. Preserve its logs under
+`.work/wt/full-inference-qualified-uint/.work/tmp/`; it carries no runtime or
+joint-corpus credit.
+
+Repairs `39eca66cd`, `be4a6fe93` and `addf396ac` close those six failures.
+The first skips receiver work only when the declared error channel already
+accepts Error. The latter two preserve verified selected/forwarded index
+bindings and prefer the existing scoped Optional narrowing proof before
+structural initializer work. Independent reviews are clear. Combined source
+`c8384fe30` first passed thirteen focused controls; the full-library run above
+also includes the typed callback repair. Deterministic proof limits and unsafe
+UInt-to-Str rejection remain unchanged.
 
 The previous combined replay uses source `2da01f69b` and completes the full Rust library run:
 2,183 pass, one fails, and three remain ignored. Its log is
@@ -113,8 +119,17 @@ focused controls, including local and imported explicit argument types. Both
 new controls fail on the preceding source and pass after the repair. Exact
 source/formal binding identities preserve their stream projections; immutable
 lookup maps share storage across checker probes. Independent review is clear.
-Omitted defaults and rest signatures remain outside this expansion. Their
-valid-source discriminators remain open; an empty origin for a freshly created
+Rest follow-up `387fd3207`, integrated as `80634fd4f`, passes six focused
+checker controls. It preserves exact ordinary-rest and list-splice projections
+through the settled argument layout and actual AST bindings. Independent review
+is clear. Cold index repair `1b9cbc8fd`, integrated as `8c28d61d3`, derives the
+field receiver from the existing checked index-result proof; its six controls
+pass and independent review is clear. The combined source passes three focused
+controls, including a new frontend-disposed runtime case for both rest forms
+and both left/right targets on both execution routes. Its log is
+`.work/wt/full-inference-integration/.work/tmp/combined-rest-runtime3.log`.
+These later repairs still need broader combined qualification.
+Omitted defaults remain unresolved. An empty origin for a freshly created
 global stream is not itself evidence of a defect.
 The pristine system-report fixture exposed a separate record-field proof
 failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
@@ -123,8 +138,14 @@ check and proves each conditional record branch. Both new regressions and
 seven existing controls pass; independent review is clear. The original test
 module passes static preparation. Its new orchestration test still needs
 runtime qualification with matching repaired products.
-The orchestration test is now included as provisional test-only integration
-`f6642254c`; it has not yet executed with repaired products.
+The orchestration test is included as test-only integration `f6642254c`. Its
+exact selector passes with the frozen `f87c6d69a` products: one selected, one
+pass, zero skips. All six API catalog selectors also pass with those products.
+The first two joint-corpus attempts stop at reconstructed-view digest checking
+before paired compiler execution; their failure has no corpus parity credit.
+The accepted prepared original view still matches its frozen digest. The
+reconstruction discrepancy is under investigation; digest enforcement remains
+unchanged.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
