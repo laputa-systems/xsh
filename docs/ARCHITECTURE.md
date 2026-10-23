@@ -187,6 +187,13 @@ uses the exact owner and binder and preserves the actual callee's schema and
 unsigned runtime guards. Argument relationships cannot supply result, effect,
 field-presence or already-validated-value evidence.
 
+Known `FsRoot` receiver calls inside generalized bodies retain their selected
+registry signature and source argument-to-parameter mapping. They use the same
+receiver-first native operation as ordinary rooted calls, including omitted
+optional arguments. The closed receiver, result, effects, resource owner and
+native producer contract remain independently checked; no method spelling or
+caller supplies the receiver type.
+
 Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
 operation authority. A predicate carries its actual subject type and has no
 result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,

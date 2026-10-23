@@ -4237,6 +4237,38 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_fsroot_calls_authenticate_native_target_receiver_effects_and_owner() {
+        use crate::modules::RuntimeOp;
+        let program = prepare("proc listed(marker, root: FsRoot, wrong: Str) [fs, error] { let _ = marker; let _ = wrong; root.children(p\".\")? }\npure foreign(value: Str) -> Str { value }\n");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (call, receiver) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op: RuntimeOp::FsRootChildren, mut args, .. }) => Some((instruction, args.next().unwrap().unwrap().unwrap().raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(receiver).unwrap(), schema::ExprView::Param(_)));
+        let mut wrong_receiver = program.clone();
+        let words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
+        wrong_receiver.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&wrong_receiver).is_err());
+        let mut wrong_target = program.clone();
+        let words = wrong_target.store.data[call].range().bounds(wrong_target.store.extra.len()).unwrap();
+        let operation = wrong_target.store.extra[words.start] as usize;
+        wrong_target.store.runtime_ops[operation] = RuntimeOp::FsRootReadText;
+        assert!(FullVerifier::verify(&wrong_target).is_err());
+        let direct = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        let error = direct.clone().find(|index| program.store.scheme_effects[*index] == crate::syntax::node::Effect::Error).unwrap();
+        let mut missing_effect = program.clone();
+        missing_effect.store.schemes[scheme.index()].effects.direct = super::super::super::IrRange { start: error as u32, len: 1 };
+        assert!(FullVerifier::verify(&missing_effect).is_err());
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let mut wrong_owner = program.clone();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == receiver).unwrap();
+        fact.function = IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
     fn generic_collect_accumulators_authenticate_items_writers_and_owners() {
         let program = prepare("pure gather(value, other) { collect { yield value } }\npure foreign(value) { value }\n");
         let (owner, _) = generic_owner(&program);

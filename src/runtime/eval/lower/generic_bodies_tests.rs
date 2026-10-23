@@ -4209,3 +4209,100 @@ fn ground_resource_contracts_preserve_bounded_producer_verification() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn typed_fsroot_methods_preserve_selected_named_arguments() {
+    record_form_program("proc listed(root: FsRoot) [fs, error] { root.children(p\".\", max_entries: 256)? }");
+}
+
+#[test]
+fn generic_fsroot_methods_preserve_selected_named_arguments() {
+    record_form_program("proc listed(marker, root: FsRoot) [fs, error] { let _ = marker; root.children(p\".\", max_entries: 256)? }");
+}
+
+#[test]
+fn generic_fsroot_methods_preserve_resource_calls_and_argument_order_on_both_routes() {
+    let directory = tempfile::Builder::new().prefix("generic-fsroot-").tempdir_in(".work/tmp").unwrap();
+    let source = r#"var argument_order = ""
+proc selected_path(location: Path) [] -> Path { argument_order += "p"; location }
+proc selected_order() [] -> Bool { argument_order += "o"; true }
+proc observed_order() [] -> Str { argument_order }
+proc closed(root: FsRoot) [fs] -> Result[Unit] { root.close() }
+proc typed(root: FsRoot, location: Path) [fs, error] { root.children(ordered: selected_order(), path: selected_path(location))? }
+proc listed(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.children(ordered: selected_order(), path: selected_path(location))? }
+proc written(marker, root: FsRoot, location: Path, text: Str) [fs, error] { let _ = marker; root.write(location, text)? }
+proc read(marker, root: FsRoot, location: Path) [fs, error] { let _ = marker; root.read_text(location)? }
+"#;
+    let typed = source.replace("marker,", "marker: Any,");
+    let path = |text: &str| Value::Path(crate::runtime::value::PathValue::from_text(text).unwrap());
+    let success = |value| match value { Value::Result(ResultValue::Ok(value)) => *value, value => panic!("expected success, found {value:?}") };
+    for source in [typed.as_str(), source] {
+        let (program, sources, source_id) = record_form_program(source);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let span = Span::at(source_id, 0);
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap();
+            }
+            let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+            let rooted = crate::modules::fs::open_root(directory.path().to_path_buf(), span).unwrap();
+            let id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(Box::new(crate::runtime::eval::FsRootHandle::Dir(rooted))));
+            let root = Value::FsRoot(crate::runtime::value::FsRootValue { id, owner: Arc::clone(&evaluator.resource_owner) });
+            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key("written"), CallableKind::Proc, &[marker, root.clone(), path(name), Value::Str(Arc::from(text))], span).unwrap().unwrap();
+                assert_eq!(success(output), Value::Unit);
+            }
+            let expected = success(evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[root.clone(), path(".")], span).unwrap().unwrap());
+            let actual = success(evaluator.call_indexed_direct(key("listed"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path(".")], span).unwrap().unwrap());
+            let (Value::Record(actual), Value::Record(expected)) = (actual, expected) else { panic!("children retains its registered record result") };
+            assert_eq!(actual.get("children"), expected.get("children"));
+            let Some(Value::List(children)) = actual.get("children") else { panic!("children is a list of paths") };
+            assert_eq!(children.len(), 2);
+            let order = evaluator.call_indexed_direct(key("observed_order"), CallableKind::Proc, &[], span).unwrap().unwrap();
+            assert_eq!(order, Value::Str(Arc::from("opop")));
+            for (marker, name, text) in [(Value::Int(7), "a", "first"), (Value::Str(Arc::from("independent")), "b", "second")] {
+                let output = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[marker, root.clone(), path(name)], span).unwrap().unwrap();
+                assert_eq!(success(output), Value::Str(Arc::from(text)));
+            }
+            let missing = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root.clone(), path("missing")], span).unwrap().unwrap();
+            let Value::Result(ResultValue::Err(error)) = missing else { panic!("missing rooted input must retain Err") };
+            assert!(error.error_message().is_some_and(|message| !message.is_empty()));
+            assert_eq!(success(evaluator.call_indexed_direct(key("closed"), CallableKind::Proc, &[root.clone()], span).unwrap().unwrap()), Value::Unit);
+            let closed = evaluator.call_indexed_direct(key("read"), CallableKind::Proc, &[Value::Bool(true), root, path("a")], span).unwrap().unwrap();
+            assert!(matches!(closed, Value::Result(ResultValue::Err(_))));
+        }
+    }
+}
+
+#[test]
+fn generic_fsroot_methods_reject_wrong_receivers_arguments_and_effects() {
+    for source in [
+        "proc listed(marker, root: Str) [fs, error] { let _ = marker; root.children(p\".\")? }",
+        "proc listed(marker, root: FsRoot) [] { let _ = marker; root.children(p\".\")? }",
+        "pure listed(marker, root: FsRoot) { let _ = marker; root.children(p\".\") }",
+        "proc listed(marker, root: FsRoot) [fs, error] { let _ = marker; root.children(p\".\", max_entries: true)? }",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}");
+    }
+}
+
+#[test]
+fn generic_fsroot_native_fixture_executes_after_frontend_disposal_on_both_routes() {
+    on_scoped_body_test_stack(|| {
+    let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-fsroot-calls.xsh")).unwrap();
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+    });
+}
