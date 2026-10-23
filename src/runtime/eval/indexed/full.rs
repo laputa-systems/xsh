@@ -10961,11 +10961,19 @@ impl<'a> FullDecoder<'a> {
             }
             if let Some(checked_type) = self.checked_expression_type(instruction)?
                 && let Type::List(checked_item) = &checked_type
-                && item_types
-                    .iter()
-                    .all(|item| item.matches_expected(checked_item))
             {
-                return Ok(Some(checked_type));
+                let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
+                let mut fits = true;
+                for item in &item_types {
+                    if !item.matches_expected(checked_item)
+                        && (!checked_item.contains_scheme_callable()
+                            || !scheme_values::relationship_type_fits(self.store, item, checked_item, &mut budget, 0)?)
+                    {
+                        fits = false;
+                        break;
+                    }
+                }
+                if fits { return Ok(Some(checked_type)); }
             }
             let mut item_type = item_types[0].clone();
             for next_type in &item_types[1..] {
@@ -42677,6 +42685,112 @@ assert by_index(true) == true
                     assert_eq!(failure.message, expected);
                 }
             }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_lists_retain_their_actual_family_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-list-family.xsh", r#"
+pure preserve(value) { value }
+pure echo(value) { value }
+let operations = [preserve, echo]
+let duplicated = [preserve, preserve]
+let integer = operations[0](42)
+let text = operations[1]("demo")
+let copied = operations
+let aliased = copied[1](44)
+assert integer == 42
+assert text == "demo"
+assert aliased == 44
+let repeated = duplicated[1](43)
+assert repeated == 43
+let empty = if false { [preserve, echo] } else { [] }
+assert empty.len() == 0
+let populated = if true { [preserve, echo] } else { [] }
+let branch_integer = populated[0](45)
+let branch_text = populated[1]("branch")
+assert branch_integer == 45
+assert branch_text == "branch"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_lists_reject_foreign_children_and_forged_family_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("scheme-callable-list-proof.xsh", r#"
+pure preserve(value) { value }
+pure echo(value) { value }
+pure outsider(value) { value }
+let operations = [preserve, echo]
+let duplicated = [preserve, preserve]
+let wider = [preserve, echo, outsider]
+let unrelated = outsider
+let copied = operations
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let list_facts = program.store.checked_expr_types.iter().copied().filter(|fact| {
+                program.store.tags[fact.instruction as usize] == FullTag::ExprList
+            }).collect::<Vec<_>>();
+            assert_eq!(list_facts.len(), 3);
+            let list = list_facts[0];
+            let singleton = list_facts[1];
+            let wider = list_facts[2];
+            let step = (0..program.store.driver_steps.len()).find(|&step| {
+                program.store.driver_instruction_range(step).unwrap().contains(&(list.instruction as usize))
+            }).unwrap();
+            let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+            let schema::ExprView::List(mut values) = decoder.expression_view(list.instruction as usize).unwrap() else { unreachable!() };
+            let child = values.nth(1).unwrap().unwrap().raw() as usize;
+            let child_fact = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == child).unwrap();
+            let outsider = program_name(&program, "outsider");
+            let outsider_fact = program.store.checked_expr_types.iter().copied().find(|fact| {
+                fact.function_ref().is_some_and(|(function, kind)| function.as_name() == Some(outsider) && kind == CallableKind::Pure)
+            }).unwrap();
+            let outsider_function = IrFunctionId::new(scheme_fixture_root_function(&program, "outsider")).unwrap();
+
+            let mut foreign = program.clone();
+            foreign.store.data[child] = program.store.data[outsider_fact.instruction as usize];
+            foreign.store.checked_expr_types[child_fact] = FullCheckedExprType { instruction: child as u32, ..outsider_fact };
+            for target in &mut foreign.store.checked_call_targets {
+                if target.instruction as usize == child { target.function = outsider_function; }
+            }
+            assert!(FullVerifier::verify(&foreign).is_err(), "a canonical outsider is absent from the list's owned family");
+
+            let mut forged_child = program.clone();
+            forged_child.store.data[child] = program.store.data[outsider_fact.instruction as usize];
+            for target in &mut forged_child.store.checked_call_targets {
+                if target.instruction as usize == child { target.function = outsider_function; }
+            }
+            let error = FullVerifier::verify(&forged_child).unwrap_err();
+            assert!(error.message.contains("checked scheme callable reference disagrees with its actual singleton producer"), "{error:?}");
+
+            let mut erased_member = program.clone();
+            erased_member.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == list.instruction).unwrap().type_id = singleton.type_id;
+            assert!(FullVerifier::verify(&erased_member).is_err(), "the list contract cannot erase an actual member");
+
+            let mut extra_member = program.clone();
+            for fact in &mut extra_member.store.checked_expr_types {
+                if fact.type_id == list.type_id { fact.type_id = wider.type_id; }
+            }
+            for slot in &mut extra_member.store.driver_slots {
+                if slot.type_id == list.type_id { slot.type_id = wider.type_id; }
+            }
+            for slot in &mut extra_member.store.driver_sync {
+                if slot.type_id == list.type_id { slot.type_id = wider.type_id; }
+            }
+            let error = FullVerifier::verify(&extra_member).unwrap_err();
+            assert_eq!(error.message, "scheme callable list family disagrees with its exact physical producers");
         });
     }
 

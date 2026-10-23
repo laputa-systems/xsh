@@ -1815,6 +1815,8 @@ impl Checker {
                 inferred = actual;
             } else if let Some(expected_item) = expected_item {
                 self.expect_type(expected_item, &actual, span);
+            } else if let Some(merged) = self.merge_scheme_callable_values(&inferred, &actual) {
+                inferred = merged;
             } else if let Some(merged) = merge_list_literal_item_ty(&inferred, &actual) {
                 inferred = merged;
             } else {

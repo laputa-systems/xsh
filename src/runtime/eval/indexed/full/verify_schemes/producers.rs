@@ -4616,7 +4616,30 @@ impl<'a> ProducerProof<'a> {
             }
             schema::ExprView::List(mut values) => {
                 let Some(item) = expected_list_item(&expected, values.len() > 0) else { return Err(IrVerifyError::new("ground list producer has no item contract")) };
-                for value in &mut values { self.expression(owner, value?.raw() as usize, Arc::new(item.clone()), false); }
+                if let Type::SchemeCallable(id) = item
+                    && values.len() > 0
+                {
+                    let relationship = self.store.semantic.scheme_callable_index(*id)?;
+                    let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable list relationship is out of bounds"))?;
+                    let range = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("scheme callable list target range is invalid"))?;
+                    self.budget.charge(range.len())?;
+                    let expected = self.store.scheme_callable_targets[range].iter().map(|target| target.function.index()).collect::<BTreeSet<_>>();
+                    let actual = self.producer_targets(owner, instruction, ProducerTargetPurpose::Callable, vec![FunctionProjection::Element])?;
+                    if actual.opaque || !actual.parameters.is_empty() || actual.functions != expected {
+                        return Err(IrVerifyError::new("scheme callable list family disagrees with its exact physical producers"));
+                    }
+                    for value in &mut values {
+                        let value = value?.raw() as usize;
+                        let (actual, fact) = self.operand_context(&decoder, value)?.into_parts();
+                        let actual = actual.ok_or_else(|| IrVerifyError::new("scheme callable list child has no producer contract"))?;
+                        if !super::super::scheme_values::relationship_type_fits(self.store, &actual, item, &mut self.budget, 0)? {
+                            return Err(IrVerifyError::new("scheme callable list child is outside its owned family"));
+                        }
+                        self.expression_with_fact(owner, value, actual, false, fact);
+                    }
+                } else {
+                    for value in &mut values { self.expression(owner, value?.raw() as usize, Arc::new(item.clone()), false); }
+                }
                 Ok(())
             }
             schema::ExprView::RunCapture(run) => {

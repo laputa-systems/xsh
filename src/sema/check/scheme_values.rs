@@ -146,6 +146,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn callable_lists_join_actual_target_families_and_deduplicate_members() {
+        let source = "pure preserve(value) { value }\npure echo(value) { value }\nlet combined = [preserve, echo, preserve]\nlet duplicated = [preserve, preserve]\n";
+        let source_id = crate::source::SourceId::new(0);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let lists = parsed.arena.arena.source_rows().expr_ids(source_id).filter(|&expression| {
+            matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+        }).collect::<Vec<_>>();
+        assert_eq!(lists.len(), 2);
+        for (expression, expected) in lists.into_iter().zip([vec!["echo", "preserve"], vec!["preserve"]]) {
+            let span = parsed.arena.arena.expr(expression).span;
+            let Type::List(item) = &checked.expr_types[&span] else { panic!("a list keeps its item contract") };
+            let Type::SchemeCallable(relationship) = item.as_ref() else { panic!("a callable list keeps its quantified relationship") };
+            let relationship = checked.scheme_callables.get(*relationship).unwrap();
+            let mut actual = relationship.targets().iter().map(|target| target.target().name.to_string()).collect::<Vec<_>>();
+            actual.sort();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn callable_lists_reject_incompatible_parameter_and_result_relationships() {
+        for other in ["pure other(left, right) { left }", "pure other(value) { [value] }"] {
+            let source = format!("pure preserve(value) {{ value }}\n{other}\nlet operations = [preserve, other]\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
     fn checker_probes_share_append_identity_without_mutating_published_snapshots() {
         let source = "pure first(value) { value }\npure second(value) { value }\n";
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
