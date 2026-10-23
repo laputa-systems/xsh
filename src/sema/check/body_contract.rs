@@ -55,6 +55,19 @@ pub(crate) enum BodyContractSite {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CanonicalBodyContractSite(SitePath);
 
+impl CanonicalBodyContractSite {
+    pub(crate) fn implicit_interface_schema<'a>(&self, scheme: &'a TypeScheme)
+        -> Option<(&'a SchemeType, Option<&'a crate::sema::constants::SchemaExpectation>)>
+    {
+        match self.0 {
+            SitePath::Parameter(ordinal) => scheme.params().get(ordinal)
+                .map(|parameter| (&parameter.ty, parameter.schema_expectation.as_ref())),
+            SitePath::Return => Some((scheme.return_type(), scheme.return_schema())),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum SitePath { Expression(NodePath), Statement(NodePath), ValueExpression(NodePath), ValueStatement(NodePath), Parameter(usize), Return }
 

@@ -3353,6 +3353,16 @@ record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
 renaming while preserving nominal types, labels, schemas, and effects.
 
+Interface comparison treats a nonparameterized ordinary record schema without
+defaults or validation obligations as its fully known structural type when
+both checked interfaces have that same ground type. The stored schema and
+execution checks remain unchanged. This projection applies to implicit
+parameter and return boundaries. Explicit validation and constructor selections
+remain part of body comparison. Unknown, generic, nominal, validated, unsigned,
+and defaulted schema obligations remain constrained. Removing a return
+annotation that selects `UInt` conversion or `Result` wrapping changes source
+meaning and does not qualify as an equivalent erasure.
+
 The checker infers mutually recursive parameters and returns before checking
 callers. Variables that are independent of the captured environment can become
 rank-1 scheme parameters after the component is solved. Infinite types and
