@@ -857,6 +857,7 @@ fn render_type(ty: &Type) -> String {
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),
         Type::Callable(_) | Type::Validated(_) => ty.to_string(),
+        Type::SchemeCallable(_) => panic!("the static API catalog cannot contain an owned callable relationship"),
         Type::Union(members) => format!(
             "Union[{}]",
             members
