@@ -696,9 +696,9 @@ impl Checker {
             Ok(key) => key,
             Err(error) => { self.error(span, &format!("pipeline key cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference); return; }
         };
-        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey };
+        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey, crate::sema::sealed_operation::TypeDomain::CollectItem => DiagnosticCode::CheckYieldStream };
         if key.contains_any() {
-            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key" }, None, span);
+            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key", crate::sema::sealed_operation::TypeDomain::CollectItem => "a collected item" }, None, span);
             return;
         }
         if !domain.may_accept(&key) {

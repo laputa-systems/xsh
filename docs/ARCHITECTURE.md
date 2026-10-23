@@ -513,6 +513,18 @@ scoped empty-list initializer, inner value block, and matching final slot read.
 Every writer must append an independently proved list inside that block; empty
 outputs use the vacuous empty-list rule. Runtime predicates remain at the checked
 gate, and the inner body's return and effect proofs remain mandatory.
+Generalized collect expressions use that same accumulator and lexical writer
+contract. The checker retains the nearest collect target across ordinary blocks
+and resets it at callable boundaries. A no-result `CollectItem` predicate
+checks each inferred single-item substitution; delegated yields retain their
+invariant list relationship. Cold verification authenticates the physical
+accumulator, writers, items, and owners, including any present predicate. A
+single-item yield and delegation of a singleton list can have identical physical
+rows, so those rows do not independently certify which source form produced them.
+A contextual unsigned collector retains the actual raw writer type until its
+whole-list guard runs after inner cleanup. Generic proof requests drain through
+the same fresh accumulator proof as ordinary checked storage, including for an
+uncalled owner without captures; ordinary unsigned producer demand is unchanged.
 
 The producer census collects pattern and pipeline instructions during its
 mandatory instruction scan. Later scope registration visits those candidates

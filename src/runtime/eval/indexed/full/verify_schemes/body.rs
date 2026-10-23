@@ -799,6 +799,7 @@ pub(super) struct BodyProof {
     pub(super) streams: Vec<(super::producers::StreamProducer, PropagationBoundary)>,
     pub(super) captures: Vec<producers::CaptureErrorRequest>,
     pub(super) applications: BTreeSet<usize>,
+    pub(super) checked_accumulators: Vec<usize>,
     pub(super) completion_contributions: Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
 }
 
@@ -854,6 +855,7 @@ pub(super) fn verify_body(
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<BodyProof, IrVerifyError> {
     let mut with_errors = None;
+    let mut checked_accumulators = Vec::new();
     let slot_count = decoder.slot_count as usize;
     for binding in slots.values() { budget.charge_scheme_clone(&binding.ty)?; }
     let mut writers = slots.iter().map(|(&slot, binding)| (slot, binding.ty.clone())).collect::<BTreeMap<_, _>>();
@@ -1200,7 +1202,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, &mut checked_accumulators, budget, constant_budget)?;
                         record_capture_transfers(store, decoder, scheme_scope, effect_scopes, wrapper_sites, operation_sites, instruction, &scope, &scopes, types, &mut captures, budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
@@ -1675,7 +1677,7 @@ pub(super) fn verify_body(
     if !completion_sources.is_empty() {
         return Err(IrVerifyError::new("generic Proc completion source is not consumed by its owner return"));
     }
-    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications, completion_contributions })
+    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications, checked_accumulators, completion_contributions })
 }
 
 #[cfg(test)]
@@ -3920,6 +3922,91 @@ pure other(payload) { payload }
     fn sealed_binary_operations_retain_set_item_key_requirements() {
         prepare("pure remove(values: Set[Int]) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
         prepare("pure remove(values) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
+    }
+
+    #[test]
+    fn generic_collect_accumulators_authenticate_items_writers_and_owners() {
+        let program = prepare("pure gather(value, other) { collect { yield value } }\npure foreign(value) { value }\n");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let read = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_item = program.clone();
+        let words = wrong_item.store.data[read].range().bounds(wrong_item.store.extra.len()).unwrap();
+        wrong_item.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&wrong_item).is_err());
+        let declaration = declaration(&program);
+        let ty = program.store.scheme_body_facts[declaration].ty().unwrap();
+        let mut immutable = program.clone();
+        immutable.store.scheme_body_facts[declaration].value = super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(ty);
+        assert!(FullVerifier::verify(&immutable).is_err());
+        let mut missing = program.clone();
+        remove_scheme_body_fact(&mut missing, declaration);
+        assert!(FullVerifier::verify(&missing).is_err());
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.scheme_body_facts[declaration].function = IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
+    fn generic_collect_unsigned_guards_require_fresh_writers_and_exact_owners() {
+        use crate::syntax::node::AssignOp;
+        let program = prepare("pure gather(marker, number: Int) -> List[UInt] { let _ = marker; let rows: List[UInt] = collect { yield number }; rows }\npure foreign(value: List[Int]) -> List[Int] { value }\n");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let guard = range.clone().find(|instruction| match decoder.expression_view(*instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. }) => check.ty.materialize().unwrap().has_unsigned_constraint() && program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprValueBlock,
+            _ => false,
+        }).unwrap();
+        let parameters = program.store.scheme(scheme).unwrap().params.bounds(program.store.scheme_params.len()).unwrap();
+        let integer = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        assert_eq!(integer.tag, FullSchemeTypeTag::Ground);
+        let mut wrong_guard = program.clone();
+        let words = wrong_guard.store.data[guard].range().bounds(wrong_guard.store.extra.len()).unwrap();
+        wrong_guard.store.extra[words.start + 2] = integer.first;
+        assert!(FullVerifier::verify(&wrong_guard).is_err());
+        let writer = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { op: AssignOp::Add, .. }))).unwrap();
+        let mut wrong_writer = program.clone();
+        let words = wrong_writer.store.data[writer].range().bounds(wrong_writer.store.extra.len()).unwrap();
+        let operation = wrong_writer.store.extra[words.start + 1] as usize;
+        wrong_writer.store.assign_ops[operation] = AssignOp::Set;
+        let changed_decoder = decoder_for_function(&wrong_writer.store, owner).unwrap();
+        assert!(matches!(changed_decoder.statement_view(writer).unwrap(), schema::StmtView::Assign { op: AssignOp::Set, .. }));
+        assert!(FullVerifier::verify(&wrong_writer).is_err());
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let foreign_value = program.store.function_instruction_range(foreign).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprParam).unwrap();
+        let mut wrong_owner = program.clone();
+        let words = wrong_owner.store.data[guard].range().bounds(wrong_owner.store.extra.len()).unwrap();
+        wrong_owner.store.extra[words.start] = foreign_value as u32;
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
+    fn generic_collect_predicates_validate_present_actual_substitutions() {
+        use crate::sema::sealed_operation::{SealedOperationSignature, TypeDomain};
+        use crate::sema::schemes::SealedOperationBinding;
+        use super::super::super::schemes::FullSealedOperation;
+        let program = prepare("stream values() [] -> Stream[Int] { yield 1 }\npure gather(value, other: Stream[Int]) { collect { yield value } }\nlet rows = gather([1, 2], values())\n");
+        let function = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == "gather").unwrap();
+        let FullCallableContract::Scheme(scheme) = function.contract else { panic!("gather keeps its checked scheme") };
+        let (predicate, subject) = program.store.scheme_operations.iter().enumerate().find_map(|(index, operation)| match operation {
+            FullSealedOperation::TypePredicate { domain: TypeDomain::CollectItem, subject } => Some((index, *subject)),
+            _ => None,
+        }).unwrap();
+        let mut wrong_domain = program.clone();
+        wrong_domain.store.scheme_operations[predicate] = FullSealedOperation::TypePredicate { domain: TypeDomain::SortKey, subject };
+        for binding in &mut wrong_domain.store.call_operation_bindings {
+            if matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CollectItem))) {
+                *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::SortKey));
+            }
+        }
+        assert!(FullVerifier::verify(&wrong_domain).is_err());
+        let parameters = program.store.scheme(scheme).unwrap().params.bounds(program.store.scheme_params.len()).unwrap();
+        let other = program.store.scheme_params[parameters.start + 1].ty;
+        let mut wrong_subject = program.clone();
+        wrong_subject.store.scheme_operations[predicate] = FullSealedOperation::TypePredicate { domain: TypeDomain::CollectItem, subject: other };
+        assert!(FullVerifier::verify(&wrong_subject).is_err());
     }
 
     #[test]

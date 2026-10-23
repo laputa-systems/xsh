@@ -647,6 +647,7 @@ pub(super) struct CompletionContributionsRequest {
 pub(super) struct SchemeProducerRequests {
     pub(super) streams: Vec<StreamIteration>,
     pub(super) ground_arguments: Vec<GroundArgumentRequest>,
+    pub(super) checked_accumulators: Vec<(u32, usize)>,
     pub(super) captures: Vec<CaptureErrorRequest>,
     pub(super) applications: BTreeSet<(u32, usize)>,
     pub(super) methods: BTreeSet<(u32, usize)>,
@@ -654,7 +655,7 @@ pub(super) struct SchemeProducerRequests {
 }
 
 impl SchemeProducerRequests {
-    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.methods.is_empty() && self.completions.is_empty() }
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.checked_accumulators.is_empty() && self.methods.is_empty() && self.completions.is_empty() }
 }
 
 pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
@@ -1176,10 +1177,19 @@ impl GroundProducerIndex {
                 effect_demand_work += 1;
                 if !matches!(function.contract, FullCallableContract::Scheme(_)) { continue; }
                 let range = store.function_instruction_range(index)?;
-                if store.tags[range].iter().any(|tag| { effect_demand_work += 1; *tag == FullTag::StmtForRecord }) {
-                    selected_demand = true;
-                    break;
+                let decoder = super::decoder_for_function(store, index)?;
+                for instruction in range {
+                    effect_demand_work += 1;
+                    if store.tags[instruction] == FullTag::StmtForRecord { selected_demand = true; break; }
+                    if store.tags[instruction] != FullTag::ExprCheckedValue { continue; }
+                    if let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(instruction)? {
+                        if check.schema.is_none()
+                            && matches!(store.semantic.to_type(check.ty.id)?, Type::List(item) if item.has_unsigned_constraint())
+                            && store.tags[value.raw() as usize] == FullTag::ExprValueBlock
+                        { selected_demand = true; break; }
+                    }
                 }
+                if selected_demand { break; }
             }
         }
         let driver_output_demand = !selected_demand && store.driver_steps.iter().any(|step| {
@@ -2054,6 +2064,19 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
                 _ => {}
             }
         }
+    }
+    for (owner, instruction) in requests.checked_accumulators {
+        proof.budget.charge(1)?;
+        if index.instruction_owner(instruction)? != owner { return Err(IrVerifyError::new("generic checked accumulator disagrees with its physical owner")); }
+        let decoder = proof.owner(owner)?;
+        let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(instruction)? else {
+            return Err(IrVerifyError::new("generic checked accumulator has no physical storage guard"));
+        };
+        let checked = proof.contract_type(check.ty.id)?;
+        if check.schema.is_some() || !matches!(checked.as_ref(), Type::List(_)) || !checked.has_unsigned_constraint()
+            || !super::runtime_complete_value_check_type(&checked, &mut proof.budget, 0)?
+            || !proof.checked_list_accumulator(&decoder, value.raw() as usize, &checked, true)?
+        { return Err(IrVerifyError::new("generic checked accumulator has no complete fresh writer proof")); }
     }
     let mut ground_arguments = BTreeMap::new();
     for request in requests.ground_arguments {

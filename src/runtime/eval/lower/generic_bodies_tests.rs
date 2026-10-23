@@ -3920,3 +3920,229 @@ assert collect_nested_stream(nested_stream)? == [1, 2]
         }
     }
 }
+
+#[test]
+fn typed_collect_expression_preserves_passive_any_items() {
+    let source = "pure gather(value: Any) -> List[Any] { collect { yield value } }";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("gather")));
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(7)], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(actual, Value::List(vec![Value::Int(7)]));
+    }
+}
+
+#[test]
+fn typed_collect_expression_rejects_a_stream_as_one_item() {
+    let source = "pure gather(value: Stream[Int]) -> List[Stream[Int]] { collect { yield value } }";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckYieldStream)), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_collect_expression_preserves_item_correlation_and_result_data() {
+    let source = r#"pure gather(value) { collect { yield value; yield value } }
+assert gather(7) == [7, 7]
+assert gather("kept") == ["kept", "kept"]
+let data: Result[Int, Str] = Err("opaque")
+let rows = gather(data)
+assert match rows[0] { Ok(_) => false, Err(message) => message == "opaque" }
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_collect_delegation_preserves_list_item_relationships() {
+    let source = r#"pure gather(values) { collect { yield @values } }
+assert gather([1, 2]) == [1, 2]
+assert gather(["kept"]) == ["kept"]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_collect_expression_preserves_explicit_any_arguments() {
+    let source = "pure gather(value) { collect { yield value } }\npure erased(value: Any) -> List[Any] { gather(value) }\n";
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("erased")));
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Int(7)], Span::at(source_id, 0)).unwrap().unwrap();
+        assert_eq!(actual, Value::List(vec![Value::Int(7)]));
+    }
+}
+
+#[test]
+fn generic_collect_expression_rejects_actual_stream_arguments() {
+    let source = "pure gather(value) { collect { yield value } }\nstream values() [] -> Stream[Int] { yield 1 }\nlet _ = gather(values())\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckYieldStream)), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_collect_expression_keeps_nested_yield_targets_and_control_flow() {
+    let source = r#"pure nested(value) { collect { yield value; yield @collect { yield value }; yield value } }
+pure stopped(value, stop: Bool) { collect { yield value; if stop { return [value] }; yield value } }
+pure looped(value) {
+  var bound = 0
+  for round in [1, 2, 3] {
+    let rows = collect { yield value; break when round == 2 }
+    bound += rows.len()
+  }
+  {value, bound}
+}
+assert nested(7) == [7, 7, 7]
+assert nested("kept") == ["kept", "kept", "kept"]
+assert stopped(7, true) == [7]
+assert stopped("kept", false) == ["kept", "kept"]
+assert looped(7).bound == 1
+assert looped("kept").value == "kept"
+pure gather(value) { collect { yield value } }
+let data: Result[Result[Int, Str], Str] = Ok(Err("nested"))
+let rows = gather(data)
+match rows[0] {
+  Ok(inner) => assert match inner { Ok(_) => false, Err(message) => message == "nested" }
+  Err(_) => assert false
+}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_collect_expression_preserves_yield_error_and_cleanup_order() {
+    let source = r#"error CollectFailure = Stopped(message: Str)
+var events = ""
+proc close() [] { events += "c" }
+proc fail() [] -> Result[Unit, CollectFailure] { Err(CollectFailure.Stopped(message: "stop")) }
+proc gather(value, stop: Bool) [error] {
+  collect {
+    defer close()
+    yield { events += "y"; value }
+    if stop { fail()? }
+    yield { events += "y"; value }
+  }
+}
+assert gather(7, false)? == [7, 7]
+assert events == "yyc"
+let failed = try { gather("kept", true)? }
+assert match failed { Ok(_) => false, Err(error) => error.message == "stop" }
+assert events == "yycyc"
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn generic_collect_unsigned_items_match_typed_validation_timing() {
+    let source = r#"var events = ""
+proc clear() [] { events = "" }
+proc observed() [] -> Str { events }
+proc typed(number: Int) [error] -> List[UInt] {
+  let result: List[UInt] = collect { defer { events += "d" }; yield { events += "y"; number }; events += "a" }
+  result
+}
+proc generic(marker, number: Int) [error] -> List[UInt] {
+  let _ = marker
+  let result: List[UInt] = collect { defer { events += "d" }; yield { events += "y"; number }; events += "a" }
+  result
+}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+        let key = |name| program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
+        let span = Span::at(source_id, 0);
+        for number in [7, -1] {
+            evaluator.call_indexed_direct(key("clear"), CallableKind::Proc, &[], span).unwrap().unwrap();
+            let expected = evaluator.call_indexed_direct(key("typed"), CallableKind::Proc, &[Value::Int(number)], span).unwrap();
+            let expected_events = evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap();
+            evaluator.call_indexed_direct(key("clear"), CallableKind::Proc, &[], span).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key("generic"), CallableKind::Proc, &[Value::Str(Arc::from("marker")), Value::Int(number)], span).unwrap();
+            let actual_events = evaluator.call_indexed_direct(key("observed"), CallableKind::Proc, &[], span).unwrap().unwrap();
+            assert_eq!(actual_events, expected_events, "{number} frames={force_frames}");
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => assert_eq!(actual, expected),
+                (Err(expected), Err(actual)) => { assert_eq!(actual.kind, expected.kind); assert_eq!(actual.message, expected.message); assert_eq!(actual.family, expected.family); }
+                (expected, actual) => panic!("{number} frames={force_frames}: expected {expected:?}, found {actual:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn generic_collect_unsigned_storage_proves_uninvoked_owners_without_captures() {
+    let (program, sources, source_id) = record_form_program("pure gather(marker, number: Int) -> List[UInt] { let _ = marker; let rows: List[UInt] = collect { yield number }; rows }");
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("gather")));
+        let span = Span::at(source_id, 0);
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Bool(true), Value::Int(7)], span).unwrap().unwrap();
+        assert_eq!(actual, Value::List(vec![Value::Int(7)]));
+        let error = evaluator.call_indexed_direct(key, CallableKind::Pure, &[Value::Str(Arc::from("independent")), Value::Int(-1)], span).unwrap().unwrap_err();
+        assert_eq!(error.kind, "type-error");
+        assert!(error.message.contains("UInt constraint"), "{error:?}");
+    }
+}
+
+#[test]
+fn generic_collect_delegation_rejects_non_list_sources_and_callback_yield_escape() {
+    for argument_type in ["Stream[Int]", "Map[Str, Int]", "Set[Int]", "Str", "Bytes", "Any", "Result[List[Int]]"] {
+        let source = format!("pure gather(values) {{ collect {{ yield @values }} }}\npure rejected(value: {argument_type}) {{ gather(value) }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}");
+    }
+    let source = "pure gather(value) { collect { let _ = [value] |> map { |item| yield item; item }; yield value } }";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckYield)), "{:?}", checked.diagnostics);
+}

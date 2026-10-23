@@ -655,11 +655,12 @@ impl Checker {
                 &generalized_body_types,
                 &constructor_producers,
                 &self.result_constructors,
+                &self.collect_yields,
                 match pending.kind() { crate::sema::types::CallableKind::Stream => super::scheme_body::BodyCompletion::Producer, crate::sema::types::CallableKind::Proc => super::scheme_body::BodyCompletion::Procedure, crate::sema::types::CallableKind::Pure => super::scheme_body::BodyCompletion::Function },
             ) || defaults.iter().any(|&value| !super::scheme_body::is_body_expression(
                 program, pending.kind(), &self.prepared_constants, &self.resolved_command_sites, &self.resolved_bindings, &super::FxHashSet::default(), &captures,
                 &generalized_tail_types, &self.statement_positions, &checked_operations, &registered_calls,
-                &generalized_body_types, &constructor_producers, &self.result_constructors, value,
+                &generalized_body_types, &constructor_producers, &self.result_constructors, &self.collect_yields, value,
             )) {
                 let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {

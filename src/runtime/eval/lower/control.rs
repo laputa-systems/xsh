@@ -14,6 +14,29 @@ pub(super) enum TempDirLoweringDomain<'a> {
     },
 }
 
+pub(super) enum CollectYieldKind { Item, List }
+
+#[derive(Clone)]
+pub(super) enum CollectSlot {
+    Ordinary(usize),
+    Generalized { slot: usize, ty: super::SchemeType },
+}
+
+impl CollectSlot {
+    fn slot(&self) -> usize {
+        match self { Self::Ordinary(slot) | Self::Generalized { slot, .. } => *slot }
+    }
+}
+
+pub(super) enum CollectLoweringDomain<'a> {
+    Ordinary,
+    Generalized {
+        facts: &'a crate::sema::schemes::SchemeBodyFacts,
+        visited: &'a mut super::FxHashSet<ExprId>,
+        types: &'a mut super::BTreeMap<BuildExprId, super::SchemeType>,
+    },
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_tail_block(
         &mut self,
@@ -190,9 +213,121 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered
     }
 
-    /// `items`, a list, appended to the local of the `collect` expression
-    /// that the checker gave this yield. That expression encloses the yield
-    /// in the same function, so its local is in scope.
+    pub(super) fn lower_collect_in_domain(
+        &mut self, expression: ExprId, block: BlockId, span: Span, slots: &mut SlotScope,
+        current_function: Option<Name>, item_slot: Option<usize>, domain: &mut CollectLoweringDomain<'_>,
+    ) -> Option<BuildExprId> {
+        let expected = match domain {
+            CollectLoweringDomain::Ordinary => None,
+            CollectLoweringDomain::Generalized { facts, .. } => Some(Self::collect_list_type(facts, expression)?),
+        };
+        let checked_type = expected.as_ref().and_then(super::SchemeType::closed_ground_type).filter(Type::has_unsigned_constraint);
+        let mut raw_item = None;
+        let mut transfers_resource = false;
+        for (&statement, &collect) in &self.bodies.collect_yields {
+            if collect != expression { continue; }
+            let Some(transfer) = self.bodies.resource_transfer(crate::sema::check::ResourceTransferSite::Yield(statement)) else {
+                self.last_blocker_detail = Some((self.program.arena.stmt(statement).span, "missing checked resource-transfer fact for collected yield".into()));
+                return None;
+            };
+            transfers_resource |= transfer;
+            if checked_type.is_some() && let CollectLoweringDomain::Generalized { facts, .. } = domain {
+                let (value, delegated) = match self.program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Yield(super::ArenaExprOrRun::Expr(value)) => (value, false),
+                    ArenaStmtKind::YieldDelegate(value) => (value, true),
+                    _ => return None,
+                };
+                let actual = facts.expression_types().get(&value)?.closed_ground_type()?;
+                let actual = if delegated { match actual { Type::List(item) => *item, _ => return None } } else { actual };
+                raw_item = Some(match raw_item {
+                    None => actual,
+                    Some(ref item) => crate::sema::types::merge_list_literal_item_ty(item, &actual)?,
+                });
+            }
+        }
+        let storage_type = match raw_item {
+            Some(item) => Some(super::SchemeType::List(Box::new(super::SchemeType::Ground(item)))),
+            None => expected.clone(),
+        };
+        let saved = slots.enter();
+        let slot = slots.reserve("collect list");
+        let storage = match &storage_type {
+            Some(ty) => CollectSlot::Generalized { slot, ty: ty.clone() },
+            None => CollectSlot::Ordinary(slot),
+        };
+        let previous = slots.collect_slots.insert(expression, storage);
+        let lowered = (|| {
+            let empty = push_build_row!(self, expr, BuildExprRow::List(Vec::new()));
+            let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: empty, annotation: None });
+            let statements = match domain {
+                CollectLoweringDomain::Ordinary => self.lower_block(block, slots, current_function, item_slot)?,
+                CollectLoweringDomain::Generalized { facts, visited, types } => {
+                    let ty = storage_type.clone()?;
+                    types.insert(empty, ty.clone());
+                    slots.scheme_declarations.insert(declaration, super::super::SchemeLocalDeclaration { ty, mutability: super::super::SchemeLocalMutability::Mutable });
+                    let mut statements = self.lower_scheme_statement_block(block, slots, current_function?, facts, visited, types)?;
+                    let unit = push_build_row!(self, expr, BuildExprRow::Unit);
+                    types.insert(unit, super::SchemeType::Ground(Type::Unit));
+                    statements.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: unit }));
+                    statements
+                }
+            };
+            let inner = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: statements, span });
+            let run = push_build_row!(self, stmt, BuildStmtRow::Expr { value: inner, span });
+            let list = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            if let CollectLoweringDomain::Generalized { types, .. } = domain {
+                types.insert(inner, super::SchemeType::Ground(Type::Unit));
+                types.insert(list, storage_type.clone()?);
+            }
+            let value = push_build_row!(self, stmt, BuildStmtRow::Value { value: list });
+            if transfers_resource { self.scratch.borrow_mut().mark_resource_transfer(value); }
+            let result = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: vec![declaration, run, value], span });
+            if let CollectLoweringDomain::Generalized { types, .. } = domain {
+                types.insert(result, storage_type.clone()?);
+                if let Some(checked_type) = &checked_type {
+                    let checked = self.checked_unsigned_value(result, checked_type, span);
+                    self.record_scheme_storage_elaboration(checked, expected.as_ref()?, types);
+                    return Some(checked);
+                }
+            }
+            Some(result)
+        })();
+        match previous {
+            Some(previous) => { slots.collect_slots.insert(expression, previous); }
+            None => { slots.collect_slots.remove(&expression); }
+        }
+        slots.exit(saved);
+        lowered
+    }
+
+    fn collect_list_type(facts: &crate::sema::schemes::SchemeBodyFacts, expression: ExprId) -> Option<super::SchemeType> {
+        match facts.expression_types().get(&expression)? {
+            ty @ super::SchemeType::List(_) => Some(ty.clone()),
+            super::SchemeType::Ground(Type::List(item)) => Some(super::SchemeType::List(Box::new(super::SchemeType::Ground((**item).clone())))),
+            _ => None,
+        }
+    }
+
+    pub(super) fn lower_scheme_collect_yield(
+        &mut self, statement: StmtId, value: ExprId, kind: CollectYieldKind,
+        slots: &mut SlotScope, current_function: Name, facts: &crate::sema::schemes::SchemeBodyFacts,
+        visited: &mut super::FxHashSet<ExprId>, types: &mut super::BTreeMap<BuildExprId, super::SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildStmtId> {
+        let delegated = matches!(kind, CollectYieldKind::List);
+        let collect = *self.bodies.collect_yields.get(&statement)?;
+        let CollectSlot::Generalized { ty, .. } = slots.collect_slots.get(&collect)? else { return None; };
+        let ty = ty.clone();
+        let span = self.program.arena.stmt(statement).span;
+        let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, types, body)?;
+        let items = if delegated && types.get(&value) == Some(&ty) { value } else {
+            let row = if delegated { BuildExprRow::ListBuild(vec![(true, value, span)]) } else { BuildExprRow::List(vec![value]) };
+            let items = push_build_row!(self, expr, row);
+            types.insert(items, ty);
+            items
+        };
+        self.lower_collect_yield(statement, items, slots)
+    }
+
     pub(super) fn lower_collect_yield(
         &mut self,
         id: StmtId,
@@ -200,7 +335,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &SlotScope,
     ) -> Option<BuildStmtId> {
         let collect = *self.bodies.collect_yields.get(&id)?;
-        let slot = *slots.collect_slots.get(&collect)?;
+        let slot = slots.collect_slots.get(&collect)?.slot();
         Some(push_build_row!(
             self,
             stmt,
