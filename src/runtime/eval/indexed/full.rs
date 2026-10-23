@@ -52372,6 +52372,99 @@ proc capture_hash_failure(file: Path) [fs] {
     }
 
     #[test]
+    fn inferred_failure_only_result_successes_retain_checked_shapes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "inferred-failure-only-result-successes.xsh",
+                r#"
+pure attempt(flag, value) {
+  if flag { return Err(error.failure("stop")) }
+  Ok(value)
+}
+let integer_success: Result[Int] = attempt(false, 7)
+assert integer_success == Ok(7)
+let generic_success: Result[Str] = attempt(false, "kept")
+assert generic_success == Ok("kept")
+let generic_failure: Result[Int] = attempt(true, 7)
+assert match generic_failure { Err(problem) => problem.message == "stop"; Ok(_) => false }
+"#,
+            ));
+            let owner = scheme_fixture_root_function(&program, "attempt");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            FullVerifier::verify(&program).unwrap();
+            let expression_fact = |instruction: usize| {
+                program.store.scheme_body_facts.iter().position(|fact| {
+                    fact.function == function
+                        && fact.instruction as usize == instruction
+                        && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+                }).unwrap()
+            };
+            let wrong_type = decoder.instruction_range.clone().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str(_)))
+            }).unwrap();
+            let wrong_type = program.store.scheme_body_facts[expression_fact(wrong_type)].ty().unwrap();
+            let failure = decoder.instruction_range.clone().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Err { .. }))
+            }).unwrap();
+            let schema::ExprView::Err { value, .. } = decoder.expression_view(failure).unwrap() else { unreachable!() };
+            let mut wrong_error_payload = (*program).clone();
+            wrong_error_payload.store.scheme_body_facts[expression_fact(value.raw() as usize)].value =
+                schemes::FullSchemeBodyFactValue::Expression(wrong_type);
+            assert!(FullVerifier::verify(&wrong_error_payload).is_err());
+            let mut wrong_error_result = (*program).clone();
+            wrong_error_result.store.scheme_body_facts[expression_fact(failure)].value =
+                schemes::FullSchemeBodyFactValue::Expression(wrong_type);
+            assert!(FullVerifier::verify(&wrong_error_result).is_err());
+            let success = decoder.instruction_range.clone().find(|&instruction| {
+                program.store.tags[instruction] == FullTag::ExprOk
+            }).unwrap();
+            let mut wrong_success_result = (*program).clone();
+            wrong_success_result.store.scheme_body_facts[expression_fact(success)].value =
+                schemes::FullSchemeBodyFactValue::Expression(wrong_type);
+            assert!(FullVerifier::verify(&wrong_success_result).is_err());
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn inferred_failure_only_result_tail_keeps_early_ok_shape() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "inferred-failure-only-result-tail.xsh",
+                r#"
+pure tail_attempt(flag, value) {
+  if flag { return Ok(value) }
+  Err(error.failure("tail"))
+}
+let success: Result[Int] = tail_attempt(true, 4)
+let failure: Result[Int] = tail_attempt(false, 5)
+assert success == Ok(4)
+assert match failure { Err(problem) => problem.message == "tail"; Ok(_) => false }
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
     fn inferred_dynamic_return_cleanup_runs_with_monomorphic_capture() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture(
