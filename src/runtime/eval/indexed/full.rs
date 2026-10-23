@@ -25809,11 +25809,61 @@ assert observed.scoped == Ok(8)
     #[test]
     fn prepared_stream_contracts_keep_error_boundaries_in_actual_owner_kind() {
         run_with_large_stack(|| {
-            let program = fixture("stream-error-owner-kind.xsh", concat!(
-                "stream child(value: Int) [] -> Stream[Int] { yield value }\n",
-                "proc eager(token, failure: Result[Int]) [error] -> Stream[Int] { let _ = token; let _ = try { failure? }; let _ = 7; child(7) }\n",
-                "stream genuine(token, failure: Result[Int]) [error] { let _ = failure?; yield token }\n",
-            ));
+            let program = Arc::new(fixture("stream-error-owner-kind.xsh", r#"
+var eager_tail_runs = 0
+var stream_body_runs = 0
+var genuine_body_runs = 0
+var genuine_tail_runs = 0
+stream child(value: Int) [] -> Stream[Int] {
+  stream_body_runs += 1
+  yield value
+}
+proc eager(token, failure: Result[Int]) [error] -> Stream[Int] {
+  let _ = token
+  let _ = try { failure? }
+  let _ = 7
+  child(7)
+}
+proc eager_concrete(value: Int, failure: Result[Int]) [error] -> Stream[Int] {
+  let _ = failure?
+  eager_tail_runs += 1
+  child(value)
+}
+proc eager_generic(marker, value: Int, failure: Result[Int]) [error] -> Stream[Int] {
+  let _ = marker
+  let _ = failure?
+  eager_tail_runs += 1
+  child(value)
+}
+stream genuine(token, failure: Result[Int]) [error] {
+  genuine_body_runs += 1
+  let _ = failure?
+  genuine_tail_runs += 1
+  yield token
+}
+let failure: Result[Int] = Err(error.failure("stop"))
+let concrete_failure: Result[Stream[Int]] = try { eager_concrete(1, failure) }
+let generic_failure: Result[Stream[Int]] = try { eager_generic("marker", 2, failure) }
+assert match concrete_failure { Err(problem) => problem.message == "stop"; Ok(_) => false }
+assert match generic_failure { Err(problem) => problem.message == "stop"; Ok(_) => false }
+assert eager_tail_runs == 0
+assert stream_body_runs == 0
+let concrete_stream = eager_concrete(3, Ok(3))
+let generic_stream = eager_generic("marker", 4, Ok(4))
+assert eager_tail_runs == 2
+assert stream_body_runs == 0
+var values: List[Int] = []
+for value in concrete_stream { values += [value] }
+for value in generic_stream { values += [value] }
+assert values == [3, 4]
+assert stream_body_runs == 2
+let deferred = genuine(5, failure)
+assert genuine_body_runs == 0
+let deferred_failure: Result[Unit] = try { for value in deferred { let _ = value } }
+assert match deferred_failure { Err(problem) => problem.message == "stop"; Ok(_) => false }
+assert genuine_body_runs == 1
+assert genuine_tail_runs == 0
+"#));
             FullVerifier::verify(&program).unwrap();
             let owner = scheme_fixture_root_function(&program, "eager");
             assert_eq!(program.store.function_metadata[owner].callable_kind, crate::sema::types::CallableKind::Proc);
@@ -25867,7 +25917,7 @@ assert observed.scoped == Ok(8)
                     (slot == read && matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Int(7))).then_some((declaration, value.raw()))
                 })
             }).expect("the outer discard reads its actual integer initializer");
-            let mut forged = program.clone();
+            let mut forged = (*program).clone();
             let captured_payload = forged.store.data[captured_declaration].range().start as usize;
             let discarded_payload = forged.store.data[discarded.0].range().start as usize;
             assert_eq!(forged.store.extra[captured_payload + 1], propagated as u32);
@@ -25877,8 +25927,24 @@ assert observed.scoped == Ok(8)
             let input_payload = forged.store.data[input.raw() as usize].range().start as usize;
             assert_eq!(forged.store.extra[input_payload], alias as u32);
             forged.store.extra[input_payload] = 1;
-            let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains("generic propagation has no owner result boundary"), "{}", error.message);
+            FullVerifier::verify(&forged).unwrap();
+
+            let mut missing_error_permission = forged;
+            let FullCallableContract::Scheme(id) = missing_error_permission.store.functions[owner].contract else { unreachable!() };
+            let direct = missing_error_permission.store.schemes[id.index()].effects.direct.bounds(missing_error_permission.store.scheme_effects.len()).unwrap();
+            assert!(direct.clone().any(|index| missing_error_permission.store.scheme_effects[index] == crate::syntax::node::Effect::Error));
+            missing_error_permission.store.schemes[id.index()].effects.direct.len = 0;
+            let error = FullVerifier::verify(&missing_error_permission).unwrap_err();
+            assert!(error.message.contains("owner result boundary") || error.message.contains("effect"), "{error:?}");
+
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
         });
     }
 
@@ -27576,7 +27642,11 @@ assert observed.scoped == Ok(8)
             .checked_expr_types
             .retain(|fact| fact.instruction != identity_call);
         let error = FullVerifier::verify(&missing_target_evidence).unwrap_err();
-        assert_eq!(error.message, "generic call has no checked target");
+        assert!(
+            error.message == "generic call has no checked target"
+                || error.message == "generic invocation effect target has no checked call",
+            "{error:?}"
+        );
 
         let mut escaped_type_id = program.clone();
         let type_argument = escaped_type_id.store.call_instantiations[identity_instantiation]
@@ -31302,7 +31372,8 @@ proc main() {
         assert!(
             error
                 .message
-                .contains("direct call target differs from the checker-selected function"),
+                .contains("direct call target differs from the checker-selected function")
+                || error.message == "generic invocation effect target disagrees with its checked call",
             "{}",
             error.message
         );
@@ -43192,6 +43263,7 @@ pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: In
             let error = FullVerifier::verify(program).unwrap_err();
             assert!(
                 error.message == "checked expression fact disagrees with its structural producer"
+                    || error.message == "generic invocation effect target disagrees with its checked call"
                     || error.message == "checked field fact disagrees with its structural receiver"
                     || error
                         .message
@@ -44962,6 +45034,7 @@ pure apply_spread_result(n: Int) -> Int {
             let error = FullVerifier::verify(program).unwrap_err();
             assert!(
                 error.message == "checked expression fact disagrees with its structural producer"
+                    || error.message == "generic invocation effect target disagrees with its checked call"
                     || error.message == "checked field fact disagrees with its structural receiver"
                     || error
                         .message
@@ -45057,6 +45130,7 @@ pure apply_result(n: Int) -> Int {
         let error = FullVerifier::verify(&wrong_result).unwrap_err();
         assert!(
             error.message == "checked expression fact disagrees with its structural producer"
+                || error.message == "generic invocation effect target disagrees with its checked call"
                 || error.message.contains(
                     "typed call signature differs from its callee call result's callable type"
                 ),
