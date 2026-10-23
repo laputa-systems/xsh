@@ -43610,6 +43610,105 @@ assert last_alias(keyed) == "negative"
     }
 
     #[test]
+    fn generic_scheme_value_calls_preserve_captured_index_validation() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-value-call-capture.xsh", r#"
+type TextRow = {name: Str}
+pure identity(value) { value }
+pure read(values, key) { values[key] }
+pure captured(value, values, key, row: Result[TextRow, Str]) {
+  let actions = {copy: identity, read: read}
+  try {
+    let _ = actions.copy(value)
+    let _ = actions.read(values, key)
+    row?.name
+  }
+}
+let values: Map[UInt, Int] = {[0]: 7}
+let row: Result[TextRow, Str] = Ok({name: "row"})
+let _ = captured(9, values, 0, row)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "captured");
+            let FullCallableContract::Scheme(owner_scheme) = program.store.functions[owner].contract else { panic!("captured function retains its scheme") };
+            let owner_scheme = program.store.scheme(owner_scheme).unwrap();
+            let wrappers = &program.store.scheme_wrappers[owner_scheme.wrappers.bounds(program.store.scheme_wrappers.len()).unwrap()];
+            assert!(wrappers.iter().any(|wrapper| matches!(wrapper, schemes::FullWrapper::Capture { .. })));
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let calls = program.store.scheme_callable_calls.iter()
+                .filter(|call| range.contains(&(call.instruction as usize)))
+                .copied()
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 2);
+            assert_ne!(calls[0].relationship, calls[1].relationship);
+            let call_for = |name: &str| calls.iter().find(|call| {
+                let target = program.store.scheme_callable_values[call.relationship as usize].canonical;
+                program.store.string(program.store.functions[target.index()].name).unwrap() == name
+            }).copied().unwrap();
+            let index_call = call_for("read");
+            let other_call = call_for("identity");
+
+            let mut missing = (*program).clone();
+            missing.store.scheme_callable_calls.retain(|call| call.instruction != index_call.instruction);
+            FullVerifier::verify(&missing).expect_err("captured scheme-value call requires its owned callable relationship");
+
+            let mut foreign = (*program).clone();
+            foreign.store.scheme_callable_calls.iter_mut()
+                .find(|call| call.instruction == index_call.instruction).unwrap().relationship = other_call.relationship;
+            FullVerifier::verify(&foreign).expect_err("captured scheme-value call cannot borrow another callable relationship");
+
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_proc_index_keeps_conditional_completion_relationship() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-proc-index-completion.xsh", r#"
+proc read(values, key) { values[key] }
+let signed: Map[Int, Int] = {[0]: 3}
+let unsigned: Map[UInt, Int] = {[0]: 7}
+let signed_value = read(signed, 0)
+let unsigned_value = read(unsigned, 0)
+assert signed_value == Ok(3)
+assert unsigned_value == Ok(7)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "read");
+            let FullCallableContract::Scheme(owner_scheme) = program.store.functions[owner].contract else { panic!("read retains its generic scheme") };
+            let owner_scheme = program.store.scheme(owner_scheme).unwrap();
+            let wrappers = &program.store.scheme_wrappers[owner_scheme.wrappers.bounds(program.store.scheme_wrappers.len()).unwrap()];
+            let completion = wrappers.iter().find_map(|wrapper| match wrapper {
+                schemes::FullWrapper::ProcCompletion { detail, .. } => Some(*detail),
+                _ => None,
+            }).expect("inferred Proc return retains its completion group");
+            let contribution_range = program.store.wrapper_completions[completion as usize].contributions
+                .bounds(program.store.wrapper_contributions.len()).unwrap();
+            let contributions = &program.store.wrapper_contributions[contribution_range.clone()];
+            let validation = contributions.iter().position(|contribution| matches!(contribution, schemes::FullWrapperContribution::IndexValidation(_)))
+                .expect("the index operation remains a conditional proc-completion contribution");
+            let mut foreign_validation = (*program).clone();
+            foreign_validation.store.wrapper_contributions[contribution_range.start + validation] = schemes::FullWrapperContribution::IndexValidation(u32::MAX);
+            assert!(FullVerifier::verify(&foreign_validation).is_err());
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
     fn generic_constant_index_relationship_preserves_record_and_map_producers() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-constant-index.xsh", r#"

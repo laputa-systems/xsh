@@ -320,6 +320,41 @@ fn propagation_boundary<'a>(scope: &LexicalScope, scopes: &'a LexicalScopes) -> 
     scope.error_boundary.map_or(&scopes.function_boundary, |index| &scopes.error_boundaries[index])
 }
 
+fn record_capture_transfers(
+    store: &FullStore,
+    decoder: &FullDecoder<'_>,
+    scheme_scope: &SchemeScope,
+    effect_scopes: &VerifiedSchemeScopes,
+    wrapper_sites: &BTreeMap<usize, u32>,
+    operation_sites: &BTreeMap<usize, u32>,
+    instruction: usize,
+    scope: &LexicalScope,
+    scopes: &LexicalScopes,
+    types: &BTreeMap<usize, SchemeType>,
+    captures: &mut [producers::CaptureErrorRequest],
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(scope, scopes) else { return Ok(()) };
+    let transfers = wrappers::actual_transfer(
+        store,
+        decoder,
+        scheme_scope,
+        effect_scopes,
+        wrapper_sites.get(&instruction).copied(),
+        operation_sites.get(&instruction).copied(),
+        instruction,
+        decoder.expression_view(instruction)?,
+        types,
+        budget,
+    )?;
+    if transfers.is_empty() { return Ok(()) }
+    budget.charge(transfers.len())?;
+    let request = captures.get_mut(*request).filter(|request| request.instruction == *capture && request.owner == decoder.owner)
+        .ok_or_else(|| IrVerifyError::new("captured transfer has no actual capture owner"))?;
+    request.transfers.extend(transfers.into_iter().map(|transfer| (instruction, transfer)));
+    Ok(())
+}
+
 fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     if scope.binding(scopes, slot, budget)?.is_some() { return Err(IrVerifyError::new("generic declaration rewrites a visible slot")); }
     budget.charge(1)?;
@@ -806,6 +841,7 @@ pub(super) fn verify_body(
                             applications.insert(instruction);
                             applications::verify_site(store, decoder, instruction, scheme_scope, effect_scopes, scope.error_boundary.is_some(), types, budget)?
                         };
+                        record_capture_transfers(store, decoder, scheme_scope, effect_scopes, wrapper_sites, operation_sites, instruction, &scope, &scopes, types, &mut captures, budget)?;
                         for child in children {
                             pending.push(Obligation::Expression(child, scope));
                         }
@@ -960,14 +996,7 @@ pub(super) fn verify_body(
                     _ => {
                         let mut children = Vec::new();
                         verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, budget, constant_budget)?;
-                        if let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(&scope, &scopes) {
-                            let transfers = wrappers::actual_transfer(store, scheme_scope, effect_scopes, wrapper_sites.get(&instruction).copied(), operation_sites.get(&instruction).copied(), instruction, decoder.expression_view(instruction)?, types, budget)?;
-                            if !transfers.is_empty() {
-                                budget.charge(transfers.len())?;
-                                let request = captures.get_mut(*request).filter(|request| request.instruction == *capture && request.owner == decoder.owner).ok_or_else(|| IrVerifyError::new("captured transfer has no actual capture owner"))?;
-                                request.transfers.extend(transfers.into_iter().map(|transfer| (instruction, transfer)));
-                            }
-                        }
+                        record_capture_transfers(store, decoder, scheme_scope, effect_scopes, wrapper_sites, operation_sites, instruction, &scope, &scopes, types, &mut captures, budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -1847,7 +1876,7 @@ mod tests {
         let mut missing_selected_group = program.clone();
         let group_binding = selected_call.arguments.wrapper_bindings.start as usize + projected_group;
         missing_selected_group.store.call_wrapper_bindings[group_binding] = super::super::super::schemes::FullWrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::ProcCompletion);
-        assert_eq!(FullVerifier::verify(&missing_selected_group).unwrap_err().message, "selected wrapper retains a symbolic type");
+        assert_eq!(FullVerifier::verify(&missing_selected_group).unwrap_err().message, "forwarded wrapper refers to an unforwarded proc completion group");
 
         let mut wrong_group = program.clone();
         let binding = instantiation.arguments.wrapper_bindings.start as usize + projected_group;

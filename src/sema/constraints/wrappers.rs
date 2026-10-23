@@ -803,6 +803,28 @@ impl TypeConstraints {
             }
             *contributions = retained.into();
         }
+        if let WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Ready(contributions), .. } = &mut generalized.kind {
+            let mut retained = Vec::with_capacity(contributions.len());
+            for contribution in contributions.iter() {
+                match contribution {
+                    crate::sema::wrapper_operation::WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation_id)) => {
+                        let entry = self.operations.entries.get(operation_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                        let operation = entry.operation.try_map(|ty| self.resolve(ty))?;
+                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else {
+                            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
+                        };
+                        if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+                            retained.push(crate::sema::wrapper_operation::WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
+                        }
+                    }
+                    crate::sema::wrapper_operation::WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)),
+                    _ => retained.push(contribution.clone()),
+                }
+            }
+            *contributions = retained.into();
+        }
         map_wrapper_groups(&mut generalized, |group| match group {
             WrapperGroupRef::Source(group) => {
                 let id = self.group_wrapper_id(group, owner)?;

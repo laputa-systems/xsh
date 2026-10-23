@@ -224,10 +224,10 @@ fn selection(
         let Some(actual_error) = completion_error_join(store, scope, contributions, substitution, budget)? else {
             return Err(IrVerifyError::new("selected proc completion has unresolved index validation"));
         };
-        let SchemeType::Result(_, expected_error) = returned else {
+        let Some(expected_error) = super::body::completion_result_error(returned, budget)? else {
             return Err(IrVerifyError::new("selected proc completion has no Result return"));
         };
-        if !body_types_equal(&actual_error, expected_error) {
+        if !body_types_equal(&actual_error, &expected_error) {
             return Err(IrVerifyError::new("selected proc completion disagrees with its source errors"));
         }
         return Ok(WrapperSelection::ProcCompletion);
@@ -361,15 +361,11 @@ pub(super) fn verify_index_validation_site(
             }
         }
         B::TopLevel => {
-            if captured || !matches!(actual_boundary, PropagationBoundary::Unavailable) {
-                return Err(IrVerifyError::new("index validation top-level boundary has a callable error destination"));
-            }
+            return Err(IrVerifyError::new("index validation top-level boundary has a callable owner"));
         }
     }
-    if !super::operations::index_requires_uint_validation(receiver, key) {
-        return Ok(None);
-    }
     if let B::Return(returned) | B::ErrorReturn(returned) = &boundary
+        && super::operations::index_requires_uint_validation(receiver, key)
         && super::operations::result_error_type(returned).is_some_and(|error| error.is_none_or(|error| !Type::Error.matches_expected(&error)))
     {
         return Err(IrVerifyError::new("UInt map key validation error is outside the callable Result contract"));
@@ -678,7 +674,8 @@ pub(super) fn encoded_types(store: &FullStore, encoded: FullWrapper) -> Result<V
             for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
                 types.push(match contribution {
                     FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
-                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidation(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::IndexValidation(_) => continue,
                 });
             }
             types
@@ -1007,7 +1004,8 @@ pub(super) fn evidence_roots(store: &FullStore, encoded: FullWrapper) -> Result<
             for contribution in bounded(completion.contributions, &store.wrapper_contributions, "wrapper completion contribution range is invalid")? {
                 inputs.push(match contribution {
                     FullWrapperContribution::PropagatedError(ty) | FullWrapperContribution::ReturnedResult(ty) | FullWrapperContribution::FieldSource(ty) | FullWrapperContribution::ApplicationSource(ty) => *ty,
-                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidation(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) | FullWrapperContribution::IndexValidationBoundary(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
+                    FullWrapperContribution::IndexValidation(_) => continue,
                 });
             }
             (inputs, vec![result_error_id(store, returned)?])
@@ -1088,7 +1086,7 @@ pub(super) fn capture_boundary(store: &FullStore, scope: &SchemeScope, ordinal: 
     Ok(PropagationBoundary::CaptureRelationship { instruction, request })
 }
 
-pub(super) fn actual_transfer(store: &FullStore, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: Option<u32>, operation_ordinal: Option<u32>, instruction: usize, view: schema::ExprView<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
+pub(super) fn actual_transfer(store: &FullStore, decoder: &FullDecoder<'_>, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: Option<u32>, operation_ordinal: Option<u32>, instruction: usize, view: schema::ExprView<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
     match view {
         schema::ExprView::Index { base, index, .. } => {
             let (receiver, key) = if let Some(operation) = operation_ordinal {
@@ -1114,7 +1112,7 @@ pub(super) fn actual_transfer(store: &FullStore, scope: &SchemeScope, effect_sco
         schema::ExprView::Call { .. }
         | schema::ExprView::DirectPureCall { .. }
         | schema::ExprView::SelfCall { .. }
-        | schema::ExprView::DynamicCall { .. } => call_index_validation_transfers(store, scope, effect_scopes, instruction, budget),
+        | schema::ExprView::DynamicCall { .. } => call_index_validation_transfers(store, decoder, scope, effect_scopes, instruction, budget),
         schema::ExprView::Field { .. } if ordinal.is_some() => {
             let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal.unwrap() as usize).ok_or_else(|| IrVerifyError::new("wrapper field ordinal is out of bounds"))?;
             let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
@@ -1134,14 +1132,32 @@ pub(super) fn actual_transfer(store: &FullStore, scope: &SchemeScope, effect_sco
     }
 }
 
-fn call_index_validation_transfers(store: &FullStore, caller_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
+fn call_index_validation_transfers(store: &FullStore, decoder: &FullDecoder<'_>, caller_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
     let Ok(instruction) = u32::try_from(instruction) else { return Ok(Vec::new()); };
     budget.charge(1)?;
     let Ok(index) = store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction) else { return Ok(Vec::new()); };
     let instantiation = store.call_instantiations[index];
-    let target = store.checked_call_targets.binary_search_by_key(&instruction, |target| target.instruction).ok()
-        .map(|index| store.checked_call_targets[index].function)
-        .ok_or_else(|| IrVerifyError::new("captured generic call has no checked target"))?;
+    let target = match decoder.expression_view(instruction as usize)? {
+        schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. } | schema::ExprView::SelfCall { .. } => {
+            store.checked_call_targets.binary_search_by_key(&instruction, |target| target.instruction).ok()
+                .map(|index| store.checked_call_targets[index].function)
+                .ok_or_else(|| IrVerifyError::new("captured generic call has no checked target"))?
+        }
+        schema::ExprView::DynamicCall { callee, .. } => {
+            if store.checked_call_targets.binary_search_by_key(&instruction, |target| target.instruction).is_ok() {
+                return Err(IrVerifyError::new("captured scheme-value call also has a direct target"));
+            }
+            let call = store.scheme_callable_calls.binary_search_by_key(&instruction, |call| call.instruction)
+                .map_err(|_| IrVerifyError::new("captured scheme-value call has no callable relationship"))?;
+            let call = store.scheme_callable_calls[call];
+            if super::scheme_callable_source_relationship(store, decoder, callee.raw(), &effect_scopes.scopes, budget)? != call.relationship {
+                return Err(IrVerifyError::new("captured scheme-value call disagrees with its callable relationship"));
+            }
+            store.scheme_callable_values.get(call.relationship as usize)
+                .ok_or_else(|| IrVerifyError::new("captured scheme-value relationship is out of bounds"))?.canonical
+        }
+        _ => return Err(IrVerifyError::new("captured call transfer has another expression kind")),
+    };
     let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("captured generic call target is out of bounds"))?;
     let FullCallableContract::Scheme(callee_id) = function.contract else { return Err(IrVerifyError::new("captured generic call target has no scheme")); };
     let callee = store.scheme(callee_id)?;

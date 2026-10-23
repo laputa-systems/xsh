@@ -1332,6 +1332,23 @@ impl TypeConstraints {
                 }
                 *operation = super::wrapper_operation::WrapperOperationRef::Source(operation_id);
             }
+            if let super::wrapper_operation::WrapperRequirementKind::ProcCompletion { contributions: super::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = &mut requirement.kind {
+                let mut instantiated = Vec::with_capacity(contributions.len());
+                for contribution in contributions.iter() {
+                    instantiated.push(match contribution {
+                        super::wrapper_operation::WrapperCompletionContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+                            let operation = *operations.get(*ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
+                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. })) {
+                                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
+                            }
+                            super::wrapper_operation::WrapperCompletionContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Source(operation))
+                        }
+                        super::wrapper_operation::WrapperCompletionContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation)),
+                        contribution => contribution.clone(),
+                    });
+                }
+                *contributions = instantiated.into();
+            }
             super::wrapper_operation::map_wrapper_groups(&mut requirement, |group| match group {
                 super::wrapper_operation::WrapperGroupRef::Ordinal(group) => wrapper_groups.get(group as usize).and_then(|group| *group)
                     .map(super::wrapper_operation::WrapperGroupRef::Source).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),

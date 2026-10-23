@@ -1170,9 +1170,31 @@ impl SchemeBodyFacts {
     }
     pub(crate) fn wrapper_site(&self, expression: ExprId) -> Option<u32> { self.wrapper_sites.get(&expression).copied() }
     pub(crate) fn has_proc_completion_source(&self) -> bool {
-        self.wrapper_sites.values().any(|ordinal| self.scheme.callable().requirements().wrappers.get(*ordinal as usize).is_some_and(|requirement| {
-            matches!(&requirement.kind, super::wrapper_operation::WrapperRequirementKind::Field { boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion { .. }, .. })
-        }))
+        if self.scheme.kind() != crate::sema::types::CallableKind::Proc { return false; }
+        let wrappers = &self.scheme.callable().requirements().wrappers;
+        self.wrapper_sites.values().any(|ordinal| {
+            let Some(requirement) = wrappers.get(*ordinal as usize) else { return false; };
+            let (group, returned) = match &requirement.kind {
+                super::wrapper_operation::WrapperRequirementKind::Field {
+                    boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
+                        returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
+                    }, ..
+                }
+                | super::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                    boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
+                        returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
+                    }, ..
+                } => (*group, returned),
+                _ => return false,
+            };
+            matches!(wrappers.get(group as usize).map(|requirement| &requirement.kind), Some(
+                super::wrapper_operation::WrapperRequirementKind::ProcCompletion {
+                    group: super::wrapper_operation::WrapperGroupRef::Ordinal(actual_group),
+                    returned: group_return,
+                    contributions: super::wrapper_operation::WrapperCompletionContributions::Ready(_),
+                }
+            ) if *actual_group == group && group_return == returned)
+        })
     }
 
     pub(crate) fn proc_completion_accepts_returned_result(&self, source: &SchemeType) -> bool {
@@ -1182,13 +1204,19 @@ impl SchemeBodyFacts {
         let wrappers = &self.scheme.callable().requirements().wrappers;
         self.wrapper_sites.values().any(|ordinal| {
             let Some(requirement) = wrappers.get(*ordinal as usize) else { return false; };
-            let super::wrapper_operation::WrapperRequirementKind::Field {
-                boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
-                    returned: field_return,
-                    group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
-                },
-                ..
-            } = &requirement.kind else { return false; };
+            let (field_return, group) = match &requirement.kind {
+                super::wrapper_operation::WrapperRequirementKind::Field {
+                    boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
+                        returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
+                    }, ..
+                }
+                | super::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                    boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
+                        returned, group: super::wrapper_operation::WrapperGroupRef::Ordinal(group),
+                    }, ..
+                } => (returned, group),
+                _ => return false,
+            };
             let Some(group_requirement) = wrappers.get(*group as usize) else { return false; };
             let super::wrapper_operation::WrapperRequirementKind::ProcCompletion {
                 group: super::wrapper_operation::WrapperGroupRef::Ordinal(actual_group),
