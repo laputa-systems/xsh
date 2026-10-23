@@ -3898,27 +3898,7 @@ fn checked_lowered_return_value(
     normalize_error_payload: bool,
 ) -> Result<LoweredValue, RuntimeError> {
     let value = if normalize_error_payload {
-        match value {
-            LoweredValue::ResultErr(error) => {
-                let trace_error = if matches!(error.as_ref(), Value::Error(_) | Value::RunError(_)) {
-                    None
-                } else {
-                    Some((
-                        TraceError::from_value(error.as_ref()),
-                        TraceError::from_propagated_value(error.as_ref()),
-                    ))
-                };
-                let error = inferred_proc_error_value(*error, span);
-                if let Some((raw_value_trace, propagated_trace)) = trace_error
-                    && let Some(traceback) = pending_traceback
-                    && (traceback.error == raw_value_trace || traceback.error == propagated_trace)
-                {
-                    traceback.error = TraceError::from_propagated_value(&error);
-                }
-                LoweredValue::ResultErr(Box::new(error))
-            }
-            value => value,
-        }
+        normalize_inferred_result_error(value, span, pending_traceback)
     } else {
         value
     };
@@ -3936,6 +3916,30 @@ fn checked_lowered_return_value(
         .with_span(span));
     }
     Ok(value)
+}
+
+pub(in crate::runtime::eval) fn normalize_inferred_result_error(
+    value: LoweredValue,
+    span: Span,
+    pending_traceback: &mut Option<Traceback>,
+) -> LoweredValue {
+    let LoweredValue::ResultErr(error) = value else { return value; };
+    let trace_error = if matches!(error.as_ref(), Value::Error(_) | Value::RunError(_)) {
+        None
+    } else {
+        Some((
+            TraceError::from_value(error.as_ref()),
+            TraceError::from_propagated_value(error.as_ref()),
+        ))
+    };
+    let error = inferred_proc_error_value(*error, span);
+    if let Some((raw_value_trace, propagated_trace)) = trace_error
+        && let Some(traceback) = pending_traceback
+        && (traceback.error == raw_value_trace || traceback.error == propagated_trace)
+    {
+        traceback.error = TraceError::from_propagated_value(&error);
+    }
+    LoweredValue::ResultErr(Box::new(error))
 }
 
 fn inferred_proc_error_value(value: Value, span: Span) -> Value {

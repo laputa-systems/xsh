@@ -370,7 +370,12 @@ pub(super) fn verify_handler_site(store: &FullStore, decoder: &FullDecoder<'_>, 
 }
 
 pub(super) fn capture_boundary(store: &FullStore, scope: &SchemeScope, ordinal: Option<u32>, instruction: usize, request: Option<usize>, error: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<PropagationBoundary, IrVerifyError> {
-    let Some(ordinal) = ordinal else { return Ok(PropagationBoundary::ResultError(Arc::new(error.clone()))); };
+    let Some(ordinal) = ordinal else {
+        return Ok(match request {
+            Some(request) => PropagationBoundary::CaptureRelationship { instruction, request },
+            None => PropagationBoundary::ResultError(Arc::new(error.clone())),
+        });
+    };
     let encoded = *bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("capture wrapper ordinal is out of bounds"))?;
     let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
     let K::Capture { result, .. } = requirement.kind else { return Err(IrVerifyError::new("capture instruction has another wrapper relationship")); };

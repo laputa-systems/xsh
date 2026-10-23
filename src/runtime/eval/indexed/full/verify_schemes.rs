@@ -5230,7 +5230,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
     })
 }
 
-fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
+pub(super) fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {

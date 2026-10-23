@@ -1074,7 +1074,10 @@ impl GroundProducerIndex {
         if !selected_demand {
             for instruction in 0..store.tags.len() {
                 effect_demand_work += 1;
-                if has_condition_inputs(store.tags[instruction]) || super::super::verify_effects::needs_operand_proof(store, instruction)? {
+                if has_condition_inputs(store.tags[instruction])
+                    || matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
+                    || super::super::verify_effects::needs_operand_proof(store, instruction)?
+                {
                     selected_demand = true;
                     break;
                 }
@@ -1912,6 +1915,22 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instruction)?;
         proof.verify_condition(owner, instruction, role)?;
     }
+    for instruction in 0..store.tags.len() {
+        proof.budget.charge(1)?;
+        if !matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) { continue; }
+        let owner = index.instruction_owner(instruction)?;
+        let Some(type_id) = checked_expression_type_id(store, instruction as u32) else {
+            if super::super::driver_owner_index(owner).is_none()
+                && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_))
+            { continue; }
+            return Err(IrVerifyError::new("capture or retry has no checked Result contract"));
+        };
+        let expected = proof.contract_type(type_id)?;
+        proof.expression(owner, instruction, Arc::clone(&expected), false);
+        if !matches!(expected.unvalidated(), Type::Result(_, _)) {
+            return Err(IrVerifyError::new("capture or retry checked contract is not a Result"));
+        }
+    }
     let mut deferred_method_roots = Vec::new();
     for &instruction in &index.effect_operations {
         let owner = index.instruction_owner(instruction)?;
@@ -2025,9 +2044,10 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             }) { return Err(IrVerifyError::new("capture contributions disagree with its actual body")); }
             continue;
         }
-        for actual in proof.captured_error_types(&decoder, request.instruction)?.iter() {
-            proof.budget.charge_clone(actual)?;
-            if !super::body_type_matches(&crate::sema::schemes::SchemeType::Ground(actual.clone()), &request.expected_error, &mut proof.budget)? {
+        let errors = proof.captured_error_types(&decoder, request.instruction)?;
+        if !errors.is_empty() {
+            let actual = proof.join_captured_errors(errors.as_ref())?;
+            if !super::body_type_matches(&crate::sema::schemes::SchemeType::Ground(actual), &request.expected_error, &mut proof.budget)? {
                 return Err(IrVerifyError::new("generic captured error disagrees with its actual producer"));
             }
         }
@@ -4547,7 +4567,9 @@ impl<'a> ProducerProof<'a> {
                 let Type::Result(ok, error) = expected.unvalidated() else { return Err(IrVerifyError::new("ground capture has no Result contract")) };
                 self.budget.charge_clone(ok)?;
                 self.budget.charge_clone(error)?;
-                for actual in self.captured_error_types(&decoder, instruction)?.iter() {
+                let errors = self.captured_error_types(&decoder, instruction)?;
+                if !errors.is_empty() {
+                    let actual = self.join_captured_errors(errors.as_ref())?;
                     if !actual.matches_expected(error) { return Err(IrVerifyError::new("captured error producer disagrees with its nominal error contract")); }
                 }
                 self.verify_block_value(&decoder, body, Arc::new((**ok).clone()), false)
@@ -4560,7 +4582,9 @@ impl<'a> ProducerProof<'a> {
                     self.budget.charge(1)?;
                     self.expression(owner, delay?.raw() as usize, Arc::new(Type::Duration), false);
                 }
-                for actual in self.captured_error_types(&decoder, instruction)?.iter() {
+                let errors = self.captured_error_types(&decoder, instruction)?;
+                if !errors.is_empty() {
+                    let actual = self.join_captured_errors(errors.as_ref())?;
                     if !actual.matches_expected(error) { return Err(IrVerifyError::new("retry error producer disagrees with its nominal error contract")); }
                 }
                 self.budget.charge(body.len())?;

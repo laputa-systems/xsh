@@ -1466,6 +1466,36 @@ impl FullProgram {
         self.store.semantic.to_type(fact.type_id).map(Some)
     }
 
+    fn expression_has_generic_error_result(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
+        let owner = ExecutableOwner::from_raw(owner)?;
+        let range = match owner {
+            ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
+            ExecutableOwner::Driver(driver) => self.store.driver_instruction_range(driver)?,
+        };
+        if !range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("checked expression belongs to another owner")); }
+        if let ExecutableOwner::Function(function) = owner
+            && let FullCallableContract::Scheme(id) = self.store.functions[function.index()].contract
+        {
+            let scheme = self.store.scheme(id)?;
+            let range = scheme.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("checked expression fact range is invalid"))?;
+            let facts = &self.store.scheme_body_facts[range];
+            let key = (instruction, schemes::FullSchemeBodyFactKind::Expression as u8);
+            let index = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8))
+                .map_err(|_| IrVerifyError::new("checked expression fact is missing"))?;
+            if facts[index].function != function { return Err(IrVerifyError::new("checked expression fact belongs to another function")); }
+            let type_id = facts[index].ty().ok_or_else(|| IrVerifyError::new("checked expression fact has no material type"))?;
+            return instantiated_scheme_return_has_generic_error_result(&self.store, type_id, &invocation.substitution);
+        }
+        let index = self.store.checked_expr_types.binary_search_by_key(&instruction, |fact| fact.instruction)
+            .map_err(|_| IrVerifyError::new("checked expression contract is missing"))?;
+        let fact = self.store.checked_expr_types[index];
+        match fact.purpose {
+            FullCheckedExprPurpose::CheckedContract { .. } => {}
+            _ => return Err(IrVerifyError::new("checked expression fact has no authenticated owner")),
+        }
+        self.store.semantic.is_generic_error_result(fact.type_id)
+    }
+
     pub(in crate::runtime::eval) fn stream_origin_item_type(
         &self, origin: crate::runtime::eval::PreparedStreamOrigin, invocation: &PreparedInvocationBindings,
     ) -> Result<Type, IrVerifyError> {
@@ -5894,6 +5924,12 @@ pub(in crate::runtime::eval) struct FullExecution<'p> {
 }
 
 impl<'p> FullExecution<'p> {
+    pub(in crate::runtime::eval) fn expression_has_generic_error_result(
+        &self, instruction: u32, invocation: &PreparedInvocationBindings,
+    ) -> Result<bool, IrVerifyError> {
+        self.program().expression_has_generic_error_result(self.owner, instruction, invocation)
+    }
+
     pub(in crate::runtime::eval) fn stream_factory_contract(
         &self, instruction: u32, invocation: &PreparedInvocationBindings, root: Option<&Arc<FullProgram>>,
     ) -> Result<Option<Arc<crate::runtime::eval::PreparedStreamContract>>, IrVerifyError> {
@@ -11370,7 +11406,15 @@ impl<'a> FullDecoder<'a> {
         };
         let checked_unsigned_integer_literal =
             matches!(&view, schema::ExprView::UInt(_)) && ty == Type::UInt;
+        let checked_capture_result = matches!(self.store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
+            && matches!(ty, Type::Result(_, _));
         let checked_result_constructor = fact.authenticates_result_constructor(self.store.tags[instruction], &ty)?;
+        if checked_capture_result {
+            if fact.function_ref().is_some() || fact.with_error_source() {
+                return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
+            }
+            verify_schemes::ensure_closed_type(&ty)?;
+        }
         if !ty.contains_typed_callable()
             && crate::runtime::eval::stream_return_item(&ty).is_none()
             && !fact.with_error_source()
@@ -11378,6 +11422,7 @@ impl<'a> FullDecoder<'a> {
             && !generic_call_result
             && !checked_unsigned_integer_literal
             && !matches!(&view, schema::ExprView::PreparedConstant(_))
+            && !checked_capture_result
             && !checked_result_constructor
         {
             return Err(IrVerifyError::new(
@@ -12016,12 +12061,33 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::Capture { mut body, .. } => {
-                let Type::Result(ok, _) = &ty else { return Err(IrVerifyError::new("checked stream capture has no Result contract")); };
-                if crate::runtime::eval::stream_return_item(ok).is_none() { return reject_producer(); }
+                let Type::Result(ok, _) = &ty else { return Err(IrVerifyError::new("checked capture has no Result contract")); };
                 match self.checked_value_block_result(&mut body)? {
                     CheckedValueBlockResult::Tail(value) => require_child(value, ok)?,
                     CheckedValueBlockResult::DoesNotComplete => {}
-                    CheckedValueBlockResult::Unit => return Err(IrVerifyError::new("checked stream capture completes without a value tail")),
+                    CheckedValueBlockResult::Unit if Type::Unit.matches_expected(ok) => {}
+                    CheckedValueBlockResult::Unit => return Err(IrVerifyError::new("checked capture completes without a compatible value tail")),
+                }
+            }
+            schema::ExprView::Retry { delays, mut body, .. } => {
+                let Type::Result(ok, _) = &ty else { return Err(IrVerifyError::new("checked retry has no Result contract")); };
+                for delay in delays { require_child(delay?.raw() as usize, &Type::Duration)?; }
+                match self.checked_value_block_result(&mut body)? {
+                    CheckedValueBlockResult::Tail(value) => {
+                        let actual = if let Some(type_id) = self.expression_checked_type_id(value)? {
+                            Some(self.store.semantic.to_type(type_id)?)
+                        } else {
+                            self.derive_checked_expression_type(value)?
+                        };
+                        if actual.as_ref().is_some_and(|actual| matches!(actual.unvalidated(), Type::Result(_, _))) {
+                            require_child(value, &ty)?;
+                        } else {
+                            require_child(value, ok)?;
+                        }
+                    }
+                    CheckedValueBlockResult::DoesNotComplete => {}
+                    CheckedValueBlockResult::Unit if Type::Unit.matches_expected(ok) => {}
+                    CheckedValueBlockResult::Unit => return Err(IrVerifyError::new("checked retry completes without a compatible value tail")),
                 }
             }
             schema::ExprView::ErrorContext { message, body, .. } => {
@@ -12188,7 +12254,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::SpawnRun(_)
             | schema::ExprView::SpawnCommand { .. }
             | schema::ExprView::Wait { .. }
-            | schema::ExprView::Retry { .. }
             | schema::ExprView::ProcessCommandArgv(_)
             | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
@@ -18302,7 +18367,15 @@ impl FullVerifier {
             let checked_unsigned_integer_literal =
                 store.tags[instruction] == FullTag::ExprUInt && ty == Type::UInt;
             let checked_prepared_constant = store.tags[instruction] == FullTag::ExprPreparedConstant;
+            let checked_capture_result = matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
+                && matches!(ty, Type::Result(_, _));
             let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], &ty)?;
+            if checked_capture_result {
+                if fact.function_ref().is_some() || fact.with_error_source() {
+                    return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
+                }
+                verify_schemes::ensure_closed_type(&ty)?;
+            }
             if checked_prepared_constant {
                 if fact.function_ref().is_some() || fact.with_error_source() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
@@ -18323,6 +18396,7 @@ impl FullVerifier {
                 && !generic_call_result
                 && !checked_unsigned_integer_literal
                 && !checked_prepared_constant
+                && !checked_capture_result
                 && !checked_result_constructor
             {
                 return Err(IrVerifyError::new(
@@ -41620,6 +41694,91 @@ assert handled(text_failure, "backup") == "backup"
     fn grounded_capture_preserves_mixed_string_and_outer_error_join() {
         let program = fixture("grounded-mixed-capture-errors.xsh", "type TextRow = {name: Str}\nproc outer(value: Int) [error] -> Int { value }\nproc grounded(value: TextRow?, inner: Result[Int, Str]) [] { try { let _ = outer(inner?); value?.name } }");
         FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn capture_error_joins_normalize_only_generic_error_payloads_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("capture-error-joins.xsh", r#"
+type TextRow = {name: Str}
+error CaptureFamily = First(message: Str) | Second(message: Str)
+pure outer(value: Int, fail: Bool) -> Result[Int, Error] {
+  if fail { Err(error.failure("outer")) } else { Ok(value) }
+}
+pure mixed_before(value: TextRow?, inner: Result[Int, Str], fail: Bool) {
+  try { let _ = outer(1, fail)?; let _ = inner?; value?.name }
+}
+pure mixed_after(value: TextRow?, inner: Result[Int, Str], fail: Bool) {
+  try { let _ = inner?; let _ = outer(1, fail)?; value?.name }
+}
+pure mixed_retry(value: TextRow?, inner: Result[Int, Str], fail: Bool) {
+  retry [] { let _ = outer(1, fail)?; let _ = inner?; value?.name }
+}
+pure generic_before(value, inner: Result[Int, Str], fail: Bool) {
+  try { let _ = outer(1, fail)?; let _ = inner?; value }
+}
+pure generic_after(value, inner: Result[Int, Str], fail: Bool) {
+  try { let _ = inner?; let _ = outer(1, fail)?; value }
+}
+pure string_only(value: Result[Int, Str]) -> Result[Int, Str] { try { value? } }
+pure existing_error(value: Result[Int, Error]) -> Result[Int, Error] { try { value? } }
+pure same_family(value: Result[Int, CaptureFamily]) -> Result[Int, CaptureFamily] { try { value? } }
+pure carried(value: Any) -> Result[Any] { try { value } }
+let row: TextRow? = {name: "row"}
+let failed: Result[Int, Str] = Err("kept")
+let succeeded: Result[Int, Str] = Ok(3)
+let opaque: Any = {name: "opaque"}
+let driver_capture_before = try { let _ = outer(1, false)?; let _ = failed?; 9 }
+let driver_capture_after = try { let _ = failed?; let _ = outer(1, false)?; 9 }
+let driver_retry = retry [] { let _ = outer(1, false)?; let _ = failed?; 9 }
+assert match driver_capture_before { Err(error) => error.message == "kept", else => false }
+assert match driver_capture_after { Err(error) => error.message == "kept", else => false }
+assert match driver_retry { Err(error) => error.message == "kept", else => false }
+assert match mixed_before(row, failed, false) { Err(error) => error.message == "kept", else => false }
+assert match mixed_after(row, failed, false) { Err(error) => error.message == "kept", else => false }
+assert match mixed_before(row, succeeded, true) { Err(error) => error.message == "outer", else => false }
+assert match mixed_after(row, succeeded, true) { Err(error) => error.message == "outer", else => false }
+assert match mixed_retry(row, failed, false) { Err(error) => error.message == "kept", else => false }
+assert match generic_before(7, failed, false) { Err(error) => error.message == "kept", else => false }
+assert match generic_after(7, failed, false) { Err(error) => error.message == "kept", else => false }
+assert string_only(failed) == failed
+let retained: Result[Int, Error] = Err(error.failure("existing"))
+assert match existing_error(retained) { Err(error) => error.message == "existing", else => false }
+assert existing_error(retained) == retained
+let nominal: Result[Int, CaptureFamily] = Err(CaptureFamily.Second(message: "nominal"))
+assert same_family(nominal) == nominal
+assert carried(opaque)? == opaque
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let (driver, capture) = (0..program.store.driver_steps.len()).find_map(|driver| {
+                program.store.driver_instruction_range(driver).ok()?.find(|&instruction| program.store.tags[instruction] == FullTag::ExprCapture).map(|instruction| (driver, instruction))
+            }).expect("top-level capture instruction");
+            let contract = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == capture).expect("capture contract");
+            assert!(program.store.checked_expr_types[contract].is_contract());
+            assert!(matches!(program.store.checked_expr_types[contract].purpose, FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false }));
+            let mut missing_context = (*program).clone();
+            missing_context.store.checked_expr_types.remove(contract);
+            assert!(FullVerifier::verify(&missing_context).is_err());
+            let mut wrong_owner = (*program).clone();
+            wrong_owner.store.checked_expr_types[contract].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Driver(usize::MAX));
+            assert!(FullVerifier::verify(&wrong_owner).is_err());
+            let mut context_only = (*program).clone();
+            context_only.store.checked_expr_types[contract].purpose = FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Driver(driver));
+            assert!(FullVerifier::verify(&context_only).is_err());
+            let mut wrong_type = (*program).clone();
+            wrong_type.store.checked_expr_types[contract].type_id = SemanticPoolBuilder::default()
+                .intern_type(&mut wrong_type.store.semantic, &Type::Int)
+                .unwrap();
+            assert!(FullVerifier::verify(&wrong_type).is_err());
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
     }
 
     #[test]

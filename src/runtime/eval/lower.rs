@@ -7107,8 +7107,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         });
         let checked_result_constructor = self.bodies.checked_control_flow.result_constructors
             .get(&self.program.arena.expr(id).span).copied();
-        let Some(ty) = self
-            .lowered_expression_contract(id, lowered, slots)
+        let Some(ty) = self.lowered_expression_contract(id, lowered, slots) else {
+            return Some(lowered);
+        };
+        let capture_or_retry = matches!(
+            self.program.arena.expr(id).kind,
+            ArenaExprKind::Capture(_) | ArenaExprKind::Retry { .. }
+        );
+        if capture_or_retry
+            && *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations)) == super::ProducerDemand::Needed
+            && matches!(ty.unvalidated(), Type::Result(_, _))
+            && !ty.contains_inference()
+            && !ty.contains_recovery()
+            && !ty.contains_builtin_parameter()
+            && !self.scratch.borrow_mut().record_checked_expr_type(lowered, self.canonicalize_checked_type(ty.clone()), false)
+        {
+            return None;
+        }
+        let Some(ty) = Some(ty)
             .filter(|ty| {
                 ty.contains_typed_callable() || matches!(ty, Type::Stream(_) | Type::Result(_, _) | Type::Optional(_)) && super::stream_return_item(ty).is_some() || with_error_source || checked_uint_literal
                     || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()

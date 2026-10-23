@@ -1193,6 +1193,7 @@ fn visit_retained_runtime_error(
 
 struct RetryFrameState {
     instruction: u32,
+    normalize_error_payload: bool,
     delay_position: ListPosition<BuildExprId>,
     pattern: Option<u32>,
     body: u32,
@@ -2683,7 +2684,7 @@ fn with_initializer_handler(
 enum ExpressionBoundaryPolicy {
     Value,
     Context(crate::runtime::value::ErrorContext),
-    Capture,
+    Capture { normalize_error_payload: bool },
     Retry(Box<RetryFrameState>),
     Scope(super::ContextScopeRestore),
 }
@@ -4244,7 +4245,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             matches!(
                 work,
                 FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Capture
+                    policy: ExpressionBoundaryPolicy::Capture { .. }
                         | ExpressionBoundaryPolicy::Retry(_),
                     ..
                 }
@@ -5289,7 +5290,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 let statement_scope = matches!(&next, FrameContinuation::StatementScopeEnd);
                 let value = match policy {
-                    ExpressionBoundaryPolicy::Capture => {
+                    ExpressionBoundaryPolicy::Capture { .. } => {
                         LoweredValue::ResultOk(Box::new(LoweredValue::Unit))
                     }
                     ExpressionBoundaryPolicy::Scope(restore) => {
@@ -6754,12 +6755,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("retry tag has a typed retry view")
                 };
+                let normalize_error_payload = self.calls[index]
+                    .execution
+                    .expression_has_generic_error_result(instruction, &self.calls[index].applications)
+                    .map_err(|error| indexed_error(error, retry_span))?;
                 let delay_position = delays.position();
                 let delay_count = delays.len();
                 self.eval_retry_delay(
                     index,
                     Box::new(RetryFrameState {
                         instruction,
+                        normalize_error_payload,
                         delay_position,
                         pattern: pattern.map(|pattern| pattern.raw()),
                         body: body.block_id(),
@@ -6782,8 +6788,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("capture tag has a typed capture view")
                 };
+                let normalize_error_payload = self.calls[index]
+                    .execution
+                    .expression_has_generic_error_result(instruction, &self.calls[index].applications)
+                    .map_err(|error| indexed_error(error, span))?;
                 self.calls[index].work.push(FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Capture,
+                    policy: ExpressionBoundaryPolicy::Capture { normalize_error_payload },
                     next,
                 });
                 self.push_statement_block(index, body.block_id(), span)?;
@@ -10222,7 +10232,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameWork::ExpressionBoundary {
                         policy: ExpressionBoundaryPolicy::Value
                             | ExpressionBoundaryPolicy::Context(_)
-                            | ExpressionBoundaryPolicy::Capture
+                            | ExpressionBoundaryPolicy::Capture { .. }
                             | ExpressionBoundaryPolicy::Retry(_)
                             | ExpressionBoundaryPolicy::Scope(_),
                         ..
@@ -11989,7 +11999,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: LoweredValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        let traceback = self.evaluator.pending_traceback.take();
+        let mut traceback = self.evaluator.pending_traceback.take();
+        let error_span = traceback
+            .as_ref()
+            .and_then(|traceback| traceback.failing_span)
+            .unwrap_or(state.span);
+        let value = if state.normalize_error_payload {
+            super::super::normalize_inferred_result_error(value, error_span, &mut traceback)
+        } else {
+            value
+        };
         let value = match value {
             LoweredValue::ResultOk(value) => *value,
             LoweredValue::ResultErr(error) => {
@@ -13615,7 +13634,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     unreachable!("expression discard retains its boundary");
                 };
                 let value = match policy {
-                    ExpressionBoundaryPolicy::Capture => {
+                    ExpressionBoundaryPolicy::Capture { .. } => {
                         LoweredValue::ResultOk(Box::new(value))
                     }
                     ExpressionBoundaryPolicy::Scope(restore) => {
@@ -13644,6 +13663,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 let StmtFlow::Propagate(value) = flow else {
                     unreachable!("captured propagation retains an error flow");
+                };
+                let normalize_error_payload = match &policy {
+                    ExpressionBoundaryPolicy::Capture { normalize_error_payload } => *normalize_error_payload,
+                    ExpressionBoundaryPolicy::Retry(retry) => retry.normalize_error_payload,
+                    _ => false,
+                };
+                let error_span = state
+                    .primary_traceback
+                    .as_ref()
+                    .and_then(|traceback| traceback.failing_span)
+                    .unwrap_or(self.calls[index].call_span);
+                let value = if normalize_error_payload {
+                    super::super::normalize_inferred_result_error(
+                        value,
+                        error_span,
+                        &mut state.primary_traceback,
+                    )
+                } else {
+                    value
                 };
                 let value = contexts
                     .into_iter()
