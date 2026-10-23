@@ -553,6 +553,10 @@ envelope rule: nonempty propagated errors determine the error type; an empty
 set retains the default Error. Execution uses the prepared error substitution.
 Proc cleanup uses the ordinary deferred-action rows and failure policy; inferred
 return envelopes include errors from actual statement and cleanup propagation.
+Generic assertions retain lazy message operands. Cold proof checks their Boolean
+condition and optional Str message; the separate effect pass requires Error.
+Checked `error.fail` calls lower to the existing failure constructor, whose
+message producer and Result[Unit, Error] contract are independently verified.
 A quantified Proc with an explicit plain or Any return can propagate through
 its checked direct Error permission. Cold proof binds that boundary to the
 actual owner and scheme, and independently proves the Result operand. Other

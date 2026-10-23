@@ -12,6 +12,15 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
+Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
+`facda4a85`, passes one focused regression with both execution routes.
+Terminal deferred actions retain Unit completion; assertion messages run only
+on failure, and Int/Str instantiations preserve exact failure payloads. Cold
+mutations of condition/message contracts and Error permission reject.
+Independent source review is clear. This closes the demonstrated ordinary-body
+omissions; combined library/native and remaining capability qualification stay
+open.
+
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
 Record and conditional values instantiate independently; mutable bindings

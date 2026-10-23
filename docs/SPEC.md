@@ -4007,8 +4007,12 @@ A checked value return keeps an explicit `Bool` value, including `false`.
 Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
 kind is itself a bare quantified parameter retains the constructor's checked
-`Ok` or `Err` envelope without a runtime payload type guess. Statement
-assertion elaboration remains unsupported in quantified bodies. Explicit
+`Ok` or `Err` envelope without a runtime payload type guess. Quantified bodies
+support `assert` with a Boolean condition and an optional `Str` message,
+evaluated only on failure. Assertions require the ordinary Error permission,
+including inside deferred actions. A terminal proc `defer` or `assert`
+completes with `Unit`. `error.fail(message)` retains its `Result[Unit, Error]`
+contract and requires a checked `Str` argument. Explicit
 `let _ = value` discards preserve `Result` values as data without propagating
 their errors. Annotated `Unit` returns are supported when their terminal
 checked value is already `Unit`. A generic proc's early value return uses the
