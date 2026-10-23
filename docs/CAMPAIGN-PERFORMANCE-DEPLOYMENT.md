@@ -31,6 +31,16 @@ this repair with the optional-record argument boundary; callable-value storage
 and ordinary-body inference remain active, while open-row rebuilding waits for
 the scheme representation to settle.
 
+Optional-record repair `0d2ed9c74`, integrated as `f2c1bae75`, passes its
+both-route regression and two constructor controls with independent review
+clear. Explicit closed source annotations preserve nullable record arguments
+when a null field prevents independent type derivation. Existing writer proof
+and complete declaration validation remain authoritative: stale validation
+rejects cold, and malformed physical data behind a valid complete validator
+fails at the declaration before the generic call on both routes. Combined
+source `f2c1bae75` is frozen for the unfiltered Rust library check. The d546
+verification products do not qualify this newer source.
+
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
 named mode/data arguments reproduce a cold-verifier failure before the repair;

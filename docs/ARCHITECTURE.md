@@ -83,6 +83,11 @@ success and error, so later proofs can reuse the decoder safely.
 Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.
+An explicitly annotated Optional record argument may retain its closed source
+type when a null field prevents standalone constructor derivation. Its owned
+writer still requires the ordinary producer proof or a complete declaration
+validator. The validator runs before binding publication and before the call;
+a call's expected result cannot supply this source authority.
 
 Each prepared generic local declaration carries its checked storage type and
 an immutable or mutable role, tied to its actual owner and declaration
