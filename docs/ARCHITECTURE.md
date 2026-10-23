@@ -499,6 +499,16 @@ operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
 
+Finite wrapper requirements retain guarded fields, fallbacks, handlers and
+captures. Calls select a checked Optional or Result mode, or forward the exact
+caller-owned requirement; execution obtains that mode from the existing type
+substitution. Cold proof authenticates actual physical operands and ordered
+capture contributions. Dynamic projected binders require evidence from their
+exact source projection. Result constructor arguments derive their selected
+payload from actual producers, using owned context only for the absent branch;
+the ordinary producer proof also checks aliases and causes. Constructor
+recursion observes the existing argument-depth bound before descending.
+
 Generalized bodies retain their actual callable kind for cleanup permission.
 Proc cleanup uses the ordinary deferred-action rows and failure policy; inferred
 return envelopes include errors from actual statement and cleanup propagation.

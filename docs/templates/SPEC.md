@@ -1473,6 +1473,11 @@ also select an `Any` instance of a generic function (9.4). Operations on that
 instance still require validation. An unannotated empty list or `null` remains
 subject to ordinary inference requirements; neither selects `Any` by default.
 
+An explicit `Any` return preserves a raw `Ok` or `Err` as opaque data,
+including through a generic function. Returning that data does not trigger
+`errdefer`. Actual failure propagation still fails the call, and a deferred
+action's failure becomes primary when no earlier failure exists.
+
 Every other use needs a concrete type that the data may not have, and is
 `check.dynamic-boundary`: a typed binding, parameter, return, or field; an
 arithmetic, ordering, or logical operand, including a `sort-by` key and
@@ -3145,6 +3150,14 @@ with or without an explicit mode, from its checked input types. Independent
 calls select independently. Result annotations do not select a receiver or
 argument domain. Named arguments retain their labels and evaluate once in
 written order, including when that order differs from parameter order.
+
+Generic guarded field access, value fallback, error handlers, and enclosing
+`try` blocks retain their Optional or Result relationships. Each call selects
+the mode from its checked inputs. An Optional containing an `Err` keeps that
+value as data; Result mode propagates or handles the outer error. Fallbacks
+and handler bodies remain lazy, and each capture joins the errors contributed
+by its actual operations. A generic relay preserves these relationships.
+
 Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
@@ -3321,9 +3334,10 @@ agreeing conditional branches. Each invocation retains this distinction; merely
 unifying a formal value's type with an application's result does not make the
 formal value an application result.
 
-A proc with no return type and a statement body returns `Result[Unit]`. A
-caller that ignores an inferred `Result[T]` must handle it like any other
-value-producing result.
+A proc with no return type and a statement body has Unit success type. Its
+error type follows the propagation and failure-only rules above; without known
+errors it defaults to `Error`. A caller that ignores an inferred `Result[T]`
+must handle it like any other value-producing result.
 
 When an inferred proc completion has outer type `Result[T, Error]`, a
 propagated non-Error payload becomes a structured `Error` with kind

@@ -18,15 +18,29 @@ source passes nine focused library controls covering methods and the existing
 Proc-envelope relationships. Full-library and complete native replay remain
 required; the earlier selection-mismatch attempt earns no qualification credit.
 
-The unintegrated wrapper lane passes seven focused capture/handler controls,
-including both execution routes, cleanup, lazy unsigned validation and cold
-forgeries. The reviewed capture proof now authenticates complete ordered actual
-transfers with charged work, replacing uncharged quadratic searches. Stored
-callable wrapper modes and handler constructor context also pass. Exact Any
-provenance has paired false-rejection and false-acceptance regressions awaiting
-repair. A separate grounded/generic comparison reproduces an explicit Any-return
-lowering gap. Omitted dynamic returns retain the existing grounded annotation
-policy.
+Wrapper repair `dcb02e1b1`, integrated as `872f7d2bf`, passes focused capture,
+handler, stored-callable and Any-provenance controls with independent review
+clear. Actual dynamic payloads execute on both routes after frontend disposal.
+Constructor payload and coordinated fact forgeries reject; a deep constructor
+alias chain retains the existing depth rejection. Complete ordered capture
+proof replaces uncharged quadratic searches. Combined source `872f7d2bf` passes
+31 of 33 focused controls. A retained corruption case rejects earlier than its
+old expected diagnostic; the corrected assertion passes at `250631339`.
+The other failure is a genuine contextual UInt constructor false rejection,
+which remains open. Compiler layout assertions pass at 120 bytes per scheme
+and 60 bytes per call-instantiation row. Full-library, native and corpus
+qualification remain required.
+
+Any-return repair `966af869b`, integrated as `f52452ae5`, passes four focused
+controls and independent review. Explicit Any returns preserve raw Result data;
+actual propagation and failed cleanup retain their failure channels. The
+regression also checks LIFO errdefer behavior. Unit-Proc repair `089eb98fa`,
+integrated as `b4ced1a2b`, infers known propagation errors instead of retaining
+the default Error placeholder. Two corrected controls and nine unchanged
+compatibility controls pass. The former conditional-propagation rejection was
+the same inference deficiency; its preserved test now asserts Result[Unit, Str],
+while an explicit incompatible contract still rejects. Omitted dynamic returns
+retain the existing grounded annotation policy.
 
 The inferred-Proc error repair `83634b225`, integrated as `016e925aa`, passes
 nine focused controls and final independent review. Ground normalization derives
