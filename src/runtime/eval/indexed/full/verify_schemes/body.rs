@@ -1890,6 +1890,84 @@ pure other(payload) { payload }
     }
 
     #[test]
+    fn generic_pipeline_alias_calls_authenticate_values_and_invocations() {
+        let program = prepare("pure identity(value) { value }\npure other(value) { [value] }\npure aliased(value) { let action = identity; let again = action; [value] |> map(again) }\npure foreign(value) { let action = other; [value] |> map(action) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "aliased").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let foreign_range = program.store.function_instruction_range(foreign).unwrap();
+        let site = program.store.scheme_callable_calls.iter().position(|site| range.contains(&(site.instruction as usize))).unwrap();
+        let foreign_site = program.store.scheme_callable_calls.iter().find(|site| foreign_range.contains(&(site.instruction as usize))).unwrap();
+        let instruction = program.store.scheme_callable_calls[site].instruction as usize;
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::DynamicCall { callee, mut args, .. } = decoder.expression_view(instruction).unwrap() else { panic!("alias retains its actual callable value") };
+        let super::super::super::decode::CallArgView::Single(argument) = args.next().unwrap().unwrap() else { unreachable!() };
+        let callee = callee.raw() as usize;
+        let argument = argument.raw() as usize;
+        assert!(matches!(decoder.expression_view(callee), Ok(schema::ExprView::Param(_))));
+        assert!(matches!(decoder.expression_view(argument), Ok(schema::ExprView::Param(_))));
+        let mut missing_invocation = program.clone();
+        missing_invocation.store.call_instantiations.retain(|instance| instance.instruction as usize != instruction);
+        assert!(FullVerifier::verify(&missing_invocation).is_err());
+        let mut wrong_relationship = program.clone();
+        wrong_relationship.store.scheme_callable_calls[site].relationship = foreign_site.relationship;
+        assert!(FullVerifier::verify(&wrong_relationship).is_err());
+        let mut wrong_value = program.clone();
+        wrong_value.store.extra[program.store.data[callee].range().start as usize] = program.store.extra[program.store.data[argument].range().start as usize];
+        assert!(FullVerifier::verify(&wrong_value).is_err());
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == callee && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&foreign_owner).is_err());
+    }
+
+    #[test]
+    fn generic_pipeline_aliases_preserve_effect_and_erasure_rejections() {
+        for source in [
+            "proc effect(value) [env] { let _ = env.get(\"HOME\"); value }\npure mapped(value) { let action = effect; [value] |> map(action) }\n",
+            "pure identity(value) { value }\npure mapped(value) { let action: Pure = identity; [value] |> map(action) }\n",
+            "pure mapped(action: Any, value) { [value] |> map(action) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn ground_pipeline_aliases_reject_generic_targets_and_foreign_metadata() {
+        let program = prepare("let prefix = \"captured:\"\npure decorated(value: Str, suffix: Str = \"!\") -> Str { prefix + value + suffix }\npure identity(value) { value }\npure observed(payload) { let action = decorated; {payload, rows: [\"kept\"] |> map(action)} }\npure generic_owner(value) { let action = identity; [value] |> map(action) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "observed").unwrap();
+        let generic_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "generic_owner").unwrap();
+        let target = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "decorated").unwrap();
+        let generic_target = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "identity").unwrap();
+        let reference = |owner| program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprFunctionRef).unwrap();
+        let instruction = reference(owner);
+        let generic = reference(generic_owner);
+        let target_fact = program.store.checked_call_targets.iter().position(|fact| fact.instruction as usize == instruction).unwrap();
+        let mut missing_target = program.clone();
+        missing_target.store.checked_call_targets.remove(target_fact);
+        assert!(FullVerifier::verify(&missing_target).is_err());
+        let mut wrong_target = program.clone();
+        let destination = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        let source = program.store.data[generic].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(destination.len(), source.len());
+        wrong_target.store.extra[destination].copy_from_slice(&program.store.extra[source]);
+        wrong_target.store.checked_call_targets[target_fact].function = IrFunctionId::new(generic_target).unwrap();
+        assert!(FullVerifier::verify(&wrong_target).is_err());
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.function_metadata[target].callable_kind = crate::sema::types::CallableKind::Proc;
+        assert!(FullVerifier::verify(&wrong_kind).is_err());
+        let mut wrong_capture = program.clone();
+        let capture = program.store.functions[target].captures.bounds(program.store.captures.len()).unwrap().next().unwrap();
+        wrong_capture.store.captures[capture].binding_identity = u32::MAX;
+        assert!(FullVerifier::verify(&wrong_capture).is_err());
+    }
+
+
+
+    #[test]
     fn generic_display_operations_authenticate_owner_conversion_requirements() {
         for definition in [
             "pure show(value) { f\"item:{value}\" }",
@@ -4412,7 +4490,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_callbacks_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-callbacks.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-callbacks.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-callbacks.xsh", crate::loader::entry_source_from_text("generic-pipeline-callbacks.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
@@ -4430,7 +4508,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_folds_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-folds.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-folds.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-folds.xsh", crate::loader::entry_source_from_text("generic-pipeline-folds.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
@@ -4477,7 +4555,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_parallel_callbacks_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-parallel.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-parallel.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-parallel.xsh", crate::loader::entry_source_from_text("generic-pipeline-parallel.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
@@ -4495,7 +4573,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_keys_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-keys.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-keys.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-keys.xsh", crate::loader::entry_source_from_text("generic-pipeline-keys.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();

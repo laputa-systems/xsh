@@ -55146,3 +55146,100 @@ assert from_days(0) == {year: 1405, month: 1, day: 1}
 
     }
 }
+
+#[cfg(test)]
+mod comprehension_producer_tests {
+    const SOURCE: &str = r#"
+type Task = {name: Str, argv: List[Any], env: Record}
+type Produced = {tasks: List[Task], deps: List[Str]}
+proc make_task(name: Str) [] -> Task { {name, argv: [name], env: {}} }
+proc produce_tasks(names: List[Str]) [] -> Produced {
+    var tasksANNOTATION = []
+    for name in names {
+        let task = make_task(name)
+        tasks += [task]
+    }
+    {tasks, deps: [task.name for task in tasks]}
+}
+pure identity(value) { value }
+assert identity(produce_tasks(["one", "two"]).deps) == ["one", "two"]
+"#;
+
+    fn prepare(source: &str) -> super::FullProgram {
+        let file = "produced-record-comprehension.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{}", renderer.render(&declarations.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &declarations, source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn produced_record_comprehensions_prove_their_iterable_writers() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            for annotation in ["", ": List[Task]"] {
+                let source = SOURCE.replace("ANNOTATION", annotation);
+                let program = std::sync::Arc::new(prepare(&source));
+                super::FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    }
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn produced_record_comprehensions_reject_foreign_binders_and_writers() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            for annotation in ["", ": List[Task]"] {
+            let source = SOURCE.replace("ANNOTATION", annotation)
+                .replace("tasks += [task]", "tasks += [task]\n        tasks += [task]")
+                .replace("== [\"one\", \"two\"]", "== [\"one\", \"one\", \"two\", \"two\"]");
+            let program = prepare(&source);
+            let _symbols = program.symbol_owner().enter();
+            super::FullVerifier::verify(&program).unwrap();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "produce_tasks").unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let decoder = super::function_view_decoder(&program.store, owner);
+            let comprehension = range.clone().find(|&instruction| program.store.tags[instruction] == super::FullTag::ExprListComp).unwrap();
+            let super::schema::ExprView::ListComp { value, mut qualifiers, .. } = decoder.expression_view(comprehension).unwrap() else { unreachable!() };
+            let super::schema::ExprView::Field { base, name: "name", .. } = decoder.expression_view(value.raw() as usize).unwrap() else { unreachable!() };
+            let super::decode::CompQualifierView::For { target: super::decode::CompTargetView::Slot(bound), .. } = qualifiers.next().unwrap().unwrap() else { unreachable!() };
+            let header = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(super::schema::ExprView::Param(0)))).unwrap();
+            let appends = range.clone().filter_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(super::schema::StmtView::Assign { op: super::AssignOp::Add, value, .. }) => Some(value.raw() as usize),
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(appends.len(), 2);
+            let super::schema::ExprView::List(mut values) = decoder.expression_view(appends[1]).unwrap() else { unreachable!() };
+            let appended = values.next().unwrap().unwrap().raw() as usize;
+            assert!(matches!(decoder.expression_view(appended).unwrap(), super::schema::ExprView::Param(slot) if slot != bound));
+            let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+            for (label, target, replacement) in [
+                ("escaped loop local", base.raw() as usize, appended),
+                ("conflicting append writer", appended, header),
+            ] {
+                let mut forged = cold();
+                forged.store.data[target] = program.store.data[replacement];
+                super::FullVerifier::verify(&forged).expect_err(label);
+            }
+            let payload = program.store.data[comprehension].range().bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[payload.start], value.raw());
+            let block = super::IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let targets = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(&program.store.extra[targets.start..targets.start + 4], &[1, 0, 0, bound as u32]);
+            let mut collided = cold();
+            collided.store.extra[targets.start + 3] = 0;
+            assert!(super::FullVerifier::verify(&collided).is_err());
+            }
+        }).unwrap().join().unwrap();
+    }
+
+}

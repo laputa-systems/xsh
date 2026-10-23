@@ -3356,12 +3356,23 @@ renaming while preserving nominal types, labels, schemas, and effects.
 Interface comparison treats a nonparameterized ordinary record schema without
 defaults or validation obligations as its fully known structural type when
 both checked interfaces have that same ground type. The stored schema and
-execution checks remain unchanged. This projection applies to implicit
+execution checks remain unchanged. A contained enum requires its validated
+Str wire mapping and the same exact ground enum family in both interfaces.
+Unbacked or unknown enum families retain their schema obligations.
+This projection applies to implicit
 parameter and return boundaries. Explicit validation and constructor selections
 remain part of body comparison. Unknown, generic, nominal, validated, unsigned,
 and defaulted schema obligations remain constrained. Removing a return
 annotation that selects `UInt` conversion or `Result` wrapping changes source
 meaning and does not qualify as an equivalent erasure.
+
+Local initializer comparison can project a redundant implicit structural check
+when both views independently establish the same stored type and initializer
+type, and all checked operations and effects remain unchanged. A canonical
+empty list literal can establish vacuous list membership. Missing or unknown
+producer evidence, unchecked `Any`, and empty maps or records do not establish
+that proof. Explicit validation, assignment checks, materializations and schema
+obligations remain constrained. This comparison never changes execution checks.
 
 The checker infers mutually recursive parameters and returns before checking
 callers. Variables that are independent of the captured environment can become

@@ -487,7 +487,13 @@ Checked expression facts and producer contexts use the same physical read contra
 Guard proofs authenticate each carrier's original binding and field path. Matching fresh collection and comprehension
 inputs retain all element, spread, iterable, filter, and body proofs under the
 actual checked gate. Every comprehension target proves its record nodes and
-selected fields from the actual iterable item, including empty and unused targets. A fresh list receiver can obtain a set element contract only
+selected fields from the actual iterable item, including empty and unused targets.
+A comprehension can derive an unannotated local list from its lexical empty-list
+declaration and complete append-writer census. Every nonempty append must
+independently produce the same closed list type. The proof charges traversal of
+that source type and retains every writer obligation. The loop variable uses the
+actual qualifier target and source item. Checked slot facts do not establish that
+relationship. A fresh list receiver can obtain a set element contract only
 when the selected registered method returns exactly the gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.
@@ -656,9 +662,13 @@ operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
 Named callable values materialized inside generic bodies retain their actual
-target, owned value instantiation and symbolic expression type. Their physical
-function reference does not fabricate a ground callable signature. Cold
-verification authenticates the selected target and complete substituted contract.
+target and expression type. Quantified targets require their owned fresh value
+instantiation and complete substituted contract. A ground target instead proves
+its exact kind and signature against its selected declaration; it has no invented
+instantiation. Inferred immutable local aliases use the same materialization
+authority. Pipeline descriptors retain the actual callable value and environment,
+using a scheme value call or a checked ground signature as appropriate. Their
+synthetic invocation evidence remains separate from the source value selection.
 Ground and driver Capture/Retry instructions retain required checked Result
 contracts, including explicit Any payloads. Scheme instructions use their owned
 body facts and prepared substitution. Cold verification joins the actual error

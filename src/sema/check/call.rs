@@ -359,7 +359,9 @@ impl Checker {
         }
         if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
             let contract = self.function_call_contract(&alias.signature, span);
-            self.record_function_call_target(span, contract.definition_target);
+            if matches!(&call_source, super::method::HostCallSource::Expression(_)) {
+                self.record_function_call_target(span, contract.definition_target);
+            }
             self.record_callable_alias(arena.arena.expr(callee).span, &alias);
             if let ArenaExprKind::Field { base, name } = callee_kind
                 && name == "call"
@@ -3276,6 +3278,18 @@ mod generic_alias_call_tests {
                     .collect::<Vec<_>>()
             })
             .collect()
+    }
+
+    #[test]
+    fn pipeline_alias_descriptor_keeps_its_value_selection_and_call_evidence() {
+        let source = "pure decorated(value: Str, suffix: Str = \"!\") -> Str { value + suffix }\npure mapped(payload) { let action = decorated; {payload, rows: [\"kept\"] |> map(action)} }\n";
+        let checked = checked(source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let span = *checked.static_callable_aliases.keys().find(|span| &source[span.range()] == "action").unwrap();
+        assert!(checked.selected_function_value_references.contains(&span));
+        assert!(checked.selected_function_calls.contains_key(&span));
+        assert!(!checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span)));
+        assert!(checked.static_callable_aliases[&span].signature.params[1].defaulted);
     }
 
     #[test]

@@ -19,6 +19,51 @@ pub(super) struct CheckedRecordConstruction {
 }
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn lower_scheme_stage_value_call(
+        &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
+        current_function: Name, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(callee).span;
+        let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();
+        let alias = self.declarations.static_callable_aliases.get(&span).cloned();
+        let signature = alias.as_ref().map(|alias| {
+            let mut sig = alias.signature.clone();
+            sig.effects = crate::sema::types::CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(alias.kind));
+            Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig }))
+        });
+        let source = match self.program.arena.expr(callee).kind {
+            ArenaExprKind::Field { base, .. } if alias.as_ref().is_some_and(|alias| alias.method_call) => base,
+            _ => callee,
+        };
+        let source_type = self.expression_binding(source).and_then(|binding| slots.types.get(&binding)).cloned()
+            .or_else(|| relationship.map(|relationship| super::SchemeType::Ground(Type::SchemeCallable(relationship))))
+            .or_else(|| signature.clone().map(super::SchemeType::Ground))?;
+        let value = self.lower_expr_untyped(source, slots, Some(current_function), None)?;
+        lowered_types.insert(value, source_type);
+        let arguments = if let Some(relationship) = relationship {
+            let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+            let parameters = contract.canonical().scheme().params();
+            let arguments = self.lower_optional_function_call_arguments(callee, vec![argument], parameters, slots, Some(current_function), None, super::SchemeType::closed_ground_type)?;
+            self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
+        } else {
+            let alias = alias.as_ref()?;
+            self.lower_function_call_args(&[argument], Some(CheckedCallParameters::Ground(&alias.signature.params)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
+        };
+        self.record_scheme_call_argument_checks(&arguments, lowered_types);
+        let call = if let Some(relationship) = relationship {
+            let call = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: value, args: arguments, span });
+            let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee))?.clone();
+            let mut scratch = self.scratch.borrow_mut();
+            if !scratch.record_call_instantiation(call, instantiation) || scratch.scheme_callable_calls.insert(call.index(), relationship).is_some() { return None; }
+            call
+        } else {
+            let alias = alias?;
+            let signature = self.canonicalize_checked_type(signature?);
+            push_build_row!(self, expr, BuildExprRow::TypedCall { callee: value, kind: alias.kind, signature, args: arguments, span })
+        };
+        Some(call)
+    }
+
     pub(super) fn checked_record_construction(&self, id: ExprId) -> Option<CheckedRecordConstruction> {
         let instance = self.bodies.resolved_type_expressions.instantiations.get(&id)?;
         let definition = instance.instance.definition;
@@ -291,16 +336,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(callee).span;
         let args = vec![LoweredCallArg::Single(item)];
-        if let Some(alias) = self.declarations.static_callable_aliases.get(&span) {
+        if let Some(alias) = self.declarations.static_callable_aliases.get(&span).cloned() {
             let callee = match self.program.arena.expr(callee).kind {
                 ArenaExprKind::Field { base, .. } if alias.method_call => base,
                 _ => callee,
             };
-            let callee = self.lower_expr(callee, slots, current_function, None)?;
+            let callee = self.lower_expr_untyped(callee, slots, current_function, None)?;
+            let mut signature = alias.signature;
+            signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(alias.kind));
+            let signature = self.canonicalize_checked_type(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig: signature })));
             return Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::DynamicCall { callee, args, span }
+                BuildExprRow::TypedCall { callee, kind: alias.kind, signature, args, span }
             ));
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {

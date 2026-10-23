@@ -48,10 +48,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
             lowered_types.insert(item, item_type.clone());
             let result = facts.expression_types().get(&callee)?.clone();
-            if self.declarations.static_callable_aliases.contains_key(&span)
+            let value = if self.declarations.static_callable_aliases.contains_key(&span)
                 || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
-            { return None; }
-            let value = if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
+            {
+                self.lower_scheme_stage_value_call(callee, CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }, slots, current_function, lowered_types)?
+            } else if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
                 let function = self.function_index().checked_target_key(target)?;
                 let arguments = [CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }];
                 let arguments = self.lower_checked_function_arguments(callee, &arguments, function, slots, Some(current_function), None, SchemeType::closed_ground_type)?;

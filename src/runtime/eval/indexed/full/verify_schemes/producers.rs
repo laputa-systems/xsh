@@ -4751,7 +4751,7 @@ impl<'a> ProducerProof<'a> {
                     qualifier_count += 1;
                     match qualifier? {
                         super::super::decode::CompQualifierView::For { target, iter, .. } => {
-                            let source = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
+                            let source = self.comprehension_source_type(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
                             source_validation = source.validated().map(|validated| validated.validation());
                             self.budget.charge_clone(&source)?;
                             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
@@ -4775,7 +4775,7 @@ impl<'a> ProducerProof<'a> {
                 for qualifier in &mut qualifiers {
                     match qualifier? {
                         super::super::decode::CompQualifierView::For { target, iter, .. } => {
-                            let source = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
+                            let source = self.comprehension_source_type(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground comprehension has no iterable input contract"))?;
                             self.budget.charge_clone(&source)?;
                             let item = source.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground comprehension source has no item type"))?;
                             self.verify_comprehension_target(target, &item)?;
@@ -6735,6 +6735,10 @@ impl<'a> ProducerProof<'a> {
 
     fn iteration_binding_type(&mut self, decoder: &FullDecoder<'a>, iter: usize, target: super::super::decode::CompTargetView<'_>, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let Some(source) = self.need_context(decoder, iter)? else { return Ok(None) };
+        self.iteration_binding_source_type(decoder, iter, target, slot, source)
+    }
+
+    fn iteration_binding_source_type(&mut self, decoder: &FullDecoder<'a>, iter: usize, target: super::super::decode::CompTargetView<'_>, slot: usize, source: Arc<Type>) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let item = self.iteration_item_type_at(decoder, iter, &source)?.ok_or_else(|| IrVerifyError::new("ground destructuring source has no item type"))?;
         self.budget.charge_clone(&item)?;
         let projected = comp_slot_type(target, slot, &item)?.ok_or_else(|| IrVerifyError::new("ground destructuring binding has no target projection"))?;
@@ -6829,6 +6833,47 @@ impl<'a> ProducerProof<'a> {
             |amount| self.budget.charge(amount))
     }
 
+    fn comprehension_source_type(&mut self, decoder: &FullDecoder<'a>, iter: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        match self.need_context(decoder, iter)? {
+            Some(source) => Ok(Some(source)),
+            None => self.appended_comprehension_source(decoder, iter),
+        }
+    }
+
+    fn appended_comprehension_source(&mut self, decoder: &FullDecoder<'a>, iter: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let schema::ExprView::Param(slot) = decoder.expression_view(iter)? else { return Ok(None) };
+        let binding = self.binding(decoder.owner, iter, slot)?;
+        let ProducerBinding::ScopedDeclaration(declaration, declared_slot) = binding else { return Ok(None) };
+        if declared_slot != slot || self.index.owners[&decoder.owner].storage_bindings.contains_key(&binding) { return Ok(None); }
+        let schema::StmtView::Let { slot: declared, value, annotation: None } = decoder.statement_view(declaration)? else { return Ok(None) };
+        if declared != slot || !decoder.is_empty_list_literal_expression(value.raw() as usize)? { return Ok(None); }
+        let Some(writers) = self.index.owners[&decoder.owner].writers.get(&binding) else { return Ok(None) };
+        self.budget.charge(writers.len())?;
+        let writers = writers.clone();
+        let mut initialized = false;
+        let mut source: Option<Arc<Type>> = None;
+        for writer in writers {
+            self.budget.charge(1)?;
+            if writer == declaration {
+                if initialized { return Err(IrVerifyError::new("comprehension iterable has duplicate initializers")); }
+                initialized = true;
+                continue;
+            }
+            let schema::StmtView::Assign { slot: written, op: super::super::AssignOp::Add, value, check: None, .. } = decoder.statement_view(writer)? else { return Ok(None) };
+            if written != slot { return Ok(None); }
+            let value = value.raw() as usize;
+            if decoder.is_empty_list_literal_expression(value)? { continue; }
+            let Some(actual) = self.derive_unannotated_type(decoder, value)? else { return Ok(None) };
+            if !matches!(actual.as_ref(), Type::List(_)) { return Ok(None); }
+            super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
+            if source.as_ref().is_some_and(|source| **source != *actual) { return Ok(None); }
+            source = Some(actual);
+        }
+        if !initialized { return Ok(None); }
+        if let Some(source) = &source { self.binding_slot(decoder.owner, binding, slot, Arc::clone(source))?; }
+        Ok(source)
+    }
+
     fn comprehension_binding_type(&mut self, decoder: &FullDecoder<'a>, comprehension: usize, iter: usize, slot: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let mut qualifiers = match decoder.expression_view(comprehension)? {
             schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
@@ -6837,7 +6882,8 @@ impl<'a> ProducerProof<'a> {
         for qualifier in &mut qualifiers {
             self.budget.charge(1)?;
             if let super::super::decode::CompQualifierView::For { target, iter: candidate, .. } = qualifier? && candidate.raw() as usize == iter {
-                return self.iteration_binding_type(decoder, iter, target, slot);
+                let Some(source) = self.comprehension_source_type(decoder, iter)? else { return Ok(None) };
+                return self.iteration_binding_source_type(decoder, iter, target, slot, source);
             }
         }
         Err(IrVerifyError::new("ground comprehension binder has no lexical source"))

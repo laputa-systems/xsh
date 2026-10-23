@@ -1750,6 +1750,22 @@ fn verify_body_expression(
             match ty {
                 SchemeType::Ground(Type::Function(expected_kind))
                     if *expected_kind == kind && target_kind == kind && metadata_kind == kind && matches!(contract, FullCallableContract::Ground(_)) => ty.clone(),
+                closed @ (SchemeType::Callable { .. } | SchemeType::Ground(Type::Callable(_)))
+                    if matches!(contract, FullCallableContract::Ground(_)) =>
+                {
+                    let Some(Type::Callable(expected)) = closed.closed_ground_type() else { return Err(IrVerifyError::new("generic ground callable value has an unresolved signature")); };
+                    if expected.kind != kind || target_kind != kind || metadata_kind != kind { return Err(IrVerifyError::new("generic ground callable value disagrees with its actual kind")); }
+                    let FullCallableContract::Ground(signature) = contract else { unreachable!() };
+                    let mut comparisons = 0;
+                    let selected = store.checked_call_targets.binary_search_by_key(&(instruction as u32), |fact| { comparisons += 1; fact.instruction })
+                        .ok().map(|index| store.checked_call_targets[index].function);
+                    budget.charge(comparisons)?;
+                    if selected != Some(target) { return Err(IrVerifyError::new("generic ground callable value has no authenticated target")); }
+                    let mut actual = store.semantic.to_signature_with_budget(signature, 0, &mut budget.semantic_types)?;
+                    if kind == crate::sema::types::CallableKind::Pure { actual.effects = crate::sema::types::CallableEffects::finite([]); }
+                    if expected.sig != actual { return Err(IrVerifyError::new("generic ground callable value disagrees with its actual target signature")); }
+                    ty.clone()
+                }
                 SchemeType::SchemeCallable(relationship) | SchemeType::Ground(Type::SchemeCallable(relationship)) => {
                     let relationship = store.semantic.scheme_callable_index(*relationship)?;
                     let relationship = store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("generic function value relationship is out of bounds"))?;

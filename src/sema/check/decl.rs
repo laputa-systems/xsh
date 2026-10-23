@@ -529,7 +529,7 @@ impl Checker {
                 let span = program.arena.expr(expression).span;
                 if !self.selected_function_value_references.contains(&span) { return None; }
                 let target = self.selected_function_calls.get(&span)?;
-                generalized_calls.get(&crate::sema::schemes::InstantiationSite::value(span))?.invocation()?;
+                let instantiated = generalized_calls.get(&crate::sema::schemes::InstantiationSite::value(span)).and_then(|instance| instance.invocation()).is_some();
                 let (kind, known_effects) = match ty {
                     crate::sema::schemes::SchemeType::Callable { kind, effects, .. } => (*kind, matches!(effects, crate::sema::effects::EffectContract::Known(_))),
                     crate::sema::schemes::SchemeType::Ground(Type::Callable(callable)) => (callable.kind, matches!(callable.sig.effects.contract(), crate::sema::effects::EffectContract::Known(_))),
@@ -541,7 +541,13 @@ impl Checker {
                     body: program.arena.span(program.arena.block(definition.body).span),
                 });
                 let signature = self.local_function_signature(owner)?;
-                (signature.definition_target() == Some(*target) && signature.scheme().kind() == kind && known_effects).then_some(span)
+                let mut ground_signature = callable_type_from_function_signature(&signature);
+                if let Some(signature) = &mut ground_signature {
+                    signature.effects = crate::sema::types::CallableEffects::from_contract(signature.effects.contract().clone().for_invocation(kind));
+                }
+                let exact_ground = !signature.scheme().callable().is_quantified()
+                    && ground_signature.is_some_and(|sig| ty.closed_ground_type() == Some(Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind, sig }))));
+                (signature.definition_target() == Some(*target) && signature.scheme().kind() == kind && known_effects && (instantiated || exact_ground)).then_some(span)
             }));
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
                 let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
