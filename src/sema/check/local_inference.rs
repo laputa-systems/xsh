@@ -16,6 +16,7 @@ pub(super) struct LocalInference {
     nullable_seed_cells: BTreeSet<TypeVariableId>,
     aggregate_scopes: Vec<AggregateSeedScope>,
     fixed_storage_checks: Vec<FixedStorageCheck>,
+    sort_key_checks: Vec<SortKeyCheck>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
@@ -40,9 +41,17 @@ struct FixedStorageCheck {
     contribution: Span,
 }
 
+#[derive(Clone)]
+struct SortKeyCheck {
+    owner: Option<super::EffectDeclarationId>,
+    key: Type,
+    contribution: Span,
+}
+
 pub(super) struct LocalBodyConstraints {
     collecting: bool,
     fixed_storage_start: usize,
+    sort_key_start: usize,
 }
 
 enum LocalInferenceFailure {
@@ -70,6 +79,7 @@ impl LocalInference {
                 && other.nullable_seed_cells.is_empty()
                 && other.aggregate_scopes.is_empty()
                 && other.fixed_storage_checks.is_empty()
+                && other.sort_key_checks.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
                 && other.checked_bindings.is_empty()
@@ -322,6 +332,7 @@ impl Checker {
         let enclosing = LocalBodyConstraints {
             collecting: self.local_inference.collecting,
             fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
+            sort_key_start: self.local_inference.sort_key_checks.len(),
         };
         self.local_inference.collecting = true;
         enclosing
@@ -347,7 +358,23 @@ impl Checker {
                 self.report_inferred_type_conflict(conflict);
             }
         }
+        let checks = self.local_inference.sort_key_checks
+            .drain(enclosing.sort_key_start..).collect::<Vec<_>>();
+        for check in checks {
+            assert_eq!(check.owner, self.stream_origin_owner);
+            self.validate_stream_sort_key(&check.key, check.contribution);
+        }
         self.local_inference.collecting = enclosing.collecting;
+    }
+
+    pub(super) fn defer_stream_sort_key(&mut self, key: &Type, contribution: Span) -> bool {
+        if !self.local_inference.collecting || !key.contains_inference() { return false; }
+        self.local_inference.sort_key_checks.push(SortKeyCheck {
+            owner: self.stream_origin_owner,
+            key: key.clone(),
+            contribution,
+        });
+        true
     }
 
     pub(super) fn record_nullable_storage_check(

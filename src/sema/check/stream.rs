@@ -675,14 +675,10 @@ impl Checker {
                 Type::Stream(Box::new(item_ty.clone()))
             }
             StreamStageKind::SortBy => {
-                if callback_ty.contains_any() {
-                    self.reject_dynamic_use("a sort key", None, stage_span);
-                } else if !is_sortable_key_type(&callback_ty) {
-                    self.error(
-                        stage_span,
-                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
-                        DiagnosticCode::CheckStreamSort,
-                    );
+                if let Some(key) = self.resolve_stream_sort_key(&callback_ty, stage_span)
+                    && !self.defer_stream_sort_key(&key, stage_span)
+                {
+                    self.check_resolved_stream_sort_key(&key, stage_span);
                 }
                 Type::Stream(Box::new(item_ty.clone()))
             }
@@ -695,6 +691,34 @@ impl Checker {
                 Type::Bool
             }
             _ => unreachable!("only unary callback stages have named callable descriptors"),
+        }
+    }
+
+    fn resolve_stream_sort_key(&mut self, key: &Type, span: Span) -> Option<Type> {
+        match self.type_constraints.resolve(key) {
+            Ok(key) => Some(key),
+            Err(error) => {
+                self.error(span, &format!("sort key type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                None
+            }
+        }
+    }
+
+    pub(super) fn validate_stream_sort_key(&mut self, key: &Type, span: Span) {
+        if let Some(key) = self.resolve_stream_sort_key(key, span) {
+            self.check_resolved_stream_sort_key(&key, span);
+        }
+    }
+
+    fn check_resolved_stream_sort_key(&mut self, key: &Type, span: Span) {
+        if key.contains_any() {
+            self.reject_dynamic_use("a sort key", None, span);
+        } else if !is_sortable_key_type(key) {
+            self.error(
+                span,
+                "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
+                DiagnosticCode::CheckStreamSort,
+            );
         }
     }
 
@@ -1233,6 +1257,81 @@ fn is_sortable_key_type(ty: &Type) -> bool {
 
 fn is_sortable_record_key_type(ty: &Type) -> bool {
     matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
+}
+
+#[cfg(test)]
+mod inferred_sort_key_tests {
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn accumulated_nullable_record_fields_preserve_sortable_names() {
+        for annotation in [": List[Row]", ""] {
+            let source = format!("type Row = {{name: Str, revision: Str?}}\nproc ordered() -> Result[List[Row], Error] {{ var rows{annotation} = []; for name in [\"b\", \"a\"] {{ rows += [{{name, revision: null}}] }}; rows |> sort-by .name }}\nlet rows = ordered()?\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{source}\n{errors:?}");
+            let start = source.find("sort-by .name").unwrap() + 8;
+            assert_eq!(checked.expr_types.get(&crate::source::Span::new(SourceId::new(0), start, start + 5)), Some(&super::Type::Str));
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn inferred_sort_key_native_behavior_runs_in_both_evaluator_routes() {
+        let source = include_str!("../../../tests/xsh/inferred-sort-keys.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "inferred-sort-keys.xsh",
+            crate::loader::entry_source_from_text("inferred-sort-keys.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("inferred_sort_keys_wait_for_the_body_result_context", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[test]
+    fn deferred_sort_key_domains_reject_unsupported_and_dynamic_siblings() {
+        for (key_type, key_value, expected) in [
+            ("Float", "1.5", DiagnosticCode::CheckStreamSort),
+            ("List[Str]", "[\"a\"]", DiagnosticCode::CheckStreamSort),
+            ("Str?", "null", DiagnosticCode::CheckStreamSort),
+            ("Any", "key", DiagnosticCode::CheckDynamicBoundary),
+        ] {
+            let source = format!("type ValidRow = {{name: Str, revision: Str?}}\nproc valid() -> Result[List[ValidRow], Error] {{ var rows = []; rows += [{{name: \"a\", revision: null}}]; rows |> sort-by .name }}\ntype InvalidRow = {{name: {key_type}, revision: Str?}}\npure invalid(key: Any) -> List[InvalidRow] {{ var rows = []; rows += [{{name: {key_value}, revision: null}}]; rows |> sort-by .name }}\nlet rows = valid()?\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{source}\n{errors:?}");
+            assert_eq!(errors[0].code, Some(expected), "{source}\n{errors:?}");
+            assert!(errors[0].labels.iter().all(|label| label.span.start() > source.find("pure invalid").unwrap()), "{errors:?}");
+        }
+    }
+
+    #[test]
+    fn unresolved_generic_sort_keys_remain_rejected() {
+        let source = "pure ordered(item) { [item] |> sort-by . }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckStreamSort)), "{:?}", checked.diagnostics);
+    }
 }
 
 #[cfg(test)]
