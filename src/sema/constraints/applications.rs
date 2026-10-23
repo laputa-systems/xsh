@@ -74,7 +74,25 @@ pub(super) struct ScopedCallableApplication {
     pub(super) owner: CallableApplicationScope,
     ordinal: u32,
     pub(super) application: CallableApplication<Type, super::EffectVariableId>,
-    pub(super) binding: Option<StaticArgumentBinding>,
+    pub(super) binding: Option<CallableApplicationBinding>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum CallableApplicationBinding {
+    PendingArguments(StaticArgumentBinding),
+    Settled(StaticArgumentBinding),
+}
+
+impl CallableApplicationBinding {
+    fn layout(&self) -> &StaticArgumentBinding {
+        match self {
+            Self::PendingArguments(layout) | Self::Settled(layout) => layout,
+        }
+    }
+
+    fn arguments_pending(&self) -> bool {
+        matches!(self, Self::PendingArguments(_))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -524,7 +542,7 @@ mod tests {
                 assert_eq!(constraints.resolve(&alias).unwrap(), actual);
                 assert_eq!(constraints.resolve(&requirement.result).unwrap(), ty);
                 assert_eq!(constraints.resolve_effect(&requirement.effects).unwrap().closed(), Some(EffectSet::default()));
-                assert_eq!(constraints.applications.entries[&id].binding.as_ref().unwrap(), &StaticArgumentBinding { argument_slots: vec![0], omitted_slots: vec![1] });
+                assert_eq!(constraints.applications.entries[&id].binding.as_ref().unwrap().layout(), &StaticArgumentBinding { argument_slots: vec![0], omitted_slots: vec![1] });
             }
         });
     }
@@ -557,7 +575,7 @@ mod tests {
             let id = constraints.register_callable_application(owner(), requirement.clone()).unwrap();
             constraints.solve_callable_applications().unwrap();
             assert_eq!(constraints.resolve(&requirement.result).unwrap(), Type::List(Box::new(Type::Int)));
-            assert_eq!(constraints.applications.entries[&id].binding.as_ref().unwrap().argument_slots, [0, 0]);
+            assert_eq!(constraints.applications.entries[&id].binding.as_ref().unwrap().layout().argument_slots, [0, 0]);
             for (callee, kind, values) in [
                 (callback(true, "payload", Type::Int, false, false), CallableKindRequirement::Pure, vec![(StaticArgumentKind::Named(Name::intern("wrong")), Type::Int)]),
                 (callback(true, "payload", Type::Int, false, false), CallableKindRequirement::Pure, Vec::new()),
@@ -615,7 +633,7 @@ mod tests {
 pub(super) enum ApplicationChange {
     Fresh(CallableApplicationId),
     Source((Option<EffectDeclarationId>, crate::source::Span), CallableApplicationId),
-    Binding(CallableApplicationId, Option<StaticArgumentBinding>),
+    Binding(CallableApplicationId, Option<CallableApplicationBinding>),
     ReturnEnvelopes(CallableApplicationId, std::sync::Arc<[crate::sema::callable_application::ProcReturnEnvelope<Type>]>),
     Watcher(ApplicationDependency, CallableApplicationId),
     Queued(CallableApplicationId),
@@ -687,7 +705,10 @@ impl CallableApplications {
         for dependency in dependencies {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();
             for id in watchers {
-                if self.entries.get(&id).is_some_and(|application| application.binding.is_none() || !application.application.proc_returns.is_empty()) {
+                if self.entries.get(&id).is_some_and(|application| {
+                    application.binding.as_ref().map_or(true, CallableApplicationBinding::arguments_pending)
+                        || !application.application.proc_returns.is_empty()
+                }) {
                     self.enqueue(id, changes, counters);
                 }
             }
@@ -834,8 +855,8 @@ impl TypeConstraints {
 
     pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
         instance.applications.iter().map(|id| {
-            if let Some(binding) = self.applications.entries.get(id).and_then(|entry| entry.binding.clone()) {
-                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding));
+            if let Some(binding) = self.applications.entries.get(id).and_then(|entry| entry.binding.as_ref()) {
+                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding.layout().clone()));
             }
             generalization.and_then(|generalization| generalization.applications.get(id)).copied()
                 .map(crate::sema::schemes::CallableApplicationBinding::Forwarded)
@@ -975,25 +996,35 @@ impl TypeConstraints {
                 let application = &scoped.application;
                 for dependency in this.application_dependencies(application)? { this.applications.watch(dependency, id, changes); }
                 let start = changes.len();
+                let callee = this.resolve(&application.callee)?;
+                if matches!(callee, Type::Inference(_)) {
+                    if scoped.binding.is_some() { return Err(CallableApplicationError::SourceShape(application.span)); }
+                    continue;
+                }
+                let Type::Callable(callable) = callee else { return Err(CallableApplicationError::NotCallable(callee)); };
+                if scoped.binding.is_none() && !application.kind.accepts(callable.kind) {
+                    return Err(CallableApplicationError::Kind { required: application.kind, actual: callable.kind });
+                }
+                let binding = crate::sema::arguments::bind_argument_layout(&callable.sig.params,
+                    application.arguments.iter().map(|argument| (argument.kind, argument.span))).map_err(CallableApplicationError::Layout)?;
+                if let Some(previous) = &scoped.binding {
+                    if previous.layout() != &binding { return Err(CallableApplicationError::SourceShape(application.span)); }
+                }
+                let mut arguments_pending = false;
+                for (argument, &slot) in application.arguments.iter().zip(&binding.argument_slots) {
+                    let parameter = &callable.sig.params[slot];
+                    let required = if parameter.rest && argument.kind != StaticArgumentKind::Splice {
+                        let Type::List(item) = &parameter.ty else { return Err(CallableApplicationError::NotCallable(Type::Callable(callable.clone()))); };
+                        item.as_ref()
+                    } else { &parameter.ty };
+                    this.constrain_inner(required, &argument.ty, argument.span, true, 0, changes)
+                        .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
+                            expected, actual, contribution: argument.span, initializer: None, established: None, resolution_error,
+                        }))?;
+                    arguments_pending |= this.resolve(required)?.contains_inference()
+                        || this.resolve(&argument.ty)?.contains_inference();
+                }
                 if scoped.binding.is_none() {
-                    let callee = this.resolve(&application.callee)?;
-                    if matches!(callee, Type::Inference(_)) { continue; }
-                    let Type::Callable(callable) = callee else { return Err(CallableApplicationError::NotCallable(callee)); };
-                    let kind = callable.kind;
-                    if !application.kind.accepts(kind) { return Err(CallableApplicationError::Kind { required: application.kind, actual: kind }); }
-                    let binding = crate::sema::arguments::bind_argument_layout(&callable.sig.params,
-                        application.arguments.iter().map(|argument| (argument.kind, argument.span))).map_err(CallableApplicationError::Layout)?;
-                    for (argument, &slot) in application.arguments.iter().zip(&binding.argument_slots) {
-                        let parameter = &callable.sig.params[slot];
-                        let required = if parameter.rest && argument.kind != StaticArgumentKind::Splice {
-                            let Type::List(item) = &parameter.ty else { return Err(CallableApplicationError::NotCallable(Type::Callable(callable.clone()))); };
-                            item.as_ref()
-                        } else { &parameter.ty };
-                        this.constrain_inner(required, &argument.ty, argument.span, true, 0, changes)
-                            .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
-                                expected, actual, contribution: argument.span, initializer: None, established: None, resolution_error,
-                            }))?;
-                    }
                     this.constrain_inner(&application.result, &callable.sig.return_ty, application.span, false, 0, changes)
                         .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
                             expected, actual, contribution: application.span, initializer: None, established: None, resolution_error,
@@ -1001,7 +1032,14 @@ impl TypeConstraints {
                     let effects = if callable.kind == crate::sema::types::CallableKind::Pure { EffectContract::finite(EffectSet::default()) } else { callable.sig.effects.contract().clone() };
                     this.constrain_effect_inner(super::EffectPredicate::Equal(application.effects.clone(), effects), changes)
                         .map_err(CallableApplicationError::Effects)?;
-                    let previous = this.applications.entries.get_mut(&id).unwrap().binding.replace(binding);
+                }
+                let next_binding = if arguments_pending {
+                    CallableApplicationBinding::PendingArguments(binding)
+                } else {
+                    CallableApplicationBinding::Settled(binding)
+                };
+                if scoped.binding.as_ref() != Some(&next_binding) {
+                    let previous = this.applications.entries.get_mut(&id).unwrap().binding.replace(next_binding);
                     changes.push(ConstraintChange::Application(ApplicationChange::Binding(id, previous)));
                 }
                 for envelope in application.proc_returns.iter() {
