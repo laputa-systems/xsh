@@ -1128,6 +1128,7 @@ pub(super) fn verify_body(
                             if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
                             let stage = stage?;
                             stage_ids.push(stage.id.raw());
+                            let each = matches!(&stage.view, super::super::StageView::Each { .. });
                             match stage.view {
                                 super::super::StageView::TextLines | super::super::StageView::BytesChunks { .. } | super::super::StageView::JsonLines => {
                                     if stage_ids.len() != 1 { return Err(IrVerifyError::new("generic pipeline adapter is not the first stage")); }
@@ -1177,6 +1178,14 @@ pub(super) fn verify_body(
                                         _ => {}
                                     }
                                     pending.push(Obligation::Expression(key.raw() as usize, inner));
+                                }
+                                super::super::StageView::Each { slot, body }
+                                | super::super::StageView::Tee { slot, body } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
+                                    budget.charge(statements.len())?;
+                                    pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
+                                    if each { terminal = Some(SchemeType::Ground(Type::Unit)); }
                                 }
                                 super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
                                     let accumulator = expression_type(types, initial.raw() as usize, budget)?;
@@ -5270,6 +5279,78 @@ mod structured_pipeline_tests {
         let binding = wrong_binding.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::SortKey)))).unwrap();
         *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CountKey));
         assert!(FullVerifier::verify(&wrong_binding).is_err());
+    }
+
+    #[test]
+    fn generic_pipeline_observers_keep_unit_consumption_and_item_scopes() {
+        let program = prepare("pure observed(value) { let first = [value] |> tee { |item| let _ = item }; [value] |> tee { |item| let _ = item } }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "observed").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let slots = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::Tee { slot, .. } => Some(slot),
+                _ => None,
+            },
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(slots.len(), 2);
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == slots[1])).unwrap();
+        let mut escaped = program.clone();
+        escaped.store.extra[program.store.data[read].range().start as usize] = slots[0] as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+        for stage in ["each", "tee"] {
+            for callback in ["proc callback(value: Int) -> Int { value }", "proc callback(value: Int) -> Result[Int, Str] { Ok(value) }"] {
+                let source = format!("{callback}\nproc rejected(value) {{ [value] |> {stage}(callback) }}\n");
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &source);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+            }
+        }
+        for (stage, result) in [("each", "Unit"), ("tee", "List[Int]")] {
+            for declaration in ["proc rejected(value: Int) []".to_owned(), format!("pure rejected(value: Int) -> {result}")] {
+                let source = format!("pure fallible(value: Int) -> Result[Unit, Str] {{ Err(\"failure\") }}\n{declaration} {{ [value] |> {stage}(fallible) }}\n");
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &source);
+                assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation | crate::diagnostic::DiagnosticCode::CheckTryContext))), "{source}\n{:?}", checked.diagnostics);
+            }
+        }
+        let program = prepare("proc observe(value) -> Result[Unit, Str] { Ok() }\nproc typed(value: Str, other: Int) { let _ = other; [value] |> tee(observe) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "typed").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Call { .. }))).unwrap();
+        let instance = program.store.call_instantiations.binary_search_by_key(&(call as u32), |instance| instance.instruction).unwrap();
+        let mut missing_instance = program.clone();
+        missing_instance.store.call_instantiations.remove(instance);
+        assert!(FullVerifier::verify(&missing_instance).is_err());
+        let list = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::List(_)))).unwrap();
+        let schema::ExprView::List(mut values) = decoder.expression_view(list).unwrap() else { unreachable!() };
+        let read = values.next().unwrap().unwrap().raw() as usize;
+        assert!(matches!(decoder.expression_view(read), Ok(schema::ExprView::Param(0))));
+        let mut wrong_typed_source = program.clone();
+        wrong_typed_source.store.extra[program.store.data[read].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_typed_source).is_err());
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_observers_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-observers.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-observers.xsh", crate::loader::entry_source_from_text("generic-pipeline-observers.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_observers", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
     }
 
     #[cfg(feature = "native-tests")]

@@ -565,7 +565,8 @@ pub(super) fn is_body_expression(
                         | crate::syntax::node::StreamStageKind::FlatMap | crate::syntax::node::StreamStageKind::Any
                         | crate::syntax::node::StreamStageKind::All | crate::syntax::node::StreamStageKind::ParMap
                         | crate::syntax::node::StreamStageKind::GroupBy | crate::syntax::node::StreamStageKind::UniqueBy
-                        | crate::syntax::node::StreamStageKind::SortBy)
+                        | crate::syntax::node::StreamStageKind::SortBy
+                        | crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee)
                         || (stage.kind == crate::syntax::node::StreamStageKind::Count && stage.block.is_some());
                     let fold = matches!(stage.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce);
                     let descriptor = if callback {
@@ -577,7 +578,8 @@ pub(super) fn is_body_expression(
                     if let Some(block) = stage.block {
                         if !callback && !fold { return false; }
                         let Some(inner) = handler_bindings(program, bindings, available, block) else { return false; };
-                        if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, BodyCompletion::Value) { return false; }
+                        let completion = if matches!(stage.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee) { BodyCompletion::Statement } else { BodyCompletion::Value };
+                        if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, collect_yields, completion) { return false; }
                     } else if let Some((_, callee)) = descriptor {
                         if !checked_operations.contains(&program.arena.expr(callee).span) && !registered_calls.contains_key(&callee) { return false; }
                     } else if callback || !matches!(stage.kind,

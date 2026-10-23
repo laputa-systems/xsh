@@ -2395,6 +2395,21 @@ impl<'a> ProducerProof<'a> {
         proof
     }
 
+    pub(super) fn pipeline_item_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if self.index.demand == crate::runtime::eval::ProducerDemand::Absent || self.store.tags.get(instruction) != Some(&FullTag::ExprParam) { return Ok(None); }
+        let decoder = self.owner(owner)?;
+        let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { unreachable!() };
+        let binding = self.binding(owner, instruction, slot)?;
+        let Some(source) = self.index.owners[&owner].pipeline_sources.get(&binding).copied() else { return Ok(None); };
+        if !matches!(source.role, super::super::PipelineStageSlotRole::Item) { return Ok(None); }
+        let Some(actual) = self.pipeline_binding_type(&decoder, source)? else { return Ok(None); };
+        ensure_closed_type(&actual)?;
+        self.binding_slot(owner, binding, slot, Arc::clone(&actual))?;
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(&actual)?;
+        Ok(Some((*actual).clone()))
+    }
+
     pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
             return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));

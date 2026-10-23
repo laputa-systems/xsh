@@ -2994,8 +2994,6 @@ impl Checker {
         true
     }
 
-    /// Apply statement-consumption rules to a checked value. A checked
-    /// callback has no expression source for a safe Bool assertion edit.
     pub(super) fn check_unit_statement_value_tail(
         &mut self,
         source: Option<&str>,
@@ -3008,6 +3006,7 @@ impl Checker {
         if actual.is_result() {
             self.reject_discarded_value(actual, statement, value, discard_fix, copy_update);
             if expr_ty_auto_propagates(actual) {
+                self.record_statement_error(actual, statement);
                 self.statement_positions
                     .insert(statement, super::StatementPosition::Statement);
                 return Type::Unit;

@@ -276,6 +276,14 @@ argv limit requires proof of the actual immutable false value before omitting
 that requirement. Zip stream transport authenticates its actual side producer
 against the same physical pipeline and source owner.
 
+Generic Each and Tee stages reuse ordinary statement blocks. Their immutable
+item slot belongs to one callback scope, and the body completes without a value
+tail. Named callbacks retain their actual Unit or Result[Unit] return contract;
+ordinary statement consumption propagates failures and preserves cleanup.
+Typed named callbacks retain their canonical call substitutions even when the
+return type is concrete. Concrete item arguments derive from the scoped
+pipeline prefix and retain its source and writer proof obligations.
+
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
 bindings enter a child lexical frame. Filters use the checked control-condition

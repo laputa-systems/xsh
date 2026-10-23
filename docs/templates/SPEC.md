@@ -4676,7 +4676,8 @@ uses the enclosing scope before the callback parameters are bound.
   all). With `?`, the first failure stops the stage and propagates
   (short-circuit).
 - `each` and `tee` callbacks are statement bodies: a `Result[Unit]` failure
-  propagates.
+  propagates. Generic functions use the same rule. Passing a `Result` as an
+  input item does not propagate its error.
 - `flat-map` callbacks return a `List` or `Stream` per item (a live stream is
   drained before the next item). A `Result` is not implicitly unwrapped; a
   callback returning one is a check error (`check.flat-map`). Use `?` inside

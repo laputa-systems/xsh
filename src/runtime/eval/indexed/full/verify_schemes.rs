@@ -4186,18 +4186,23 @@ fn verify_instantiated_call_arguments(
         let expected = expected
             .or_else(|| expected_ground_type.cloned())
             .ok_or_else(|| IrVerifyError::new("generic call argument type is invalid"))?;
-        let actual = checked_argument_type(
+        let pipeline_item = if is_splice { None } else { producer_proof.pipeline_item_argument_type(decoder.owner, value.raw() as usize)? };
+        let actual = if pipeline_item.is_some() { None } else { checked_argument_type(
             store,
             &decoder,
             instruction,
             value.raw() as usize,
             materialization,
             0,
-        )?;
+        )? };
         let actual = match actual {
             Some(actual) => actual,
             None if !is_splice => {
-                let actual = match producer_proof.derived_argument_type(decoder.owner, value.raw() as usize)? {
+                let derived = match pipeline_item {
+                    Some(actual) => Some(actual),
+                    None => producer_proof.derived_argument_type(decoder.owner, value.raw() as usize)?,
+                };
+                let actual = match derived {
                     Some(actual) => actual,
                     None => annotated_optional_record_argument_type(store, &decoder, value.raw() as usize, materialization)?
                         .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,

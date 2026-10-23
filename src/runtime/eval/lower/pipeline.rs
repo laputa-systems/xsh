@@ -78,6 +78,38 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    pub(super) fn lower_scheme_pipeline_observer(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(usize, Vec<BuildStmtId>)> {
+        let Some(block) = stage.block else {
+            let (slot, value) = self.lower_scheme_pipeline_callback(stage, item_type, slots, current_function, facts, visited, lowered_types)?;
+            let actual = lowered_types.get(&value)?;
+            let unit = match actual {
+                SchemeType::Result(ok, _) => matches!(ok.as_ref(), SchemeType::Ground(Type::Unit)),
+                SchemeType::Ground(ty) => *ty == Type::Unit || ty.is_result_unit(),
+                _ => false,
+            };
+            if !unit { return None; }
+            return Some((slot, vec![push_build_row!(self, stmt, BuildStmtRow::Expr { value, span: self.program.arena.span(stage.span) })]));
+        };
+        let saved = slots.enter();
+        let observer = (|| {
+            let definition = self.program.arena.block(block);
+            let (span, name) = match self.program.arena.block_params(definition.params) {
+                [] => (self.program.arena.span(definition.span), crate::sema::check::item_binding()),
+                [parameter] => (self.program.arena.span(parameter.span), parameter.name),
+                _ => return None,
+            };
+            let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+            let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
+            Some((slot, body))
+        })();
+        slots.exit(saved);
+        observer
+    }
+
     pub(super) fn lower_scheme_pipeline_callback(
         &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
         current_function: super::Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,

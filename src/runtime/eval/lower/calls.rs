@@ -384,12 +384,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
             let function = self.function_index().checked_target_key(target)?;
-            return self.lower_checked_function_call_values(
-                function,
-                args,
-                span,
-                current_function,
-            );
+            let value = self.lower_checked_function_call_values(function, args, span, current_function)?;
+            if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee)).cloned() {
+                let actual = self.bodies.expr_types.get(&callee)?.clone();
+                if actual.contains_inference() || actual.contains_recovery() { return None; }
+                let actual = self.canonicalize_checked_type(actual);
+                let mut scratch = self.scratch.borrow_mut();
+                if !scratch.record_call_instantiation(value, instantiation)
+                    || !scratch.record_checked_call_result_type(value, actual)
+                { return None; }
+            }
+            return Some(value);
         }
         if let Some(plan) = self.module_call_plan(callee) {
             if let Some(script) = plan.sig.script_impl() {
