@@ -3511,7 +3511,7 @@ impl Checker {
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
                     let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
                     let result = match self.type_constraints.source_sealed_operation(owner, span) {
-                        Some(operation) => operation.result.clone(),
+                        Some(operation) => operation.result().clone(),
                         None => {
                             let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
                             self.type_constraints.fresh_at_level(span, level)
@@ -4203,6 +4203,27 @@ impl Checker {
         }
     }
 
+    fn check_sealed_postfix_operation(
+        &mut self,
+        span: Span,
+        code: DiagnosticCode,
+        build: impl FnOnce(Type) -> crate::sema::sealed_operation::SealedOperation<Type>,
+    ) -> Type {
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let result = match self.type_constraints.source_sealed_operation(owner, span) {
+            Some(operation) => operation.result().clone(),
+            None => {
+                let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
+                self.type_constraints.fresh_at_level(span, level)
+            }
+        };
+        if let Err(error) = self.type_constraints.register_source_sealed_operation(owner, build(result.clone())).and_then(|_| self.type_constraints.solve_sealed_operations()) {
+            self.error(span, &error.to_string(), code);
+            return Type::Invalid;
+        }
+        result
+    }
+
     fn check_index_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4218,6 +4239,16 @@ impl Checker {
             return Type::Unknown;
         }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
+        let Ok(base_ty) = self.resolve_operator_operand(base_ty, span) else { return Type::Invalid };
+        if base_ty.contains_inference() {
+            let key = self.check_expr_arena(arena, source, index, None);
+            let syntax = negative_literal_distance(arena, index).and_then(std::num::NonZeroU32::new)
+                .map_or(crate::sema::sealed_operation::IndexSyntax::Ordinary, crate::sema::sealed_operation::IndexSyntax::NegativeLiteral);
+            let constant_key = crate::sema::projection::constant_string_key(&arena.arena, &self.prepared_constants, index);
+            self.from_end_indexes.remove(&span);
+            let result = self.check_sealed_postfix_operation(span, DiagnosticCode::CheckIndexType, |result| crate::sema::sealed_operation::SealedOperation::Index { receiver: base_ty, key, result, syntax, constant_key, span });
+            return Self::lift_postfix_type(result, lift);
+        }
         let result = match base_ty {
             Type::Map(key, item) => {
                 let index_ty = self.check_expr_with_schema_arena(
@@ -4239,8 +4270,6 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&Type::Int, &index_ty, index_span);
-                // Only an index written as a negative literal counts from the
-                // end. The fact is rewritten on every check of this index.
                 self.from_end_indexes.remove(&span);
                 if let Some(distance) = negative_literal_distance(arena, index) {
                     self.from_end_indexes.insert(span, distance);
@@ -4371,6 +4400,17 @@ impl Checker {
             );
             let end_span = arena.arena.expr(end).span;
             self.expect_type(&Type::Int, &ty, end_span);
+        }
+        let Ok(base_ty) = self.resolve_operator_operand(base_ty, span) else { return Type::Invalid };
+        if base_ty.contains_inference() {
+            let bounds = match (start.is_some(), end.is_some()) {
+                (false, false) => crate::sema::sealed_operation::SliceBounds::Unbounded,
+                (true, false) => crate::sema::sealed_operation::SliceBounds::Start,
+                (false, true) => crate::sema::sealed_operation::SliceBounds::End,
+                (true, true) => crate::sema::sealed_operation::SliceBounds::Both,
+            };
+            let result = self.check_sealed_postfix_operation(span, DiagnosticCode::CheckSliceType, |result| crate::sema::sealed_operation::SealedOperation::Slice { receiver: base_ty, result, bounds, span });
+            return Self::lift_postfix_type(result, lift);
         }
         let result = match base_ty {
             Type::List(_) => base_ty,

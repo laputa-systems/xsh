@@ -12,8 +12,91 @@ pub(crate) struct SealedBinaryOperation<T> {
     pub(crate) span: Span,
 }
 
-impl<T> SealedBinaryOperation<T> {
-    pub(crate) fn types(&self) -> [&T; 3] { [&self.left, &self.right, &self.result] }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SealedOperation<T> {
+    Binary(SealedBinaryOperation<T>),
+    Index { receiver: T, key: T, result: T, syntax: IndexSyntax, constant_key: Option<crate::symbol::Name>, span: Span },
+    Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SealedOperationSignature {
+    Binary(ArithmeticSignature),
+    IndexList,
+    IndexMap,
+    IndexRecord,
+    IndexModule,
+    SliceList,
+    SliceStr,
+    SliceBytes,
+}
+
+impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
+    fn from(operation: SealedBinaryOperation<T>) -> Self { Self::Binary(operation) }
+}
+
+impl<T> SealedOperation<T> {
+    pub(crate) fn span(&self) -> Span {
+        match self { Self::Binary(operation) => operation.span, Self::Index { span, .. } | Self::Slice { span, .. } => *span }
+    }
+    pub(crate) fn result(&self) -> &T {
+        match self { Self::Binary(operation) => &operation.result, Self::Index { result, .. } | Self::Slice { result, .. } => result }
+    }
+    pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
+        match self {
+            Self::Binary(operation) => [Some(&operation.left), Some(&operation.right)],
+            Self::Index { receiver, key, .. } => [Some(receiver), Some(key)],
+            Self::Slice { receiver, .. } => [Some(receiver), None],
+        }.into_iter().flatten()
+    }
+    pub(crate) fn types(&self) -> impl Iterator<Item = &T> { self.inputs().chain(std::iter::once(self.result())) }
+    pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        match self {
+            Self::Binary(operation) => [Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)],
+            Self::Index { receiver, key, result, .. } => [Some(receiver), Some(key), Some(result)],
+            Self::Slice { receiver, result, .. } => [Some(receiver), Some(result), None],
+        }.into_iter().flatten()
+    }
+    pub(crate) fn same_kind<U>(&self, other: &SealedOperation<U>) -> bool {
+        match (self, other) {
+            (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
+            (Self::Index { syntax, constant_key, .. }, SealedOperation::Index { syntax: right_syntax, constant_key: right_key, .. }) => syntax == right_syntax && constant_key == right_key,
+            (Self::Slice { bounds, .. }, SealedOperation::Slice { bounds: right, .. }) => bounds == right,
+            _ => false,
+        }
+    }
+    pub(crate) fn try_map<U, E>(&self, mut map: impl FnMut(&T) -> Result<U, E>) -> Result<SealedOperation<U>, E> {
+        Ok(match self {
+            Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
+            Self::Index { receiver, key, result, syntax, constant_key, span } => SealedOperation::Index { receiver: map(receiver)?, key: map(key)?, result: map(result)?, syntax: *syntax, constant_key: *constant_key, span: *span },
+            Self::Slice { receiver, result, bounds, span } => SealedOperation::Slice { receiver: map(receiver)?, result: map(result)?, bounds: *bounds, span: *span },
+        })
+    }
+}
+
+pub(crate) fn index_selection(receiver: &Type, key: &Type, constant_key: Option<crate::symbol::Name>) -> Option<(SealedOperationSignature, Type)> {
+    Some(match receiver.unvalidated() {
+        Type::List(item) if key.matches_expected(&Type::Int) => (SealedOperationSignature::IndexList, (**item).clone()),
+        Type::Map(required, item) if key.matches_expected(required) => (SealedOperationSignature::IndexMap, (**item).clone()),
+        Type::Record(fields) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexRecord, fields.get(&constant_key?)?.clone()),
+        Type::Module(module) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexModule, module.exports.get(&constant_key?)?.field_value_type()?),
+        _ => return None,
+    })
+}
+
+pub(crate) fn slice_selection(receiver: &Type) -> Option<(SealedOperationSignature, Type)> {
+    Some(match receiver.unvalidated() {
+        Type::List(item) => (SealedOperationSignature::SliceList, Type::List(item.clone())),
+        Type::Str => (SealedOperationSignature::SliceStr, Type::Str),
+        Type::Bytes => (SealedOperationSignature::SliceBytes, Type::Bytes),
+        _ => return None,
+    })
 }
 
 pub(crate) fn arithmetic_operator(operator: BinaryOp) -> Option<ArithmeticOperator> {

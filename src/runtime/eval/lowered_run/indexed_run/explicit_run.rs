@@ -1,4 +1,4 @@
-use crate::runtime::eval::indexed::full::PreparedInvocationBindings;
+use crate::runtime::eval::indexed::full::{PreparedInvocationBindings, PreparedIndexKeyCheck};
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, IndexedSerialStep, IndexedStageEngine,
     IndexedStageStep,
@@ -2085,16 +2085,18 @@ enum FrameContinuation {
     },
     IndexBase {
         instruction: u32,
+        check: PreparedIndexKeyCheck,
         span: Span,
         next: Box<FrameContinuation>,
     },
     IndexValue {
         base: LoweredValue,
+        check: PreparedIndexKeyCheck,
         span: Span,
         next: Box<FrameContinuation>,
     },
-    IndexFromEnd {
-        distance: usize,
+    IndexLiteral {
+        mode: crate::runtime::eval::indexed::full::PreparedIndexLiteral,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -2520,7 +2522,7 @@ impl FrameContinuation {
             | C::ComparisonLeft { next, .. }
             | C::Field { next, .. }
             | C::IndexBase { next, .. }
-            | C::IndexFromEnd { next, .. }
+            | C::IndexLiteral { next, .. }
             | C::BinaryLeft { next, .. }
             | C::BoolBinaryRight { next, .. }
             | C::IfExpr { next, .. }
@@ -2637,7 +2639,7 @@ fn with_initializer_handler(
             FrameContinuation::Field { next, .. }
             | FrameContinuation::IndexBase { next, .. }
             | FrameContinuation::IndexValue { next, .. }
-            | FrameContinuation::IndexFromEnd { next, .. }
+            | FrameContinuation::IndexLiteral { next, .. }
             | FrameContinuation::ModuleArguments { next, .. }
             | FrameContinuation::UtilsCacheResult { next, .. }
             | FrameContinuation::ComparisonLeft { next, .. }
@@ -7424,23 +7426,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::Index => {
                 let super::ExprView::Index {
                     base,
-                    index: instruction,
+                    index: operand,
                     span: value_span,
                 } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("index tag has an index view")
                 };
-                self.push_expr(
-                    index,
-                    base.raw(),
-                    value_span,
-                    FrameContinuation::IndexBase {
-                        instruction: instruction.raw(),
-                        span: value_span,
-                        next: Box::new(next),
-                    },
-                );
+                let continuation = match operand {
+                    crate::runtime::eval::IndexOperand::Ordinary(key) => {
+                        let check = self.calls[index].execution.index_key_check(instruction, &self.calls[index].applications).map_err(|error| indexed_error(error, value_span))?;
+                        FrameContinuation::IndexBase { instruction: key.raw(), check, span: value_span, next: Box::new(next) }
+                    }
+                    crate::runtime::eval::IndexOperand::NegativeLiteral(distance) => {
+                        let mode = self.calls[index].execution.index_literal_mode(instruction, distance, &self.calls[index].applications).map_err(|error| indexed_error(error, value_span))?;
+                        FrameContinuation::IndexLiteral { mode, span: value_span, next: Box::new(next) }
+                    }
+                };
+                self.push_expr(index, base.raw(), value_span, continuation);
             }
             ExprViewKind::IndexFromEnd => {
                 let super::ExprView::IndexFromEnd {
@@ -7456,8 +7459,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     base.raw(),
                     value_span,
-                    FrameContinuation::IndexFromEnd {
-                        distance: distance.get(),
+                    FrameContinuation::IndexLiteral {
+                        mode: crate::runtime::eval::indexed::full::PreparedIndexLiteral::FromEnd(distance.get()),
                         span: value_span,
                         next: Box::new(next),
                     },
@@ -7979,6 +7982,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::IndexBase {
                 instruction,
+                check,
                 span,
                 next,
             } => match value {
@@ -7986,25 +7990,38 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     instruction,
                     span,
-                    FrameContinuation::IndexValue { base, span, next },
+                    FrameContinuation::IndexValue { base, check, span, next },
                 ),
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::IndexFromEnd {
-                distance,
+            FrameContinuation::IndexLiteral {
+                mode,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(base) => {
-                    let value = super::lowered_index_from_end_value(base, distance, span)?;
-                    self.push_value(index, FrameValue::Value(value), *next);
+                    match mode {
+                        crate::runtime::eval::indexed::full::PreparedIndexLiteral::FromEnd(distance) => {
+                            let value = super::lowered_index_from_end_value(base, distance, span)?;
+                            self.push_value(index, FrameValue::Value(value), *next);
+                        }
+                        crate::runtime::eval::indexed::full::PreparedIndexLiteral::MapKey { key, check } => {
+                            self.push_value(index, FrameValue::Value(LoweredValue::Int(key)), FrameContinuation::IndexValue { base, check, span, next });
+                        }
+                    }
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::IndexValue { base, span, next } => match value {
+            FrameContinuation::IndexValue { base, check, span, next } => match value {
                 FrameValue::Value(value) => {
-                    let value = super::lowered_index_value(base, value, span)?;
-                    self.push_value(index, FrameValue::Value(value), *next);
+                    if check == PreparedIndexKeyCheck::UInt && !crate::runtime::eval::type_view::value_matches_runtime_type(crate::runtime::eval::ValueView::Lowered(&value), &crate::sema::types::Type::UInt) {
+                        let value = crate::runtime::eval::require::require_value(self.evaluator, value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, span);
+                        let next = FrameContinuation::IndexValue { base, check: PreparedIndexKeyCheck::Ordinary, span, next };
+                        self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span, next: Box::new(next) });
+                    } else {
+                        let value = super::lowered_index_value(base, value, span)?;
+                        self.push_value(index, FrameValue::Value(value), *next);
+                    }
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
@@ -11605,10 +11622,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             call.call_span
         };
+        let propagated_plain_return = header.return_kind == LoweredReturnKind::Erased
+            && matches!(&flow, StmtFlow::Propagate(_))
+            && program.invocation_return_envelope(view.index(), &call.applications)
+                .map_err(|error| indexed_error(error, call.call_span))? == crate::runtime::eval::indexed::full::PreparedReturnEnvelope::Plain;
         let value = match flow {
             StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::Propagate(LoweredValue::ResultErr(error))
-                if header.return_kind == LoweredReturnKind::Plain(LoweredType::Any) =>
+                if header.return_kind == LoweredReturnKind::Plain(LoweredType::Any) || propagated_plain_return =>
             {
                 Err(crate::runtime::eval::lowered_ops::lowered_propagated_runtime_error(
                     *error,

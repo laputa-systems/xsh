@@ -1012,7 +1012,7 @@ impl TypeConstraints {
         environment_level: u32,
         ground_caller: bool,
         caller_applications: &[super::callable_application::CallableApplication<SchemeType, SchemeEffectParameterId>],
-        caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
+        caller_operations: &[super::sealed_operation::SealedOperation<SchemeType>],
         caller_methods: &[super::schemes::MethodFamilyRequirement<SchemeType>],
         caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
     ) -> Result<CallInstantiation, SchemeOperationError> {
@@ -1299,10 +1299,8 @@ impl TypeConstraints {
         }
         let mut operations = Vec::new();
         for operation in &callable.requirements().operations {
-            let left = self.instantiate_scheme_type(&operation.left, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let right = self.instantiate_scheme_type(&operation.right, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let result = self.instantiate_scheme_type(&operation.result, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            operations.push(self.register_sealed_operation(scope, super::sealed_operation::SealedBinaryOperation { operator: operation.operator, left, right, result, span: operation.span }).map_err(SchemeOperationError::Operation)?);
+            let operation = operation.try_map(|ty| self.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))?;
+            operations.push(self.register_sealed_operation(scope, operation).map_err(SchemeOperationError::Operation)?);
         }
         let mut methods = Vec::new();
         for method in &callable.requirements().methods {
@@ -1997,36 +1995,9 @@ impl TypeConstraints {
         contribution: Span,
     ) -> Result<Type, ConstraintConflict> {
         let field_type = self.fresh_at_level(contribution, level);
-        let row_variable = self.fresh_row_at_level(contribution, level, [field]);
-        let required = RowShape {
-            fields: BTreeMap::from([(field, field_type.clone())]),
-            tail: RowTail::Variable(row_variable),
-        };
-        let result = match receiver {
-            Type::Inference(id) => {
-                self.counters
-                    .generated_constraints
-                    .fetch_add(1, Ordering::Relaxed);
-                self.bind_record(*id, &required, contribution)
-            }
-            Type::Record(fields) => self.constrain_rows(
-                &required,
-                &RowShape {
-                    fields: fields.as_ref().clone(),
-                    tail: RowTail::Closed,
-                },
-                contribution,
-            ),
-            _ => Err(ConstraintConflict {
-                expected: row_type(&required),
-                actual: receiver.clone(),
-                initializer: None,
-                established: None,
-                contribution,
-                resolution_error: None,
-            }),
-        };
-        result?;
+        self.apply_journaled(|constraints, changes| {
+            constraints.project_record_field_with_changes(receiver, field, &field_type, level, contribution, changes)
+        })?;
         self.resolve(&field_type).map_err(|error| ConstraintConflict {
             expected: field_type.clone(),
             actual: receiver.clone(),
@@ -2034,6 +2005,36 @@ impl TypeConstraints {
             established: None,
             contribution,
             resolution_error: Some(error),
+        })
+    }
+
+    fn project_record_field_with_changes(
+        &mut self,
+        receiver: &Type,
+        field: crate::symbol::Name,
+        field_type: &Type,
+        level: u32,
+        contribution: Span,
+        changes: &mut Vec<ConstraintChange>,
+    ) -> Result<(), ConstraintConflict> {
+        let row_variable = self.fresh_row_inner(contribution, level, BTreeSet::from([field]), changes);
+        let required = RowShape {
+            fields: BTreeMap::from([(field, field_type.clone())]),
+            tail: RowTail::Variable(row_variable),
+        };
+        let provenance = match receiver {
+            Type::Inference(_) => self.provenance(receiver),
+            _ => self.provenance(field_type).or_else(|| self.row_provenance(&required)).or_else(|| self.provenance(receiver)),
+        };
+        self.counters.generated_constraints.fetch_add(1, Ordering::Relaxed);
+        let result = match receiver {
+            Type::Inference(id) => self.bind_record_inner(*id, &required, contribution, changes),
+            Type::Record(fields) => self.unify_rows_inner(&required, &RowShape { fields: fields.as_ref().clone(), tail: RowTail::Closed }, contribution, 0, changes),
+            _ => Err((row_type(&required), receiver.clone(), None)),
+        };
+        result.map_err(|(expected, actual, resolution_error)| ConstraintConflict {
+            expected, actual, initializer: provenance.map(|value| value.0),
+            established: provenance.and_then(|value| value.1), contribution, resolution_error,
         })
     }
 

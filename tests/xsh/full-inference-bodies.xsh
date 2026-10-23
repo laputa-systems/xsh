@@ -371,3 +371,39 @@ let invalid = choose(true, 42, "tag")
   assert ! output.success, output.stdout
   assert "[check.type-mismatch]" in output.stderr, output.stderr
 }
+
+test test_full_inference_index_receiver_domains_retain_literal_modes { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure select(values, key) { values[key] }
+pure last(values) { values[-1] }
+pure zeroth(values) { values[-0] }
+let keyed: Map[Int, Str] = {[0]: "zero", [1]: "one", [-1]: "negative"}
+assert select([3, 4], 1) == 4
+assert select(keyed, 1) == "one"
+assert last([3, 4]) == 4
+assert last(keyed) == "negative"
+assert zeroth([3, 4]) == 3
+assert zeroth(keyed) == "zero"
+print "index modes"
+""",
+    status: 0,
+    stdout: ["index modes\n"],
+  )?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_slice_receiver_domains_preserve_scalar_units { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure clip(values, start, end) { values[start..end] }
+assert clip([1, 2, 3], 1, 3) == [2, 3]
+assert clip("aé🦀", 1, 3) == "é🦀"
+assert clip(b"abcd", -3, -1) == b"bc"
+print "slice domains"
+""",
+    status: 0,
+    stdout: ["slice domains\n"],
+  )?
+  assert output.stderr == "", output.stderr
+}

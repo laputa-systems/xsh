@@ -104,7 +104,7 @@ pub(crate) struct CallableRequirements {
     pub(crate) effect_parameters: Vec<SchemeEffectParameterId>,
     pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
-    pub(crate) operations: Vec<super::sealed_operation::SealedBinaryOperation<SchemeType>>,
+    pub(crate) operations: Vec<super::sealed_operation::SealedOperation<SchemeType>>,
     pub(crate) methods: Vec<MethodFamilyRequirement<SchemeType>>,
     pub(crate) wrappers: Vec<super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>>,
 }
@@ -196,7 +196,7 @@ pub(crate) enum CallableApplicationBinding {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
 pub(crate) enum SealedOperationBinding {
-    Selected(super::sealed_operation::ArithmeticSignature),
+    Selected(super::sealed_operation::SealedOperationSignature),
     Forwarded(u32),
 }
 
@@ -678,7 +678,7 @@ impl CallableRequirements {
         for iteration in self.iteration_parameters.values() {
             for ty in iteration.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }
-        bytes = bytes.saturating_add(self.operations.capacity() * size_of::<super::sealed_operation::SealedBinaryOperation<SchemeType>>());
+        bytes = bytes.saturating_add(self.operations.capacity() * size_of::<super::sealed_operation::SealedOperation<SchemeType>>());
         for operation in &self.operations {
             for ty in operation.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }
@@ -724,9 +724,7 @@ impl CallableRequirements {
     fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
         let mut mapped = self.clone();
         for operation in &mut mapped.operations {
-            operation.left.map_ground_types(map);
-            operation.right.map_ground_types(map);
-            operation.result.map_ground_types(map);
+            for ty in operation.types_mut() { ty.map_ground_types(map); }
         }
         for method in &mut mapped.methods {
             method.receiver.map_ground_types(map);
@@ -840,7 +838,7 @@ impl CallInstantiation {
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
-        caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
+        caller_operations: &[super::sealed_operation::SealedOperation<SchemeType>],
         caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
         caller_map_keys: &[SchemeTypeParameterId],
         caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
@@ -864,7 +862,7 @@ impl CallInstantiation {
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
-        caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
+        caller_operations: &[super::sealed_operation::SealedOperation<SchemeType>],
         caller_methods: &[MethodFamilyRequirement<SchemeType>],
         caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
         caller_map_keys: &[SchemeTypeParameterId],

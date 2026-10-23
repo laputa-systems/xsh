@@ -41,7 +41,7 @@ pub fn resolve_constant_key_projection(
     )
 }
 
-fn constant_string_key(
+pub(super) fn constant_string_key(
     arena: &AstArena,
     constants: &PreparedConstants,
     key: ExprId,

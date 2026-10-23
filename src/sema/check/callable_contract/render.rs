@@ -183,7 +183,17 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     }
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for operation in &scheme.callable().requirements().operations {
-        parts.push(format!("arithmetic({:?}, {}, {}) -> {}", operation.operator, render_scheme_type(&operation.left, names, identities), render_scheme_type(&operation.right, names, identities), render_scheme_type(&operation.result, names, identities)));
+        let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities)).collect::<Vec<_>>().join(", ");
+        let result = render_scheme_type(operation.result(), names, identities);
+        parts.push(match operation {
+            crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {result}", operation.operator),
+            crate::sema::sealed_operation::SealedOperation::Index { syntax, constant_key, .. } => {
+                let literal = match syntax { crate::sema::sealed_operation::IndexSyntax::Ordinary => String::new(), crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance) => format!(", negative-literal={distance}") };
+                let field = constant_key.map(|name| format!(", field={:?}", name.as_str().as_str())).unwrap_or_default();
+                format!("index({inputs}{literal}{field}) -> {result}")
+            }
+            crate::sema::sealed_operation::SealedOperation::Slice { bounds, .. } => format!("slice({bounds:?}, {inputs}) -> {result}"),
+        });
     }
     for wrapper in &scheme.callable().requirements().wrappers {
         let types = wrapper.types().into_iter().map(|ty| render_scheme_type(ty, names, identities)).collect::<Vec<_>>().join(", ");

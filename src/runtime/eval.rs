@@ -1826,6 +1826,18 @@ enum StmtFlow {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EndDistance(std::num::NonZeroU32);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexOperand<I> {
+    Ordinary(I),
+    NegativeLiteral(EndDistance),
+}
+
+impl<I> IndexOperand<I> {
+    fn ordinary(self) -> Option<I> {
+        match self { Self::Ordinary(value) => Some(value), Self::NegativeLiteral(_) => None }
+    }
+}
+
 impl EndDistance {
     fn new(distance: u32) -> Option<Self> {
         std::num::NonZeroU32::new(distance).map(Self)

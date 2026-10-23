@@ -1,6 +1,6 @@
 use super::{Binding, ConstraintChange, ConstraintConflict, ConstraintResolutionError, RowTail, TypeConstraints, Variable, MAX_TYPE_DEPTH};
 use super::application_constraints::ApplicationDependency;
-use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedBinaryOperation, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
+use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedBinaryOperation, SealedOperation, SealedOperationSignature, index_selection, slice_selection, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
 use crate::sema::types::Type;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -17,12 +17,72 @@ pub(crate) enum SealedOperationError {
     Resolution(ConstraintResolutionError),
     Constraint(ConstraintConflict),
     MapKey(super::MapKeyConstraintError),
+    UnsupportedPostfix { operation: &'static str, receiver: Type, key: Option<Type> },
     Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sealed_postfix_operations_preserve_input_ambiguity_and_atomic_rollback() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Int, result: Type::Str, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+        constraints.constrain(&receiver, &Type::Map(Box::new(Type::Int), Box::new(Type::Str)), span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+
+        let mut constraints = TypeConstraints::default();
+        let key = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: Type::List(Box::new(Type::Int)), key: key.clone(), result: Type::Bool, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        let before = constraints.operations.clone();
+        assert!(constraints.solve_sealed_operations().is_err());
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&key).unwrap(), key);
+
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result: Type::Str, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+    }
+
+    #[test]
+    fn sealed_postfix_record_projection_preserves_rollback_and_stable_wakeups() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let owner = super::super::CallableApplicationScope::Invocation;
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let name = crate::symbol::Name::intern("name");
+        let item = crate::symbol::Name::intern("item");
+        constraints.project_record_field(&receiver, name, 1, span).unwrap();
+        let result = constraints.fresh(span);
+        constraints.register_sealed_operation(owner, SealedOperation::Index { receiver: receiver.clone(), key: Type::Str, result: result.clone(), syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: Some(item), span }).unwrap();
+        let operations = constraints.operations.clone();
+        let fields = constraints.contextual_record_fields(&receiver).unwrap();
+        let rows = constraints.rows.len();
+        let variables = constraints.variables.len();
+        constraints.trial(|trial| {
+            trial.solve_sealed_operations().unwrap();
+            assert!(trial.contextual_record_fields(&receiver).unwrap().unwrap().contains_key(&item));
+            Ok(())
+        }).unwrap();
+        assert_eq!(constraints.operations, operations);
+        assert_eq!(constraints.contextual_record_fields(&receiver).unwrap(), fields);
+        assert_eq!(constraints.rows.len(), rows);
+        assert_eq!(constraints.variables.len(), variables);
+        constraints.solve_sealed_operations().unwrap();
+        let fields = constraints.contextual_record_fields(&receiver).unwrap().unwrap();
+        assert_eq!(fields.get(&item), Some(&result));
+        let rows = constraints.rows.len();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.rows.len(), rows);
+    }
 
     #[test]
     fn sealed_binary_operations_reject_recursive_list_results_without_binding_the_result() {
@@ -72,7 +132,7 @@ mod tests {
         constraints.constrain(&item, &Type::Bool, span).unwrap();
         constraints.solve_sealed_operations().unwrap();
         assert_eq!(constraints.resolve(&result).unwrap(), Type::List(Box::new(Type::Bool)));
-        assert_eq!(constraints.operations.entries[&id].selection, Some(ArithmeticSignature::ListConcatenation));
+        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Binary(ArithmeticSignature::ListConcatenation)));
     }
 }
 
@@ -86,6 +146,7 @@ impl std::fmt::Display for SealedOperationError {
             Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
+            Self::UnsupportedPostfix { operation, receiver, key } => write!(formatter, "{operation} is not defined for {receiver} with key {key:?}"),
             Self::Unsupported { operator, left, right } => write!(formatter, "{operator:?} is not defined for {left} and {right}"),
         }
     }
@@ -94,8 +155,8 @@ impl std::fmt::Display for SealedOperationError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ScopedOperation {
     pub(super) owner: super::CallableApplicationScope,
-    pub(super) operation: SealedBinaryOperation<Type>,
-    pub(super) selection: Option<ArithmeticSignature>,
+    pub(super) operation: SealedOperation<Type>,
+    pub(super) selection: Option<SealedOperationSignature>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -111,7 +172,7 @@ pub(super) struct SealedOperations {
 pub(super) enum OperationChange {
     Fresh(SealedOperationId),
     Source((super::CallableApplicationScope, Span), SealedOperationId),
-    Selection(SealedOperationId, Option<ArithmeticSignature>),
+    Selection(SealedOperationId, Option<SealedOperationSignature>),
     Watcher(ApplicationDependency, SealedOperationId),
     Queued(SealedOperationId),
     Dequeued(SealedOperationId),
@@ -170,7 +231,7 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
-    fn operation_dependencies(&self, operation: &SealedBinaryOperation<Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
+    fn operation_dependencies(&self, operation: &SealedOperation<Type>) -> Result<BTreeSet<ApplicationDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
         let mut pending = operation.types().into_iter().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
         let mut dependencies = BTreeSet::new();
@@ -212,7 +273,8 @@ impl TypeConstraints {
         Ok(dependencies)
     }
 
-    pub(crate) fn register_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: SealedBinaryOperation<Type>) -> Result<SealedOperationId, SealedOperationError> {
+    pub(crate) fn register_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
+        let operation = operation.into();
         let dependencies = self.operation_dependencies(&operation)?;
         let id = SealedOperationId(NonZeroU64::new(NEXT_OPERATION.fetch_add(1, Ordering::Relaxed)).expect("operation identities are nonzero"));
         self.apply_journaled(|this, changes| {
@@ -251,6 +313,54 @@ impl TypeConstraints {
                     for ty in operation.types() { this.lower_levels_in_type(ty, level, changes)?; }
                 }
                 for dependency in dependencies { this.operations.watch(dependency, id, changes); }
+                let operation = match operation {
+                    SealedOperation::Binary(operation) => operation,
+                    SealedOperation::Index { receiver, key, result, constant_key, span, .. } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        if let Type::Inference(variable) = receiver.unvalidated() {
+                            if let Some(field) = constant_key {
+                                if let Some(record) = this.record_binding(*variable)? {
+                                    let fields = this.resolve_row(&record.shape)?.fields;
+                                    this.constrain_operation_type(&Type::Str, &key, span, changes)?;
+                                    if let Some(selected) = fields.get(&field) {
+                                        this.constrain_operation_type(&result, selected, span, changes)?;
+                                    } else {
+                                        this.project_record_field_with_changes(&receiver, field, &result, level.unwrap_or(0), span, changes).map_err(SealedOperationError::Constraint)?;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        let required = match receiver.unvalidated() {
+                            Type::List(_) => Type::Int,
+                            Type::Map(key, _) => (**key).clone(),
+                            Type::Record(_) | Type::Module(_) if constant_key.is_some() => Type::Str,
+                            _ => return Err(SealedOperationError::UnsupportedPostfix { operation: "indexing", receiver, key: Some(key) }),
+                        };
+                        this.constrain_operation_type(&required, &key, span, changes)?;
+                        let key = this.resolve_with_changes(&key, 0, changes)?;
+                        let Some((selection, selected)) = index_selection(&receiver, &key, constant_key) else {
+                            return Err(SealedOperationError::UnsupportedPostfix { operation: "indexing", receiver, key: Some(key) });
+                        };
+                        this.constrain_operation_type(&result, &selected, span, changes)?;
+                        if receiver.contains_inference() || key.contains_inference() { continue; }
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                    SealedOperation::Slice { receiver, result, span, .. } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        if matches!(receiver.unvalidated(), Type::Inference(_)) { continue; }
+                        let Some((selection, selected)) = slice_selection(&receiver) else {
+                            return Err(SealedOperationError::UnsupportedPostfix { operation: "slicing", receiver, key: None });
+                        };
+                        this.constrain_operation_type(&result, &selected, span, changes)?;
+                        if receiver.contains_inference() { continue; }
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                };
                 let mut left = this.resolve_with_changes(&operation.left, 0, changes)?;
                 let mut right = this.resolve_with_changes(&operation.right, 0, changes)?;
                 let candidates = ArithmeticSignature::ALL.into_iter().filter(|signature| signature.accepts_operator(operation.operator) && {
@@ -285,6 +395,7 @@ impl TypeConstraints {
                 if left.contains_inference() || right.contains_inference() { continue; }
                 let Some((selection, result)) = arithmetic_selection(operation.operator, &left, &right) else { return Err(SealedOperationError::Unsupported { operator: operation.operator, left, right }); };
                 this.constrain_operation_type(&operation.result, &result, operation.span, changes)?;
+                let selection = SealedOperationSignature::Binary(selection);
                 let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
                 if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
             }
@@ -296,24 +407,25 @@ impl TypeConstraints {
         self.operations.source_sites.get(&(owner, span)).copied()
     }
 
-    pub(crate) fn source_sealed_operation(&self, owner: super::CallableApplicationScope, span: Span) -> Option<&SealedBinaryOperation<Type>> {
+    pub(crate) fn source_sealed_operation(&self, owner: super::CallableApplicationScope, span: Span) -> Option<&SealedOperation<Type>> {
         self.sealed_operation_at(owner, span).and_then(|id| self.operations.entries.get(&id)).map(|entry| &entry.operation)
     }
 
-    pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: SealedBinaryOperation<Type>) -> Result<SealedOperationId, SealedOperationError> {
+    pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
+        let operation = operation.into();
         self.commit_constraint_transaction(|this| {
-            if let Some(id) = this.sealed_operation_at(owner, operation.span) {
+            if let Some(id) = this.sealed_operation_at(owner, operation.span()) {
                 let previous = this.operations.entries[&id].operation.clone();
-                if previous.operator != operation.operator { return Err(SealedOperationError::Unsupported { operator: operation.operator, left: operation.left, right: operation.right }); }
+                if !previous.same_kind(&operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                 this.apply_journaled(|this, changes| {
                     for (expected, actual) in previous.types().into_iter().zip(operation.types()) {
-                        this.constrain_inner(expected, actual, operation.span, true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: operation.span, initializer: None, established: None }))?;
+                        this.constrain_inner(expected, actual, operation.span(), true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: operation.span(), initializer: None, established: None }))?;
                     }
                     Ok::<_, SealedOperationError>(())
                 })?;
                 return Ok(id);
             }
-            let span = operation.span;
+            let span = operation.span();
             let id = this.register_sealed_operation(owner, operation)?;
             this.apply_journaled(|this, changes| {
                 assert!(this.operations.source_sites.insert((owner, span), id).is_none());
@@ -324,18 +436,12 @@ impl TypeConstraints {
         })
     }
 
-    pub(super) fn generalize_sealed_operation(&self, id: SealedOperationId, level: u32, generalization: &mut super::Generalization) -> Result<SealedBinaryOperation<crate::sema::schemes::SchemeType>, super::SchemeOperationError> {
+    pub(super) fn generalize_sealed_operation(&self, id: SealedOperationId, level: u32, generalization: &mut super::Generalization) -> Result<SealedOperation<crate::sema::schemes::SchemeType>, super::SchemeOperationError> {
         let operation = &self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.operation;
-        Ok(SealedBinaryOperation {
-            operator: operation.operator,
-            left: self.generalize_type(&operation.left, level, generalization, 0)?,
-            right: self.generalize_type(&operation.right, level, generalization, 0)?,
-            result: self.generalize_type(&operation.result, level, generalization, 0)?,
-            span: operation.span,
-        })
+        operation.try_map(|ty| self.generalize_type(ty, level, generalization, 0))
     }
 
-    pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedBinaryOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
+    pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
         let mut operations = Vec::new();
         for (&id, entry) in &self.operations.entries {
             if entry.selection.is_some() || !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner)) { continue; }

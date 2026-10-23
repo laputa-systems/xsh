@@ -254,17 +254,21 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
-    for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")?.iter().filter(|_| selected_sources) {
+    for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")?.iter().filter(|operation| selected_sources || !matches!(operation, super::super::schemes::FullSealedOperation::Binary { .. })) {
         budget.charge(1)?;
         let ordinal = outputs.len();
         let mut inputs = BTreeSet::new();
         let mut output = BTreeSet::new();
-        for (roots, binders) in [([Some(operation.left), Some(operation.right)], &mut inputs), ([Some(operation.result), None], &mut output)] {
+        for (roots, binders) in [(operation.inputs(), &mut inputs), ([Some(operation.result()), None], &mut output)] {
             for root in roots.into_iter().flatten() {
                 let (types, rows) = scheme_type_binders(store, root, budget)?;
                 binders.extend(types.into_iter().map(|id| (false, id)));
                 binders.extend(rows.into_iter().map(|id| (true, id)));
             }
+        }
+        if let ApplicationSubstitution::Symbolic(substitution) = substitution {
+            let projected = super::operations::symbolic_output_binders(store, scope, *operation, substitution, budget)?;
+            output.retain(|&(row, binder)| !row && projected.contains(&binder));
         }
         let mut missing = 0;
         for key @ (row, binder) in inputs {

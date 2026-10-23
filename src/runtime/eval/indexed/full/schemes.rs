@@ -453,13 +453,31 @@ pub(super) enum FullWrapperContribution {
 pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBinding;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(C)]
-pub(super) struct FullSealedOperation {
-    pub(super) left: SchemeTypeId,
-    pub(super) right: SchemeTypeId,
-    pub(super) result: SchemeTypeId,
-    pub(super) operator: xsh_registry::signature::ArithmeticOperator,
-    pub(super) reserved: [u8; 3],
+#[repr(C, u8)]
+pub(super) enum FullSealedOperation {
+    Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
+    Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
+    Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
+}
+
+impl FullSealedOperation {
+    pub(super) fn inputs(self) -> [Option<SchemeTypeId>; 2] {
+        match self {
+            Self::Binary { left, right, .. } => [Some(left), Some(right)],
+            Self::Index { receiver, key, .. } => [Some(receiver), Some(key)],
+            Self::Slice { receiver, .. } => [Some(receiver), None],
+        }
+    }
+    pub(super) fn result(self) -> SchemeTypeId {
+        match self { Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } => result }
+    }
+    pub(super) fn types(self) -> impl Iterator<Item = SchemeTypeId> {
+        match self {
+            Self::Binary { left, right, result, .. } => [Some(left), Some(right), Some(result)],
+            Self::Index { receiver, key, result, .. } => [Some(receiver), Some(key), Some(result)],
+            Self::Slice { receiver, result, .. } => [Some(receiver), Some(result), None],
+        }.into_iter().flatten()
+    }
 }
 
 pub(super) use crate::sema::schemes::SealedOperationBinding as FullOperationBinding;
@@ -830,10 +848,13 @@ impl FullBuilder {
         let applications = super::table_range(applications_start, self.store.scheme_applications.len())?;
         let operations_start = self.store.scheme_operations.len();
         for operation in &scheme.callable().requirements().operations {
-            let left = self.intern_scheme_type(&operation.left, &type_parameters, &row_parameters, &effect_parameters)?;
-            let right = self.intern_scheme_type(&operation.right, &type_parameters, &row_parameters, &effect_parameters)?;
-            let result = self.intern_scheme_type(&operation.result, &type_parameters, &row_parameters, &effect_parameters)?;
-            self.store.scheme_operations.push(FullSealedOperation { left, right, result, operator: operation.operator, reserved: [0; 3] });
+            let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
+            let encoded = match operation {
+                crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
+                crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
+                crate::sema::sealed_operation::SealedOperation::Slice { receiver, result, bounds, .. } => FullSealedOperation::Slice { receiver, result, bounds },
+            };
+            self.store.scheme_operations.push(encoded);
         }
         let operations = super::table_range(operations_start, self.store.scheme_operations.len())?;
         let methods_start = self.store.scheme_methods.len();

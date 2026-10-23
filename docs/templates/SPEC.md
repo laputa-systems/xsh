@@ -1848,6 +1848,14 @@ no single-element `[i]` indexing; slice one scalar or iterate. The method
 `.slice(offset, length)` is distinct: it rejects negative or out-of-range
 offsets instead of clamping.
 
+An omitted receiver type retains the indexing or slicing relationship for each
+call. `pure select(values, key) { values[key] }` can be used independently with
+a `List` and a `Map`; an integer key alone does not choose between them.
+The literal syntax remains significant in a generic body: `values[-1]` selects
+the last list item or the map's negative key according to the receiver type.
+`pure clip(values, start, end) { values[start..end] }` similarly retains the
+receiver's `List`, `Str`, or `Bytes` domain and its existing slice units.
+
 ### 6.7 Optional chaining
 
 `a?.field`, `a?.method(...)`, `a?[i]`, and `a?[x..y]` guard one nullable hop.
@@ -3143,10 +3151,11 @@ Values may be scalar literals, parameter or local reads, ground immutable
 runtime captures, required `.field` projections, list literals without splices,
 records with named fields, `Ok` and `Err` constructors, value blocks,
 value-producing `if` and `match` branches, loops, or statically selected pure
-calls. Unguarded list indexing and slicing preserve the element relationship;
-literal record keys preserve the selected field relationship through
-compiler-created immutable temporaries. Negative literal indexes retain the ordinary from-end rule, while computed negative indexes
-still fail. Inferred binary arithmetic retains a relationship between both
+calls. Unguarded indexing retains the `List` or `Map` receiver, key, and item
+relationships; slicing retains the `List`, `Str`, or `Bytes` receiver domain.
+Literal record and module keys preserve the selected field relationship through
+compiler-created immutable temporaries. Negative literals select list items
+from the end or negative map keys; computed negative list indices still fail. Inferred binary arithmetic retains a relationship between both
 operand types and its result. Each call selects an existing operator signature
 from its input types; a result annotation alone does not choose the inputs.
 This covers integer and floating-point arithmetic, text and list concatenation,

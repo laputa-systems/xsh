@@ -3112,7 +3112,16 @@ impl<'a> ProducerProof<'a> {
                 Some(*callable.sig.return_ty)
             }
 
-            schema::ExprView::Index { base, .. } | schema::ExprView::IndexFromEnd { base, .. } => {
+            schema::ExprView::Index { base, index, .. } => {
+                if let Some(base) = self.need_context(decoder, base.raw() as usize)? {
+                    let key = if matches!(base.unvalidated(), Type::Record(_) | Type::Module(_)) {
+                        index.ordinary().map(|index| decoder.checked_literal_string(index.raw() as usize)).transpose()?.flatten()
+                    } else { None };
+                    return FullDecoder::checked_keyed_index_type((*base).clone(), key.as_deref()).map(|ty| Some(Arc::new(ty)));
+                }
+                None
+            }
+            schema::ExprView::IndexFromEnd { base, .. } => {
                 if let Some(base) = self.need_context(decoder, base.raw() as usize)? { return FullDecoder::checked_index_type((*base).clone()).map(|ty| Some(Arc::new(ty))); }
                 None
             }
@@ -3804,6 +3813,7 @@ impl<'a> ProducerProof<'a> {
                     let field = if let Type::Module(module) = source.unvalidated()
                         && module.exact
                     {
+                        let index = index.ordinary().ok_or_else(|| IrVerifyError::new("callable module index has a negative literal key"))?;
                         let key = decoder.checked_literal_string(index.raw() as usize)?.ok_or_else(|| IrVerifyError::new("callable module index has no literal key"))?;
                         let field = Name::intern(&key);
                         matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { optional: false, .. })).then_some(field)
@@ -4677,9 +4687,24 @@ impl<'a> ProducerProof<'a> {
             }
             schema::ExprView::Index { base, index, .. } => {
                 let source = self.need_context(&decoder, base.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground index has no collection contract"))?;
-                let key = match source.unvalidated() { Type::Map(key, _) => (**key).clone(), Type::List(_) => Type::Int, _ => return Err(IrVerifyError::new("ground index source is not a keyed collection")) };
+                let key = match source.unvalidated() {
+                    Type::Map(key, _) => (**key).clone(),
+                    Type::List(_) => Type::Int,
+                    Type::Record(_) | Type::Module(_) => {
+                        let index = index.ordinary().ok_or_else(|| IrVerifyError::new("constant index producer has a negative literal key"))?;
+                        let key = decoder.checked_literal_string(index.raw() as usize)?;
+                        let actual = FullDecoder::checked_keyed_index_type((*source).clone(), key.as_deref())?;
+                        if !decoder.checked_type_fits(&actual, &expected) { return Err(IrVerifyError::new("constant index producer disagrees with its selected field")); }
+                        Type::Str
+                    }
+                    _ => return Err(IrVerifyError::new("ground index source is not a keyed collection")),
+                };
                 self.expression(owner, base.raw() as usize, source, false);
-                self.expression(owner, index.raw() as usize, Arc::new(key), false);
+                match index {
+                    crate::runtime::eval::IndexOperand::Ordinary(index) => self.expression(owner, index.raw() as usize, Arc::new(key), false),
+                    crate::runtime::eval::IndexOperand::NegativeLiteral(_) if Type::Int.matches_expected(&key) => {},
+                    crate::runtime::eval::IndexOperand::NegativeLiteral(_) => return Err(IrVerifyError::new("literal index source has no integer key")),
+                }
                 Ok(())
             }
             schema::ExprView::IndexFromEnd { base, .. } => {

@@ -800,6 +800,7 @@ macro_rules! instruction_schema {
                     if tag == FullTag::StmtWith {
                         decoder.verify_with_shape(instruction)?;
                     }
+                    if tag == FullTag::ExprIndex { decoder.verify_index_operand_kind(instruction)?; }
                     if tag == FullTag::ExprTypedCall {
                         let payload = decoder.cursor(
                             decoder.store.payload(decoder.store.data[instruction].range())?,
@@ -1008,7 +1009,7 @@ instruction_schema! {
         } => ExprField = 56 [0; Operands; FrameApply];
         Index {
             base: BuildExprId,
-            index: BuildExprId,
+            index: crate::runtime::eval::IndexOperand<BuildExprId>,
             span: Span,
         } => ExprIndex = 57 [0; Operands; FrameApply];
         /// `base[-distance]` over a list, where the checker saw the negative

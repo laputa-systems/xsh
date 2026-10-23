@@ -193,6 +193,43 @@ once. Execution carries each reached right value into the next comparison;
 cold verification proves every operand, including unreached links. Nested chains
 therefore do not duplicate their middle operand subtrees.
 
+Indexing and slicing share the journaled sealed-operation lifecycle with
+arithmetic. Their requirements retain the receiver, key where present, result,
+and source operand form. Inputs determine the domain; an integer key or expected
+result cannot choose a list instead of an integer-keyed map. Constant record and
+module keys retain the actual selected name. Independently known open records
+project required constant fields through the existing journaled row constraint;
+a string key cannot establish a record domain. Slice sites prove their ordered
+bounds as integers and authenticate which bounds were present.
+
+The indexed `Index` operand distinguishes an ordinary expression from a nonzero
+negative-literal distance. Cold verification authenticates that form against the
+owned requirement and actual producer contracts. A generic negative literal
+uses the existing invocation substitution to select list-from-end access or a
+negative map key before the receiver value is read. Binding-dependent sites and
+their ancestors use scheduled execution, preserving the active substitution on
+both evaluator routes. Computed negative indices retain ordinary evaluation;
+there is no runtime overload search or value-tag selection of literal meaning.
+
+Unsigned map keys use the canonical UInt validator and existing lexical
+propagation flow. At erased function returns, the authenticated substituted
+outer envelope determines whether propagated errors cross a plain boundary or
+remain Result data, matching grounded returns without inspecting payload values.
+
+The focused ordinary/generic UInt-key parity control observes the same outcomes
+on both evaluator routes:
+
+| Map item type | Valid key holding the payload | Negative UInt key |
+| --- | --- | --- |
+| `Str` | original string | propagated Schema failure |
+| `Result[Int, Error]` | original error payload | Schema error as Result data |
+| `Result[Int, Str]` | original string error payload | Schema error as Result data |
+| `Result[Int, Str]?` | original string error payload | Schema error as Result data |
+
+The last two rows expose unresolved grounded error-contract safety debt: a Schema
+error cannot satisfy the declared `Str` error payload. Generic indexing preserves
+that baseline behavior; parity does not qualify this debt as safe or complete.
+
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical
 method site identifies its owned requirement; call evidence either selects a

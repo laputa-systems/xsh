@@ -343,9 +343,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
         }
         let effect_scope = effects.scope(store, scheme.effect_parameters)?;
         let mut scope = make_scope(store, type_parameters, row_parameters, effect_scope)?;
-        for operation in mark_range(scheme.operations, &store.scheme_operations, &mut operation_coverage, "scheme operation range is invalid or overlaps")? {
-            if operation.reserved != [0; 3] { return Err(IrVerifyError::new("scheme operation metadata is invalid")); }
-        }
+        mark_range(scheme.operations, &store.scheme_operations, &mut operation_coverage, "scheme operation range is invalid or overlaps")?;
         for method in mark_range(scheme.methods, &store.scheme_methods, &mut method_coverage, "scheme method range is invalid or overlaps")? {
             if method.reserved != [0; 3] { return Err(IrVerifyError::new("scheme method metadata is invalid")); }
             let slots = mark_range(method.argument_slots, &store.scheme_method_slots, &mut method_slot_coverage, "scheme method argument slot range is invalid or overlaps")?;
@@ -525,7 +523,7 @@ fn verify_scheme_tables(
             .ok_or_else(|| IrVerifyError::new("full scheme id is out of bounds"))?;
         let mut roots = Vec::new();
         for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")? {
-            roots.extend([operation.left, operation.right, operation.result]);
+            roots.extend(operation.types());
         }
         for method in bounded(scheme.methods, &store.scheme_methods, "scheme method range is invalid")? {
             application_budget.charge(2 + method.arguments.len as usize)?;
@@ -1211,7 +1209,7 @@ fn verify_scheme_body_facts(
             let instruction = fact.instruction as usize;
             if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
-                if store.tags[instruction] != FullTag::ExprBinary || ordinal >= scheme.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice) || ordinal >= scheme.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
@@ -1820,7 +1818,21 @@ fn verify_body_expression(
             if !body_type_matches(&child(else_value, budget)?, ty, budget)? { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
             ty.clone()
         }
+        schema::ExprView::Index { base, index, .. } if operation_sites.contains_key(&instruction) => {
+            let receiver = child(base, budget)?;
+            let (key, syntax, constant_key) = match index {
+                crate::runtime::eval::IndexOperand::Ordinary(index) => {
+                    let key = child(index, budget)?;
+                    let constant = slots.literal_string(scopes, decoder, index.raw() as usize, budget)?.map(|name| Name::intern(&name));
+                    (key, crate::sema::sealed_operation::IndexSyntax::Ordinary, constant)
+                }
+                crate::runtime::eval::IndexOperand::NegativeLiteral(distance) => (SchemeType::Ground(Type::Int), crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(std::num::NonZeroU32::new(distance.get() as u32).ok_or_else(|| IrVerifyError::new("literal index distance is invalid"))?), None),
+            };
+            operations::verify_index_site(store, scheme_scope, operation_sites[&instruction], &receiver, &key, ty, syntax, constant_key, budget)?;
+            ty.clone()
+        }
         schema::ExprView::Index { base, index, .. } => {
+            let crate::runtime::eval::IndexOperand::Ordinary(index) = index else { return Err(IrVerifyError::new("literal generic index has no retained operation")); };
             let mut source = child(base, budget)?;
             while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
             let key = child(index, budget)?;
@@ -1844,6 +1856,20 @@ fn verify_body_expression(
             while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
             let SchemeType::List(item) = source else { return Err(IrVerifyError::new("generic from-end index has no list contract")) };
             *item
+        }
+        schema::ExprView::Slice { base, start, end, .. } if operation_sites.contains_key(&instruction) => {
+            let receiver = child(base, budget)?;
+            let bounds = match (start.is_some(), end.is_some()) {
+                (false, false) => crate::sema::sealed_operation::SliceBounds::Unbounded,
+                (true, false) => crate::sema::sealed_operation::SliceBounds::Start,
+                (false, true) => crate::sema::sealed_operation::SliceBounds::End,
+                (true, true) => crate::sema::sealed_operation::SliceBounds::Both,
+            };
+            for bound in [start, end].into_iter().flatten() {
+                if !body_type_matches_ground(&child(bound, budget)?, &Type::Int) { return Err(IrVerifyError::new("generic slice bound has no Int producer")); }
+            }
+            operations::verify_slice_site(store, scheme_scope, operation_sites[&instruction], &receiver, ty, bounds, budget)?;
+            ty.clone()
         }
         schema::ExprView::Slice { base, start, end, .. } => {
             let mut source = child(base, budget)?;

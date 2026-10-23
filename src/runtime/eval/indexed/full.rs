@@ -1342,6 +1342,9 @@ pub(in crate::runtime::eval) struct FullProgram {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PreparedTypeConstructor { Optional, Result, Other }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedReturnEnvelope { Plain, Result, OptionalResult }
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
 
@@ -1351,6 +1354,27 @@ pub(in crate::runtime::eval) struct PreparedInvocationBindings {
     layouts: Arc<[Arc<crate::sema::arguments::StaticArgumentBinding>]>,
 }
 
+
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) enum PreparedIndexLiteral { FromEnd(usize), MapKey { key: i64, check: PreparedIndexKeyCheck } }
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedIndexKeyCheck { Ordinary, UInt }
+
+#[derive(Clone, Copy)]
+enum PreparedIndexReceiver { List, SignedMap, UnsignedMap, Keyed }
+
+impl PreparedIndexReceiver {
+    fn map(key: &Type) -> Self {
+        if *key == Type::UInt { Self::UnsignedMap }
+        else if key.matches_expected(&Type::Int) { Self::SignedMap }
+        else { Self::Keyed }
+    }
+
+    fn key_check(self) -> PreparedIndexKeyCheck {
+        match self { Self::UnsignedMap => PreparedIndexKeyCheck::UInt, _ => PreparedIndexKeyCheck::Ordinary }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
@@ -1365,6 +1389,19 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullStore {
+    fn sealed_operation_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullSealedOperation>, IrVerifyError> {
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
+        let FullCallableContract::Scheme(id) = self.functions[function.index()].contract else { return Ok(None); };
+        let scheme = self.scheme(id)?;
+        let facts = &self.scheme_body_facts[scheme.body_facts.bounds(self.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("operation body fact range is invalid"))?];
+        let key = (instruction, schemes::FullSchemeBodyFactKind::Operation as u8);
+        let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
+        if facts[index].function != function { return Err(IrVerifyError::new("operation body fact belongs to another function")); }
+        let schemes::FullSchemeBodyFactValue::Operation(ordinal) = facts[index].value else { return Err(IrVerifyError::new("operation body fact has no requirement")); };
+        let range = scheme.operations.bounds(self.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("operation range is invalid"))?;
+        self.scheme_operations[range].get(ordinal as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("operation ordinal is out of bounds"))
+    }
+
     fn wrapper_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullWrapper>, IrVerifyError> {
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
         let FullCallableContract::Scheme(id) = self.functions[function.index()].contract else { return Ok(None); };
@@ -1381,6 +1418,72 @@ impl FullStore {
 }
 
 impl FullProgram {
+    fn invocation_index_receiver(&self, mut receiver: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexReceiver, IrVerifyError> {
+        use schema::FullSchemeTypeTag as S;
+        use super::semantic::TypeTag as T;
+        for _ in 0..=128 {
+            let node = self.store.scheme_type(receiver)?;
+            return Ok(match node.tag {
+                S::Parameter => match invocation.substitution.types.get(node.first as usize)
+                    .ok_or_else(|| IrVerifyError::new("index receiver has no actual binding"))?.unvalidated()
+                {
+                    Type::List(_) => PreparedIndexReceiver::List,
+                    Type::Map(key, _) => PreparedIndexReceiver::map(key),
+                    Type::Record(_) | Type::Module(_) => PreparedIndexReceiver::Keyed,
+                    _ => return Err(IrVerifyError::new("index receiver has no prepared input domain")),
+                },
+                S::List => PreparedIndexReceiver::List,
+                S::Map => {
+                    let key = schemes::SchemeTypeId::from_raw(node.first)?;
+                    let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+                    PreparedIndexReceiver::map(&verify_schemes::instantiate_bound_type(&self.store, key, &invocation.substitution, &mut budget, 0)?)
+                }
+                S::Record => PreparedIndexReceiver::Keyed,
+                S::Validated => { receiver = schemes::SchemeTypeId::from_raw(node.first)?; continue; }
+                S::Ground => {
+                    let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("index ground receiver is invalid"))?;
+                    let id = self.store.semantic.unvalidated_type_id(id)?;
+                    match self.store.semantic.type_tag(id)? {
+                        T::List => PreparedIndexReceiver::List,
+                        T::Map => {
+                            let key = self.store.semantic.map_key_type_id(id)?.ok_or_else(|| IrVerifyError::new("index map receiver has no key contract"))?;
+                            PreparedIndexReceiver::map(&self.store.semantic.to_type(key)?)
+                        }
+                        T::Record | T::Module | T::ExactModule => PreparedIndexReceiver::Keyed,
+                        _ => return Err(IrVerifyError::new("index receiver has no prepared input domain")),
+                    }
+                }
+                _ => return Err(IrVerifyError::new("index receiver has no prepared input domain")),
+            });
+        }
+        Err(IrVerifyError::new("index receiver nesting is too deep"))
+    }
+
+    fn index_contract(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<(PreparedIndexReceiver, crate::sema::sealed_operation::IndexSyntax)>, IrVerifyError> {
+        let Some(operation) = self.store.sealed_operation_site(owner, instruction)? else { return Ok(None); };
+        let schemes::FullSealedOperation::Index { receiver, syntax, .. } = operation else { return Err(IrVerifyError::new("index site has another operation requirement")); };
+        Ok(Some((self.invocation_index_receiver(receiver, invocation)?, syntax)))
+    }
+
+    fn index_key_check(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        let Some((receiver, _)) = self.index_contract(owner, instruction, invocation)? else { return Ok(PreparedIndexKeyCheck::Ordinary); };
+        Ok(receiver.key_check())
+    }
+
+    fn index_literal_mode(&self, owner: u32, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
+        let Some((receiver, crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(expected))) = self.index_contract(owner, instruction, invocation)? else {
+            return Err(IrVerifyError::new("literal index has no authenticated requirement"));
+        };
+        if expected.get() as usize != distance.get() { return Err(IrVerifyError::new("literal index distance disagrees with its operation")); }
+        match receiver {
+            PreparedIndexReceiver::List => Ok(PreparedIndexLiteral::FromEnd(distance.get())),
+            PreparedIndexReceiver::SignedMap | PreparedIndexReceiver::UnsignedMap => Ok(PreparedIndexLiteral::MapKey {
+                key: -(distance.get() as i64), check: receiver.key_check(),
+            }),
+            _ => Err(IrVerifyError::new("literal index receiver has no prepared List or integer Map contract")),
+        }
+    }
+
     pub(in crate::runtime::eval) fn has_invocation(&self, instruction: u32) -> bool {
         self.store.call_instantiations.binary_search_by_key(&instruction, |instance| instance.instruction).is_ok()
     }
@@ -1638,6 +1741,46 @@ impl FullProgram {
             PreparedTypeConstructor::Result => crate::sema::wrapper_operation::WrapperMode::Result,
             PreparedTypeConstructor::Other => return Err(IrVerifyError::new("wrapper relationship has no substituted source envelope")),
         }))
+    }
+
+    pub(in crate::runtime::eval) fn invocation_return_envelope(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<PreparedReturnEnvelope, IrVerifyError> {
+        let FullCallableContract::Scheme(id) = self.store.functions.get(function)
+            .ok_or_else(|| IrVerifyError::new("invocation return owner is out of bounds"))?.contract
+        else { return Err(IrVerifyError::new("erased invocation return has no scheme")); };
+        let mut ty = self.store.scheme(id)?.return_type;
+        let mut optional = false;
+        for _ in 0..=128 {
+            let node = self.store.scheme_type(ty)?;
+            return Ok(match node.tag {
+                schema::FullSchemeTypeTag::Validated => { ty = schemes::SchemeTypeId::from_raw(node.first)?; continue; }
+                schema::FullSchemeTypeTag::Optional if !optional => { optional = true; ty = schemes::SchemeTypeId::from_raw(node.first)?; continue; }
+                schema::FullSchemeTypeTag::Result => if optional { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Result },
+                schema::FullSchemeTypeTag::Parameter => {
+                    let actual = invocation.substitution.types.get(node.first as usize)
+                        .ok_or_else(|| IrVerifyError::new("invocation return parameter has no actual binding"))?.unvalidated();
+                    match actual {
+                        Type::Result(..) => if optional { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Result },
+                        Type::Optional(inner) if !optional && matches!(inner.unvalidated(), Type::Result(..)) => PreparedReturnEnvelope::OptionalResult,
+                        _ => PreparedReturnEnvelope::Plain,
+                    }
+                }
+                schema::FullSchemeTypeTag::Ground => {
+                    let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation return ground type is invalid"))?;
+                    let id = self.store.semantic.unvalidated_type_id(id)?;
+                    match self.store.semantic.type_tag(id)? {
+                        super::semantic::TypeTag::Result => if optional { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Result },
+                        super::semantic::TypeTag::Optional if !optional => {
+                            let inner = self.store.semantic.optional_payload_type(id)?.ok_or_else(|| IrVerifyError::new("optional return has no payload type"))?;
+                            let inner = self.store.semantic.unvalidated_type_id(inner)?;
+                            if self.store.semantic.type_tag(inner)? == super::semantic::TypeTag::Result { PreparedReturnEnvelope::OptionalResult } else { PreparedReturnEnvelope::Plain }
+                        }
+                        _ => PreparedReturnEnvelope::Plain,
+                    }
+                }
+                _ => PreparedReturnEnvelope::Plain,
+            });
+        }
+        Err(IrVerifyError::new("invocation return envelope exceeds the supported nesting depth"))
     }
 
     pub(in crate::runtime::eval) fn invocation_returns_result(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
@@ -6169,6 +6312,14 @@ impl<'p> FullExecution<'p> {
         FullExecution::<'static>::for_function(ProgramOwner::Shared(program), index)
     }
 
+    pub(in crate::runtime::eval) fn index_literal_mode(&self, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
+        self.program().index_literal_mode(self.owner, instruction, distance, invocation)
+    }
+
+    pub(in crate::runtime::eval) fn index_key_check(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        self.program().index_key_check(self.owner, instruction, invocation)
+    }
+
     pub(in crate::runtime::eval) fn wrapper_mode(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<crate::sema::wrapper_operation::WrapperMode>, IrVerifyError> {
         self.program().invocation_wrapper_mode(self.owner, instruction, invocation)
     }
@@ -6890,14 +7041,27 @@ impl<'a> FullDecoder<'a> {
                     ValueCheckView::Ground(_) => self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok(),
                 }
             } else { false };
+            let binding_dependent_index = if tag == FullTag::ExprIndex {
+                let schema::ExprView::Index { index: operand, .. } = self.expression_view(index)? else { unreachable!() };
+                matches!(operand, crate::runtime::eval::IndexOperand::NegativeLiteral(_)) || self.store.sealed_operation_site(self.owner, index as u32)?.is_some()
+            } else { false };
             let class = if tag == FullTag::ExprParam
                 && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
                 || tag == FullTag::ExprField && self.store.wrapper_site(self.owner, index as u32)?.is_some()
-                || binding_dependent_value
+                || binding_dependent_value || binding_dependent_index
             { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
             proof.borrow_mut().enter(index, tag.kind(), class);
         }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
+    }
+
+    fn verify_index_operand_kind(&self, instruction: usize) -> Result<(), IrVerifyError> {
+        let schema::ExprView::Index { index: crate::runtime::eval::IndexOperand::NegativeLiteral(distance), .. } = self.expression_view(instruction)? else { return Ok(()); };
+        let Some(schemes::FullSealedOperation::Index { syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(expected), .. }) = self.store.sealed_operation_site(self.owner, instruction as u32)? else {
+            return Err(IrVerifyError::new("literal index has no authenticated requirement"));
+        };
+        if expected.get() as usize != distance.get() { return Err(IrVerifyError::new("literal index distance disagrees with its operation")); }
+        Ok(())
     }
 
     #[inline(always)]
@@ -10425,6 +10589,19 @@ impl<'a> FullDecoder<'a> {
             let Some(ModuleExportType::GenericCallable { kind, .. }) = module.exports.get(&Name::intern(&key)) else { unreachable!() };
             return Ok(Type::Function(*kind));
         }
+        let key = if matches!(base_type.unvalidated(), Type::Record(_) | Type::Module(_)) {
+            index.map(|index| self.checked_literal_string(index)).transpose()?.flatten()
+        } else { None };
+        Self::checked_keyed_index_type(base_type, key.as_deref())
+    }
+
+    fn checked_keyed_index_type(base_type: Type, key: Option<&str>) -> Result<Type, IrVerifyError> {
+        if matches!(base_type.unvalidated(), Type::Record(_) | Type::Module(_)) {
+            let key = key.ok_or_else(|| IrVerifyError::new("constant index producer has no checked key"))?;
+            return crate::sema::sealed_operation::index_selection(&base_type, &Type::Str, Some(Name::intern(key)))
+                .map(|(_, result)| result)
+                .ok_or_else(|| IrVerifyError::new("constant index producer has no selected field"));
+        }
         Self::checked_index_type(base_type)
     }
 
@@ -12084,7 +12261,7 @@ impl<'a> FullDecoder<'a> {
                 if Self::checked_slice_type(source)? != ty { return Err(IrVerifyError::new("checked slice fact disagrees with its input producer")); }
             }
             schema::ExprView::Index { base, index, .. } => {
-                let actual = self.checked_index_result_type(base.raw() as usize, Some(index.raw() as usize))?;
+                let actual = self.checked_index_result_type(base.raw() as usize, index.ordinary().map(|index| index.raw() as usize))?;
                 if actual != ty && !self.checked_imported_scheme_callable(instruction, &actual, &ty)? {
                     return Err(IrVerifyError::new(
                         "checked index fact disagrees with its collection producer",
@@ -14427,7 +14604,7 @@ impl<'a> FullDecoder<'a> {
                 operand!(*first);
                 for pair in pairs { let (_, right, _) = pair?; operand!(right); }
             }
-            schema::ExprView::Index { base, index, .. } => { operand!(*base); operand!(*index); }
+            schema::ExprView::Index { base, index, .. } => { operand!(*base); if let crate::runtime::eval::IndexOperand::Ordinary(index) = index { operand!(*index); } }
             schema::ExprView::List(items) => { for item in items { operand!(item?); } }
             schema::ExprView::ListBuild(items) => { for item in items { let (_, value, _) = item?; operand!(value); } }
             schema::ExprView::Record(entries) => {
@@ -16972,7 +17149,7 @@ fn indexed_expr_can_complete_in(
             indexed_loop_has_reachable_break(Some(decoder), instruction)?
         }
         schema::ExprView::Index { base, index, .. } => {
-            sequence(vec![base.raw(), index.raw()])?
+            sequence(std::iter::once(base.raw()).chain(index.ordinary().map(|index| index.raw())).collect())?
         }
         schema::ExprView::IndexFromEnd { base, .. }
         | schema::ExprView::Field { base, .. } => child(base.raw())?,
@@ -19440,6 +19617,29 @@ impl FullCodec for i64 {
     }
 }
 
+impl FullCodec for crate::runtime::eval::IndexOperand<BuildExprId> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        match self {
+            Self::Ordinary(value) => { output.push(0); value.encode(builder, output) }
+            Self::NegativeLiteral(distance) => { output.push(1); distance.encode(builder, output) }
+        }
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::Ordinary(BuildExprId::decode(decoder, input)?)),
+            1 => Ok(Self::NegativeLiteral(crate::runtime::eval::EndDistance::decode(decoder, input)?)),
+            _ => Err(IrVerifyError::new("index operand kind is invalid")),
+        }
+    }
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
+        match input.raw()? {
+            0 => BuildExprId::verify(decoder, input),
+            1 => crate::runtime::eval::EndDistance::verify(decoder, input),
+            _ => Err(IrVerifyError::new("index operand kind is invalid")),
+        }
+    }
+}
+
 impl FullCodec for crate::runtime::eval::EndDistance {
     fn encode(
         &self,
@@ -21045,7 +21245,7 @@ macro_rules! impl_build_id_codec {
                 if let Some(operation) = operation {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
-                    if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::ExprBinary { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(method) = method {
@@ -42938,6 +43138,509 @@ assert text.marker == "kept"
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_slice_relationship_preserves_list_string_and_bytes_domains() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-slice-relationship.xsh", r#"
+pure clip(values, start, end) { values[start..end] }
+pure tail(values, start) { values[start..] }
+pure head(values, end) { values[..end] }
+pure whole(values) { values[..] }
+pure relay(values, start, end) { clip(values, start, end) }
+let start = 1
+pure captured(values) { values[start..] }
+let alias = relay
+assert clip([1, 2, 3], 1, 3) == [2, 3]
+assert clip("aé🦀", 1, 3) == "é🦀"
+assert clip(b"abcd", -3, -1) == b"bc"
+assert clip("abc", -99, 99) == "abc"
+assert clip("abc", 2, 1) == ""
+assert tail("aé🦀", 1) == "é🦀"
+assert head(b"abcd", 2) == b"ab"
+assert whole([1, 2]) == [1, 2]
+assert alias("abcd", 1, 3) == "bc"
+assert captured(b"abcd") == b"bcd"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_survives_alias_capture_and_forwarding() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-forwarding.xsh", r#"
+pure select(values, key) { values[key] }
+pure relay(values, key) { select(values, key) }
+let cursor = 1
+pure captured(values) { values[cursor] }
+pure last(values) { let _ = cursor; values[-1] }
+pure relay_last(values) { last(values) }
+let alias = relay
+let last_alias = relay_last
+let keyed: Map[Int, Str] = {[1]: "one", [-1]: "negative"}
+assert alias([3, 4], 1) == 4
+assert alias(keyed, 1) == "one"
+assert captured([3, 4]) == 4
+assert captured(keyed) == "one"
+assert last_alias([3, 4]) == 4
+assert last_alias(keyed) == "negative"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_constant_index_relationship_preserves_record_and_map_producers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-constant-index.xsh", r#"
+pure project(values) { values["item"] }
+let keyed: Map[Str, Str] = {item: "ready"}
+assert project({item: 7, other: false}) == 7
+assert project(keyed) == "ready"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn constant_module_index_preserves_scalar_export_producers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(r#"
+use model
+const key = "marker"
+assert model[key] == 17
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let index = program.store.tags.iter().position(|tag| *tag == FullTag::ExprIndex).unwrap();
+            let words = program.store.data[index].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_key = (*program).clone();
+            wrong_key.store.extra[words.start + 2] = wrong_key.store.extra[words.start];
+            assert!(FullVerifier::verify(&wrong_key).is_err(), "module projection must prove its actual constant key");
+            let mut wrong_result = (*program).clone();
+            let boolean = SemanticPoolBuilder::default().intern_type(&mut wrong_result.store.semantic, &Type::Bool).unwrap();
+            wrong_result.store.checked_expr_types.push(FullCheckedExprType {
+                instruction: index as u32, type_id: boolean,
+                purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            });
+            wrong_result.store.checked_expr_types.sort_unstable_by_key(|fact| fact.instruction);
+            assert!(FullVerifier::verify(&wrong_result).is_err(), "module projection result must match its actual scalar export");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_preserves_unsigned_map_key_validation() {
+        run_with_large_stack(|| {
+            for annotation in [": Map[UInt, Str]", ""] {
+                for (expression, key, failed) in [("values[key]", 0, false), ("values[key]", -1, true), ("values[-1]", 0, true)] {
+                    let source = format!("pure read(values{annotation}, key: Int) {{ {expression} }}\nlet values: Map[UInt, Str] = {{[0]: \"zero\"}}\nlet _ = read(values, {key})\n");
+                    let program = Arc::new(fixture("generic-index-unsigned-key.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    if annotation.is_empty() && !failed {
+                        let owner = scheme_fixture_root_function(&program, "read");
+                        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
+                        let scheme = program.store.scheme(id).unwrap();
+                        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+                        let receiver = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+                        assert_eq!(receiver.tag, schema::FullSchemeTypeTag::Parameter);
+                        let binders = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+                        let binder = program.store.scheme_type_parameters[binders.start + receiver.first as usize].id;
+                        let call = scheme_fixture_root_call(&program, "read");
+                        let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == call).unwrap();
+                        let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                        let receiver = program.store.call_type_arguments[arguments].iter().find(|argument| argument.binder == binder).unwrap().ty;
+                        let node = program.store.scheme_types[receiver.index()];
+                        assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+                        assert_eq!(program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Map(Box::new(Type::UInt), Box::new(Type::Str)));
+                        let mut wrong_domain = (*program).clone();
+                        let signed = SemanticPoolBuilder::default().intern_type(&mut wrong_domain.store.semantic, &Type::Map(Box::new(Type::Int), Box::new(Type::Str))).unwrap();
+                        wrong_domain.store.scheme_types[receiver.index()].first = signed.raw();
+                        FullVerifier::verify(&wrong_domain).expect_err("the actual unsigned map producer must authenticate its prepared key validation");
+                    }
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        let result = (0..program.driver_step_count().unwrap()).try_for_each(|step| evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().map(|_| ()));
+                        if failed { assert_eq!(result.expect_err(&format!("negative unsigned map key must fail validation: {source}, force_frames={force_frames}")).kind, "schema", "{source}"); }
+                        else { result.unwrap_or_else(|error| panic!("{source}: {error:?}")); }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_unsigned_index_propagation_preserves_ground_return_envelopes() {
+        run_with_large_stack(|| {
+            #[derive(Debug, Eq, PartialEq)]
+            enum Outcome { CheckRejected, BuildRejected, Failed(String), Value(Value), ErrorData(String, String) }
+            let mut mismatches = Vec::new();
+            for (item_type, payload) in [
+                ("Str", "\"payload\""),
+                ("Result[Int, Error]", "Err(error.failure(\"payload\"))"),
+                ("Result[Int, Str]", "Err(\"payload\")"),
+                ("Result[Int, Str]?", "Err(\"payload\")"),
+            ] {
+                for key in [0, -1] {
+                    for force_frames in [false, true] {
+                        let mut outcomes = Vec::new();
+                        for grounded in [true, false] {
+                            let annotation = if grounded { format!(": Map[UInt, {item_type}]") } else { String::new() };
+                            let source = format!("pure read(values{annotation}, key: Int) {{ values[key] }}\nlet payload: {item_type} = {payload}\nlet values: Map[UInt, {item_type}] = {{[0]: payload}}\nlet selected = read(values, {key})\n");
+                            let mut sources = SourceMap::new();
+                            let source_id = sources.add_file("generic-index-return-envelope.xsh", &source);
+                            let parsed = Parser::parse_source_arena_only(source_id, &source);
+                            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                            if !checked.diagnostics.is_empty() { outcomes.push(Outcome::CheckRejected); continue; }
+                            let program = match FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id) {
+                                Ok(program) => Arc::new(program),
+                                Err(_) => { outcomes.push(Outcome::BuildRejected); continue; }
+                            };
+                            FullVerifier::verify(&program).unwrap();
+                            let _symbols = program.symbol_owner().enter();
+                            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                            evaluator.force_frames = force_frames;
+                            evaluator.indexed_program = Some(Arc::clone(&program));
+                            let result = (0..program.driver_step_count().unwrap()).try_for_each(|step| evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().map(|_| ()));
+                            outcomes.push(match result {
+                                Err(error) => Outcome::Failed(error.kind),
+                                Ok(()) => match evaluator.lookup("selected").unwrap().value.clone() {
+                                    Value::Result(crate::runtime::value::ResultValue::Err(error)) if matches!(error.as_ref(), Value::Error(_)) => {
+                                        let Value::Error(error) = *error else { unreachable!() };
+                                        Outcome::ErrorData(error.kind, error.message)
+                                    }
+                                    value => Outcome::Value(value),
+                                },
+                            });
+                        }
+                        if key == 0 {
+                            assert!(matches!(outcomes[0], Outcome::Value(_) | Outcome::ErrorData(..)), "valid key must preserve its real payload: {item_type}: {outcomes:?}");
+                        }
+                        if outcomes[0] != outcomes[1] { mismatches.push((item_type, key, force_frames, outcomes)); }
+                    }
+                }
+            }
+            assert!(mismatches.is_empty(), "generic indexing must preserve grounded return envelopes: {mismatches:?}");
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_preserves_captured_unsigned_key_failures() {
+        run_with_large_stack(|| {
+            for annotation in [": Map[UInt, Str]", ""] {
+                for expression in ["values[key]", "values[-1]"] {
+                    let source = format!(r#"
+pure read(values{annotation}, key: Int) {{ try {{ {expression} }} }}
+let values: Map[UInt, Str] = {{[0]: "zero"}}
+match read(values, -1) {{
+  Ok(_) => {{ assert false }},
+  Err(error) => {{ assert error.message == "schema check failed: expected UInt, found Int" }},
+}}
+"#);
+                    let program = Arc::new(fixture("generic-index-captured-unsigned-key.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_validation_cannot_publish_schema_errors_as_strings() {
+        run_with_large_stack(|| {
+            for annotation in [": Map[UInt, Str]", ""] {
+                let source = format!(r#"
+pure read(values{annotation}, key: Int) -> Result[Int, Str] {{
+  let failure: Result[Int, Str] = Err("other")
+  try {{ let _ = values[key]; failure? }}
+}}
+let values: Map[UInt, Str] = {{[0]: "zero"}}
+let _ = read(values, -1)
+"#);
+                assert!(fixture_result("generic-index-unsigned-error-contract.xsh", &source).is_err(), "unsigned schema failure cannot inhabit the Str error contract: {source}");
+            }
+        });
+    }
+
+    #[test]
+    fn generic_constant_index_relationship_composes_with_open_record_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-open-record.xsh", r#"
+pure field_first(value) { let _ = value.name; value["item"] }
+pure index_first(value) { let item = value["item"]; let _ = value.name; item }
+assert field_first({name: "row", item: 7, other: false}) == 7
+assert field_first({name: "row", item: "ready"}) == "ready"
+assert index_first({name: "row", item: 7}) == 7
+assert index_first({name: "row", item: "ready", other: false}) == "ready"
+"#));
+            for body in ["let _ = value.name; value[\"item\"]", "let item = value[\"item\"]; let _ = value.name; item"] {
+                let source = format!("pure read(value) {{ {body} }}\nlet _ = read({{name: \"row\"}})\n");
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("generic-index-missing-record-item.xsh", &source);
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnknownField) && diagnostic.message.contains("`item`")), "the required constant field must be present: {source}: {:?}", checked.diagnostics);
+            }
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_postfix_relationship_derives_dynamic_payloads_from_checked_inputs() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-postfix-dynamic-payloads.xsh", r#"
+pure select(values, key) { values[key] }
+pure clip(values) { values[..] }
+pure select_item(values) { values["item"] }
+type DynamicItem = {item: Any}
+pure symbolic_list(marker, values: List[Any], key: Int) -> List[Any] { let _ = marker; [select(values, key)] }
+pure symbolic_map(marker, values: Map[Str, Any], key: Str) -> List[Any] { let _ = marker; [select(values, key)] }
+pure symbolic_record(marker, value: DynamicItem) -> List[Any] { let _ = marker; [select_item(value)] }
+pure symbolic_slice(marker, values: List[Any]) -> List[Any] { let _ = marker; clip(values) }
+pure grounded_list(values: List[Any], key: Int) -> List[Any] { [values[key]] }
+pure grounded_map(values: Map[Str, Any], key: Str) -> List[Any] { [values[key]] }
+let failure: Result[Int, Str] = Err("payload")
+let opaque: Any = failure
+let values: List[Any] = [opaque]
+let keyed: Map[Str, Any] = {item: opaque}
+let named: DynamicItem = {item: opaque}
+assert symbolic_list(true, values, 0) == grounded_list(values, 0)
+assert symbolic_list(true, values, 0) == [opaque]
+assert symbolic_map(true, keyed, "item") == grounded_map(keyed, "item")
+assert symbolic_map(true, keyed, "item") == [opaque]
+assert symbolic_record(true, named) == [opaque]
+assert symbolic_slice(true, values) == values
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_rejects_unrelated_dynamic_output_evidence() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-index-forged-dynamic-output.xsh", "pure select(values, key, spare: Any) { let _ = spare; values[key] }\nlet spare: Any = \"opaque\"\nlet selected: Any = select([7], 0, spare)\n");
+            FullVerifier::verify(&program).unwrap();
+            let callee = scheme_fixture_root_function(&program, "select");
+            let FullCallableContract::Scheme(id) = program.store.functions[callee].contract else { unreachable!() };
+            let scheme = program.store.scheme(id).unwrap();
+            let result = program.store.scheme_types[scheme.return_type.index()];
+            assert_eq!(result.tag, schema::FullSchemeTypeTag::Parameter);
+            let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+            let binder = program.store.scheme_type_parameters[parameters.start + result.first as usize].id;
+            let instruction = scheme_fixture_root_call(&program, "select");
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == instruction).unwrap();
+            let arguments = instance.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            let argument = program.store.call_type_arguments[arguments.clone()].iter().position(|argument| argument.binder == binder).unwrap() + arguments.start;
+            let node = program.store.scheme_types[program.store.call_type_arguments[argument].ty.index()];
+            assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Int);
+            let any = scheme_fixture_any_type(&program);
+            let any_node = program.store.scheme_types.iter().position(|node| node.tag == schema::FullSchemeTypeTag::Ground && node.first == any.raw()).unwrap();
+            let mut changed = program.clone();
+            changed.store.call_type_arguments[argument].ty = SchemeTypeId::from_raw(any_node as u32).unwrap();
+            changed.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == instruction).unwrap().type_id = any;
+            FullVerifier::verify(&changed).expect_err("an unrelated Any input cannot justify a forged index result binder");
+        });
+    }
+
+    #[test]
+    fn generic_constant_index_relationship_preserves_module_receiver_contracts() {
+        run_with_large_stack(|| {
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(r#"
+use model
+pure project(values) { values["marker"] }
+pure relay(values) { project(values) }
+let alias = relay
+assert alias(model) == 17
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_keeps_zero_and_computed_negative_distinct() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-computed-negative.xsh", r#"
+pure zeroth(values) { values[-0] }
+pure select(values, key) { values[key] }
+let keyed: Map[Int, Str] = {[0]: "zero"}
+assert zeroth([3, 4]) == 3
+assert zeroth(keyed) == "zero"
+let negative = -1
+let failed = select([3, 4], negative)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut failure = None;
+                for step in 0..program.driver_step_count().unwrap() {
+                    match evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap() {
+                        Ok(_) => {}
+                        Err(error) => { failure = Some(error); break; }
+                    }
+                }
+                assert_eq!(failure.expect("computed negative index must fail").kind, "index-out-of-range");
+            }
+        });
+    }
+
+    #[test]
+    fn generic_postfix_relationship_rejects_unsupported_inputs() {
+        run_with_large_stack(|| {
+            for (operation, source) in [
+                ("indexing", "pure select(values, key) { values[key] }\nlet _ = select(7, 0)"),
+                ("indexing", "pure select(values, key) { values[key] }\nlet _ = select(\"text\", 0)"),
+                ("indexing", "pure select(values, key) { values[key] }\nlet _ = select(b\"text\", 0)"),
+                ("indexing", "pure select(values, key) { values[key] }\nlet dynamic: Any = [7]\nlet _ = select(dynamic, 0)"),
+                ("slicing", "pure clip(values) { values[..] }\nlet _ = clip(7)"),
+            ] {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("unsupported-generic-postfix.xsh", source);
+                let parsed = Parser::parse_source_arena_only(source_id, source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.message.contains(operation)), "{:?}", checked.diagnostics);
+            }
+        });
+    }
+
+    #[test]
+    fn generic_postfix_sites_reject_forged_modes_inputs_results_and_bindings() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-postfix-proof.xsh", r#"
+pure select(values, key) { values[key] }
+pure last(values) { values[-1] }
+pure clip(values, start, end) { values[start..end] }
+pure relay(values, key) { let _ = clip(values, 0, 1); select(values, key) }
+pure closed(values: List[Int]) -> Int { values[0] }
+assert relay([3, 4], 1) == 4
+assert last([3, 4]) == 4
+assert closed([3, 4]) == 3
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let index = function_instruction_indices(&program, "select", FullTag::ExprIndex)[0];
+            let words = program.store.data[index].range().bounds(program.store.extra.len()).unwrap();
+            let mut inputs = program.clone();
+            inputs.store.extra.swap(words.start, words.start + 2);
+            assert!(FullVerifier::verify(&inputs).is_err(), "actual receiver and key cannot be interchanged");
+            let mut selected = program.clone();
+            let signature = selected.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, schemes::FullOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::IndexList))).unwrap();
+            *signature = schemes::FullOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::IndexMap);
+            assert!(FullVerifier::verify(&selected).is_err(), "actual list input cannot select map semantics");
+            let mut forwarded = program.clone();
+            let forwarding = forwarded.store.call_operation_bindings.iter_mut().find_map(|binding| match binding { schemes::FullOperationBinding::Forwarded(ordinal) => Some(ordinal), _ => None }).unwrap();
+            *forwarding = 1 - *forwarding;
+            assert!(FullVerifier::verify(&forwarded).is_err(), "forwarded evidence must name the caller's same operation");
+            let literal = function_instruction_indices(&program, "last", FullTag::ExprIndex)[0];
+            let literal_words = program.store.data[literal].range().bounds(program.store.extra.len()).unwrap();
+            let mut distance = program.clone();
+            distance.store.extra[literal_words.start + 2] += 1;
+            assert!(FullVerifier::verify(&distance).is_err(), "literal distance must agree with its requirement");
+            let ground = function_instruction_indices(&program, "closed", FullTag::ExprIndex)[0];
+            let ground_words = program.store.data[ground].range().bounds(program.store.extra.len()).unwrap();
+            let mut ground_literal = program.clone();
+            ground_literal.store.extra[ground_words.start + 1] = 1;
+            ground_literal.store.extra[ground_words.start + 2] = 1;
+            assert_eq!(FullVerifier::verify(&ground_literal).unwrap_err().message, "literal index has no authenticated requirement");
+            let mut result = program.clone();
+            let operation = result.store.scheme_operations.iter_mut().find(|operation| matches!(operation, schemes::FullSealedOperation::Index { syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, .. })).unwrap();
+            let schemes::FullSealedOperation::Index { receiver, result: required_result, .. } = operation else { unreachable!() };
+            *required_result = *receiver;
+            assert!(FullVerifier::verify(&result).is_err(), "result context cannot replace the selected item relationship");
+            let slice = function_instruction_indices(&program, "clip", FullTag::ExprSlice)[0];
+            let slice_words = program.store.data[slice].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_bound = program.clone();
+            wrong_bound.store.extra[slice_words.start + 1] = wrong_bound.store.extra[slice_words.start];
+            assert!(FullVerifier::verify(&wrong_bound).is_err(), "slice bounds must retain their actual integer producers");
+            let mut missing_bound = program.clone();
+            missing_bound.store.extra[slice_words.start + 1] = IR_NONE;
+            assert!(FullVerifier::verify(&missing_bound).is_err(), "slice bound presence must match its retained operation");
+        });
+    }
+
+    #[test]
+    fn generic_index_relationship_preserves_list_and_map_literal_modes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-relationship.xsh", r#"
+pure select(values, key) { values[key] }
+pure last(values) { values[-1] }
+let keyed: Map[Int, Str] = {[1]: "one", [-1]: "negative"}
+assert select([3, 4], 1) == 4
+assert select(keyed, 1) == "one"
+assert last([3, 4]) == 4
+assert last(keyed) == "negative"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
             }
         });
     }

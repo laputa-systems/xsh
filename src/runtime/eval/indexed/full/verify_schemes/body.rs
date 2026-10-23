@@ -2204,7 +2204,7 @@ mod tests {
             let decoder = decoder_for_function(&program.store, owner).unwrap();
             let range = program.store.function_instruction_range(owner).unwrap();
             let operand = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
-                Ok(schema::ExprView::Index { index, .. }) => Some(index.raw() as usize),
+                Ok(schema::ExprView::Index { index, .. }) => index.ordinary().map(|index| index.raw() as usize),
                 Ok(schema::ExprView::Slice { start: Some(start), .. }) => Some(start.raw() as usize),
                 _ => None,
             }).unwrap();
@@ -3269,7 +3269,7 @@ mod tests {
         assert_eq!(FullVerifier::verify(&input).unwrap_err().message, "generic binary site disagrees with its sealed operation");
         let params = bounded(scheme.params, &program.store.scheme_params, "parameters").unwrap();
         let mut result = program.clone();
-        let required = result.store.scheme_operations[operations.start].result;
+        let super::super::super::schemes::FullSealedOperation::Binary { result: required, .. } = result.store.scheme_operations[operations.start] else { unreachable!() };
         assert_eq!(result.store.scheme_types[required.index()].tag, FullSchemeTypeTag::Parameter);
         result.store.scheme_types[required.index()] = result.store.scheme_types[params[2].ty.index()];
         assert_eq!(FullVerifier::verify(&result).unwrap_err().message, "generic binary site disagrees with its sealed operation");
@@ -3281,7 +3281,7 @@ mod tests {
         let program = prepare("pure combine(a, b) { a + b }\npure subtract(a, b) { a - b }\npure relay(a, b) { let sum = combine(a, b); let difference = subtract(a, b); sum }\npure numbers() -> Int { relay(4, 2) }");
         let mut selected = program.clone();
         let selection = selected.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(_))).unwrap();
-        *selection = SealedOperationBinding::Selected(crate::sema::sealed_operation::ArithmeticSignature::Float);
+        *selection = SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::Binary(crate::sema::sealed_operation::ArithmeticSignature::Float));
         assert_eq!(FullVerifier::verify(&selected).unwrap_err().message, "selected operation differs from its canonical signature");
         let mut forwarded = program.clone();
         let forwarding = forwarded.store.call_operation_bindings.iter_mut().find_map(|binding| match binding { SealedOperationBinding::Forwarded(ordinal) => Some(ordinal), _ => None }).unwrap();

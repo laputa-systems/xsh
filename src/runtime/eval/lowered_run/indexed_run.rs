@@ -1827,6 +1827,9 @@ impl Evaluator {
                     unreachable!("index tag has an index view")
                 };
                 let base = base.raw();
+                let super::super::IndexOperand::Ordinary(index) = index else {
+                    return Err(RuntimeError::new("indexed-ir", "a literal generic index requires invocation-bound scheduling").with_span(span));
+                };
                 let index = index.raw();
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,

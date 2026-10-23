@@ -4415,7 +4415,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         },
                     };
                 }
-                if let Some(distance) = self.bodies.from_end_indexes.get(&expression).copied().and_then(super::EndDistance::new) {
+                if let Some(ordinal) = facts.operation_site(expression)
+                    && let crate::sema::sealed_operation::SealedOperation::Index { syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = facts.scheme().callable().requirements().operations.get(ordinal as usize)?
+                {
+                    let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
+                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::NegativeLiteral(super::EndDistance::new(distance.get())?), span })
+                } else if let Some(distance) = self.bodies.from_end_indexes.get(&expression).copied().and_then(super::EndDistance::new) {
                     let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
                     if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
                     push_build_row!(self, expr, BuildExprRow::IndexFromEnd { base, distance, span })
@@ -4426,7 +4432,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         lowered_index = self.lower_scheme_registered_argument(lowered_index, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, self.program.arena.expr(index).span, slots, lowered_types, body);
                     }
                     let index = lowered_index;
-                    push_build_row!(self, expr, BuildExprRow::Index { base, index, span })
+                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::Ordinary(index), span })
                 }
             }
             ArenaExprKind::Slice { base, start, end, .. } => {
@@ -4953,6 +4959,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
+        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. })
+            && let Some(ordinal) = facts.operation_site(expression)
+            && self.scratch.borrow_mut().scheme_operations.insert(lowered.index(), ordinal).is_some()
+        { return self.block_scheme_lowering_expr(expression); }
         if let Some(ordinal) = facts.wrapper_site(expression) { self.scratch.borrow_mut().scheme_wrappers.insert(lowered.index(), ordinal); }
         if let Some(plan) = materialization {
             return self.publish_scheme_materialization(expression, lowered, plan, slots, lowered_types, body);
@@ -8395,7 +8405,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     expr,
                     BuildExprRow::Index {
                         base: lowered_base,
-                        index: lowered_index,
+                        index: super::IndexOperand::Ordinary(lowered_index),
                         span
                     }
                 ))

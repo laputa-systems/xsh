@@ -830,7 +830,10 @@ impl Checker {
         let mut operation_sites = BTreeMap::new();
         let mut method_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
-            if let Some(operation) = self.binary_operators.get(&expression).and_then(|operator| operator.operation) {
+            let operation = self.binary_operators.get(&expression).and_then(|operator| operator.operation).or_else(|| {
+                matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Index { .. } | crate::syntax::arena::ArenaExprKind::Slice { .. }).then(|| self.type_constraints.sealed_operation_at(crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), program.arena.expr(expression).span)).flatten()
+            });
+            if let Some(operation) = operation {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
                     Ok(Some(ordinal)) => { operation_sites.insert(expression, ordinal); }
                     Ok(None) => {}

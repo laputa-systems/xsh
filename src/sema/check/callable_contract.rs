@@ -413,7 +413,7 @@ impl BoundEquivalence<'_> {
                     }
             })
             && left.operations.len() == right.operations.len()
-            && left.operations.iter().zip(&right.operations).all(|(left, right)| left.operator == right.operator && self.ty(&left.left, &right.left) && self.ty(&left.right, &right.right) && self.ty(&left.result, &right.result))
+            && left.operations.iter().zip(&right.operations).all(|(left, right)| left.same_kind(right) && left.types().zip(right.types()).all(|(left, right)| self.ty(left, right)))
             && left.methods.len() == right.methods.len()
             && left.methods.iter().zip(&right.methods).all(|(left, right)| {
                 left.family == right.family

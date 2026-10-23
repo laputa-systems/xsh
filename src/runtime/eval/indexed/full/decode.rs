@@ -167,6 +167,17 @@ macro_rules! instruction_id {
     };
 }
 instruction_id!(BuildExprId, Expr, ExprInstructionId);
+impl BorrowCodec for crate::runtime::eval::IndexOperand<BuildExprId> {
+    type View<'a> = crate::runtime::eval::IndexOperand<ExprInstructionId<'a>>;
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(crate::runtime::eval::IndexOperand::Ordinary(BuildExprId::borrow(context, input)?)),
+            1 => Ok(crate::runtime::eval::IndexOperand::NegativeLiteral(crate::runtime::eval::EndDistance::borrow(context, input)?)),
+            _ => Err(IrVerifyError::new("index operand kind is invalid")),
+        }
+    }
+}
+
 instruction_id!(BuildStmtId, Stmt, StmtInstructionId);
 instruction_id!(BuildIntId, Int, IntInstructionId);
 instruction_id!(BuildBoolId, Bool, BoolInstructionId);

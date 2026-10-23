@@ -249,6 +249,22 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
     }
 
+    pub(super) fn unvalidated_type_id(&self, mut id: TypeId) -> Result<TypeId, IrVerifyError> {
+        for _ in 0..=MAX_SEMANTIC_TYPE_DEPTH {
+            match self.type_tag(id)? {
+                TypeTag::Validated | TypeTag::Nominal | TypeTag::Bounded => id = verify_type_raw(self, self.type_data[id.index()].lhs, Some(id.index()))?,
+                _ => return Ok(id),
+            }
+        }
+        Err(IrVerifyError::new("semantic type nesting is too deep"))
+    }
+
+    pub(super) fn map_key_type_id(&self, id: TypeId) -> Result<Option<TypeId>, IrVerifyError> {
+        let id = self.unvalidated_type_id(id)?;
+        if self.type_tag(id)? != TypeTag::Map { return Ok(None); }
+        verify_type_raw(self, self.type_data[id.index()].lhs, Some(id.index())).map(Some)
+    }
+
     pub(super) fn is_generic_error_result(&self, id: TypeId) -> Result<bool, IrVerifyError> {
         if self.type_tag(id)? != TypeTag::Result {
             return Ok(false);
