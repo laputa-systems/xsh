@@ -17,9 +17,9 @@ use crate::sema::schemes::{
     CallableScheme, SchemeParameter, TypeScheme,
 };
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange,
-    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, BlockId, ErrorDefId, ExprId,
-    FunctionDefId, StmtId, SugarView, TypeDefId, TypeExprId,
+    ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaModuleContractEntryKind,
+    ArenaProgram, ArenaRange, ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule,
+    BlockId, ErrorDefId, ExprId, FunctionDefId, StmtId, SugarView, TypeDefId, TypeExprId,
 };
 use std::sync::Arc;
 
@@ -43,6 +43,7 @@ fn collect_body_type_facts(
     std::collections::BTreeSet<Span>,
     std::collections::BTreeSet<super::BindingId>,
     std::collections::BTreeSet<StmtId>,
+    FxHashSet<ExprId>,
 ) {
     #[derive(Clone, Copy, Eq, Hash, PartialEq)]
     enum BodyFactUse { Executable, SelectedCallee }
@@ -58,6 +59,7 @@ fn collect_body_type_facts(
     let mut assign_targets = FxHashSet::default();
     let mut builder_blocks = FxHashSet::default();
     let mut expression_spans = std::collections::BTreeSet::new();
+    let mut failure_only_completion_expressions = FxHashSet::default();
     let mut types = BTreeMap::new();
     let mut tail_types = BTreeMap::new();
     while let Some((child, usage)) = pending.pop() {
@@ -81,6 +83,11 @@ fn collect_body_type_facts(
             }
             ArenaChild::Stmt(id) if statements.insert((id, usage)) => {
                 let statement = arena.stmt(id);
+                if let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) = statement.kind
+                    && is_direct_err_constructor(arena, expression)
+                {
+                    failure_only_completion_expressions.insert(expression);
+                }
                 if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
                     && let Some(ty) = checked.get(&statement.span)
                 {
@@ -98,6 +105,13 @@ fn collect_body_type_facts(
                 }
             }
             ArenaChild::Block(id) if blocks.insert((id, usage)) => {
+                if id == body
+                    && let Some(tail) = arena.stmt_ids(arena.block(id).statements).last()
+                    && let ArenaStmtKind::Expr(expression) = arena.stmt(arena.core_stmt_id(tail)).kind
+                    && is_direct_err_constructor(arena, expression)
+                {
+                    failure_only_completion_expressions.insert(expression);
+                }
                 arena.for_each_block_child(id, |child| pending.push((child, usage)));
             }
             ArenaChild::Pattern(id) if patterns.insert((id, usage)) => {
@@ -149,7 +163,13 @@ fn collect_body_type_facts(
         expression_spans.insert(span);
     }
     let local_statements = statements.into_iter().filter_map(|(statement, usage)| (usage == BodyFactUse::Executable).then_some(statement)).collect();
-    (types, tail_types, expression_spans, reads, local_statements)
+    (types, tail_types, expression_spans, reads, local_statements, failure_only_completion_expressions)
+}
+
+fn is_direct_err_constructor(arena: &crate::syntax::arena::AstArena, expression: ExprId) -> bool {
+    matches!(arena.expr(expression).kind,
+        ArenaExprKind::Call { callee, .. }
+            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err"))
 }
 
 pub(super) struct PreparedFunctionGeneralization {
@@ -200,7 +220,7 @@ impl Checker {
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-            let (_, _, _, reads, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
             captures.extend(reads);
         }
         let types = captures.into_iter().filter_map(|id| {
@@ -261,8 +281,23 @@ impl Checker {
             return None;
         }
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements) =
+        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
+        let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
+            Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
+            _ => None,
+        });
+        if let Some(inferred_success) = inferred_success {
+            for expression in failure_only_completion_expressions {
+                if self.result_constructors.get(&program.arena.expr(expression).span) != Some(&super::CheckedResultConstructor::Err) { continue; }
+                if let Some(Type::Result(success, error)) = body_types.get_mut(&expression)
+                    && **success == Type::Unknown
+                    && !error.contains_recovery()
+                {
+                    **success = inferred_success.clone();
+                }
+            }
+        }
         let constructor_owner = crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration());
         if self.type_constraints.has_constructor_error_defaults(constructor_owner) {
             let mut inputs = types.clone();
@@ -2777,11 +2812,11 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
+        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), &BTreeMap::new(), &[]);
+        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
@@ -2803,7 +2838,7 @@ mod imported_pure_tests {
                 None => assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
             }
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {

@@ -1227,6 +1227,36 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn inferred_failure_only_result_successes_keep_generic_domains() {
+        let source = "pure attempt(flag, value) { if flag { return Err(error.failure(\"stop\")) }; Ok(value) }\npure tail_attempt(flag, value) { if flag { return Ok(value) }; Err(error.failure(\"tail\")) }\nlet generic_int: Result[Int] = attempt(false, 7)\nlet generic_text: Result[Str] = attempt(false, \"kept\")\nlet generic_failure: Result[Int] = attempt(true, 7)\nlet tail_failure: Result[Int] = tail_attempt(true, 4)";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            crate::sema::check::CheckOptions::for_execution(),
+        );
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+        let attempt = checked.checked_declarations.functions.values().find(|function| function.name.as_str().as_str() == "attempt").unwrap();
+        let attempt_scheme = attempt.scheme.as_ref().expect("attempt retains its inferred type parameter");
+        let [attempt_value] = attempt_scheme.type_parameters() else { panic!("the Result success is generic: {attempt_scheme:?}"); };
+        assert_eq!(attempt_scheme.params()[1].ty, crate::sema::schemes::SchemeType::Parameter(*attempt_value));
+        assert_eq!(attempt_scheme.return_type(), &crate::sema::schemes::SchemeType::Result(
+            Box::new(crate::sema::schemes::SchemeType::Parameter(*attempt_value)),
+            Box::new(crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Error)),
+        ));
+        let tail_attempt = checked.checked_declarations.functions.values().find(|function| function.name.as_str().as_str() == "tail_attempt").unwrap();
+        let tail_scheme = tail_attempt.scheme.as_ref().expect("tail Err preserves its inferred success parameter");
+        let [tail_value] = tail_scheme.type_parameters() else { panic!("tail failure keeps its successful return generic: {tail_scheme:?}"); };
+        assert_eq!(tail_scheme.params()[1].ty, crate::sema::schemes::SchemeType::Parameter(*tail_value));
+        assert_eq!(tail_scheme.return_type(), &crate::sema::schemes::SchemeType::Result(
+            Box::new(crate::sema::schemes::SchemeType::Parameter(*tail_value)),
+            Box::new(crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Error)),
+        ));
+    }
+
+    #[test]
     fn sealed_binary_arithmetic_preserves_grounded_unsigned_duration_rejection() {
         for source in [
             "let unsigned: UInt = 2\nlet rejected = 1s * unsigned",
