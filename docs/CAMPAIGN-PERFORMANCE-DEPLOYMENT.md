@@ -8,6 +8,21 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+The current implementation work is split between retained wrapper relationships,
+finite registered method families, and a newly exposed baseline Proc error bug.
+The grounded Proc checker infers `Result[Str, Error]` for propagation from a
+`Result[Row, Str]`, but execution retains a Str error payload. Its failing runtime
+test remains open in a separate repair lane. A reproduced ownership-preserving
+capture-source forgery now rejects after authenticating actual captured
+transfers. Four focused controls pass, including ordered-contribution rejection.
+Independent review requires replacing an uncharged quadratic capture-request
+search. Nested-call/runtime checks also expose a grounded mixed Str/Error capture
+join rejected by cold verification; its original failure remains open separately
+from the nominal-family ordering control. Method-family tests retain
+the shared row-field calls at both Str and Bytes. Callable-value storage and
+record remainder implementation follow these representation changes. None of
+these provisional lanes earns acceptance credit yet.
+
 Source `3ee4d8b92` builds matching verification products and passes the complete
 four-return practical comparison: twelve XSH roots and three Laputa roots in
 each view, six runtime selectors per view, signature comparisons, 1,991 callable
