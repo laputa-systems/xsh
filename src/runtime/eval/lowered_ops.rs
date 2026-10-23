@@ -1276,9 +1276,29 @@ pub(super) fn lowered_registered_method_value(
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    lowered_canonical_registered_method_value(plan.receiver.expect("verified registered method has a receiver"), &plan.name, receiver, args, span)
+}
+
+pub(super) fn lowered_registered_method_identity_value(
+    method: xsh_registry::signature::RegisteredMethodId,
+    receiver: LoweredValue,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let (domain, name, _) = crate::modules::api_spec().registered_method(method)
+        .ok_or_else(|| RuntimeError::new("invalid-method", "verified method identity is not registered").with_span(span))?;
+    lowered_canonical_registered_method_value(domain, name, receiver, args, span)
+}
+
+fn lowered_canonical_registered_method_value(
+    domain: crate::modules::MethodReceiver,
+    name: &str,
+    receiver: LoweredValue,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
     use crate::modules::MethodReceiver as Domain;
-    let name = plan.name.as_ref();
-    match plan.receiver.expect("verified registered method has a receiver domain") {
+    match domain {
         Domain::Str => lowered_str_method_value(&receiver, name, args, span),
         Domain::Bytes => lowered_bytes_method_value(&receiver, name, args, span),
         Domain::Int => {

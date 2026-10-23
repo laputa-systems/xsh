@@ -680,7 +680,7 @@ impl CallableApplications {
         let dependencies = changes[from..].iter().filter_map(|change| match change {
             ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
             ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
-            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) => None,
+            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) | ConstraintChange::Method(_) => None,
         }).collect::<BTreeSet<_>>();
         for dependency in dependencies {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();
@@ -847,12 +847,13 @@ impl TypeConstraints {
             applications.push(self.generalize_callable_application(id, environment_level, generalization)?);
         }
         let operations = self.generalize_sealed_operations(owners, environment_level, generalization)?;
+        let methods = self.generalize_method_families(owners, environment_level, generalization)?;
         let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
         Ok(crate::sema::schemes::CallableRequirements {
             iteration_parameters, applications, operations, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
             map_key_parameters: self.generalized_map_keys(generalization)?,
-            conversion_parameters: self.generalized_conversions(generalization)?,
+            conversion_parameters: self.generalized_conversions(generalization)?, methods,
         })
     }
 

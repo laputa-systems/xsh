@@ -422,6 +422,12 @@ impl Checker {
             }).collect::<super::FxHashSet<_>>();
             checked_operations.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let span = program.arena.expr(expression).span;
+                self.type_constraints.source_method_family(
+                    crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration()), span,
+                ).map(|_| span)
+            }));
             checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
             checked_operations.extend(self.conversions.keys().filter(|span| expression_spans.contains(span)).copied());
             checked_operations.extend(self.requirement_targets.keys().filter(|span| expression_spans.contains(span)).copied());
@@ -784,6 +790,7 @@ impl Checker {
             }
         };
         let mut operation_sites = BTreeMap::new();
+        let mut method_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
             if let Some(operation) = self.binary_operators.get(&expression).and_then(|operator| operator.operation) {
                 match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
@@ -791,6 +798,19 @@ impl Checker {
                     Ok(None) => {}
                     Err(error) => {
                         self.error(program.arena.expr(expression).span, &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+            let span = program.arena.expr(expression).span;
+            if let Some(method) = self.type_constraints.source_method_family(
+                crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), span,
+            ) {
+                match self.type_constraints.generalized_method_ordinal(method, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { method_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("method family has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
                         return None;
                     }
                 }
@@ -821,7 +841,7 @@ impl Checker {
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)) {
+            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)) {
                 Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

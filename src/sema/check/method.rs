@@ -614,6 +614,17 @@ impl Checker {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
+        let family = overloads.first().and_then(|method| api_spec().method_family_id(receiver, name, method));
+        if self.stream_origin_owner.is_some()
+            && overloads.len() > 1
+            && family.is_some_and(|family| overloads.iter().all(|method| api_spec().method_family_id(receiver, name, method) == Some(family)))
+            && let HostCallSource::Expression(call) = call_source.clone()
+            && let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = arena.arena.expr(call).kind
+            && let crate::syntax::arena::ArenaExprKind::Field { base, .. }
+                | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr(callee).kind
+        {
+            return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), name, args, span, expected);
+        }
         let selection = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         let (method, checked_values) = match selection {
             MethodSelection::BeforeArguments(method) => (method, None),

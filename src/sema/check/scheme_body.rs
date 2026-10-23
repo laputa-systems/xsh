@@ -173,6 +173,11 @@ pub(super) fn supports_generalized_body(
     if positions.get(&tail_statement.span) == Some(&super::StatementPosition::Statement) {
         match tail_statement.kind {
             ArenaStmtKind::Expr(expression) if types.get(&expression).is_some_and(|ty| ty.closed_ground_type() == Some(crate::sema::types::Type::Unit)) => {}
+            ArenaStmtKind::Expr(expression)
+                if matches!(completion, BodyCompletion::Procedure)
+                    && matches!(program.arena.expr(expression).kind, ArenaExprKind::Call { .. })
+                    && types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type).is_some_and(|ty| ty.is_result_unit())
+                    && checked_operations.contains(&program.arena.expr(expression).span) => {}
             ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) => return false,
             _ => {}
         }

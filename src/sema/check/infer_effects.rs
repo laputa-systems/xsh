@@ -636,6 +636,7 @@ mod joint_effect_tests {
             crate::sema::schemes::CallableRequirements {
                 map_key_parameters: Vec::new(),
                 iteration_parameters: BTreeMap::new(), operations: Vec::new(),
+                methods: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![parameter],
                 effect_predicates: vec![crate::sema::effects::EffectPredicate::Equal(EffectContract::variable(parameter), EffectContract::variable(parameter))],

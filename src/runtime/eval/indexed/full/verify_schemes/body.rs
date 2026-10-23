@@ -535,6 +535,7 @@ pub(super) fn verify_body(
     store: &FullStore, decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>,
     constructors: &super::constructors::ConstructorFacts,
     operation_sites: &BTreeMap<usize, u32>,
+    method_sites: &BTreeMap<usize, u32>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
@@ -746,7 +747,7 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }

@@ -348,6 +348,15 @@ impl BoundEquivalence<'_> {
             && left.effect_predicates.len() == right.effect_predicates.len()
             && left.operations.len() == right.operations.len()
             && left.operations.iter().zip(&right.operations).all(|(left, right)| left.operator == right.operator && self.ty(&left.left, &right.left) && self.ty(&left.right, &right.right) && self.ty(&left.result, &right.result))
+            && left.methods.len() == right.methods.len()
+            && left.methods.iter().zip(&right.methods).all(|(left, right)| {
+                left.family == right.family
+                    && left.argument_slots == right.argument_slots
+                    && left.arguments.len() == right.arguments.len()
+                    && self.ty(&left.receiver, &right.receiver)
+                    && left.arguments.iter().zip(&right.arguments).all(|(left, right)| self.ty(left, right))
+                    && self.ty(&left.result, &right.result)
+            })
             && left.applications.iter().zip(&right.applications).all(|(left, right)| {
                 left.kind == right.kind && left.arguments.len() == right.arguments.len()
                     && left.proc_returns.len() == right.proc_returns.len()

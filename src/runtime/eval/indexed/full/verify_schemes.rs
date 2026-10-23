@@ -4,6 +4,7 @@ mod body;
 mod effects;
 mod applications;
 mod operations;
+mod methods;
 mod references;
 mod commands;
 pub(super) use effects::ScopedEffectProof;
@@ -38,6 +39,7 @@ const SCHEME_TYPE_WORK_BASE: usize = 128;
 
 pub(super) struct SchemeScope {
     operations: IrRange,
+    methods: IrRange,
     type_parameters: Vec<FullSchemeTypeParameter>,
     row_parameters: Vec<FullSchemeRowParameter>,
     type_binders: BTreeMap<u32, usize>,
@@ -251,6 +253,9 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
     let mut parameter_coverage = vec![false; store.scheme_params.len()];
     let mut body_fact_coverage = vec![false; store.scheme_body_facts.len()];
     let mut operation_coverage = vec![false; store.scheme_operations.len()];
+    let mut method_coverage = vec![false; store.scheme_methods.len()];
+    let mut method_slot_coverage = vec![false; store.scheme_method_slots.len()];
+    let mut method_argument_coverage = vec![false; store.scheme_method_arguments.len()];
 
     for (function_index, function) in store.functions.iter().enumerate() {
         let FullCallableContract::Scheme(scheme_id) = function.contract else {
@@ -333,7 +338,16 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
         for operation in mark_range(scheme.operations, &store.scheme_operations, &mut operation_coverage, "scheme operation range is invalid or overlaps")? {
             if operation.reserved != [0; 3] { return Err(IrVerifyError::new("scheme operation metadata is invalid")); }
         }
+        for method in mark_range(scheme.methods, &store.scheme_methods, &mut method_coverage, "scheme method range is invalid or overlaps")? {
+            if method.reserved != [0; 3] { return Err(IrVerifyError::new("scheme method metadata is invalid")); }
+            let slots = mark_range(method.argument_slots, &store.scheme_method_slots, &mut method_slot_coverage, "scheme method argument slot range is invalid or overlaps")?;
+            let arguments = mark_range(method.arguments, &store.scheme_method_arguments, &mut method_argument_coverage, "scheme method argument range is invalid or overlaps")?;
+            if slots.len() != arguments.len() || slots.iter().copied().collect::<BTreeSet<_>>().len() != slots.len() {
+                return Err(IrVerifyError::new("scheme method argument layout is invalid"));
+            }
+        }
         scope.operations = scheme.operations;
+        scope.methods = scheme.methods;
         effects.contract(store, scheme_index, &scope, scheme.effects)?;
         effects.predicates(store, scheme_index, &scope, scheme.effect_predicates)?;
         if function.checked_return_type != IR_NONE {
@@ -388,6 +402,9 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
         || parameter_coverage.iter().any(|covered| !covered)
         || body_fact_coverage.iter().any(|covered| !covered)
         || operation_coverage.iter().any(|covered| !covered)
+        || method_coverage.iter().any(|covered| !covered)
+        || method_slot_coverage.iter().any(|covered| !covered)
+        || method_argument_coverage.iter().any(|covered| !covered)
     {
         return Err(IrVerifyError::new("full scheme tables contain unowned rows"));
     }
@@ -441,6 +458,7 @@ fn make_scope(
     }
     Ok(SchemeScope {
         operations: IrRange::default(),
+        methods: IrRange::default(),
         type_parameters,
         row_parameters,
         type_binders,
@@ -481,6 +499,7 @@ fn verify_scheme_tables(
     let mut return_coverage = vec![false; store.scheme_proc_returns.len()];
     let mut binding_coverage = vec![false; store.call_application_bindings.len()];
     let mut operation_binding_coverage = vec![false; store.call_operation_bindings.len()];
+    let mut method_binding_coverage = vec![false; store.call_method_bindings.len()];
     let mut slot_coverage = vec![false; store.call_application_slots.len()];
 
     for (scheme_index, scope) in scopes.iter().enumerate() {
@@ -494,6 +513,11 @@ fn verify_scheme_tables(
         let mut roots = Vec::new();
         for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")? {
             roots.extend([operation.left, operation.right, operation.result]);
+        }
+        for method in bounded(scheme.methods, &store.scheme_methods, "scheme method range is invalid")? {
+            application_budget.charge(2 + method.arguments.len as usize)?;
+            roots.extend([method.receiver, method.result]);
+            roots.extend(bounded(method.arguments, &store.scheme_method_arguments, "scheme method argument range is invalid")?.iter().copied());
         }
         let params = bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?;
         roots.extend(params.iter().map(|param| param.ty));
@@ -588,6 +612,7 @@ fn verify_scheme_tables(
     }
     let empty_scope = SchemeScope {
         operations: IrRange::default(),
+        methods: IrRange::default(),
         type_parameters: Vec::new(),
         row_parameters: Vec::new(),
         type_binders: BTreeMap::new(),
@@ -610,6 +635,13 @@ fn verify_scheme_tables(
             if let super::schemes::FullOperationBinding::Forwarded(ordinal) = *binding {
                 let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards an operation requirement")); };
                 if ordinal >= store.scheme(caller)?.operations.len { return Err(IrVerifyError::new("generic call operation ordinal is out of scope")); }
+            }
+        }
+        for binding in mark_range(instantiation.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
+            application_budget.charge(1)?;
+            if let super::schemes::FullMethodBinding::Forwarded(ordinal) = *binding {
+                let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards a method family")); };
+                if ordinal >= store.scheme(caller)?.methods.len { return Err(IrVerifyError::new("generic call method ordinal is out of scope")); }
             }
         }
         application_budget.charge(instantiation.application_bindings.len as usize)?;
@@ -743,6 +775,7 @@ fn verify_scheme_tables(
         || return_coverage.iter().any(|covered| !covered)
         || binding_coverage.iter().any(|covered| !covered)
         || operation_binding_coverage.iter().any(|covered| !covered)
+        || method_binding_coverage.iter().any(|covered| !covered)
         || slot_coverage.iter().any(|covered| !covered)
     {
         return Err(IrVerifyError::new("scheme type tables contain unowned rows"));
@@ -1129,6 +1162,7 @@ fn verify_scheme_body_facts(
         let mut types = BTreeMap::new();
         let mut constructors = BTreeMap::new();
         let mut operation_sites = BTreeMap::new();
+        let mut method_sites = BTreeMap::new();
         let mut tails = BTreeMap::new();
         let mut declarations = BTreeMap::new();
         for (offset, fact) in store.scheme_body_facts[facts_range.clone()].iter().enumerate() {
@@ -1137,6 +1171,12 @@ fn verify_scheme_body_facts(
             if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
                 if store.tags[instruction] != FullTag::ExprBinary || ordinal >= scheme.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                continue;
+            }
+            if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
+                if store.tags[instruction] != FullTag::ExprMethod || ordinal >= scheme.methods.len || method_sites.insert(instruction, ordinal).is_some() {
+                    return Err(IrVerifyError::new("body method has invalid or duplicated ownership"));
+                }
                 continue;
             }
             let Some(type_id) = fact.ty() else {
@@ -1184,7 +1224,7 @@ fn verify_scheme_body_facts(
         let expected_return = decode_scheme_type(store, scope, scheme.return_type, &mut budget, 0)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1197,6 +1237,7 @@ fn verify_scheme_body_facts(
             if !equal { return Err(IrVerifyError::new("generic slot type fact disagrees with its initialized value")); }
         }
         if operation_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body operation has no authenticated expression")); }
+        if method_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body method has no authenticated expression")); }
         if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() + constructors.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
         let mut encoded_expressions = BTreeSet::new();
         let mut encoded_statements = BTreeSet::new();
@@ -1209,10 +1250,13 @@ fn verify_scheme_body_facts(
             }
         }
         if visited != encoded_expressions || visited_statements != encoded_statements { return Err(IrVerifyError::new("generic body contains an unchecked instruction")); }
-        budget.charge(stream_sources.len() + captures.len() + applications.len())?;
+        budget.charge(stream_sources.len() + captures.len() + applications.len() + method_sites.len())?;
         requests.streams.extend(stream_sources.into_iter().map(|(source, boundary)| producers::StreamIteration { owner: decoder.owner, source, boundary }));
         requests.captures.extend(captures.into_iter().map(|(instruction, expected_error)| producers::CaptureErrorRequest { owner: decoder.owner, instruction, expected_error }));
         requests.applications.extend(applications.into_iter().map(|instruction| (decoder.owner, instruction)));
+        requests.methods.extend(method_sites.keys()
+            .filter(|instruction| !store.registered_calls.contains_key(&(**instruction as u32)))
+            .map(|&instruction| (decoder.owner, instruction)));
     }
     if covered.iter().any(|covered| !covered) || store.registered_calls.keys().any(|instruction| !registered_coverage.contains(instruction)) { return Err(IrVerifyError::new("generic body metadata contains unowned rows")); }
     Ok(requests)
@@ -1376,6 +1420,7 @@ fn verify_body_expression(
     types: &BTreeMap<usize, SchemeType>,
     constructors: &constructors::ConstructorFacts,
     operation_sites: &BTreeMap<usize, u32>,
+    method_sites: &BTreeMap<usize, u32>,
     scheme_scope: &SchemeScope,
     slots: &body::LexicalScope,
     scopes: &body::LexicalScopes,
@@ -1741,16 +1786,22 @@ fn verify_body_expression(
             ok
         }
         schema::ExprView::Method { receiver, name, args, .. } => {
-            let receiver = child(receiver, budget)?;
+            let receiver_ty = child(receiver, budget)?;
             let mut arguments = Vec::new();
             for argument in args { arguments.push(Some(child(argument?, budget)?)); }
-            if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
-                if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
-                let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
-                if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver), &references, ty) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
-                registered_coverage.insert(instruction as u32);
+            if let Some(&ordinal) = method_sites.get(&instruction) {
+                let physical_arguments = arguments.iter().map(|argument| argument.as_ref().expect("method arguments are present").clone()).collect::<Vec<_>>();
+                methods::verify_body_site(store, scheme_scope, ordinal, name, &receiver_ty, &physical_arguments, ty, budget)?;
                 ty.clone()
-            } else { SchemeType::Ground(commands::nullary_method(&receiver, name, &arguments, budget)?) }
+            } else {
+                if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
+                    if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
+                    let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
+                    if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver_ty), &references, ty) { return Err(IrVerifyError::new("generic host method disagrees with its selected registry signature")); }
+                    registered_coverage.insert(instruction as u32);
+                    ty.clone()
+                } else { SchemeType::Ground(commands::nullary_method(&receiver_ty, name, &arguments, budget)?) }
+            }
         }
         schema::ExprView::RunCapture(run) => {
             commands::operands(run.operands, scheme_scope, &mut child, budget)?;
@@ -1854,6 +1905,7 @@ fn verify_call_instantiations(
         let scheme = store.scheme(scheme_id)?;
         let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam);
         if instantiation.operation_bindings.len != scheme.operations.len { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
+        if instantiation.method_bindings.len != scheme.methods.len { return Err(IrVerifyError::new("generic call method binding is incomplete")); }
         if instantiation.application_bindings.len != scheme.applications.len {
             return Err(IrVerifyError::new("generic call application binding is incomplete"));
         }
@@ -1891,6 +1943,7 @@ fn verify_call_instantiations(
                 Some((store.scheme(caller_scheme)?, caller_scope)),
                 bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut budget)?;
             operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut budget)?;
+            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut budget)?;
             if reference {
                 let fact = scheme_body_fact_type(store, caller_scheme, instantiation.instruction, FullSchemeBodyFactKind::Expression)?
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked scheme type"))?;
@@ -1946,6 +1999,7 @@ fn verify_call_instantiations(
                 applications::ApplicationSubstitution::Ground(&substitution), None,
                 bounded(instantiation.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
             operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut materialization)?;
+            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
             if reference {
                 let fact = checked_expression_type_id(store, instantiation.instruction)
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked type"))?;
@@ -4648,7 +4702,11 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(store.scheme_effect_predicates.len())
         .saturating_add(store.scheme_applications.len())
         .saturating_add(store.scheme_operations.len())
+        .saturating_add(store.scheme_methods.len())
+        .saturating_add(store.scheme_method_slots.len())
+        .saturating_add(store.scheme_method_arguments.len())
         .saturating_add(store.call_operation_bindings.len())
+        .saturating_add(store.call_method_bindings.len())
         .saturating_add(store.scheme_application_calls.len())
         .saturating_add(store.scheme_application_returns.len())
         .saturating_add(store.scheme_application_arguments.len())
@@ -5100,6 +5158,7 @@ mod tests {
     fn symbolic_substitution_test_scope() -> SchemeScope {
         SchemeScope {
             operations: IrRange::default(),
+            methods: IrRange::default(),
             type_parameters: vec![FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] }],
             row_parameters: vec![FullSchemeRowParameter {
                 id: 20,
@@ -5194,6 +5253,7 @@ mod tests {
 
         let scope = SchemeScope {
             operations: IrRange::default(),
+            methods: IrRange::default(),
             type_parameters: vec![
                 FullSchemeTypeParameter { id: 10, binder: 0, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] },
                 FullSchemeTypeParameter { id: 11, binder: 1, map_key: false, conversions: 0, iteration_item: IR_NONE, iteration_error: IR_NONE, iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct, reserved: [0; 1] },

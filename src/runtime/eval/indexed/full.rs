@@ -739,7 +739,11 @@ struct FullStore {
     scheme_effect_predicates: Vec<schemes::FullEffectPredicate>,
     scheme_applications: Vec<schemes::FullSchemeApplication>,
     scheme_operations: Vec<schemes::FullSealedOperation>,
+    scheme_methods: Vec<schemes::FullSchemeMethod>,
+    scheme_method_slots: Vec<u32>,
+    scheme_method_arguments: Vec<SchemeTypeId>,
     call_operation_bindings: Vec<schemes::FullOperationBinding>,
+    call_method_bindings: Vec<schemes::FullMethodBinding>,
     scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
     scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
     call_application_bindings: Vec<schemes::FullApplicationBinding>,
@@ -831,7 +835,11 @@ impl Default for FullStore {
             scheme_effect_predicates: Vec::new(),
             scheme_applications: Vec::new(),
             scheme_operations: Vec::new(),
+            scheme_methods: Vec::new(),
+            scheme_method_slots: Vec::new(),
+            scheme_method_arguments: Vec::new(),
             call_operation_bindings: Vec::new(),
+            call_method_bindings: Vec::new(),
             scheme_application_arguments: Vec::new(),
             scheme_proc_returns: Vec::new(),
             call_application_bindings: Vec::new(),
@@ -1066,7 +1074,11 @@ impl FullStore {
             + self.scheme_effect_predicates.capacity() * size_of::<schemes::FullEffectPredicate>()
             + self.scheme_applications.capacity() * size_of::<schemes::FullSchemeApplication>()
             + self.scheme_operations.capacity() * size_of::<schemes::FullSealedOperation>()
+            + self.scheme_methods.capacity() * size_of::<schemes::FullSchemeMethod>()
+            + self.scheme_method_slots.capacity() * size_of::<u32>()
+            + self.scheme_method_arguments.capacity() * size_of::<SchemeTypeId>()
             + self.call_operation_bindings.capacity() * size_of::<schemes::FullOperationBinding>()
+            + self.call_method_bindings.capacity() * size_of::<schemes::FullMethodBinding>()
             + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
             + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
             + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
@@ -1176,7 +1188,11 @@ impl FullStore {
         self.scheme_effect_predicates.shrink_to_fit();
         self.scheme_applications.shrink_to_fit();
         self.scheme_operations.shrink_to_fit();
+        self.scheme_methods.shrink_to_fit();
+        self.scheme_method_slots.shrink_to_fit();
+        self.scheme_method_arguments.shrink_to_fit();
         self.call_operation_bindings.shrink_to_fit();
+        self.call_method_bindings.shrink_to_fit();
         self.scheme_application_arguments.shrink_to_fit();
         self.scheme_proc_returns.shrink_to_fit();
         self.call_application_bindings.shrink_to_fit();
@@ -3206,7 +3222,11 @@ struct FullCheckpoint {
     scheme_effect_predicates: usize,
     scheme_applications: usize,
     scheme_operations: usize,
+    scheme_methods: usize,
+    scheme_method_slots: usize,
+    scheme_method_arguments: usize,
     call_operation_bindings: usize,
+    call_method_bindings: usize,
     scheme_application_arguments: usize,
     scheme_proc_returns: usize,
     call_application_bindings: usize,
@@ -5003,7 +5023,11 @@ impl FullBuilder {
             scheme_effect_predicates: self.store.scheme_effect_predicates.len(),
             scheme_applications: self.store.scheme_applications.len(),
             scheme_operations: self.store.scheme_operations.len(),
+            scheme_methods: self.store.scheme_methods.len(),
+            scheme_method_slots: self.store.scheme_method_slots.len(),
+            scheme_method_arguments: self.store.scheme_method_arguments.len(),
             call_operation_bindings: self.store.call_operation_bindings.len(),
+            call_method_bindings: self.store.call_method_bindings.len(),
             scheme_application_arguments: self.store.scheme_application_arguments.len(),
             scheme_proc_returns: self.store.scheme_proc_returns.len(),
             call_application_bindings: self.store.call_application_bindings.len(),
@@ -5093,7 +5117,11 @@ impl FullBuilder {
         self.store.scheme_effect_predicates.truncate(checkpoint.scheme_effect_predicates);
         self.store.scheme_applications.truncate(checkpoint.scheme_applications);
         self.store.scheme_operations.truncate(checkpoint.scheme_operations);
+        self.store.scheme_methods.truncate(checkpoint.scheme_methods);
+        self.store.scheme_method_slots.truncate(checkpoint.scheme_method_slots);
+        self.store.scheme_method_arguments.truncate(checkpoint.scheme_method_arguments);
         self.store.call_operation_bindings.truncate(checkpoint.call_operation_bindings);
+        self.store.call_method_bindings.truncate(checkpoint.call_method_bindings);
         self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
         self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
         self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
@@ -5698,6 +5726,54 @@ impl<'p> FullExecution<'p> {
 
     pub(in crate::runtime::eval) fn registered_call_plan(&self, instruction: u32) -> Option<Arc<crate::sema::schemes::RegisteredCallPlan>> {
         self.store().registered_calls.get(&instruction).cloned()
+    }
+
+    pub(in crate::runtime::eval) fn registered_scheme_method(
+        &self,
+        instruction: u32,
+        invocation: &PreparedInvocationBindings,
+    ) -> Result<Option<xsh_registry::signature::RegisteredMethodId>, IrVerifyError> {
+        let owner = ExecutableOwner::from_raw(self.owner)?;
+        let ExecutableOwner::Function(function) = owner else { return Ok(None) };
+        let declaration = self.store().functions.get(function.index()).ok_or_else(|| IrVerifyError::new("generic method owner is out of bounds"))?;
+        let FullCallableContract::Scheme(scheme_id) = declaration.contract else { return Ok(None) };
+        let scheme = self.store().scheme(scheme_id)?;
+        let fact_range = scheme.body_facts.bounds(self.store().scheme_body_facts.len())
+            .ok_or_else(|| IrVerifyError::new("generic method body fact range is invalid"))?;
+        let facts = &self.store().scheme_body_facts[fact_range];
+        let key = (instruction, schemes::FullSchemeBodyFactKind::Method as u8);
+        let Ok(index) = facts.binary_search_by_key(&key, |index| {
+            (index.instruction, index.kind() as u8)
+        }) else { return Ok(None) };
+        let fact = facts[index];
+        if fact.function != function { return Err(IrVerifyError::new("generic method fact belongs to another function")); }
+        let schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value else {
+            return Err(IrVerifyError::new("generic method fact has an invalid kind"));
+        };
+        let method_range = scheme.methods.bounds(self.store().scheme_methods.len())
+            .ok_or_else(|| IrVerifyError::new("generic method range is invalid"))?;
+        let method = self.store().scheme_methods[method_range].get(ordinal as usize)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("generic method ordinal is out of scope"))?;
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store());
+        let receiver = verify_schemes::instantiate_bound_type(self.store(), method.receiver, &invocation.substitution, &mut budget, 0)?;
+        let slot_range = method.argument_slots.bounds(self.store().scheme_method_slots.len())
+            .ok_or_else(|| IrVerifyError::new("generic method argument slot range is invalid"))?;
+        let slots = &self.store().scheme_method_slots[slot_range];
+        let argument_range = method.arguments.bounds(self.store().scheme_method_arguments.len())
+            .ok_or_else(|| IrVerifyError::new("generic method argument range is invalid"))?;
+        let encoded_arguments = &self.store().scheme_method_arguments[argument_range];
+        if slots.len() != encoded_arguments.len() { return Err(IrVerifyError::new("generic method argument layout is invalid")); }
+        budget.charge(encoded_arguments.len())?;
+        let mut arguments = Vec::with_capacity(encoded_arguments.len());
+        for argument in encoded_arguments {
+            arguments.push(verify_schemes::instantiate_bound_type(self.store(), *argument, &invocation.substitution, &mut budget, 0)?);
+        }
+        match crate::modules::api_spec().select_method_family(method.family, &receiver, slots, &arguments) {
+            crate::modules::signature::MethodFamilySelection::Selected(method) => Ok(Some(method)),
+            crate::modules::signature::MethodFamilySelection::Unsupported => Err(IrVerifyError::new("verified method family has no canonical runtime member")),
+            crate::modules::signature::MethodFamilySelection::Ambiguous => Err(IrVerifyError::new("verified method family has ambiguous runtime members")),
+        }
     }
 
     fn new(
@@ -20266,6 +20342,7 @@ macro_rules! impl_build_id_codec {
                     scratch.registered_calls.get(self.index()).cloned().flatten()
                 } else { None };
                 let operation = if $checked_expr_type { scratch.scheme_operations.get(&self.index()).copied() } else { None };
+                let method = if $checked_expr_type { scratch.scheme_methods.get(&self.index()).copied() } else { None };
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
@@ -20314,6 +20391,7 @@ macro_rules! impl_build_id_codec {
                 let needs_instruction = checked_expr_type.is_some()
                     || transfers_resource
                     || application_return.is_some()
+                    || method.is_some()
                     || checked_call_target.is_some()
                     || call_instantiation.is_some()
                     || checked_call_result.is_some()
@@ -20418,6 +20496,19 @@ macro_rules! impl_build_id_codec {
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
                     if builder.active_scheme.is_none() || builder.store.tags[instruction] != FullTag::ExprBinary { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
+                }
+                if let Some(method) = method {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_method_instruction", None, 0, self.index()))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_method_owner", None, 0, instruction))?;
+                    let scheme = builder.active_scheme.ok_or_else(|| IrBuildError::format("sealed_method_owner", None, 0, instruction))?;
+                    if builder.store.tags[instruction] != FullTag::ExprMethod || method >= builder.store.schemes[scheme.index()].methods.len {
+                        return Err(IrBuildError::format("sealed_method_owner", None, 0, instruction));
+                    }
+                    builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact {
+                        instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_method_instruction", None, 0, instruction))?,
+                        function,
+                        value: schemes::FullSchemeBodyFactValue::Method(method),
+                    });
                 }
                 if let Some(application) = application_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_application_instruction", None, 0, self.index()))?;
@@ -26040,11 +26131,18 @@ assert observed.scoped == Ok(8)
         for field in &mut program.store.call_row_fields {
             shift_scheme_type_id(&mut field.ty, removed_index);
         }
+        for method in &mut program.store.scheme_methods {
+            shift_scheme_type_id(&mut method.receiver, removed_index);
+            shift_scheme_type_id(&mut method.result, removed_index);
+        }
+        for argument in &mut program.store.scheme_method_arguments {
+            shift_scheme_type_id(argument, removed_index);
+        }
         for fact in &mut program.store.scheme_body_facts {
             match &mut fact.value {
                 schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
-                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) => {},
+                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {
@@ -33888,6 +33986,157 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("generic row append exists");
                 assert_eq!(result.unwrap(), Value::List(vec![Value::Int(1), Value::Int(2)]));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_method_families_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            assert_eq!(std::mem::size_of::<schemes::FullSchemeMethod>(), 28);
+            assert_eq!(std::mem::size_of::<schemes::FullMethodBinding>(), 8);
+            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 112);
+            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 52);
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos();
+            let root = std::env::current_dir().unwrap().join(".work/tmp");
+            fs::create_dir_all(&root).unwrap();
+            let source = format!(
+                "pure item_count(value) -> Int {{ let _ = value.is_empty(); value.len() }}\n\
+                 pure empty(value) -> Bool {{ value.is_empty() }}\n\
+                 proc save(file: Path, row) [fs] -> Result[Unit] {{ file.write(data: row.text) }}\n\
+                 proc save_mode(file: Path, row) [fs] -> Result[Unit] {{ file.write(mode: row.mode, data: row.text) }}\n\
+                 let count_numbers = item_count([1, 2])\n\
+                 let count_words = item_count([\"one\", \"two\", \"three\"])\n\
+                 let list_nonempty = empty([1])\n\
+                 let empty_words: List[Str] = []\n\
+                 let list_empty = empty(empty_words)\n\
+                 let mapping: Map[Str, Int] = {{[\"key\"]: 1}}\n\
+                 let map_nonempty = empty(mapping)\n\
+                 let set_nonempty = empty({{1, 2}})\n\
+                 let text_nonempty = empty(\"x\")\n\
+                 let bytes_nonempty = empty(b\"x\")\n\
+                 let text_path = \"{}\"\n\
+                 let bytes_path = \"{}\"\n\
+                 let mode_text_path = \"{}\"\n\
+                 let mode_bytes_path = \"{}\"\n\
+                 let missing_parent_path = \"{}\"\n\
+                 let text_write = save(Path(text_path), {{text: \"text\"}})\n\
+                 let bytes_write = save(Path(bytes_path), {{text: b\"bytes\"}})\n\
+                 let mode_text_write = save_mode(Path(mode_text_path), {{mode: 0o600, text: \"mode-text\"}})\n\
+                 let mode_bytes_write = save_mode(Path(mode_bytes_path), {{mode: 0o600, text: b\"mode-bytes\"}})\n\
+                 let failed_write = save(Path(missing_parent_path), {{text: \"failed\"}})\n",
+                root.join(format!("method-family-text-{stamp}" )).display(),
+                root.join(format!("method-family-bytes-{stamp}" )).display(),
+                root.join(format!("method-family-mode-text-{stamp}" )).display(),
+                root.join(format!("method-family-mode-bytes-{stamp}" )).display(),
+                root.join(format!("method-family-missing-{stamp}/file" )).display(),
+            );
+            let program = Arc::new(fixture("generic-method-families.xsh", &source));
+            let save_mode_owner = scheme_fixture_root_function(&program, "save_mode");
+            let save_mode_contract = match program.store.functions[save_mode_owner].contract {
+                FullCallableContract::Scheme(scheme) => scheme,
+                FullCallableContract::Ground(_) => panic!("save_mode has a generic method scheme"),
+            };
+            let save_mode_scheme = program.store.schemes[save_mode_contract.index()];
+            let encoded_method = program.store.scheme_methods[save_mode_scheme.methods.start as usize];
+            let argument_slots = encoded_method.argument_slots.bounds(program.store.scheme_method_slots.len()).unwrap();
+            assert_eq!(&program.store.scheme_method_slots[argument_slots.clone()], &[1, 0]);
+            let mut forged_slots = (*program).clone();
+            forged_slots.store.scheme_method_slots[argument_slots].copy_from_slice(&[0, 1]);
+            assert!(FullVerifier::verify(&forged_slots).is_err());
+            FullVerifier::verify(&program).unwrap();
+            let item_count_owner = scheme_fixture_root_function(&program, "item_count");
+            let item_count_scheme = match program.store.functions[item_count_owner].contract {
+                FullCallableContract::Scheme(scheme) => scheme,
+                FullCallableContract::Ground(_) => panic!("item_count has a generic method scheme"),
+            };
+            let item_count_scheme = program.store.schemes[item_count_scheme.index()];
+            let fact_range = item_count_scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+            let decoder = function_view_decoder(&program.store, item_count_owner);
+            let method_facts = fact_range.clone().filter_map(|fact_index| {
+                let fact = program.store.scheme_body_facts[fact_index];
+                if fact.kind() != schemes::FullSchemeBodyFactKind::Method { return None; }
+                match decoder.expression_view(fact.instruction as usize).unwrap() {
+                    schema::ExprView::Method { name, .. } => Some((name, fact_index, fact)),
+                    _ => None,
+                }
+            }).collect::<Vec<_>>();
+            let (_, len_fact_index, len_fact) = method_facts.iter().find(|(name, _, _)| *name == "len").copied().unwrap();
+            let (_, _, empty_fact) = method_facts.iter().find(|(name, _, _)| *name == "is_empty").copied().unwrap();
+            let mut missing_method = (*program).clone();
+            missing_method.store.scheme_body_facts.remove(len_fact_index);
+            for scheme in &mut missing_method.store.schemes {
+                let range = scheme.body_facts;
+                if range.start as usize > len_fact_index {
+                    scheme.body_facts.start -= 1;
+                } else if len_fact_index < range.start as usize + range.len as usize {
+                    scheme.body_facts.len -= 1;
+                }
+            }
+            assert_eq!(FullVerifier::verify(&missing_method).unwrap_err().message, "generic intrinsic method has no closed receiver contract");
+            let mut foreign_method = (*program).clone();
+            foreign_method.store.scheme_body_facts[len_fact_index].function = IrFunctionId::new(scheme_fixture_root_function(&program, "empty")).unwrap();
+            assert_eq!(FullVerifier::verify(&foreign_method).unwrap_err().message, "generic body fact has invalid ownership");
+            let mut misbound_method = (*program).clone();
+            let schemes::FullSchemeBodyFactValue::Method(empty_ordinal) = empty_fact.value else { panic!("is_empty has a retained method ordinal") };
+            misbound_method.store.scheme_body_facts[len_fact_index].value = schemes::FullSchemeBodyFactValue::Method(empty_ordinal);
+            assert_eq!(FullVerifier::verify(&misbound_method).unwrap_err().message, "generic method site disagrees with its retained family contract");
+            let call = scheme_fixture_call(&program, "item_count");
+            let instantiation = program.store.call_instantiations.iter()
+                .find(|instantiation| instantiation.instruction == call)
+                .expect("generic method call has retained method bindings");
+            let bindings = instantiation.method_bindings.bounds(program.store.call_method_bindings.len()).unwrap();
+            assert_eq!(bindings.len(), item_count_scheme.methods.len as usize);
+            let schemes::FullSchemeBodyFactValue::Method(len_ordinal) = len_fact.value else { panic!("len has a retained method ordinal") };
+            let api = crate::modules::api_spec();
+            let other_family_signature = &api.method_overloads(crate::modules::MethodReceiver::List, "is_empty").unwrap()[0];
+            let other_family = api.registered_method_id(crate::modules::MethodReceiver::List, "is_empty", other_family_signature).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.call_method_bindings[bindings.start + len_ordinal as usize] = schemes::FullMethodBinding::Selected(other_family);
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "selected method differs from its canonical input signature");
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+                assert_eq!(evaluator.lookup(Name::intern("count_numbers")).unwrap().value, Value::Int(2));
+                assert_eq!(evaluator.lookup(Name::intern("count_words")).unwrap().value, Value::Int(3));
+                assert_eq!(evaluator.lookup(Name::intern("list_nonempty")).unwrap().value, Value::Bool(false));
+                assert_eq!(evaluator.lookup(Name::intern("list_empty")).unwrap().value, Value::Bool(true));
+                assert_eq!(evaluator.lookup(Name::intern("map_nonempty")).unwrap().value, Value::Bool(false));
+                assert_eq!(evaluator.lookup(Name::intern("set_nonempty")).unwrap().value, Value::Bool(false));
+                assert_eq!(evaluator.lookup(Name::intern("text_nonempty")).unwrap().value, Value::Bool(false));
+                assert_eq!(evaluator.lookup(Name::intern("bytes_nonempty")).unwrap().value, Value::Bool(false));
+                for (name, path, bytes) in [
+                    ("text_write", root.join(format!("method-family-text-{stamp}")), b"text".as_slice()),
+                    ("bytes_write", root.join(format!("method-family-bytes-{stamp}")), b"bytes".as_slice()),
+                ] {
+                    assert_eq!(evaluator.lookup(Name::intern(name)).unwrap().value, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+                    assert_eq!(fs::read(path).unwrap(), bytes);
+                }
+                for (name, path, bytes) in [
+                    ("mode_text_write", root.join(format!("method-family-mode-text-{stamp}")), b"mode-text".as_slice()),
+                    ("mode_bytes_write", root.join(format!("method-family-mode-bytes-{stamp}")), b"mode-bytes".as_slice()),
+                ] {
+                    assert_eq!(evaluator.lookup(Name::intern(name)).unwrap().value, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+                    assert_eq!(fs::read(&path).unwrap(), bytes);
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o7777, 0o600);
+                }
+                assert!(matches!(
+                    evaluator.lookup(Name::intern("failed_write")).unwrap().value,
+                    Value::Result(crate::runtime::value::ResultValue::Err(_))
+                ));
+                assert!(!root.join(format!("method-family-missing-{stamp}/file")).exists());
+            }
+            for suffix in ["text", "bytes", "mode-text", "mode-bytes"] {
+                fs::remove_file(root.join(format!("method-family-{suffix}-{stamp}"))).unwrap();
             }
         });
     }

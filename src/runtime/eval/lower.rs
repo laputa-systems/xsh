@@ -4612,6 +4612,41 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
+                if let Some(ordinal) = facts.method_site(expression) {
+                    let Some(requirement) = facts.scheme().callable().requirements().methods.get(ordinal as usize) else {
+                        return self.block_scheme_lowering_expr(expression);
+                    };
+                    let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else {
+                        return self.block_scheme_lowering_expr(expression);
+                    };
+                    if !crate::modules::api_spec().method_family_members(requirement.family).all(|(_, _, family_name, _)| family_name == name.as_str()) {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let receiver = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
+                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    if arguments.len() != requirement.argument_slots.len() || arguments.iter().any(|argument| argument.splice) {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let mut ordered = Vec::new();
+                    for (argument, &slot) in arguments.into_iter().zip(&requirement.argument_slots) {
+                        let slot = slot as usize;
+                        if ordered.len() <= slot { ordered.resize(slot + 1, None); }
+                        if ordered[slot].replace(argument.lowered?).is_some() {
+                            return self.block_scheme_lowering_expr(expression);
+                        }
+                    }
+                    while ordered.last() == Some(&None) { ordered.pop(); }
+                    let arguments = ordered.into_iter().collect::<Option<Vec<_>>>()?;
+                    let lowered = push_build_row!(self, expr, BuildExprRow::Method {
+                        receiver,
+                        name: crate::symbol::NameText::Dynamic(Arc::from(name.as_str().as_str())),
+                        args: arguments,
+                        span,
+                    });
+                    self.scratch.borrow_mut().scheme_methods.insert(lowered.index(), ordinal);
+                    return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
                 let plan = facts.registered_calls().get(&expression).cloned();
                 let receiver = if plan.as_ref().is_some_and(|plan| plan.receiver.is_some()) {
                     let (ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. }) = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };

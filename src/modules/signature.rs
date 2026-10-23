@@ -16,6 +16,7 @@ pub struct ApiSpec {
     modules: Vec<ModuleEntry>,
     module_index: FxHashMap<&'static str, usize>,
     methods: Vec<MethodReceiverSig>,
+    registered_method_locations: Vec<(usize, usize, usize)>,
     docs: BTreeMap<String, ApiDocs>,
     /// Reverse map from a `RuntimeOp` to its `module.function` spelling, for
     /// `module.call`/`module.result` trace event names.
@@ -99,6 +100,11 @@ impl ApiSpec {
         methods: Vec<MethodReceiverSig>,
         docs: BTreeMap<String, ApiDocs>,
     ) -> Self {
+        let registered_method_locations = methods.iter().enumerate().flat_map(|(receiver, entry)| {
+            entry.methods.iter().enumerate().flat_map(move |(method, named)| {
+                (0..named.overloads.len()).map(move |overload| (receiver, method, overload))
+            })
+        }).collect();
         let module_index = modules
             .iter()
             .enumerate()
@@ -129,6 +135,7 @@ impl ApiSpec {
             modules,
             module_index,
             methods,
+            registered_method_locations,
             docs,
             op_names,
         }
@@ -200,6 +207,86 @@ impl ApiSpec {
             .map(|method| method.overloads.as_slice())
     }
 
+    pub(crate) fn method_family_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        signature: &MethodSig,
+    ) -> Option<registry::MethodFamilyId> {
+        let overload = self.method_overloads(receiver, name)?.iter()
+            .position(|candidate| std::ptr::eq(candidate, signature))?;
+        registry::api_spec().method_family_id(receiver, name, overload)
+    }
+
+    pub(crate) fn registered_method_id(
+        &self,
+        receiver: MethodReceiver,
+        name: &str,
+        signature: &MethodSig,
+    ) -> Option<registry::RegisteredMethodId> {
+        let overload = self.method_overloads(receiver, name)?.iter()
+            .position(|candidate| std::ptr::eq(candidate, signature))?;
+        registry::api_spec().registered_method_id(receiver, name, overload)
+    }
+
+    pub(crate) fn registered_method<'a>(
+        &'a self,
+        id: registry::RegisteredMethodId,
+    ) -> Option<(MethodReceiver, &'static str, &'a MethodSig)> {
+        let (receiver, method, overload) = *self.registered_method_locations.get(id.raw() as usize)?;
+        let receiver = self.methods.get(receiver)?;
+        let method = receiver.methods.get(method)?;
+        Some((receiver.receiver, method.name, method.overloads.get(overload)?))
+    }
+
+    pub(crate) fn method_family_members<'a>(
+        &'a self,
+        family: registry::MethodFamilyId,
+    ) -> impl Iterator<Item = (registry::RegisteredMethodId, MethodReceiver, &'static str, &'a MethodSig)> + 'a {
+        registry::api_spec().method_family_member_ids(family).iter().copied().filter_map(|id| {
+            self.registered_method(id).map(|(receiver, name, signature)| (id, receiver, name, signature))
+        })
+    }
+
+    pub(crate) fn method_family_member_count(&self, family: registry::MethodFamilyId) -> usize {
+        registry::api_spec().method_family_member_ids(family).len()
+    }
+
+    pub(crate) fn select_method_family(
+        &self,
+        family: registry::MethodFamilyId,
+        receiver_type: &Type,
+        argument_slots: &[u32],
+        arguments: &[Type],
+    ) -> MethodFamilySelection {
+        if argument_slots.len() != arguments.len()
+            || receiver_type.contains_any()
+            || receiver_type.contains_recovery()
+            || arguments.iter().any(|argument| argument.contains_any() || argument.contains_recovery())
+        {
+            return MethodFamilySelection::Unsupported;
+        }
+        let mut selected = None;
+        for (id, receiver, _, signature) in self.method_family_members(family) {
+            if !method_receiver_accepts(receiver, receiver_type.unvalidated()) { continue; }
+            let mut supplied = BTreeSet::new();
+            let mut fits = true;
+            for (argument, &slot) in arguments.iter().zip(argument_slots) {
+                let slot = slot as usize;
+                let Some(parameter) = signature.sig.params.get(slot) else { fits = false; break; };
+                if !supplied.insert(slot) || argument.unvalidated() != parameter.ty.unvalidated() {
+                    fits = false;
+                    break;
+                }
+            }
+            if !fits || signature.sig.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&slot)) {
+                continue;
+            }
+            if selected.replace(id).is_some() { return MethodFamilySelection::Ambiguous; }
+        }
+        selected.map_or(MethodFamilySelection::Unsupported, MethodFamilySelection::Selected)
+    }
+
     pub fn method_names(
         &self,
         receiver: MethodReceiver,
@@ -216,6 +303,25 @@ impl ApiSpec {
             .and_then(|overloads| overloads.first())
             .map(|method| method.sig.op)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MethodFamilySelection {
+    Selected(registry::RegisteredMethodId),
+    Unsupported,
+    Ambiguous,
+}
+
+fn method_receiver_accepts(receiver: MethodReceiver, ty: &Type) -> bool {
+    use MethodReceiver as R;
+    use Type as T;
+    matches!((receiver, ty),
+        (R::List, T::List(_))
+            | (R::Map, T::Map(_, _))
+            | (R::Set, T::Set(_))
+            | (R::Bytes, T::Bytes)
+            | (R::Str, T::Str)
+            | (R::Path, T::Path))
 }
 
 #[derive(Clone, Debug)]

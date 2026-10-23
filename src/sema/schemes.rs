@@ -94,6 +94,16 @@ pub(crate) struct CallableRequirements {
     pub(crate) effect_predicates: Vec<EffectPredicate<SchemeEffectParameterId>>,
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
     pub(crate) operations: Vec<super::sealed_operation::SealedBinaryOperation<SchemeType>>,
+    pub(crate) methods: Vec<MethodFamilyRequirement<SchemeType>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MethodFamilyRequirement<T> {
+    pub(crate) family: xsh_registry::signature::MethodFamilyId,
+    pub(crate) receiver: T,
+    pub(crate) argument_slots: Vec<u32>,
+    pub(crate) arguments: Vec<T>,
+    pub(crate) result: T,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -177,6 +187,13 @@ pub(crate) enum SealedOperationBinding {
     Forwarded(u32),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(crate) enum SealedMethodBinding {
+    Selected(xsh_registry::signature::RegisteredMethodId),
+    Forwarded(u32),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CallInstantiation {
     type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
@@ -184,6 +201,7 @@ pub(crate) struct CallInstantiation {
     effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
     application_bindings: Vec<CallableApplicationBinding>,
     operation_bindings: Vec<SealedOperationBinding>,
+    method_bindings: Vec<SealedMethodBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,11 +272,15 @@ pub(crate) struct SchemeBodyFacts {
     read_bindings: BTreeSet<super::check::BindingId>,
     proc_return_sites: BTreeMap<Span, SchemeProcReturnSite>,
     operation_sites: BTreeMap<ExprId, u32>,
+    method_sites: BTreeMap<ExprId, u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SchemeBuildError {
     UnresolvedSealedOperation,
+    UnresolvedMethodFamily,
+    UnsupportedMethodFamily,
+    AmbiguousMethodFamily,
     RecoveryType,
     UnresolvedType,
     UnresolvedRow,
@@ -469,6 +491,18 @@ impl CallableScheme {
                 ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
             }
         }
+        for method in &requirements.methods {
+            if method.argument_slots.len() != method.arguments.len() {
+                return Err(SchemeBuildError::UnresolvedMethodFamily);
+            }
+            for ty in std::iter::once(&method.receiver)
+                .chain(method.arguments.iter())
+                .chain(std::iter::once(&method.result))
+            {
+                if let Some(error) = ty.body_build_error() { return Err(error); }
+                ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
+            }
+        }
         for predicate in &requirements.effect_predicates {
             for contract in predicate.contracts() {
                 validate_effect_contract(contract, &effect_ids, &mut used_effects)?;
@@ -599,6 +633,14 @@ impl CallableRequirements {
         for operation in &self.operations {
             for ty in operation.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }
+        bytes = bytes.saturating_add(self.methods.capacity() * size_of::<MethodFamilyRequirement<SchemeType>>());
+        for method in &self.methods {
+            bytes = bytes.saturating_add(method.argument_slots.capacity() * size_of::<u32>());
+            bytes = bytes.saturating_add(method.arguments.capacity() * size_of::<SchemeType>());
+            for ty in std::iter::once(&method.receiver).chain(method.arguments.iter()).chain(std::iter::once(&method.result)) {
+                bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>()));
+            }
+        }
         for predicate in &self.effect_predicates {
             for contract in predicate.contracts() {
                 bytes = bytes.saturating_add(contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
@@ -626,6 +668,11 @@ impl CallableRequirements {
             operation.left.map_ground_types(map);
             operation.right.map_ground_types(map);
             operation.result.map_ground_types(map);
+        }
+        for method in &mut mapped.methods {
+            method.receiver.map_ground_types(map);
+            method.result.map_ground_types(map);
+            for argument in &mut method.arguments { argument.map_ground_types(map); }
         }
         for iteration in mapped.iteration_parameters.values_mut() {
             iteration.item.map_ground_types(map);
@@ -734,6 +781,29 @@ impl CallInstantiation {
         caller_map_keys: &[SchemeTypeParameterId],
         caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     ) -> Result<Self, SchemeBuildError> {
+        Self::with_method_bindings(
+            callable, type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings,
+            Vec::new(), caller_types, caller_rows, caller_effects, caller_applications, caller_operations, &[], caller_map_keys, caller_conversions,
+        )
+    }
+
+    pub(crate) fn with_method_bindings(
+        callable: &CallableScheme,
+        type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
+        row_arguments: BTreeMap<SchemeRowParameterId, RowEvidence>,
+        effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
+        application_bindings: Vec<CallableApplicationBinding>,
+        operation_bindings: Vec<SealedOperationBinding>,
+        method_bindings: Vec<SealedMethodBinding>,
+        caller_types: &[SchemeTypeParameterId],
+        caller_rows: &[SchemeRowParameter],
+        caller_effects: &[SchemeEffectParameterId],
+        caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
+        caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
+        caller_methods: &[MethodFamilyRequirement<SchemeType>],
+        caller_map_keys: &[SchemeTypeParameterId],
+        caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
+    ) -> Result<Self, SchemeBuildError> {
         if type_arguments.keys().copied().collect::<BTreeSet<_>>()
             != callable.type_parameters.iter().copied().collect()
         {
@@ -770,6 +840,16 @@ impl CallInstantiation {
         if operation_bindings.len() != callable.requirements.operations.len()
             || operation_bindings.iter().any(|binding| matches!(binding, SealedOperationBinding::Forwarded(ordinal) if caller_operations.get(*ordinal as usize).is_none()))
         { return Err(SchemeBuildError::UnresolvedSealedOperation); }
+        if method_bindings.len() != callable.requirements.methods.len()
+            || method_bindings.iter().zip(&callable.requirements.methods).any(|(binding, method)| match binding {
+                SealedMethodBinding::Forwarded(ordinal) => caller_methods.get(*ordinal as usize)
+                    .is_none_or(|caller| caller.family != method.family),
+                SealedMethodBinding::Selected(id) => xsh_registry::signature::api_spec()
+                    .registered_method(*id)
+                    .is_none_or(|(receiver, name, overload, _)| xsh_registry::signature::api_spec()
+                        .method_family_id(receiver, name, overload) != Some(method.family)),
+            })
+        { return Err(SchemeBuildError::UnresolvedMethodFamily); }
         let caller_effect_ids = caller_effects.iter().copied().collect::<BTreeSet<_>>();
         let mut used_effects = BTreeSet::new();
         for contract in effect_arguments.values() {
@@ -840,7 +920,7 @@ impl CallInstantiation {
             return Err(SchemeBuildError::RowLacksMismatch);
         }
         Ok(Self {
-            type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings,
+            type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings, method_bindings,
         })
     }
 
@@ -853,6 +933,7 @@ impl CallInstantiation {
     }
 
     pub(crate) fn operation_bindings(&self) -> &[SealedOperationBinding] { &self.operation_bindings }
+    pub(crate) fn method_bindings(&self) -> &[SealedMethodBinding] { &self.method_bindings }
 
     pub(crate) fn type_arguments(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeType> {
         &self.type_arguments
@@ -868,6 +949,7 @@ impl CallInstantiation {
             .saturating_add(self.effect_arguments.len() * size_of::<SchemeEffectParameterId>())
             .saturating_add(self.effect_arguments.values().map(EffectContract::retained_bytes).sum::<usize>())
             .saturating_add(self.operation_bindings.capacity() * size_of::<SealedOperationBinding>())
+            .saturating_add(self.method_bindings.capacity() * size_of::<SealedMethodBinding>())
             .saturating_add(self.application_bindings.capacity() * size_of::<CallableApplicationBinding>())
             .saturating_add(self.application_bindings.iter().map(|binding| {
                 match binding {
@@ -959,6 +1041,7 @@ impl SchemeBodyFacts {
             read_bindings: BTreeSet::new(),
             proc_return_sites: BTreeMap::new(),
             operation_sites: BTreeMap::new(),
+            method_sites: BTreeMap::new(),
         })
     }
 
@@ -988,6 +1071,16 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn operation_site(&self, expression: ExprId) -> Option<u32> { self.operation_sites.get(&expression).copied() }
+
+    pub(crate) fn with_method_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().methods.get(*ordinal as usize).is_none()) {
+            return Err(SchemeBuildError::UnresolvedMethodFamily);
+        }
+        self.method_sites = sites;
+        Ok(self)
+    }
+
+    pub(crate) fn method_site(&self, expression: ExprId) -> Option<u32> { self.method_sites.get(&expression).copied() }
 
     pub(crate) fn with_constructor_producers(mut self, constructors: BTreeMap<ExprId, NonmaterialConstructor>) -> Self {
         self.constructor_producers = constructors;
@@ -1043,6 +1136,7 @@ impl SchemeBodyFacts {
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())
@@ -1501,7 +1595,7 @@ mod tests {
                 map_key_parameters: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![effect],
-                iteration_parameters: BTreeMap::new(), operations: Vec::new(),
+                iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(),
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
                 applications: vec![CallableApplication {
                     callee: SchemeType::Parameter(f),

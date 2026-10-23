@@ -150,6 +150,30 @@ impl HostMethodCandidates {
             .map(|dependencies| dependencies.into_iter().flatten().collect())
     }
 
+    fn method_family_requirement(&self, name: &str) -> Option<(xsh_registry::signature::MethodFamilyId, Vec<u32>, Type, &'static MethodSig)> {
+        let first = *self.candidates.first()?;
+        let family = api_spec().method_family_id(first.receiver, name, first.signature)?;
+        let result = first.signature.sig.return_ty.clone();
+        let mut slots = None;
+        for candidate in &self.candidates {
+            if api_spec().method_family_id(candidate.receiver, name, candidate.signature) != Some(family)
+                || candidate.signature.sig.return_ty != result
+                || candidate.signature.sig.pure != first.signature.sig.pure
+                || candidate.signature.sig.effects != first.signature.sig.effects
+            {
+                return None;
+            }
+            let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
+            let binding = crate::sema::arguments::bind_static_arguments(&params, &self.arguments).ok()?;
+            let candidate_slots = binding.argument_slots.into_iter().map(u32::try_from).collect::<Result<Vec<_>, _>>().ok()?;
+            if slots.as_ref().is_some_and(|slots| slots != &candidate_slots) {
+                return None;
+            }
+            slots = Some(candidate_slots);
+        }
+        Some((family, slots?, result, first.signature))
+    }
+
     fn constrain_candidate(
         &self,
         candidate: HostMethod,
@@ -274,8 +298,8 @@ impl Checker {
         self.retain_original_method_arguments(arena, &call_source, &mut values);
         let continuation = continuation.finish(self, values.contexts);
         let arguments = values.arguments;
-        let result = self.type_constraints.fresh(span);
-        let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: expected.cloned(), arguments, candidates, span };
+        let candidate_result = self.type_constraints.fresh(span);
+        let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: candidate_result.clone(), expected: expected.cloned(), arguments, candidates, span };
         match obligation.select(&mut self.type_constraints) {
             Ok(true) => {
                 if obligation.selected.as_ref().is_some_and(|selected| continuation.phase(selected.method, &obligation.arguments).is_some()) {
@@ -291,8 +315,14 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         }
         if self.collecting_local_constraints() {
+            let family_result = continuation.owner.filter(|_| {
+                matches!(continuation.source, HostCallSource::Expression(_))
+                    && !obligation.receiver.contains_any()
+                    && !obligation.receiver.contains_recovery()
+                    && obligation.arguments.iter().all(|argument| !argument.ty.contains_any() && !argument.ty.contains_recovery())
+            }).and_then(|_| obligation.method_family_requirement(&continuation.name).map(|(_, _, result, _)| result));
             self.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: obligation });
-            result
+            family_result.unwrap_or(candidate_result)
         } else {
             self.reject_unresolved_host_method(&obligation, registered);
             Type::Invalid
@@ -319,8 +349,46 @@ impl Checker {
             if obligation.continuation.owner == owner && obligation.candidates.selected.is_none()
                 && (owner.is_some() || (span.source_id == body.source_id && body.start() <= span.start() && span.end() <= body.end()))
             {
-                self.reject_unresolved_host_method(&obligation.candidates, !method_candidates(&obligation.continuation.name).is_empty());
-                self.expr_types.insert(obligation.candidates.span, Type::Invalid);
+                if let Some(owner) = owner
+                    && matches!(&obligation.continuation.source, HostCallSource::Expression(_))
+                    && let Some((family, argument_slots, result, representative)) = obligation.candidates.method_family_requirement(&obligation.continuation.name)
+                    && !obligation.candidates.receiver.contains_any()
+                    && !obligation.candidates.receiver.contains_recovery()
+                    && obligation.candidates.arguments.iter().all(|argument| !argument.ty.contains_any() && !argument.ty.contains_recovery())
+                {
+                    let body_result = self.type_constraints.constrain(&obligation.candidates.result, &result, span);
+                    let expected_result = if body_result.is_ok() {
+                        obligation.candidates.expected.as_ref().map(|expected| {
+                            crate::sema::builtin_templates::BuiltinInstantiation::constrain_result_type(
+                                expected, &result, &mut self.type_constraints, span,
+                            )
+                        })
+                    } else {
+                        None
+                    };
+                    let result_matches = body_result.is_ok() && expected_result.as_ref().is_none_or(Result::is_ok);
+                    if result_matches {
+                        let requirement = crate::sema::schemes::MethodFamilyRequirement {
+                            family,
+                            receiver: obligation.candidates.receiver.clone(),
+                            argument_slots,
+                            arguments: obligation.candidates.arguments.iter().map(|argument| argument.ty.clone()).collect(),
+                            result: result.clone(),
+                        };
+                        match self.type_constraints.register_method_family(
+                            crate::sema::constraints::CallableApplicationScope::Declaration(owner), requirement, Some(span),
+                        ) {
+                            Ok(_) => self.finalize_host_method_effects(&obligation.continuation.after_arguments.context, &representative.sig, &obligation.continuation.name, span),
+                            Err(error) => self.error(span, &format!("method family could not be retained: {error:?}"), DiagnosticCode::CheckLocalInference),
+                        }
+                    } else {
+                        self.error(span, "method family result does not satisfy its body contract", DiagnosticCode::CheckTypeMismatch);
+                        self.expr_types.insert(obligation.candidates.span, Type::Invalid);
+                    }
+                } else {
+                    self.reject_unresolved_host_method(&obligation.candidates, !method_candidates(&obligation.continuation.name).is_empty());
+                    self.expr_types.insert(obligation.candidates.span, Type::Invalid);
+                }
             } else {
                 self.local_inference.host_obligations.entries.push(obligation);
             }

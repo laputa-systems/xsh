@@ -4840,6 +4840,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     ControlFlow::Break(value) => FrameValue::Break(value),
                 };
                 self.push_value(index, value, next);
+            } else if let Some(method) = self.calls[index].execution
+                .registered_scheme_method(instruction, &self.calls[index].applications)
+                .map_err(|error| indexed_error(error, span))?
+            {
+                let result = self.evaluator.eval_indexed_registered_method_identity_dispatch(method, receiver, values, span)?;
+                let value = match result {
+                    ControlFlow::Continue(value) => FrameValue::Value(value),
+                    ControlFlow::Break(value) => FrameValue::Break(value),
+                };
+                self.push_value(index, value, next);
             } else {
                 self.push_method_result(index, receiver, name, values, span, next)?;
             }

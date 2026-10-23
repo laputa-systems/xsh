@@ -566,10 +566,11 @@ pub(super) struct SchemeProducerRequests {
     pub(super) ground_arguments: Vec<GroundArgumentRequest>,
     pub(super) captures: Vec<CaptureErrorRequest>,
     pub(super) applications: BTreeSet<(u32, usize)>,
+    pub(super) methods: BTreeSet<(u32, usize)>,
 }
 
 impl SchemeProducerRequests {
-    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() }
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.methods.is_empty() }
 }
 
 pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
@@ -1814,6 +1815,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         if !requests.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
         return Ok(Vec::new());
     }
+    let mut scheme_methods = requests.methods;
     let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     proof.budget.charge(requests.captures.len())?;
     for request in &requests.captures {
@@ -1960,6 +1962,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     let mut seeded_method_roots = Vec::new();
     for (owner, instruction) in deferred_method_roots {
         proof.budget.charge(1)?;
+        if scheme_methods.remove(&(owner, instruction)) { continue; }
         let contexts = proof.expressions.get(&(owner, instruction));
         proof.budget.charge(contexts.map_or(0, Vec::len))?;
         if contexts.is_some_and(|contexts| contexts.iter().any(|(expected, _)| !matches!(expected.unvalidated(), Type::Any))) {
@@ -2003,6 +2006,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             proof.verify_registered_method(&decoder, instruction, receiver, name, &arguments, &Type::Any)?;
         }
     }
+    if !scheme_methods.is_empty() { return Err(IrVerifyError::new("generic method site has no producer method root")); }
     proof.finish()?;
     if let Some(work) = &index.work {
         let census_work = SchemeInstantiationBudget::new(store).remaining - work.borrow().remaining;

@@ -53,26 +53,32 @@ impl BuiltinInstantiation {
         constraints: &mut TypeConstraints,
         span: Span,
     ) -> Result<(), ConstraintConflict> {
-        if matches!(expected, Type::Unit | Type::Unknown | Type::Invalid) {
-            return Ok(());
+        if Self::constrain_result_type(expected, &self.signature.return_ty, constraints, span)? {
+            self.resolve(constraints);
         }
-        // A Result-returning function supplies its success expectation to its
-        // tail. Preserve a builtin's Result envelope while solving that payload.
+        Ok(())
+    }
+
+    pub(crate) fn constrain_result_type(
+        expected: &Type,
+        return_ty: &Type,
+        constraints: &mut TypeConstraints,
+        span: Span,
+    ) -> Result<bool, ConstraintConflict> {
+        if matches!(expected, Type::Unit | Type::Unknown | Type::Invalid) {
+            return Ok(false);
+        }
         let result = if !expected.is_result() {
-            self.signature
-                .return_ty
-                .result_ok()
-                .unwrap_or(&self.signature.return_ty)
+            return_ty.result_ok().unwrap_or(return_ty)
         } else {
-            &self.signature.return_ty
+            return_ty
         };
         if expected.contains_inference() {
             constraints.constrain(expected, result, span)?;
         } else {
             constraints.constrain_context(expected, result, span)?;
         }
-        self.resolve(constraints);
-        Ok(())
+        Ok(true)
     }
 
     pub fn invalid_map_key(&self) -> Option<Type> {

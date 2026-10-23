@@ -51,6 +51,9 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnresolvedEffects => "generic target requires a finite checked effect contract",
                 SchemeBuildError::UnresolvedCallableApplication => "callable application remains unresolved",
                 SchemeBuildError::UnresolvedSealedOperation => "sealed arithmetic operation remains unresolved",
+                SchemeBuildError::UnresolvedMethodFamily => "generic method family remains unresolved",
+                SchemeBuildError::UnsupportedMethodFamily => "generic method has no registered member for its input",
+                SchemeBuildError::AmbiguousMethodFamily => "generic method inputs select multiple registered family members",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
@@ -1335,8 +1338,13 @@ impl Checker {
                     assert!(previous.is_none(), "a call instantiation is published once");
                 }
                 Err(error) => {
+                    let code = match &error {
+                        crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnsupportedMethodFamily) => DiagnosticCode::CheckTypeMismatch,
+                        crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::AmbiguousMethodFamily) => DiagnosticCode::CheckAmbiguousOverload,
+                        _ => DiagnosticCode::CheckLocalInference,
+                    };
                     let message = call_instantiation_error_message(error);
-                    self.error(span, &message, DiagnosticCode::CheckLocalInference);
+                    self.error(span, &message, code);
                 }
             }
         }

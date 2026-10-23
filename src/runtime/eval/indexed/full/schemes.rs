@@ -76,6 +76,7 @@ pub(super) enum FullCallableContract {
 #[repr(u8)]
 pub(super) enum FullSchemeBodyFactKind {
     Operation,
+    Method,
     Expression,
     Tail,
     LocalImmutable,
@@ -98,6 +99,7 @@ pub(super) struct FullScheme {
     pub(super) effect_predicates: IrRange,
     pub(super) applications: IrRange,
     pub(super) operations: IrRange,
+    pub(super) methods: IrRange,
     pub(super) body_facts: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
     pub(super) explicit_return: bool,
@@ -374,6 +376,7 @@ pub(super) struct FullCallInstantiation {
     pub(super) effect_arguments: IrRange,
     pub(super) application_bindings: IrRange,
     pub(super) operation_bindings: IrRange,
+    pub(super) method_bindings: IrRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -387,6 +390,18 @@ pub(super) struct FullSealedOperation {
 }
 
 pub(super) use crate::sema::schemes::SealedOperationBinding as FullOperationBinding;
+pub(super) use crate::sema::schemes::SealedMethodBinding as FullMethodBinding;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullSchemeMethod {
+    pub(super) family: xsh_registry::signature::MethodFamilyId,
+    pub(super) reserved: [u8; 3],
+    pub(super) receiver: SchemeTypeId,
+    pub(super) argument_slots: IrRange,
+    pub(super) arguments: IrRange,
+    pub(super) result: SchemeTypeId,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
@@ -429,6 +444,7 @@ pub(super) struct FullSchemeBodyFact {
 #[repr(C, u8)]
 pub(super) enum FullSchemeBodyFactValue {
     Operation(u32),
+    Method(u32),
     Expression(SchemeTypeId),
     Tail(SchemeTypeId),
     LocalImmutable(SchemeTypeId),
@@ -442,6 +458,7 @@ impl FullSchemeBodyFact {
     pub(super) fn kind(self) -> FullSchemeBodyFactKind {
         match self.value {
             FullSchemeBodyFactValue::Operation(_) => FullSchemeBodyFactKind::Operation,
+            FullSchemeBodyFactValue::Method(_) => FullSchemeBodyFactKind::Method,
             FullSchemeBodyFactValue::Expression(_) => FullSchemeBodyFactKind::Expression,
             FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
             FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
@@ -456,7 +473,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) => None,
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) => None,
         }
     }
 }
@@ -713,6 +730,29 @@ impl FullBuilder {
             self.store.scheme_operations.push(FullSealedOperation { left, right, result, operator: operation.operator, reserved: [0; 3] });
         }
         let operations = super::table_range(operations_start, self.store.scheme_operations.len())?;
+        let methods_start = self.store.scheme_methods.len();
+        for method in &scheme.callable().requirements().methods {
+            let receiver = self.intern_scheme_type(&method.receiver, &type_parameters, &row_parameters, &effect_parameters)?;
+            let result = self.intern_scheme_type(&method.result, &type_parameters, &row_parameters, &effect_parameters)?;
+            let argument_slots_start = self.store.scheme_method_slots.len();
+            self.store.scheme_method_slots.extend(method.argument_slots.iter().copied());
+            let argument_slots = super::table_range(argument_slots_start, self.store.scheme_method_slots.len())?;
+            let arguments_start = self.store.scheme_method_arguments.len();
+            for argument in &method.arguments {
+                let argument = self.intern_scheme_type(argument, &type_parameters, &row_parameters, &effect_parameters)?;
+                self.store.scheme_method_arguments.push(argument);
+            }
+            let arguments = super::table_range(arguments_start, self.store.scheme_method_arguments.len())?;
+            self.store.scheme_methods.push(FullSchemeMethod {
+                family: method.family,
+                reserved: [0; 3],
+                receiver,
+                argument_slots,
+                arguments,
+                result,
+            });
+        }
+        let methods = super::table_range(methods_start, self.store.scheme_methods.len())?;
         let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
@@ -724,7 +764,7 @@ impl FullBuilder {
             return_schema,
             effects,
             effect_predicates,
-            applications, operations,
+            applications, operations, methods,
             body_facts: IrRange::default(),
             callable_kind,
             explicit_return: scheme.explicit_return(),
@@ -830,13 +870,16 @@ impl FullBuilder {
         let operations_start = self.store.call_operation_bindings.len();
         self.store.call_operation_bindings.extend(instantiation.operation_bindings().iter().copied());
         let operation_bindings = super::table_range(operations_start, self.store.call_operation_bindings.len())?;
+        let method_bindings_start = self.store.call_method_bindings.len();
+        self.store.call_method_bindings.extend(instantiation.method_bindings().iter().copied());
+        let method_bindings = super::table_range(method_bindings_start, self.store.call_method_bindings.len())?;
         self.store.call_instantiations.push(FullCallInstantiation {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
             type_arguments,
             row_arguments,
             effect_arguments,
-            application_bindings, operation_bindings,
+            application_bindings, operation_bindings, method_bindings,
         });
         Ok(())
     }
@@ -862,7 +905,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
