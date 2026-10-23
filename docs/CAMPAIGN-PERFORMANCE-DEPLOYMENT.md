@@ -12,8 +12,9 @@ The owner's 2026-10-23 closeout order retains inference qualification, local
 `master` integration and cleanup before Pyramid closes. The subsequent request
 expands independent Pyramid implementation now, alongside inference, using five
 expert lanes initially. The repeated acceleration request now widens this to
-seven expert lanes plus the coordinator, retaining the shared two-build and
-single-native limits. Independent checker repairs proceed while lowering owns
+eight expert lanes plus the coordinator, retaining the shared two-build and
+single-native limits. Generic pipeline support has a separate expert so it
+does not wait behind pattern and record-constructor support. Independent checker repairs proceed while lowering owns
 their earlier prerequisites; ready reviews run alongside implementation.
 Approvals and next assignments use the follow-up operation that resumes idle
 lanes. Pyramid qualification still waits
