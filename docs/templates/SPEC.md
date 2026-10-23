@@ -3496,6 +3496,10 @@ retains that checked signature without a callable type annotation. The other
 branches must fit the inferred callable contract, including parameter labels,
 defaults, rest parameters and effect bounds.
 
+An inferred `proc` may return a named function with an explicit `return` and
+infer its callable signature. An explicit return annotation supplies the
+expected type when an explicit `return` names a function.
+
 Calls through an opaque callable handle validate its retained argument contract
 before executing the target. This includes nested callable signatures and their
 effect bounds, typed module exports, and stream item contracts. Checking a lazy

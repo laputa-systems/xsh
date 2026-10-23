@@ -37707,6 +37707,73 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
+    fn inferred_proc_returned_callables_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "inferred-proc-returned-callables.xsh",
+                r#"type IntIdentity = pure(value: Int) -> Int
+pure increment(value: Int) -> Int { value + 1 }
+pure identity(value) { value }
+var shared = {items: [0]}
+proc remember(value) {
+  shared.items = shared.items.push(value)
+  value
+}
+proc grounded_factory() { return increment }
+proc generic_factory(flag) {
+  if flag { return identity }
+  return identity
+}
+proc typed_factory() -> Result[IntIdentity] { return increment }
+proc proc_factory() { return remember }
+let grounded = grounded_factory()?
+let number = grounded(41)
+let generic = generic_factory(true)?
+let integer: Int = generic(42)
+let text: Str = generic("demo")
+let generic_fallthrough = generic_factory(false)?
+let fallthrough_text: Str = generic_fallthrough("branch")
+let typed = typed_factory()?
+let typed_number = typed(43)
+let captured = proc_factory()?
+let captured_result = captured(44)?
+assert number == 42
+assert integer == 42
+assert text == "demo"
+assert fallthrough_text == "branch"
+assert typed_number == 44
+assert captured_result == 44
+assert shared.items == [0, 44]
+print $number
+print $integer
+print $text
+print $typed_number
+print $fallthrough_text
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+                assert_eq!(evaluator.stdout, b"42\n42\ndemo\n44\nbranch\n");
+            }
+        });
+    }
+
+    #[test]
     fn builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source =

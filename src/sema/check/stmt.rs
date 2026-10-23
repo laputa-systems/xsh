@@ -5906,7 +5906,9 @@ impl Checker {
     fn check_return_value_arena(
         &mut self, arena: &ArenaProgram, source: &str, value: Option<ArenaExprOrRun>, expected: &Type, span: Span,
     ) -> Type {
+        let inference_only_unknown = self.inferred_returns.is_some() && expected == &Type::Unknown;
         let context = match value {
+            Some(ArenaExprOrRun::Expr(_)) if inference_only_unknown => None,
             Some(ArenaExprOrRun::Expr(expr)) => {
                 tail_expr_context_arena(arena, expr, Some(expected))
             }
@@ -5918,7 +5920,13 @@ impl Checker {
                 self.check_expr_with_schema_arena(arena, source, value, context.as_ref(), schema)
             })
             .unwrap_or(Type::Unit);
-        self.resolve_local_tail_type(actual, Some(expected), span)
+        let actual = match (inference_only_unknown, value) {
+            (true, Some(ArenaExprOrRun::Expr(expression))) if matches!(actual, Type::Function(_)) => {
+                self.materialize_callable_value(arena, expression, actual)
+            }
+            _ => actual,
+        };
+        self.resolve_local_tail_type(actual, (!inference_only_unknown).then_some(expected), span)
     }
 
     fn return_value_schema(&self, expected: &Type, context: Option<&Type>) -> Option<crate::sema::constants::SchemaExpectation> {

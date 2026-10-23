@@ -23,18 +23,76 @@ print f"{text.marker}{text.value}"
 test test_full_inference_returned_callable_keeps_shared_capture_monomorphic { |ctx|
   test.expect(
     ctx,
-    r"""var shared = {items: []}
+    r"""var shared = {items: [0]}
 proc remember(value) {
   shared.items = shared.items.push(value)
   value
 }
-proc factory() { remember }
+proc factory() { return remember }
 let captured = factory()?
 let integer = captured(42)
 let text = captured("demo")
 """,
     status: 2,
     stderr: ["[check.type-mismatch]"],
+  )?
+}
+
+test test_full_inference_proc_return_materializes_ground_callable { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure increment(value: Int) -> Int { value + 1 }
+proc factory() { return increment }
+let operation = factory()?
+let answer = operation(41)
+assert answer == 42
+print $answer
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\n"
+}
+
+test test_full_inference_proc_return_preserves_generic_callable_branches { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure identity(value) { value }
+proc factory(flag) {
+  if flag { return identity }
+  return identity
+}
+let operation = factory(true)?
+let integer: Int = operation(42)
+let text: Str = operation("demo")
+assert integer == 42
+assert text == "demo"
+print $integer
+print $text
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\ndemo\n"
+}
+
+test test_full_inference_proc_return_keeps_explicit_and_missing_context_rules { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type IntIdentity = pure(value: Int) -> Int
+pure identity(value: Int) -> Int { value }
+proc factory() -> Result[IntIdentity] { return identity }
+let operation = factory()?
+assert operation(42) == 42
+print $operation(42)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\n"
+  test.expect(
+    ctx,
+    r"""proc unknown_return(value) { return null }
+""",
+    status: 2,
+    stderr: ["[check.infer-return]"],
   )?
 }
 

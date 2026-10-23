@@ -1387,6 +1387,41 @@ mod ordinary_body_tests {
         accepts("type Inner = {count: Int}\ntype Row = {nested: Inner}\npure keep(value, row: Row) { let updated = {...row, nested.count: 2}; let _ = updated; value }", "let number: Int = keep(7, {nested: {count: 0}})\nlet text: Str = keep(\"value\", {nested: {count: 1}})");
     }
 
+    #[test]
+    fn inferred_proc_returns_preserve_callable_value_contracts() {
+        accepts(
+            "pure increment(value: Int) -> Int { value + 1 }\nproc factory() { return increment }",
+            "let operation = factory()?\nlet answer: Int = operation(41)",
+        );
+        accepts(
+            "pure identity(value) { value }\nproc factory(flag) { if flag { return identity } return identity }",
+            "let operation = factory(true)?\nlet integer: Int = operation(42)\nlet text: Str = operation(\"demo\")",
+        );
+        accepts(
+            "type IntIdentity = pure(value: Int) -> Int\npure identity(value: Int) -> Int { value }\nproc factory() -> Result[IntIdentity] { return identity }",
+            "let operation = factory()?\nlet answer: Int = operation(42)",
+        );
+
+        let source = "proc unknown_return(value) { return null }";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckInferReturn)
+        }), "{source}\n{:?}", checked.diagnostics);
+
+        let source = "var shared = {items: [0]}\nproc remember(value) { shared.items = shared.items.push(value); value }\nproc factory() { return remember }\nlet operation = factory()?\nlet integer = operation(42)\nlet text = operation(\"demo\")";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+        }), "{source}\n{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| {
+            matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckInferReturn | crate::diagnostic::DiagnosticCode::CheckUnresolvedCall))
+        }), "{source}\n{:?}", checked.diagnostics);
+    }
+
 }
 
 #[cfg(test)]
