@@ -51,8 +51,14 @@ relative cwd, defaults, mutations, lazy reads, stream cleanup and error behavior
 cold operation forgeries reject. Independent review is clear. A scheduling
 overlap exceeded the two-Cargo bound during the first corrective run; its
 replacement passed all four selectors within the bound. Combined qualification
-remains open. The separate implicit Result-valued Unit tail rejection is under
-repair in generic-body eligibility.
+remains open. Registered Result[Unit] tail repair `bb4fceea3`, integrated as
+`29845306b`, passes one focused selector. Generic-body admission now accepts
+the existing checked registry plan as well as an operation obligation. Ordinary
+and generic `[fs]` tails return failed writes as Result data; explicit returns
+retain that behavior. A separate non-tail discard still requires Error, and
+removing that permission rejects cold. Both execution modes pass. A frozen
+ordinary-compiler probe confirms the data-forwarding contract; no new lowering
+or blanket return-effect rule was retained.
 
 TempDir repair `5b214e7ed` and its controls, integrated through `5c650d1ab`,
 pass seven distinct focused selectors. Generic fresh and at-path scopes share
