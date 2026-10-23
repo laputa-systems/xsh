@@ -734,6 +734,7 @@ struct FullStore {
         BTreeMap<CheckedPatternVariantKey, FullPatternVariantSchema>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
+    function_return_schemas: Vec<Option<schemes::FullSchemeSchemaExpectationId>>,
     schemes: Vec<schemes::FullScheme>,
     scheme_types: Vec<FullSchemeTypeNode>,
     scheme_callable_monotypes: Vec<schemes::FullSchemeCallableMonotype>,
@@ -849,6 +850,7 @@ impl Default for FullStore {
             declared_pattern_variants: BTreeMap::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
+            function_return_schemas: Vec::new(),
             schemes: Vec::new(),
             scheme_types: Vec::new(),
             scheme_callable_monotypes: Vec::new(),
@@ -1105,6 +1107,7 @@ impl FullStore {
                 .sum::<usize>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
+            + self.function_return_schemas.capacity() * size_of::<Option<schemes::FullSchemeSchemaExpectationId>>()
             + self.schemes.capacity() * size_of::<schemes::FullScheme>()
             + self.scheme_types.capacity() * size_of::<FullSchemeTypeNode>()
             + self.scheme_callable_monotypes.capacity() * size_of::<schemes::FullSchemeCallableMonotype>()
@@ -1242,6 +1245,7 @@ impl FullStore {
         }
         self.function_instruction_starts.shrink_to_fit();
         self.function_metadata.shrink_to_fit();
+        self.function_return_schemas.shrink_to_fit();
         self.schemes.shrink_to_fit();
         self.scheme_types.shrink_to_fit();
         self.scheme_callable_monotypes.shrink_to_fit();
@@ -4456,6 +4460,13 @@ impl FullBuilder {
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
+            let return_schema = body.checked_return_schema.as_ref().map(|schema| {
+                if !matches!(contract, FullCallableContract::Ground(_)) { return Err(IrBuildError::format("ground_return_schema_owner", None, 0, 0)); }
+                let schema = schema.map(&mut |ty| crate::sema::schemes::SchemeType::Ground(ty.clone()));
+                let root = self.intern_scheme_schema(&schema, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new())?;
+                self.store.scheme_schema_expectations[root.index()].ground_return_function = Some(function_id);
+                Ok(root)
+            }).transpose()?;
             self.store.functions.push(FullFunction {
                 name,
                 contract,
@@ -4467,6 +4478,7 @@ impl FullBuilder {
                 slot_type_facts,
                 checked_return_type,
             });
+            self.store.function_return_schemas.push(return_schema);
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
@@ -18739,6 +18751,7 @@ impl FullVerifier {
             || store.locations.len() != store.location_sources.len()
             || store.functions.len() != store.function_instruction_starts.len()
             || store.functions.len() != store.function_metadata.len()
+            || store.functions.len() != store.function_return_schemas.len()
             || store.functions.len() != program.function_definition_spans.len()
         {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
@@ -35732,6 +35745,7 @@ proc main() [env, error] -> Result[Unit] {
                 return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                 return_check: None,
                 checked_return_type: None,
+                checked_return_schema: None,
                 defaulted_proc_return: false,
                 checked_function_signature: None,
                 slot_count: 1,
@@ -39835,11 +39849,79 @@ assert open_bool.extra == 9
     }
 
     #[test]
-    fn generic_schema_constructor_context_rejects_calls_without_retained_provenance() {
-        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_tag() -> Tagged[Int] { Tagged(value: 7) }\npure from_call(payload) { Branded(payload:, tag: closed_tag()) }\n";
-        let error = fixture_result("unretained-call-context.xsh", source).unwrap_err();
+    fn ground_schema_return_provenance_follows_the_actual_callable_owner() {
+        run_with_large_stack(|| {
+            let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_brand() -> Brand { Brand(value: 7) }\npure inferred_brand() { Brand(value: 19) }\npure closed_tag() -> Tagged[Int] { Tagged(value: 11) }\npure wrapped(payload) { Branded(payload:, tag: closed_brand()) }\npure inferred_wrapped(payload) { Branded(payload:, tag: inferred_brand()) }\npure typed(payload: Int) -> Branded[Int] { Branded(payload:, tag: closed_brand()) }\nassert wrapped(7).tag.value == 7\nassert wrapped(\"kept\").payload == \"kept\"\nassert typed(3).tag.value == 7\nassert inferred_wrapped(7).tag.value == 19\nassert inferred_wrapped(\"kept\").tag.value == 19\n";
+            let program = Arc::new(fixture("ground-schema-return-provenance.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}");
+                }
+                assert!(evaluator.stdout.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn ground_return_schema_roots_reject_foreign_contexts_and_call_targets() {
+        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_brand() -> Brand { Brand(value: 7) }\npure other_brand() -> Brand { Brand(value: 17) }\npure integer_tag() -> Tagged[Int] { Tagged(value: 11) }\npure string_tag() -> Tagged[Str] { Tagged(value: 13) }\npure wrapped(payload) { Branded(payload:, tag: closed_brand()) }\n";
+        let program = fixture("ground-return-schema-owners.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let integer = scheme_fixture_root_function(&program, "integer_tag");
+        let string = scheme_fixture_root_function(&program, "string_tag");
+        let brand = scheme_fixture_root_function(&program, "closed_brand");
+        let other = scheme_fixture_root_function(&program, "other_brand");
+        let wrapped = scheme_fixture_root_function(&program, "wrapped");
+        let integer_root = program.store.function_return_schemas[integer].unwrap();
+        let string_root = program.store.function_return_schemas[string].unwrap();
+        let instance = program.store.scheme_schema_expectations[integer_root.index()].instances.start as usize;
+        let other_instance = program.store.scheme_schema_expectations[string_root.index()].instances.start as usize;
+        assert_eq!(program.store.scheme_schema_instances[instance].definition, program.store.scheme_schema_instances[other_instance].definition);
+        let integer_argument = program.store.scheme_schema_arguments[program.store.scheme_schema_instances[instance].arguments.start as usize];
+        let string_argument = program.store.scheme_schema_arguments[program.store.scheme_schema_instances[other_instance].arguments.start as usize];
+        assert_ne!(program.store.scheme_types[integer_argument.index()].first, program.store.scheme_types[string_argument.index()].first);
+        let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+        let mut missing = cold();
+        missing.store.function_return_schemas.pop();
+        FullVerifier::verify(&missing).expect_err("ground return schemas must stay aligned with actual function metadata");
+        let mut foreign = cold();
+        foreign.store.function_return_schemas.swap(integer, string);
+        assert_eq!(FullVerifier::verify(&foreign).unwrap_err().message, "ground return schema belongs to another function");
+        let decoder = function_view_decoder(&program.store, wrapped);
+        let constructor = program.store.function_instruction_range(wrapped).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::RecordConstructor(root), .. }) => Some(root), _ => None,
+        }).unwrap();
+        let mut constructor_as_header = cold();
+        constructor_as_header.store.function_return_schemas[integer] = Some(constructor);
+        FullVerifier::verify(&constructor_as_header).expect_err("a constructor root cannot supply a ground function header");
+        let mut ground_on_generic = cold();
+        ground_on_generic.store.function_return_schemas[wrapped] = Some(integer_root);
+        assert_eq!(FullVerifier::verify(&ground_on_generic).unwrap_err().message, "generic function carries a ground return schema");
+        let mut scoped = cold();
+        let argument = program.store.scheme_schema_instances[instance].arguments.start as usize;
+        let node = program.store.scheme_schema_arguments[argument];
+        scoped.store.scheme_types[node.index()].tag = FullSchemeTypeTag::Parameter;
+        scoped.store.scheme_types[node.index()].first = 0;
+        assert_eq!(FullVerifier::verify(&scoped).unwrap_err().message, "scheme type parameter is out of scope");
+        let call = program.store.function_instruction_range(wrapped).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction),
+            Ok(schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. }) if function.id.index() == brand)).unwrap();
+        let mut wrong_target = cold();
+        let words = wrong_target.store.data[call].range().bounds(wrong_target.store.extra.len()).unwrap();
+        wrong_target.store.extra[words.start] = IrFunctionId::new(other).unwrap().raw();
+        FullVerifier::verify(&wrong_target).expect_err("a same-schema callee cannot replace the actual checked call target");
+    }
+
+    #[test]
+    fn generic_schema_constructor_context_rejects_conflicting_ground_return_schema() {
+        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_tag() -> Tagged[Int] { Tagged(value: 7) }\npure from_call(payload) { let _ = Branded(payload:, tag: Tagged(value: 7)); Branded(payload:, tag: closed_tag()) }\n";
+        let error = fixture_result("conflicting-ground-call-context.xsh", source).unwrap_err();
         assert_eq!(error.construct, "full_ir_verification");
-        assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("no independent scoped schema provenance")), "{error:?}");
+        assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("disagrees with its canonical containing field context")), "{error:?}");
     }
 
     #[test]
@@ -54824,6 +54906,7 @@ proc local() [env, error] -> Int {
                     return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                     return_check: None,
                     checked_return_type: None,
+                checked_return_schema: None,
                     defaulted_proc_return: false,
                     checked_function_signature: None,
                     slot_count: 1,

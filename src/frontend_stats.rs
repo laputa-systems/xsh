@@ -443,6 +443,9 @@ fn measure_function_sig(sig: &CompactFunctionSig) -> (usize, usize) {
         .iter()
         .map(|param| type_owned_bytes(&param.ty))
         .sum::<usize>();
+    if let Some(schema) = &sig.return_schema {
+        bytes += crate::sema::schemes::schema_expectation_retained_bytes(schema, &mut BTreeSet::new(), Type::retained_bytes);
+    }
     bytes += sig.effects.as_ref().map_or(0, |effects| {
         effects.capacity() * size_of::<crate::syntax::node::Effect>()
     });
@@ -795,6 +798,7 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
         for context in signature.parameter_schemas.iter().flatten() {
             nodes.add_schema(context, OutputTypeNodes::add_type);
         }
+        if let Some(context) = &signature.return_schema { nodes.add_schema(context, OutputTypeNodes::add_type); }
     }
     for info in declarations.types.values() {
         match info {

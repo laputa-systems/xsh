@@ -149,7 +149,15 @@ census identifies phantom positions before context arguments are visited; only
 those positions require exact context equality. Actual field proofs continue to
 own ordinary structural compatibility. Cold verification checks
 those relationships and the fresh record's actual field producers before
-accepting its declared constructor contract. Ground storage and
+accepting its declared constructor contract. Ground callable return schemas
+also retain their canonical checked declaration contract through compact
+lowering. Their roots belong to the exact ground function; arguments are
+verified under an empty binder scope. A field supplied by a ground call uses
+that selected callee's return schema, never the caller's expected annotation.
+Ground body verification still proves the actual physical return type and
+nominal validation. Phantom arguments absent from that representation remain
+part of the authoritative checked declaration contract; indexed ownership
+checks do not prove correspondence back to the source declaration. Ground storage and
 nominal construction retain their ordinary schema checks. The constructor case
 passes through only in verified indexed execution and rejects owned decoding.
 

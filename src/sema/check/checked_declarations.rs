@@ -312,6 +312,7 @@ impl Checker {
                     .map(|param| match &param.schema_expectation { Some(schema) => schema.closed_ground().map(Some), None => Some(None) }).collect::<Option<_>>()?,
                 params,
                 return_ty: sig.scheme().return_type().closed_ground_type()?,
+                return_schema: match sig.scheme().return_schema() { Some(schema) => Some(schema.closed_ground()?), None => None },
                 return_type_expr: def.return_ty,
                 inferred_effects: sig.scheme().inferred_effects(),
                 effects: sig.scheme().effects().concrete().ok()?,

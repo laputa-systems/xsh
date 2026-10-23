@@ -3109,6 +3109,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     })
                 })
         }).flatten();
+        let checked_return_schema = if scheme.is_none() {
+            self.declarations.function_signatures.get(&body_span).and_then(|signature| signature.return_schema.as_ref())
+                .map(|schema| schema.map(&mut |ty| self.canonicalize_checked_type(ty.clone())))
+        } else { None };
         let return_check = checked_return_type
             .clone()
             .filter(Type::has_unsigned_constraint)
@@ -3128,6 +3132,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return_kind,
             return_check,
             checked_return_type,
+            checked_return_schema,
             defaulted_proc_return,
             checked_function_signature,
             slot_count: slots.count(),

@@ -75,6 +75,7 @@ pub struct CompactFunctionSig {
     pub params: Vec<CallableParamType>,
     pub parameter_schemas: Vec<Option<crate::sema::constants::SchemaExpectation>>,
     pub return_ty: Type,
+    pub return_schema: Option<crate::sema::constants::SchemaExpectation>,
     pub return_type_expr: TypeExprId,
     pub inferred_effects: bool,
     pub effects: Option<Vec<Effect>>,

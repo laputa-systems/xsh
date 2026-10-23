@@ -66,3 +66,24 @@ pure phantom(value: Int) { Phantom(value:) }
 let result = phantom(7)
 """, status: 2, stderr: ["[check.constructor-inference]"])?
 }
+
+
+test test_ground_return_schema_uses_the_selected_callable { |ctx|
+  let output = test.expect(ctx, r"""
+nominal type Brand = {value: Int}
+type Tagged[T] = Brand
+type Branded[T] = {payload: T, tag: Tagged[T]}
+pure closed_brand() -> Brand { Brand(value: 7) }
+pure inferred_brand() { Brand(value: 19) }
+pure wrapped(payload) { Branded(payload:, tag: closed_brand()) }
+pure inferred_wrapped(payload) { Branded(payload:, tag: inferred_brand()) }
+pure typed(payload: Int) -> Branded[Int] { Branded(payload:, tag: closed_brand()) }
+assert wrapped(7).tag.value == 7
+assert wrapped("kept").payload == "kept"
+assert typed(3).tag.value == 7
+assert inferred_wrapped(7).tag.value == 19
+assert inferred_wrapped("kept").tag.value == 19
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == ""
+}

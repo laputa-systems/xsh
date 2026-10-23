@@ -820,6 +820,7 @@ impl CallableMonotype {
                 bytes = bytes.saturating_add(schema_expectation_retained_bytes(
                     expectation,
                     &mut counted_schema_children,
+                    SchemeType::retained_bytes,
                 ));
             }
         }
@@ -830,7 +831,7 @@ impl CallableMonotype {
                     .saturating_sub(size_of::<SchemeType>()),
             )
             .saturating_add(self.return_schema.as_ref().map_or(0, |expectation| {
-                schema_expectation_retained_bytes(expectation, &mut counted_schema_children)
+                schema_expectation_retained_bytes(expectation, &mut counted_schema_children, SchemeType::retained_bytes)
             }));
         bytes
     }
@@ -1378,27 +1379,27 @@ impl SchemaExpectation<SchemeType> {
     }
 }
 
-fn schema_expectation_retained_bytes(
-    expectation: &SchemaExpectation<SchemeType>,
+pub(crate) fn schema_expectation_retained_bytes<T>(
+    expectation: &SchemaExpectation<T>,
     counted_children: &mut BTreeSet<usize>,
+    argument_bytes: fn(&T) -> usize,
 ) -> usize {
     use std::mem::size_of;
 
-    let mut bytes = expectation.instances.capacity() * size_of::<SchemaInstance<SchemeType>>();
+    let mut bytes = expectation.instances.capacity() * size_of::<SchemaInstance<T>>();
     for instance in &expectation.instances {
-        bytes = bytes.saturating_add(instance.arguments.capacity() * size_of::<SchemeType>());
+        bytes = bytes.saturating_add(instance.arguments.capacity() * size_of::<T>());
         for argument in &instance.arguments {
             bytes = bytes.saturating_add(
-                argument
-                    .retained_bytes()
-                    .saturating_sub(size_of::<SchemeType>()),
+                argument_bytes(argument)
+                    .saturating_sub(size_of::<T>()),
             );
         }
     }
     if counted_children.insert(Arc::as_ptr(&expectation.children) as usize) {
-        bytes = bytes.saturating_add(size_of::<BTreeMap<SchemaComponent, SchemaExpectation<SchemeType>>>());
+        bytes = bytes.saturating_add(size_of::<BTreeMap<SchemaComponent, SchemaExpectation<T>>>());
         bytes = bytes.saturating_add(
-            expectation.children.len() * size_of::<(SchemaComponent, SchemaExpectation<SchemeType>)>(),
+            expectation.children.len() * size_of::<(SchemaComponent, SchemaExpectation<T>)>(),
         );
         for (component, child) in expectation.children.iter() {
             if let SchemaComponent::Field(name) = component {
@@ -1407,6 +1408,7 @@ fn schema_expectation_retained_bytes(
             bytes = bytes.saturating_add(schema_expectation_retained_bytes(
                 child,
                 counted_children,
+                argument_bytes,
             ));
         }
     }

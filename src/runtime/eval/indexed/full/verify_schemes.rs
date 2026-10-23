@@ -640,7 +640,7 @@ fn verify_scheme_tables(
             roots.extend(schema_argument_types(store, schema, 0)?);
         }
         for &(instruction, schema) in constructor_roots.get(&scheme_index).into_iter().flatten() {
-            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), Some(instruction), 0)?;
+            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), SchemaRootOwner::Constructor(instruction), 0)?;
             roots.extend(schema_argument_types(store, schema, 0)?);
         }
         for root in roots {
@@ -681,7 +681,7 @@ fn verify_scheme_tables(
                     schema,
                     &mut schema_coverage,
                     &mut BTreeSet::new(),
-                    None,
+                    SchemaRootOwner::Header,
                     0,
                 )?;
             }
@@ -693,7 +693,7 @@ fn verify_scheme_tables(
                 schema,
                 &mut schema_coverage,
                 &mut BTreeSet::new(),
-                None,
+                SchemaRootOwner::Header,
                 0,
             )?;
         }
@@ -707,7 +707,7 @@ fn verify_scheme_tables(
         if constructor_parameters.insert(template.definition, type_binder_uses[scopes.len() + index].clone()).is_some() {
             return Err(IrVerifyError::new("record constructor parameter roles repeat a canonical definition"));
         }
-        verify_schema_expectation(store, template.context, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
+        verify_schema_expectation(store, template.context, &mut schema_coverage, &mut BTreeSet::new(), SchemaRootOwner::Header, 0)?;
         let roots = schema_argument_types(store, template.context, 0)?;
         for root in roots {
             visit_scheme_type(store, scopes.len() + index, root, &scope, &mut type_owners, &mut type_states,
@@ -730,6 +730,19 @@ fn verify_scheme_tables(
         row_lacks: Vec::new(),
         effects: effects::EffectScope::default(),
     };
+    if store.function_return_schemas.len() != store.functions.len() { return Err(IrVerifyError::new("ground return schema column is not aligned with functions")); }
+    for (index, function) in store.functions.iter().enumerate() {
+        let Some(schema) = store.function_return_schemas[index] else { continue; };
+        if !matches!(function.contract, FullCallableContract::Ground(_)) { return Err(IrVerifyError::new("generic function carries a ground return schema")); }
+        let owner = IrFunctionId::new(index).map_err(|_| IrVerifyError::new("ground return schema owner is out of bounds"))?;
+        verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), SchemaRootOwner::GroundReturn(owner), 0)?;
+        for root in schema_argument_types(store, schema, 0)? {
+            visit_scheme_type(store, scopes.len() + store.scheme_schema_definitions.len(), root, &empty_scope,
+                &mut type_owners, &mut type_states, &mut field_coverage, &mut child_coverage,
+                &mut validation_coverage, &mut validation_references, &mut type_binder_uses, &mut row_binder_uses, effects, 0)?;
+        }
+        decode_scheme_schema(store, &empty_scope, schema, &mut application_budget, 0)?;
+    }
     for plan in &store.value_materializations {
         let caller = caller_scheme_for_instruction(store, plan.instruction as usize, scopes)?;
         let (owner, scope) = caller.map_or((scopes.len() + store.scheme_schema_definitions.len(), &empty_scope), |(id, scope)| (id.index(), scope));
@@ -874,11 +887,11 @@ fn verify_scheme_tables(
     for callable in &store.scheme_callable_monotypes {
         for parameter in bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")? {
             if let Some(schema) = parameter.schema {
-                verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
+                verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), SchemaRootOwner::Header, 0)?;
             }
         }
         if let Some(schema) = callable.return_schema {
-            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
+            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), SchemaRootOwner::Header, 0)?;
         }
     }
     if type_owners.iter().any(Option::is_none)
@@ -1308,7 +1321,11 @@ fn actual_constructor_context(
             }
             schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => {
                 let callee = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("record constructor call target is invalid"))?;
-                let FullCallableContract::Scheme(callee) = callee.contract else { return Ok(None); };
+                let FullCallableContract::Scheme(callee) = callee.contract else {
+                    let Some(schema) = store.function_return_schemas.get(function.id.index()).copied().flatten() else { return Ok(None); };
+                    let scope = make_scope(store, Vec::new(), Vec::new(), effects::EffectScope::default())?;
+                    return decode_scheme_schema(store, &scope, schema, budget, 0).map(Some);
+                };
                 let callee_scope = effect_scopes.scopes.get(callee.index()).and_then(Option::as_ref)
                     .ok_or_else(|| IrVerifyError::new("record constructor call has no callee binder scope"))?;
                 let index = store.call_instantiations.binary_search_by_key(&(instruction as u32), |site| site.instruction)
@@ -1404,12 +1421,15 @@ fn record_constructor_roots(store: &FullStore, scopes: &[Option<SchemeScope>]) -
     Ok(roots)
 }
 
+#[derive(Clone, Copy)]
+enum SchemaRootOwner { Header, Constructor(u32), GroundReturn(IrFunctionId) }
+
 fn verify_schema_expectation(
     store: &FullStore,
     id: super::schemes::FullSchemeSchemaExpectationId,
     coverage: &mut SchemaCoverage,
     active: &mut BTreeSet<usize>,
-    constructor: Option<u32>,
+    owner: SchemaRootOwner,
     depth: usize,
 ) -> Result<(), IrVerifyError> {
     if depth > 128 || !active.insert(id.index()) {
@@ -1426,6 +1446,9 @@ fn verify_schema_expectation(
         .scheme_schema_expectations
         .get(id.index())
         .ok_or_else(|| IrVerifyError::new("scheme schema expectation id is out of bounds"))?;
+    let constructor = match owner { SchemaRootOwner::Constructor(instruction) => Some(instruction), _ => None };
+    let ground_return = match owner { SchemaRootOwner::GroundReturn(function) => Some(function), _ => None };
+    if expectation.ground_return_function != ground_return { return Err(IrVerifyError::new("ground return schema belongs to another function")); }
     if expectation.constructor_instruction != constructor.unwrap_or(IR_NONE) { return Err(IrVerifyError::new("record constructor schema belongs to another instruction")); }
     match constructor {
         Some(_) => {
@@ -1492,7 +1515,7 @@ fn verify_schema_expectation(
             return Err(IrVerifyError::new("scheme schema children are duplicated or unsorted"));
         }
         previous = Some(component);
-        verify_schema_expectation(store, child.expectation, coverage, active, None, depth + 1)?;
+        verify_schema_expectation(store, child.expectation, coverage, active, SchemaRootOwner::Header, depth + 1)?;
     }
     active.remove(&id.index());
     Ok(())
