@@ -105,15 +105,41 @@ source roles or contracts; rejection of orphan rows is not credited as source
 authentication. Forwarding, effect ceilings and both execution routes pass.
 Combined library, native and performance qualification remain open.
 
-Generic Index and Slice remain provisional. Focused controls cover literal
-modes, forwarding, scalar module keys and dynamic payload provenance. UInt
-validation now reaches lexical captures, and the ordinary and generic forms
-both reject an incompatible captured error contract. Unhandled validation in
-an erased generic return still returns failure as data where the ordinary
-form fails. Its repair must use the authenticated substituted return envelope
-and preserve deliberate Result data. Known open-record projection also awaits
-its final runtime and rejection replay. No native or performance acceptance
-is claimed for this tranche.
+Grounded callable branches at `685811709`, integrated as `6110c9d61`, pass
+six focused controls with independent review clear. Named function aliases
+retain their checked signatures when leaving a branch. Ground target, ABI,
+immutable origin and writer checks remain strict; generic branches retain
+independent instantiation. Matching native replay remains pending.
+
+Combined source `15c71c323` executes 64 focused Rust selectors: 63 pass and
+one existing typed-alias storage control fails. The same control fails on the
+unchanged grounded-branch base, so it is not attributed to that repair.
+Alias repair `16176899a`, integrated as `f3f308e4a`, passes five focused
+controls with independent review clear. After authenticating an instantiated
+read, storage proof retains its actual lexical contract instead of replacing
+the quantified relationship with a bare function kind. Original driver,
+captured, local and nested aliases execute on both routes; existing cold
+mutations reject. An additional imported-alias control fails in earlier
+structural producer validation on both the unchanged `15c71c323` source and
+the repaired lane. That separate defect remains open. Combined replay is
+required after integration.
+
+Generic Index and Slice at `48b66343f`, integrated as `8cfbceb34`, pass all
+twenty focused controls with independent review clear. Inputs select List,
+Map, constant Record/Module and slice domains; negative literals retain their
+different List and Map meanings. Known open records use the existing journaled
+field projection. UInt validation preserves lexical captures and uses the
+authenticated substituted return envelope at erased boundaries. Deliberate
+Result data remains data on both routes. Operation payloads grow by eight
+bytes, physical operation rows grow from 16 to 24 bytes, and ordinary Index
+encoding grows by four bytes. `Type` and `SchemeType` remain 24 and 56 bytes.
+Native, memory/scaling and performance qualification remain open.
+
+The Index parity matrix also demonstrates existing safety debt: a negative
+Int key in a UInt Map can publish a Schema error under a Str error envelope
+in both ordinary and generic functions. This is not credited as correct
+behavior. Its origin repair must account for the implicit key validation in
+the checked error contract while preserving input-driven operation selection.
 
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.

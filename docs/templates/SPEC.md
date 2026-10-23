@@ -3491,6 +3491,11 @@ places them in formal slots; omitted defaults execute in the selected declaratio
 scope, and list splices contribute to its rest parameter. Aliases and returned
 callable values retain the same signature.
 
+A value-producing branch ending in a named function or its immutable alias
+retains that checked signature without a callable type annotation. The other
+branches must fit the inferred callable contract, including parameter labels,
+defaults, rest parameters and effect bounds.
+
 Calls through an opaque callable handle validate its retained argument contract
 before executing the target. This includes nested callable signatures and their
 effect bounds, typed module exports, and stream item contracts. Checking a lazy
