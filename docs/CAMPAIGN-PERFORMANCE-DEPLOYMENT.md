@@ -15,14 +15,36 @@ expert lanes and one shared two-build limit. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Provisional inference source `06caaaf6e` integrates scoped mutable argument
+Provisional inference source `c1806448d` integrates scoped mutable argument
 proofs, deferred sort-key checks, closed Null returns and pure-return validation.
 Focused controls pass. The actual historical system-report checker goes from
 two sort errors to zero. The mutable argument repair passes twelve controls
 plus strengthened writer positives; whole historical `wc` remains open on its
 separate signed-to-unsigned record boundary. Pure Str/Error joins now fail
 during checking, while typed Str results and nominal errors remain valid.
-These changes await the combined library and corpus boundary.
+The shared Optional return relation now accepts a payload or Null under its
+matching Optional scheme while rejecting foreign binders. Arithmetic call
+arguments derive evidence from their physical operands through the existing
+producer proof. Its twelve focused controls pass; the exact historical gates
+and internal modules prepare and verify. The separate `wc` boundary remains
+open. These changes await the combined library and corpus boundary.
+
+Frozen source `bdb9b165b` completes the full library command with 2,232 passes,
+one failure and three ignores; the command exits 101. The sole failure expects
+Null data returns to remain rejected, contrary to the campaign's explicit
+return rule. Correction `4b4e4cf57` replaces that obsolete expectation with
+typed Null calls, retaining its other rejection controls; the exact test passes.
+The failed full run remains evidence, not a successful full-library gate.
+Its log is
+`.work/wt/full-inference-domain-library-qualification/.work/tmp/domain-full-library.log`.
+
+Matching `bdb9b165b` verification products build without warnings. The Null,
+deferred-sort and two pure-return selectors each pass once in normal and
+forced-frame modes: eight passes, zero failures or skips. Matching products and
+native logs are under
+`.work/wt/full-inference-domain-product-qualification/.work/`.
+These products exclude the later Optional and arithmetic repairs. The XSH
+product is 42,455,328 bytes; XSHT is 50,810,944 bytes. No speedup is claimed.
 
 Frozen source `a6178b9f5` has matching warning-free verification products.
 Its new Null-return native selector passes once in each normal and forced-frame
@@ -31,7 +53,7 @@ mode, with zero skips. Logs and products are under
 This earlier source excludes the later sort, mutable-writer and pure-return
 repairs and supplies no qualification credit for them.
 
-The latest full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
+The last zero-failure full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
 zero fail, and three remain ignored. Matching XSH and XSHT verification products
 build without warnings. The source tree is
 `d39903e9fe794a7fd811da1fd3c8a26c83290e36`. The full-library log is
