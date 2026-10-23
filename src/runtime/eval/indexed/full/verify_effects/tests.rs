@@ -315,6 +315,102 @@ tempdir directory {
     });
 }
 
+#[test]
+fn quantified_proc_defer_and_failure_return_are_independent() {
+    on_large_stack(|| {
+        let deferred = r#"
+var assertion_messages = 0
+proc assertion_message() [] -> Str {
+    assertion_messages += 1
+    "deferred assertion"
+}
+proc deferred_success(token) [error] {
+    let _ = token
+    defer { assert true, assertion_message() }
+}
+proc deferred_failure(token) [error] {
+    let _ = token
+    defer { assert false, assertion_message() }
+}
+assert deferred_success(7) is Ok(_)
+assert deferred_success("token") is Ok(_)
+assert assertion_messages == 0
+let failed_int = deferred_failure(7)
+let failed_str = deferred_failure("token")
+assert match failed_int {
+    Err(AssertionError.Failed {message: message}) => message == "deferred assertion"
+    _ => false
+}
+assert match failed_str {
+    Err(AssertionError.Failed {message: message}) => message == "deferred assertion"
+    _ => false
+}
+assert assertion_messages == 2
+"#;
+        let returned = r#"
+proc returned_failure(token) [error] {
+    let _ = token
+    return error.fail(f"requested {token}")
+}
+let failed_int = returned_failure(7)
+let failed_str = returned_failure("token")
+assert match failed_int {
+    Err(problem) => problem.message == "requested 7"
+    _ => false
+}
+assert match failed_str {
+    Err(problem) => problem.message == "requested token"
+    _ => false
+}
+"#;
+        let deferred_program = fixture(deferred);
+        let deferred_result = std::panic::catch_unwind(|| {
+            FullVerifier::verify(&deferred_program).unwrap();
+            execute_both(&deferred_program);
+        });
+        let returned_program = fixture(returned);
+        let returned_result = std::panic::catch_unwind(|| {
+            FullVerifier::verify(&returned_program).unwrap();
+            execute_both(&returned_program);
+        });
+        let failures = [
+            ("defer assertion", deferred_result.is_err()),
+            ("error.fail return", returned_result.is_err()),
+        ].into_iter().filter_map(|(name, failed)| failed.then_some(name)).collect::<Vec<_>>();
+        assert!(failures.is_empty(), "generic Proc body witnesses failed: {failures:?}");
+
+        let owner = function(&deferred_program, "deferred_failure");
+        let decoder = function_view_decoder(&deferred_program.store, owner);
+        let (condition, message) = deferred_program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+            let schema::StmtView::Assert { value, message, .. } = decoder.statement_view(instruction).ok()? else { return None };
+            Some((value.raw() as usize, message?.raw() as usize))
+        }).unwrap();
+        let condition_fact = deferred_program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == condition
+            && fact.kind() == super::super::schemes::FullSchemeBodyFactKind::Expression).unwrap();
+        let message_fact = deferred_program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == message
+            && fact.kind() == super::super::schemes::FullSchemeBodyFactKind::Expression).unwrap();
+        let condition_type = deferred_program.store.scheme_body_facts[condition_fact].ty().unwrap();
+        let message_type = deferred_program.store.scheme_body_facts[message_fact].ty().unwrap();
+        let mut wrong_condition = deferred_program.clone();
+        wrong_condition.store.scheme_body_facts[condition_fact].value = super::super::schemes::FullSchemeBodyFactValue::Expression(message_type);
+        assert!(FullVerifier::verify(&wrong_condition).is_err());
+        let mut wrong_message = deferred_program.clone();
+        wrong_message.store.scheme_body_facts[message_fact].value = super::super::schemes::FullSchemeBodyFactValue::Expression(condition_type);
+        assert!(FullVerifier::verify(&wrong_message).is_err());
+
+        let FullCallableContract::Scheme(scheme) = deferred_program.store.functions[owner].contract else { panic!("deferred Proc has a scheme") };
+        let direct = deferred_program.store.schemes[scheme.index()].effects.direct.bounds(deferred_program.store.scheme_effects.len()).unwrap();
+        let effects = &deferred_program.store.scheme_effects[direct.clone()];
+        let error_offset = effects.iter().position(|effect| *effect == Effect::Error).unwrap();
+        let replacement = Effect::ALL.into_iter().find(|effect| !effects.contains(effect)).unwrap();
+        let mut missing_error = deferred_program.clone();
+        missing_error.store.scheme_effects[direct.start + error_offset] = replacement;
+        let effective = super::function_effects(&missing_error.store, owner).unwrap().unwrap();
+        assert!(!effective.contains(&Effect::Error), "{effective:?}");
+        assert!(FullVerifier::verify(&missing_error).unwrap_err().message.contains("effect error"));
+    });
+}
+
 fn external_stdlib_fixture(source: &str) -> FullProgram {
     let name = "external-stdlib-effects.xsh";
     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(

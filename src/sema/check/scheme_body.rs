@@ -51,7 +51,8 @@ pub(super) fn supports_generalized_body(
         && owner_kind == crate::sema::types::CallableKind::Proc
         && matches!(program.arena.stmt(tail).kind, ArenaStmtKind::Command(_));
     let terminal_unit_statement = matches!(program.arena.stmt(tail).kind,
-        ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. });
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. }
+            | ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. });
     let prefix = if terminal_command || terminal_unit_statement || matches!(completion, BodyCompletion::Statement | BodyCompletion::ProcedureStatement | BodyCompletion::Producer) { statements.as_slice() } else { prefix };
     for &statement in prefix {
         let node = program.arena.stmt(statement);
@@ -85,6 +86,11 @@ pub(super) fn supports_generalized_body(
                     supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, nested_completion)
                 } else { is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression) };
                 if !supported { return false; }
+            }
+            ArenaStmtKind::Assert { condition, message } => {
+                if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, condition)
+                    || message.is_some_and(|message| !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, message))
+                { return false; }
             }
             ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) | ArenaStmtKind::YieldDelegate(value) if matches!(completion, BodyCompletion::Producer) => {
                 if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, value) { return false; }

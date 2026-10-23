@@ -1006,6 +1006,18 @@ pub(super) fn verify_body(
                         }
                         expressions.push(value.raw() as usize);
                     }
+                    schema::StmtView::Assert { value, message, .. } => {
+                        let value = value.raw() as usize;
+                        condition(types, value, crate::sema::types::ConditionRole::Boolean, budget)?;
+                        expressions.push(value);
+                        if let Some(message) = message {
+                            let message = message.raw() as usize;
+                            if !body_type_matches_ground(&expression_type(types, message, budget)?, &Type::Str) {
+                                return Err(IrVerifyError::new("generic assertion message is not Str"));
+                            }
+                            expressions.push(message);
+                        }
+                    }
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
                         if stream_item.is_some() {

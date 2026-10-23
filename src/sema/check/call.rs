@@ -554,6 +554,7 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
+                    let reported = self.diagnostics.len();
                     let params = [super::FunctionParamSig {
                         name: Name::intern("message"),
                         ty: Type::Str,
@@ -564,6 +565,13 @@ impl Checker {
                     self.check_function_call_arguments_arena(
                         arena, source, args, &params, span, checked_argument,
                     );
+                    if !self.diagnostics[reported..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+                    {
+                        self.builtin_calls
+                            .insert(span, super::CheckedBuiltinCall::ErrorFail);
+                    }
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 // `error.failure(message)` is the error value `error.fail`

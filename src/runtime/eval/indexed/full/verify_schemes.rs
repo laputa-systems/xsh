@@ -1918,6 +1918,11 @@ fn verify_body_expression(
             if !body_type_matches_ground(&actual, &Type::Str) { return Err(IrVerifyError::new("generic path constructor has no actual text contract")); }
             SchemeType::Ground(Type::Path)
         }
+        schema::ExprView::Fail { message, .. } => {
+            let actual = child(message, budget)?;
+            if !body_type_matches_ground(&actual, &Type::Str) { return Err(IrVerifyError::new("generic failure constructor has no actual text contract")); }
+            SchemeType::Ground(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
+        }
         schema::ExprView::Range { start, end, .. } => {
             for value in [start, end] {
                 let actual = child(value, budget)?;

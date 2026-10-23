@@ -3337,6 +3337,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 lowered_types.insert(value, SchemeType::Ground(Type::Unit));
                 Some(value)
             }
+            ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. }
+                if self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {
+                self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
+                let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                Some(value)
+            }
             ArenaStmtKind::Command(_)
                 if self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {
                 self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
@@ -3548,6 +3555,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         value
                     } else { self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)? };
                     BuildStmtRow::Expr { value, span: node.span }
+                }
+                ArenaStmtKind::Assert { condition, message } => {
+                    let span = self.program.arena.expr(condition).span;
+                    let value = self.lower_scheme_lazy_expression(condition, slots, current_function, facts, visited, lowered_types)?;
+                    let message = match message {
+                        Some(message) => Some(self.lower_scheme_lazy_expression(message, slots, current_function, facts, visited, lowered_types)?),
+                        None => None,
+                    };
+                    BuildStmtRow::Assert { value, message, span }
                 }
                 ArenaStmtKind::Break { value: Some(expression) } => BuildStmtRow::BreakValue {
                     value: self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?,
@@ -4615,6 +4631,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } => {
+                if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::ErrorFail) {
+                    let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if name != "fail" || !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "error") {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let [argument] = arguments.as_slice() else { return self.block_scheme_lowering_expr(expression) };
+                    if argument.splice || argument.name.is_some() && self.call_argument_slots(expression)? != [0] {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let message = argument.lowered?;
+                    let value = push_build_row!(self, expr, BuildExprRow::Fail { message, span });
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
                 if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::ErrorFailure) {
                     let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
                     if name != "failure" || !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "error") {
