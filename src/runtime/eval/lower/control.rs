@@ -1238,7 +1238,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let finished_slot = slots.reserve("with.finished");
             let finished_type = self.lower_binding_checked_type(None, scope)?;
             let finished_type = self.canonicalize_checked_type(finished_type);
-            if !slots.record_checked_slot_type(finished_slot, finished_type) { return None; }
+            if !slots.record_checked_slot_type(finished_slot, finished_type.clone()) { return None; }
             body.push(push_build_row!(
                 self,
                 stmt,
@@ -1282,6 +1282,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span
                 }
             );
+            if !self.scratch.borrow_mut().record_checked_expr_type(
+                outcome,
+                finished_type,
+                false,
+            ) {
+                return None;
+            }
             body.push(push_build_row!(
                 self,
                 stmt,

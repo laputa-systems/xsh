@@ -15,6 +15,7 @@ pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     demand: crate::runtime::eval::ProducerDemand,
     scheme_scopes: OnceCell<super::VerifiedSchemeScopes>,
     checked_producers: Vec<usize>,
+    capture_retry_roots: Vec<usize>,
     driver_outputs: Vec<usize>,
     effect_operations: Vec<usize>,
     conditions: Vec<(usize, ConditionRole)>,
@@ -1125,7 +1126,7 @@ impl GroundProducerIndex {
         let demand = if driver_output_demand || selected_demand {
             crate::runtime::eval::ProducerDemand::Needed
         } else { crate::runtime::eval::ProducerDemand::Absent };
-        Ok(Self { demand, scheme_scopes: OnceCell::new(), checked_producers, driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_owners: BTreeMap::new(), starts: BTreeMap::new(),
+        Ok(Self { demand, scheme_scopes: OnceCell::new(), checked_producers, capture_retry_roots: Vec::new(), driver_outputs: Vec::new(), effect_operations: Vec::new(), conditions: Vec::new(), storage_reads: Vec::new(), effect_demand_work, owners: BTreeMap::new(), scheme_owners: BTreeMap::new(), starts: BTreeMap::new(),
             binding_writers: Vec::new(), storage_writers: BTreeMap::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
     }
 
@@ -1217,6 +1218,9 @@ impl GroundProducerIndex {
         for instruction in range.clone() {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
+            if matches!(decoder.store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) {
+                self.capture_retry_roots.push(instruction);
+            }
             if decoder.store.tags[instruction] == FullTag::ExprTypedCall { owner.typed_calls.push(instruction); }
             if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt { physical_statements += 1; }
             if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
@@ -1684,6 +1688,7 @@ impl GroundProducerIndex {
         size_of::<Self>()
             + self.scheme_scopes.get().map_or(0, super::VerifiedSchemeScopes::temporary_payload_bytes)
             + self.checked_producers.capacity() * size_of::<usize>()
+            + self.capture_retry_roots.capacity() * size_of::<usize>()
             + self.conditions.capacity() * size_of::<(usize, ConditionRole)>() + self.effect_operations.capacity() * size_of::<usize>() + self.storage_reads.capacity() * size_of::<(u32, usize, TypeId)>()
             + self.work.as_ref().map_or(0, |_| size_of::<RefCell<SchemeInstantiationBudget>>() + 2 * size_of::<usize>())
             + self.starts.len() * size_of::<(usize, u32)>()
@@ -1915,9 +1920,8 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instruction)?;
         proof.verify_condition(owner, instruction, role)?;
     }
-    for instruction in 0..store.tags.len() {
+    for &instruction in &index.capture_retry_roots {
         proof.budget.charge(1)?;
-        if !matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) { continue; }
         let owner = index.instruction_owner(instruction)?;
         let Some(type_id) = checked_expression_type_id(store, instruction as u32) else {
             if super::super::driver_owner_index(owner).is_none()

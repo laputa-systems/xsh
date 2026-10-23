@@ -41331,7 +41331,7 @@ assert context_streams(good, bad)? == 7
             assert_eq!(&completing.store.extra[payload.clone()], &[0]);
             completing.store.extra[payload.start] = 1;
             let error = FullVerifier::verify(&completing).unwrap_err();
-            assert!(error.message.contains("completes without a value tail"), "{}", error.message);
+            assert!(error.message.contains("completes without a compatible value tail"), "{}", error.message);
             program.store.checked_expr_types.retain(|fact| fact.is_contract());
             FullVerifier::verify(&program).unwrap();
             let target = IrFunctionId::new(scheme_fixture_root_function(&program, "failing")).unwrap();
