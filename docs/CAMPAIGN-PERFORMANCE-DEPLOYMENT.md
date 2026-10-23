@@ -20,12 +20,20 @@ and three remain ignored. Its log is
 These results do not qualify the compiler.
 
 The four failures are the UInt-map error-contract control, two cross-output
-scheme pointer assertions, and a generic Proc call with an unresolved
-constructor error type. Published outputs intentionally rebase schemes into
-fresh owners, so the pointer controls need complete semantic comparisons while
-cached-source identity checks remain. The UInt repair must preserve callee
-capture boundaries through direct and materialized calls. A caller's outer
-`try` must not permit a callee to publish a Schema error under `Str`.
+scheme pointer assertions, and a lost callback argument relationship in a
+generic Proc call. Constructor error defaults close correctly. The application
+solver failed to revisit the callback relationship after that closure.
+Repair `2d123efa6`, integrated as `516b522ef`, retains pending argument
+constraints and passes five focused controls, including the original failure.
+It preserves selected argument layouts, diagnostics and transaction rollback.
+
+Published outputs intentionally rebase schemes into fresh owners. Test repair
+`027c585cd`, integrated as `67c1ffd1e`, replaces the two pointer assertions
+with complete contract comparisons and passes five publication controls.
+Cached-source identity checks remain unchanged. The UInt repair must preserve
+callee capture boundaries through direct and materialized calls. A caller's
+outer `try` must not permit a callee to publish a Schema error under `Str`.
+The full library has not been rerun on these repairs.
 
 Contextual-list repair `6c021dfcb`, integrated as `4832662a5`, and producer
 repair `e80adaf31` have clear independent source reviews. Producer proof reuses
@@ -33,9 +41,11 @@ the shared owned Expression-fact query. Uniform native method effects remain
 independently checked. Receiver-dependent methods retain their selected effect
 proof. Immutable imported captures retain their actual binding and export
 identity. Combined products, native replay, corpus parity and final gates remain
-open. Tooling comparison also needs the published callable-relationship context;
-its focused controls pass, but an internal nested-factory review finding remains
-under repair.
+open. Tooling comparison also needs the published callable-relationship context.
+Its nested-factory comparison repair passes ten focused controls and independent
+source review. Review then finds exponential rendering of shared callable
+families. Local relationship labels and backreferences are under repair.
+A separately reproduced named-callable argument admission gap remains open.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
