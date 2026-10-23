@@ -3138,6 +3138,13 @@ This covers integer and floating-point arithmetic, text and list concatenation,
 Set difference, and duration arithmetic. Duration scaling requires `Int`, and
 dividing two durations returns `Int`. Unsupported operand pairs remain type
 errors. Unary operations retain their ordinary contracts.
+Inferred method calls retain finite registered families. `len()` accepts List,
+Map, Set, and Bytes receivers; `is_empty()` also accepts Str. There is no
+`Str.len()`. A generic `Path.write` call selects its text or bytes overload,
+with or without an explicit mode, from its checked input types. Independent
+calls select independently. Result annotations do not select a receiver or
+argument domain. Named arguments retain their labels and evaluate once in
+written order, including when that order differs from parameter order.
 Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.

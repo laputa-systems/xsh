@@ -188,6 +188,16 @@ once. Execution carries each reached right value into the next comparison;
 cold verification proves every operand, including unreached links. Nested chains
 therefore do not duplicate their middle operand subtrees.
 
+Finite registered method families retain their receiver, source-ordered
+arguments, parameter slots and result in the checked scheme. Each physical
+method site identifies its owned requirement; call evidence either selects a
+canonical registry member or forwards a caller-owned requirement. Cold
+verification maps source arguments through those slots to the actual physical
+operands. Execution replays the selected identity using the existing invocation
+substitution and host operation path. It performs no runtime type solving or
+value-based overload selection. Lowering evaluates arguments in written order
+before arranging their temporary reads in parameter order.
+
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
 postfix lowering evaluates the receiver once and places operand elaboration in

@@ -8,20 +8,34 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-The current implementation work is split between retained wrapper relationships,
-finite registered method families, and a newly exposed baseline Proc error bug.
-The grounded Proc checker infers `Result[Str, Error]` for propagation from a
-`Result[Row, Str]`, but execution retains a Str error payload. Its failing runtime
-test remains open in a separate repair lane. A reproduced ownership-preserving
-capture-source forgery now rejects after authenticating actual captured
-transfers. Four focused controls pass, including ordered-contribution rejection.
-Independent review requires replacing an uncharged quadratic capture-request
-search. Nested-call/runtime checks also expose a grounded mixed Str/Error capture
-join rejected by cold verification; its original failure remains open separately
-from the nominal-family ordering control. Method-family tests retain
-the shared row-field calls at both Str and Bytes. Callable-value storage and
-record remainder implementation follow these representation changes. None of
-these provisional lanes earns acceptance credit yet.
+Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
+XSH controls and its registry control with independent review clear. Reversed
+named mode/data arguments reproduce a cold-verifier failure before the repair;
+text and byte writes, exact modes, failed writes and both execution routes now
+pass. The private layout adds a 28-byte method row and an 8-byte binding, with
+eight bytes added to each scheme and call-instantiation row. Frozen combined
+source passes nine focused library controls covering methods and the existing
+Proc-envelope relationships. Full-library and complete native replay remain
+required; the earlier selection-mismatch attempt earns no qualification credit.
+
+The unintegrated wrapper lane passes seven focused capture/handler controls,
+including both execution routes, cleanup, lazy unsigned validation and cold
+forgeries. The reviewed capture proof now authenticates complete ordered actual
+transfers with charged work, replacing uncharged quadratic searches. Stored
+callable wrapper modes and handler constructor context also pass. Exact Any
+provenance has paired false-rejection and false-acceptance regressions awaiting
+repair. A separate grounded/generic comparison reproduces an explicit Any-return
+lowering gap. Omitted dynamic returns retain the existing grounded annotation
+policy.
+
+The separate inferred-Proc error repair passes eight focused controls, including
+generic relay errors and original traceback locations on both routes. Its new
+private metadata distinguishes inferred Error normalization from authored error
+contracts. Independent review and a callback-tail discriminator remain open.
+The grounded mixed Str/Error capture join and bare inferred `value?` input shape
+remain separate mandatory repairs. Callable-value storage and record remainder
+implementation follow these representation changes. Provisional focused results
+do not advance full campaign acceptance.
 
 Source `3ee4d8b92` builds matching verification products and passes the complete
 four-return practical comparison: twelve XSH roots and three Laputa roots in
