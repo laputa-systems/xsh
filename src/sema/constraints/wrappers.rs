@@ -124,10 +124,61 @@ impl WrapperOperations {
 }
 
 impl TypeConstraints {
-    fn wrapper_dependencies(&self, operation: &WrapperRequirement<Type, super::EffectVariableId>) -> Result<BTreeSet<WrapperDependency>, ConstraintResolutionError> {
+    fn wrapper_dependencies(&self, owner: CallableApplicationScope, operation: &WrapperRequirement<Type, super::EffectVariableId>) -> Result<BTreeSet<WrapperDependency>, ConstraintResolutionError> {
         enum Pending<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
         let mut pending = operation.types().into_iter().map(|ty| Pending::Type(ty, 0)).collect::<Vec<_>>();
         let mut dependencies = BTreeSet::new();
+        if let WrapperRequirementKind::Capture { contributions, .. } = &operation.kind {
+            for contribution in contributions.iter() {
+                let id = match contribution {
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) => *id,
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)) => {
+                        let entry = self.wrappers.entries.get(requirement).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                        let WrapperRequirementKind::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), boundary } = &entry.requirement.kind else { return Err(ConstraintResolutionError::ForeignVariable); };
+                        match boundary {
+                            WrapperBoundary::Return(returned) | WrapperBoundary::ErrorReturn(returned) => pending.push(Pending::Type(returned, 0)),
+                            WrapperBoundary::Captured | WrapperBoundary::ProcCompletion { .. } | WrapperBoundary::Producer | WrapperBoundary::TopLevel => {}
+                        }
+                        *id
+                    }
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                    _ => continue,
+                };
+                {
+                    let indexed = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                    if indexed.owner != owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                    if let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = &indexed.operation {
+                        pending.push(Pending::Type(receiver, 0));
+                        pending.push(Pending::Type(key, 0));
+                    } else {
+                        return Err(ConstraintResolutionError::ForeignVariable);
+                    }
+                }
+            }
+        }
+        if let WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Ready(contributions), .. } = &operation.kind {
+            for contribution in contributions.iter() {
+                let crate::sema::wrapper_operation::WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) = contribution else { continue };
+                let indexed = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                if indexed.owner != owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = &indexed.operation else { return Err(ConstraintResolutionError::ForeignVariable); };
+                pending.push(Pending::Type(receiver, 0));
+                pending.push(Pending::Type(key, 0));
+            }
+        }
+        if let WrapperRequirementKind::IndexValidation { operation, .. } = &operation.kind {
+            let crate::sema::wrapper_operation::WrapperOperationRef::Source(id) = operation else { return Err(ConstraintResolutionError::ForeignVariable) };
+                let indexed = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if indexed.owner != owner { return Err(ConstraintResolutionError::ForeignVariable); }
+            if let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = &indexed.operation {
+                pending.push(Pending::Type(receiver, 0));
+                pending.push(Pending::Type(key, 0));
+            } else {
+                return Err(ConstraintResolutionError::ForeignVariable);
+            }
+        }
         while let Some(node) = pending.pop() {
             match node {
                 Pending::Type(ty, depth) => {
@@ -214,6 +265,7 @@ impl TypeConstraints {
         Some(match &entry.requirement.kind {
             WrapperRequirementKind::Field { result, .. } | WrapperRequirementKind::Fallback { result, .. }
             | WrapperRequirementKind::Handler { result, .. } | WrapperRequirementKind::Capture { result, .. } => result,
+            WrapperRequirementKind::IndexValidation { .. } => return None,
             WrapperRequirementKind::ProcCompletion { returned, .. } => returned,
         })
     }
@@ -223,8 +275,13 @@ impl TypeConstraints {
         for ((source_owner, _), id) in &self.wrappers.sources {
             if *source_owner != owner { continue; }
             let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-            if let WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } = &entry.requirement.kind {
-                if source_group.replace(*group).is_some_and(|previous| previous != *group) {
+            let group = match &entry.requirement.kind {
+                WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. }
+                | WrapperRequirementKind::IndexValidation { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some(*group),
+                _ => None,
+            };
+            if let Some(group) = group {
+                if source_group.replace(group).is_some_and(|previous| previous != group) {
                     return Err(ConstraintResolutionError::ForeignVariable);
                 }
             }
@@ -303,6 +360,17 @@ impl TypeConstraints {
                 contributions.push(WrapperCompletionContribution::FieldSource(source.clone()));
                 field_returns.push((returned.clone(), entry.requirement.span));
             }
+            if let WrapperRequirementKind::IndexValidation {
+                operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation),
+                boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(field_group), .. },
+            } = &entry.requirement.kind && *field_group == group {
+                let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                let resolved = indexed.operation.try_map(|ty| self.resolve(ty))?;
+                let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = resolved else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                    contributions.push(WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(*operation)));
+                }
+            }
         }
         let previous = self.wrappers.entries[&group_entry].requirement.clone();
         let WrapperRequirementKind::ProcCompletion { group: group_ref, returned, .. } = &previous.kind else { unreachable!() };
@@ -316,7 +384,7 @@ impl TypeConstraints {
             },
             span: previous.span,
         };
-        let dependencies = self.wrapper_dependencies(&next)?;
+        let dependencies = self.wrapper_dependencies(owner_scope, &next)?;
         self.apply_journaled(|this, changes| {
             for (field_returned, span) in field_returns {
                 this.constrain_wrapper_type(&group_returned, &field_returned, span, changes)?;
@@ -332,7 +400,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn register_wrapper(&mut self, owner: CallableApplicationScope, requirement: WrapperRequirement<Type, EffectVariableId>) -> Result<WrapperOperationId, WrapperConstraintError> {
-        let dependencies = self.wrapper_dependencies(&requirement)?;
+        let dependencies = self.wrapper_dependencies(owner, &requirement)?;
         let field_effects = match &requirement.kind {
             WrapperRequirementKind::Field { effects, .. } => Some(effects.clone()),
             _ => None,
@@ -415,11 +483,122 @@ impl TypeConstraints {
         Ok(())
     }
 
+    fn index_validation_boundary_error(
+        &self,
+        owner: CallableApplicationScope,
+        reference: crate::sema::wrapper_operation::WrapperRequirementRef,
+    ) -> Result<Option<Option<Type>>, WrapperConstraintError> {
+        let crate::sema::wrapper_operation::WrapperRequirementRef::Source(id) = reference else { return Err(ConstraintResolutionError::ForeignVariable.into()) };
+        let entry = self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let WrapperRequirementKind::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), boundary } = &entry.requirement.kind else {
+            return Err(ConstraintResolutionError::ForeignVariable.into());
+        };
+        let operation_entry = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        if operation_entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+        let operation = operation_entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
+        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+        if receiver.contains_inference() || key.contains_inference() { return Ok(None); }
+        if !crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+            return Ok(Some(None));
+        }
+        if !crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+            return Ok(None);
+        }
+        let escaped = match boundary {
+            WrapperBoundary::Captured | WrapperBoundary::ProcCompletion { .. } => None,
+            WrapperBoundary::Producer | WrapperBoundary::TopLevel => Some(Type::Error),
+            WrapperBoundary::Return(returned) | WrapperBoundary::ErrorReturn(returned) => {
+                let returned = self.resolve(returned).map_err(WrapperConstraintError::Resolution)?;
+                if returned.contains_inference() { return Ok(None); }
+                match crate::sema::sealed_operation::result_error_contract(&returned) {
+                    Some(expected) if Type::Error.matches_expected(expected) => None,
+                    Some(_) => return Err(WrapperConstraintError::Invalid {
+                        message: "UInt map key validation error is outside the callable Result contract".into(),
+                        operation: crate::sema::wrapper_operation::WrapperOperationKind::IndexValidation,
+                    }),
+                    None => Some(Type::Error),
+                }
+            }
+        };
+        Ok(Some(escaped))
+    }
+
+    fn capture_error_contributions(
+        &self,
+        owner: CallableApplicationScope,
+        contributions: &[crate::sema::wrapper_operation::WrapperErrorContribution<Type>],
+    ) -> Result<Option<Vec<Type>>, WrapperConstraintError> {
+        let mut errors = Vec::new();
+        for contribution in contributions {
+            match contribution {
+                crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(_)
+                | crate::sema::wrapper_operation::WrapperErrorContribution::Source(_) => {
+                    let Some(mut values) = crate::sema::wrapper_operation::capture_error_contributions(std::slice::from_ref(contribution)).map_err(|error| WrapperConstraintError::Invalid { message: format!("capture error source is invalid: {error:?}"), operation: crate::sema::wrapper_operation::WrapperOperationKind::Capture })? else { return Ok(None) };
+                    errors.append(&mut values);
+                }
+                crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(reference) => {
+                    let crate::sema::wrapper_operation::WrapperOperationRef::Source(id) = reference else { return Err(ConstraintResolutionError::ForeignVariable.into()) };
+                    let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                    if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                    let operation = entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
+                    let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()) };
+                    if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+                        errors.push(Type::Error);
+                    } else if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                        return Ok(None);
+                    }
+                }
+                crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(reference) => {
+                    match self.index_validation_boundary_error(owner, *reference)? {
+                        None => return Ok(None),
+                        Some(Some(error)) => errors.push(error),
+                        Some(None) => {}
+                    }
+                }
+            }
+        }
+        Ok(Some(errors))
+    }
+
+    fn completion_error_contributions(
+        &self,
+        owner: CallableApplicationScope,
+        contributions: &[WrapperCompletionContribution<Type>],
+    ) -> Result<Option<Vec<Type>>, WrapperConstraintError> {
+        let mut errors = Vec::new();
+        for contribution in contributions {
+            match contribution {
+                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) => {
+                    let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                    if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                    let operation = entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
+                    let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                    if receiver.contains_inference() || key.contains_inference() { return Ok(None); }
+                    if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) { errors.push(Type::Error); }
+                        else { return Ok(None); }
+                    }
+                }
+                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable.into()),
+                _ => {
+                    let Some(mut values) = crate::sema::wrapper_operation::completion_error_contributions(std::slice::from_ref(contribution)).map_err(|error| WrapperConstraintError::Invalid {
+                        message: format!("proc completion source is invalid: {error:?}"),
+                        operation: crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion,
+                    })? else { return Ok(None) };
+                    errors.append(&mut values);
+                }
+            }
+        }
+        Ok(Some(errors))
+    }
+
     pub(crate) fn constrain_wrapper_returns(&mut self, owner: crate::sema::check::EffectDeclarationId, returned: &Type, span: Span) -> Result<(), WrapperConstraintError> {
         let boundaries = self.wrappers.sources.iter().filter_map(|((source_owner, _), id)| {
             if *source_owner != CallableApplicationScope::Declaration(owner) { return None; }
             match &self.wrappers.entries[id].requirement.kind {
                 WrapperRequirementKind::Field { boundary: WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty), .. } => Some(ty.clone()),
+                WrapperRequirementKind::IndexValidation { boundary: WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty), .. } => Some(ty.clone()),
                 _ => None,
             }
         }).collect::<Vec<_>>();
@@ -449,7 +628,8 @@ impl TypeConstraints {
                 assert!(this.wrappers.queued.remove(&id));
                 changes.push(ConstraintChange::Wrapper(WrapperChange::Dequeued(id)));
                 let requirement = this.wrappers.entries[&id].requirement.clone();
-                let dependencies = this.wrapper_dependencies(&requirement)?;
+                let owner = this.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.owner;
+                let dependencies = this.wrapper_dependencies(owner, &requirement)?;
                 let level = dependencies.iter().filter_map(|dependency| match dependency { WrapperDependency::Type(id) => Some(this.type_level(*id)), _ => None }).collect::<Result<Vec<_>, _>>()?.into_iter().min();
                 if let Some(level) = level { for ty in requirement.types() { this.lower_levels_in_type(ty, level, changes)?; } }
                 for dependency in dependencies { this.wrappers.watch(dependency, id, changes); }
@@ -510,7 +690,7 @@ impl TypeConstraints {
                         WrapperSelection::Result
                     }
                     WrapperRequirementKind::Capture { contributions, result, expected } => {
-                        let Some(errors) = crate::sema::wrapper_operation::capture_error_contributions(contributions).map_err(|error| invalid(format!("capture error source is invalid: {error:?}")))? else { continue; };
+                        let Some(errors) = this.capture_error_contributions(owner, contributions).map_err(|error| invalid(format!("capture error source is invalid: {error:?}")))? else { continue; };
                         if *expected {
                             for error in errors { this.constrain_wrapper_type(result, &error, requirement.span, changes)?; }
                         } else {
@@ -518,9 +698,39 @@ impl TypeConstraints {
                         }
                         WrapperSelection::Capture
                     }
+                    WrapperRequirementKind::IndexValidation { operation, boundary } => {
+                        let crate::sema::wrapper_operation::WrapperOperationRef::Source(operation) = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                        let wrapper_owner = this.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.owner;
+                        let operation_entry = this.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if operation_entry.owner != wrapper_owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                        let operation = operation_entry.operation.try_map(|ty| this.resolve_with_changes(ty, 0, changes).map_err(WrapperConstraintError::Resolution))?;
+                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                        if receiver.contains_inference() || key.contains_inference() { continue; }
+                        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+                            match boundary {
+                                WrapperBoundary::Return(returned) | WrapperBoundary::ErrorReturn(returned) => {
+                                    let returned = this.resolve_with_changes(returned, 0, changes)?;
+                                    if matches!(returned, Type::Inference(_)) { continue; }
+                                    if let Some(expected) = crate::sema::sealed_operation::result_error_contract(&returned) {
+                                        if expected.contains_inference() {
+                                            this.constrain_wrapper_type(expected, &Type::Error, requirement.span, changes)?;
+                                        } else if !Type::Error.matches_expected(expected) {
+                                            return Err(invalid("UInt map key validation error is outside the callable Result contract".into()));
+                                        }
+                                    }
+                                }
+                                WrapperBoundary::ProcCompletion { returned, .. } => {
+                                    let returned = this.resolve_with_changes(returned, 0, changes)?;
+                                    if !matches!(returned, Type::Result(..)) { return Err(invalid("UInt map key validation has no inferred proc completion envelope".into())); }
+                                }
+                                WrapperBoundary::Captured | WrapperBoundary::Producer | WrapperBoundary::TopLevel => {}
+                            }
+                        }
+                        WrapperSelection::IndexValidation
+                    }
                     WrapperRequirementKind::ProcCompletion { contributions: WrapperCompletionContributions::Pending, .. } => continue,
                     WrapperRequirementKind::ProcCompletion { returned, contributions: WrapperCompletionContributions::Ready(contributions), .. } => {
-                        let Some(errors) = crate::sema::wrapper_operation::completion_error_contributions(contributions).map_err(|error| invalid(format!("proc completion source is invalid: {error:?}")))? else { continue; };
+                        let Some(errors) = this.completion_error_contributions(owner, contributions).map_err(|error| invalid(format!("proc completion source is invalid: {error:?}")))? else { continue; };
                         let Type::Result(_, expected) = returned else { return Err(invalid("proc completion has no Result return".into())); };
                         let actual = Type::captured_error_type(errors);
                         if expected.contains_inference() || actual.contains_inference() {
@@ -545,6 +755,54 @@ impl TypeConstraints {
         let requirement = &self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.requirement;
         let owner = self.wrappers.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?.owner;
         let mut generalized = requirement.try_map(generalization, |context, ty| self.generalize_type(ty, level, context, 0), |context, contract| self.generalize_effect_contract(contract, level, context))?;
+        if let WrapperRequirementKind::IndexValidation { operation, .. } = &mut generalized.kind {
+            let crate::sema::wrapper_operation::WrapperOperationRef::Source(operation_id) = operation else {
+                return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
+            };
+            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+            *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal);
+        }
+        if let WrapperRequirementKind::Capture { contributions, .. } = &mut generalized.kind {
+            let mut retained = Vec::with_capacity(contributions.len());
+            for contribution in contributions.iter() {
+                match contribution {
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation_id)) => {
+                        let entry = self.operations.entries.get(operation_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        let operation = entry.operation.try_map(|ty| self.resolve(ty))?;
+                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else {
+                            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
+                        };
+                        if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                            let ordinal = generalization.operations.get(operation_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
+                            retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
+                        }
+                    }
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation)),
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement_id)) => {
+                        let entry = self.wrappers.entries.get(requirement_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                        let crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                            operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation_id), ..
+                        } = &entry.requirement.kind else {
+                            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper));
+                        };
+                        let indexed = self.operations.entries.get(operation_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if indexed.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                        let operation = indexed.operation.try_map(|ty| self.resolve(ty))?;
+                        let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else {
+                            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
+                        };
+                        if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                            let ordinal = generalization.wrappers.get(requirement_id).copied().ok_or_else(|| SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))?;
+                            retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)));
+                        }
+                    }
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(_)) => return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper)),
+                    _ => retained.push(contribution.clone()),
+                }
+            }
+            *contributions = retained.into();
+        }
         map_wrapper_groups(&mut generalized, |group| match group {
             WrapperGroupRef::Source(group) => {
                 let id = self.group_wrapper_id(group, owner)?;
@@ -561,10 +819,17 @@ impl TypeConstraints {
 
     pub(super) fn generalize_wrappers(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<WrapperRequirement<crate::sema::schemes::SchemeType, crate::sema::schemes::SchemeEffectParameterId>>, SchemeOperationError> {
         let mut ids = self.wrappers.entries.iter().filter_map(|(&id, entry)| {
-            (!entry.selection.is_some() && matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner))).then_some(id)
+            let retained_index = if let WrapperRequirementKind::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), .. } = &entry.requirement.kind {
+                self.operations.entries.get(operation).and_then(|entry| entry.operation.try_map(|ty| self.resolve(ty)).ok()).is_some_and(|operation| match operation {
+                    crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } => crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key),
+                    _ => false,
+                })
+            } else { false };
+            ((!entry.selection.is_some() || retained_index) && matches!(entry.owner, CallableApplicationScope::Declaration(owner) if owners.contains(&owner))).then_some(id)
         }).collect::<BTreeSet<_>>();
         let referenced_groups = ids.iter().filter_map(|id| match &self.wrappers.entries[id].requirement.kind {
             WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some((self.wrappers.entries[id].owner, *group)),
+            WrapperRequirementKind::IndexValidation { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some((self.wrappers.entries[id].owner, *group)),
             _ => None,
         }).collect::<BTreeSet<_>>();
         for (owner, group) in referenced_groups { ids.insert(self.group_wrapper_id(group, owner)?); }
@@ -607,7 +872,7 @@ impl TypeConstraints {
         instance.wrappers.iter().map(|id| {
             let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             let forwarded = generalization.wrappers.get(id).copied();
-            if matches!(entry.requirement.kind, WrapperRequirementKind::ProcCompletion { .. })
+            if matches!(entry.requirement.kind, WrapperRequirementKind::ProcCompletion { .. } | WrapperRequirementKind::IndexValidation { .. })
                 && let Some(ordinal) = forwarded
             {
                 return Ok(WrapperBinding::Forwarded(ordinal));

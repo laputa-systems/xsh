@@ -192,7 +192,7 @@ impl PlanProof<'_, '_> {
             || instance.method_bindings.len != scheme.methods.len || instance.wrapper_bindings.len != scheme.wrappers.len
         { return Err(invalid()); }
         if let Some((caller_id, caller_scope)) = self.caller {
-            let substitution = build_symbolic_substitution(store, scope, caller_scope, types, rows, effects_rows, self.field_coverage)?;
+            let substitution = build_symbolic_substitution(store, scope, caller_scope, types, rows, effects_rows, Some(self.field_coverage), self.budget)?;
             let caller = Some((store.scheme(caller_id)?, caller_scope));
             effects::verify_predicates(store, scheme, scope, &substitution.effects, caller, self.budget)?;
             self.leaf_bindings(scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), caller, instance)?;
@@ -215,9 +215,10 @@ impl PlanProof<'_, '_> {
     ) -> Result<(), IrVerifyError> {
         let store = self.store;
         applications::verify_bindings(store, scheme, scope, substitution, caller, bounded(instance.application_bindings, &store.call_application_bindings, "materialization application bindings are invalid")?, self.budget)?;
-        operations::verify_bindings(store, scheme, scope, substitution, caller, bounded(instance.operation_bindings, &store.call_operation_bindings, "materialization operation bindings are invalid")?, self.budget)?;
+        let operation_bindings = bounded(instance.operation_bindings, &store.call_operation_bindings, "materialization operation bindings are invalid")?;
+        operations::verify_bindings(store, scheme, scope, substitution, caller, operation_bindings, self.budget)?;
         methods::verify_bindings(store, scheme, scope, substitution, caller, bounded(instance.method_bindings, &store.call_method_bindings, "materialization method bindings are invalid")?, self.budget)?;
-        wrappers::verify_bindings(store, scheme, scope, substitution, caller, bounded(instance.wrapper_bindings, &store.call_wrapper_bindings, "materialization wrapper bindings are invalid")?, self.budget)
+        wrappers::verify_bindings(store, scheme, scope, substitution, caller, operation_bindings, bounded(instance.wrapper_bindings, &store.call_wrapper_bindings, "materialization wrapper bindings are invalid")?, self.budget)
     }
 }
 

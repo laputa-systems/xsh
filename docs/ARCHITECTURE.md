@@ -226,20 +226,24 @@ Unsigned map keys use the canonical UInt validator and existing lexical
 propagation flow. At erased function returns, the authenticated substituted
 outer envelope determines whether propagated errors cross a plain boundary or
 remain Result data, matching grounded returns without inspecting payload values.
+The cold verifier relates the original Int key to the lowered immutable
+UInt-validation temporary and checks the conditional error contribution against
+the callable's own return boundary. Caller-side capture cannot replace that
+callee contract; an already-UInt key has no validation contribution.
 
 The focused ordinary/generic UInt-key parity control observes the same outcomes
 on both evaluator routes:
 
-| Map item type | Valid key holding the payload | Negative UInt key |
+| Map item type | Valid `Int` key holding the payload | Negative `Int` key |
 | --- | --- | --- |
 | `Str` | original string | propagated Schema failure |
 | `Result[Int, Error]` | original error payload | Schema error as Result data |
-| `Result[Int, Str]` | original string error payload | Schema error as Result data |
-| `Result[Int, Str]?` | original string error payload | Schema error as Result data |
+| `Result[Int, Str]` | rejected for an `Int` key | rejected for an `Int` key |
+| `Result[Int, Str]?` | rejected for an `Int` key | rejected for an `Int` key |
 
-The last two rows expose unresolved grounded error-contract safety debt: a Schema
-error cannot satisfy the declared `Str` error payload. Generic indexing preserves
-that baseline behavior; parity does not qualify this debt as safe or complete.
+The last two rows are rejected because any `Int` key can fail UInt validation,
+and a Schema error cannot satisfy the declared `Str` error payload. A separately
+validated `UInt` key preserves a stored `Result[Int, Str]` error as data.
 
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical

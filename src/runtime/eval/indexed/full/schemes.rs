@@ -396,6 +396,7 @@ pub(super) enum FullWrapper {
     Fallback { source: SchemeTypeId, result: SchemeTypeId, backup: SchemeTypeId },
     Handler { source: SchemeTypeId, result: SchemeTypeId, detail: u32 },
     Capture { result: SchemeTypeId, detail: u32 },
+    IndexValidation { operation: u32, detail: u32 },
     ProcCompletion { returned: SchemeTypeId, group: u32, detail: u32 },
 }
 
@@ -416,6 +417,12 @@ pub(super) struct FullWrapperField {
     pub(super) name: u32,
     pub(super) boundary: FullWrapperBoundary,
     pub(super) effects: FullEffectContract,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullWrapperIndexValidation {
+    pub(super) boundary: FullWrapperBoundary,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -444,6 +451,8 @@ pub(super) struct FullWrapperCompletion {
 pub(super) enum FullWrapperContribution {
     Explicit(SchemeTypeId),
     Source(SchemeTypeId),
+    IndexValidation(u32),
+    IndexValidationBoundary(u32),
     PropagatedError(SchemeTypeId),
     ReturnedResult(SchemeTypeId),
     FieldSource(SchemeTypeId),
@@ -1187,6 +1196,10 @@ impl FullBuilder {
                     encoded.push(match term {
                         C::Explicit(ty) => FullWrapperContribution::Explicit(self.intern_scheme_type(ty, types, rows, effects)?),
                         C::Source(ty) => FullWrapperContribution::Source(self.intern_scheme_type(ty, types, rows, effects)?),
+                        C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::IndexValidation(*operation),
+                        C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
+                        C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(wrapper)) => FullWrapperContribution::IndexValidationBoundary(*wrapper),
+                        C::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(IrBuildError::format("wrapper_requirement_scope", None, 0, ordinal as usize)),
                     });
                 }
                 let start = self.store.wrapper_contributions.len();
@@ -1196,6 +1209,21 @@ impl FullBuilder {
                 self.store.wrapper_captures.push(FullWrapperCapture { contributions, expected: *expected, reserved: [0; 3] });
                 FullWrapper::Capture { result, detail }
             }
+            K::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } => {
+                let boundary = match boundary {
+                    B::Captured => FullWrapperBoundary::Captured,
+                    B::Return(ty) => FullWrapperBoundary::Return(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::ErrorReturn(ty) => FullWrapperBoundary::ErrorReturn(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::ProcCompletion { returned, group: WrapperGroupRef::Ordinal(group) } => FullWrapperBoundary::ProcCompletion { returned: self.intern_scheme_type(returned, types, rows, effects)?, group: *group },
+                    B::ProcCompletion { .. } => return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)),
+                    B::Producer => FullWrapperBoundary::Producer,
+                    B::TopLevel => FullWrapperBoundary::TopLevel,
+                };
+                let detail = index(self.store.wrapper_index_validations.len())?;
+                self.store.wrapper_index_validations.push(FullWrapperIndexValidation { boundary });
+                FullWrapper::IndexValidation { operation: *operation, detail }
+            }
+            K::IndexValidation { .. } => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
             K::ProcCompletion { group: WrapperGroupRef::Ordinal(group), returned, contributions: CC::Ready(contributions) } => {
                 if *group != ordinal { return Err(IrBuildError::format("wrapper_group_scope", None, 0, ordinal as usize)); }
                 let returned = self.intern_scheme_type(returned, types, rows, effects)?;
@@ -1206,6 +1234,8 @@ impl FullBuilder {
                         PC::ReturnedResult(ty) => FullWrapperContribution::ReturnedResult(self.intern_scheme_type(ty, types, rows, effects)?),
                         PC::FieldSource(ty) => FullWrapperContribution::FieldSource(self.intern_scheme_type(ty, types, rows, effects)?),
                         PC::ApplicationSource(ty) => FullWrapperContribution::ApplicationSource(self.intern_scheme_type(ty, types, rows, effects)?),
+                        PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation)) => FullWrapperContribution::IndexValidation(*operation),
+                        PC::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrBuildError::format("wrapper_operation_scope", None, 0, ordinal as usize)),
                     });
                 }
                 let start = self.store.wrapper_contributions.len();

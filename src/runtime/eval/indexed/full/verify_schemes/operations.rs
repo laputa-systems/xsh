@@ -202,6 +202,43 @@ pub(super) fn verify_record_override_site(
     Ok(())
 }
 
+pub(super) fn index_may_require_uint_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
+    let mut receiver = receiver;
+    while let SchemeType::Validated(_, inner) = receiver { receiver = inner; }
+    let required = match receiver {
+        SchemeType::Map(required, _) => Some(required.as_ref()),
+        SchemeType::Ground(ty) if matches!(ty.unvalidated(), Type::Map(..)) => {
+            return key.closed_ground_type().is_none_or(|key| crate::sema::sealed_operation::index_may_require_uint_key_validation(ty, &key));
+        }
+        SchemeType::Parameter(_) => return !matches!(key.closed_ground_type(), Some(Type::UInt | Type::Str)),
+        _ => None,
+    };
+    let Some(required) = required else { return false; };
+    if required == key { return false; }
+    let required = required.closed_ground_type();
+    let key = key.closed_ground_type();
+    match (required, key) {
+        (Some(Type::UInt), Some(Type::Int)) => true,
+        (Some(Type::UInt), _) => false,
+        (_, Some(Type::UInt | Type::Str)) => false,
+        _ => true,
+    }
+}
+
+pub(super) fn index_requires_uint_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
+    receiver.closed_ground_type().zip(key.closed_ground_type())
+        .is_some_and(|(receiver, key)| crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key))
+}
+
+pub(super) fn result_error_type(ty: &SchemeType) -> Option<Option<Type>> {
+    match ty {
+        SchemeType::Validated(_, inner) | SchemeType::Optional(inner) => result_error_type(inner),
+        SchemeType::Result(_, error) => Some(error.closed_ground_type()),
+        SchemeType::Ground(ty) => crate::sema::sealed_operation::result_error_contract(ty).cloned().map(Some),
+        _ => None,
+}
+}
+
 pub(super) fn verify_body_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, operator: crate::syntax::node::BinaryOp, left: &SchemeType, right: &SchemeType, result: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body operation ordinal is out of scope"))?;
     let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
@@ -232,11 +269,11 @@ pub(super) fn verify_index_site(
     let supported = match receiver {
         SchemeType::Parameter(_) => true,
         SchemeType::List(_) => body_type_matches_ground(key, &Type::Int),
-        SchemeType::Map(required, _) => body_type_matches(key, required, budget)?,
+        SchemeType::Map(required, _) => body_type_matches(key, required, budget)? || index_may_require_uint_validation(receiver, key),
         SchemeType::Record { fields, .. } => constant_key.is_some_and(|key| fields.contains_key(&key)),
-        SchemeType::Ground(receiver) => match receiver.unvalidated() {
+        SchemeType::Ground(ground_receiver) => match ground_receiver.unvalidated() {
             Type::List(_) => body_type_matches_ground(key, &Type::Int),
-            Type::Map(required, _) => body_type_matches_ground(key, required),
+            Type::Map(required, _) => body_type_matches_ground(key, required) || index_may_require_uint_validation(receiver, key),
             Type::Record(fields) => constant_key.is_some_and(|key| fields.contains_key(&key)),
             Type::Module(module) => constant_key.is_some_and(|key| module.exports.contains_key(&key)),
             _ => false,

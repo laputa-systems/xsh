@@ -182,7 +182,7 @@ impl Checker {
             .boundary.error_boundary_errors
             .pop()
             .expect("checked error boundary");
-        if errors.iter().any(|(error, _)| match error { WrapperErrorContribution::Source(_) => true, WrapperErrorContribution::Explicit(ty) => ty.contains_inference() }) {
+        if errors.iter().any(|(error, _)| match error { WrapperErrorContribution::Source(_) | WrapperErrorContribution::IndexValidation(_) | WrapperErrorContribution::IndexValidationBoundary(_) => true, WrapperErrorContribution::Explicit(ty) => ty.contains_inference() }) {
             use crate::sema::wrapper_operation::WrapperRequirementKind;
             let result = expected.cloned().unwrap_or_else(|| self.fresh_wrapper_type(span));
             let contributions = errors.into_iter().map(|(term, _)| term).collect::<Vec<_>>();
@@ -190,7 +190,7 @@ impl Checker {
         }
         let errors = errors.into_iter().map(|(error, span)| match error {
             WrapperErrorContribution::Explicit(error) => (error, span),
-            WrapperErrorContribution::Source(_) => unreachable!("deferred wrapper contributions retain their capture relationship"),
+            WrapperErrorContribution::Source(_) | WrapperErrorContribution::IndexValidation(_) | WrapperErrorContribution::IndexValidationBoundary(_) => unreachable!("deferred wrapper contributions retain their capture relationship"),
         });
         if let Some(expected) = expected {
             for (error, span) in errors { self.expect_type(expected, &error, span); }

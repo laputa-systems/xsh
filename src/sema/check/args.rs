@@ -220,6 +220,21 @@ impl Checker {
                     return false;
                 }
                 if let Some(instantiation) = &contract.instantiation {
+                    let (callable, instance) = instantiation;
+                    let validations = match self.type_constraints.index_validation_wrapper_requirements_for_instantiation(callable, instance) {
+                        Ok(validations) => validations,
+                        Err(error) => {
+                            self.error(span, &format!("index validation escaped its callable instance: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            return false;
+                        }
+                    };
+                    for requirement in validations {
+                        if self.boundary.retry_attempt_depth > 0
+                            && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
+                        {
+                            errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)), span));
+                        }
+                    }
                     self.record_pending_call_instantiation(span, instantiation.clone());
                 }
                 true
@@ -246,6 +261,7 @@ impl Checker {
                         crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                         crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                         crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                        crate::sema::wrapper_operation::WrapperOperationKind::IndexValidation => DiagnosticCode::CheckTryError,
                         crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                     }
                 } else { DiagnosticCode::CheckCallableMismatch };
@@ -281,6 +297,7 @@ impl Checker {
                     crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
                     crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
                     crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                    crate::sema::wrapper_operation::WrapperOperationKind::IndexValidation => DiagnosticCode::CheckTryError,
                     crate::sema::wrapper_operation::WrapperOperationKind::ProcCompletion => DiagnosticCode::CheckTryError,
                 },
                 crate::sema::constraints::WrapperConstraintError::Effects(_) => DiagnosticCode::CheckEffectViolation,

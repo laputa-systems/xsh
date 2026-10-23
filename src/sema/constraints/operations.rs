@@ -409,7 +409,9 @@ impl TypeConstraints {
                             Type::Record(_) | Type::Module(_) if constant_key.is_some() => Type::Str,
                             _ => return Err(SealedOperationError::UnsupportedIndex { receiver, key }),
                         };
-                        this.constrain_operation_type(&required, &key, span, changes)?;
+                        if !crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
+                            this.constrain_operation_type(&required, &key, span, changes)?;
+                        }
                         let key = this.resolve_with_changes(&key, 0, changes)?;
                         let Some((selection, selected)) = index_selection(&receiver, &key, constant_key) else {
                             return Err(SealedOperationError::UnsupportedIndex { receiver, key });
@@ -522,8 +524,51 @@ impl TypeConstraints {
         self.operations.source_sites.get(&(owner, span)).copied()
     }
 
+    pub(crate) fn source_sealed_operation_id(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
+        self.sealed_operation_at(owner, span)
+    }
+
     pub(crate) fn source_sealed_operation(&self, owner: super::CallableApplicationScope, span: Span) -> Option<&SealedOperation<Type>> {
         self.sealed_operation_at(owner, span).and_then(|id| self.operations.entries.get(&id)).map(|entry| &entry.operation)
+    }
+
+    pub(crate) fn index_validation_wrapper_requirements_for_instantiation(
+        &self,
+        callable: &crate::sema::schemes::CallableScheme,
+        instance: &super::InstantiatedScheme,
+    ) -> Result<Vec<super::WrapperOperationId>, ConstraintResolutionError> {
+        if callable.requirements().operations.len() != instance.operations.len() {
+            return Err(ConstraintResolutionError::ForeignVariable);
+        }
+        if callable.requirements().wrappers.len() != instance.wrappers.len() {
+            return Err(ConstraintResolutionError::ForeignVariable);
+        }
+        let mut requirements = Vec::new();
+        for (ordinal, requirement) in callable.requirements().wrappers.iter().enumerate() {
+            let crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal), boundary,
+            } = &requirement.kind else { continue; };
+            let operation = *instance.operations.get(*operation_ordinal as usize).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let wrapper = *instance.wrappers.get(ordinal).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let wrapper_entry = self.wrappers.entries.get(&wrapper).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let operation_entry = self.operations.entries.get(&operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if wrapper_entry.owner != operation_entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
+            let crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation {
+                operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(actual_operation), boundary: actual_boundary,
+            } = &wrapper_entry.requirement.kind else { return Err(ConstraintResolutionError::ForeignVariable); };
+            if actual_operation != &operation { return Err(ConstraintResolutionError::ForeignVariable); }
+            if matches!(boundary, crate::sema::wrapper_operation::WrapperBoundary::Captured | crate::sema::wrapper_operation::WrapperBoundary::ProcCompletion { .. })
+                || matches!(actual_boundary, crate::sema::wrapper_operation::WrapperBoundary::Captured | crate::sema::wrapper_operation::WrapperBoundary::ProcCompletion { .. })
+            {
+                continue;
+            }
+            let operation = operation_entry.operation.try_map(|ty| self.resolve(ty))?;
+            let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable); };
+            if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                requirements.push(wrapper);
+            }
+        }
+        Ok(requirements)
     }
 
     pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
@@ -557,9 +602,30 @@ impl TypeConstraints {
     }
 
     pub(super) fn generalize_sealed_operations(&self, owners: &BTreeSet<crate::sema::check::EffectDeclarationId>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<SealedOperation<crate::sema::schemes::SchemeType>>, super::SchemeOperationError> {
+        let mut wrapper_operations = BTreeSet::new();
+        for entry in self.wrappers.entries.values().filter(|entry| matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner))) {
+            let operations = match &entry.requirement.kind {
+                crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), .. } => vec![*id],
+                crate::sema::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } => contributions.iter().filter_map(|contribution| match contribution {
+                    crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(id)) => Some(*id),
+                    _ => None,
+                }).collect(),
+                _ => continue,
+            };
+            for id in operations {
+                let indexed = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                let operation = indexed.operation.try_map(|ty| self.resolve(ty))?;
+                let crate::sema::sealed_operation::SealedOperation::Index { receiver, key, .. } = operation else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                if crate::sema::sealed_operation::index_may_require_uint_key_validation(&receiver, &key) {
+                    wrapper_operations.insert(id);
+                }
+            }
+        }
         let mut operations = Vec::new();
         for (&id, entry) in &self.operations.entries {
-            if entry.selection.is_some() || !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner)) { continue; }
+            if !matches!(entry.owner, super::CallableApplicationScope::Declaration(owner) if owners.contains(&owner))
+                || entry.selection.is_some() && !wrapper_operations.contains(&id)
+            { continue; }
             let ordinal = u32::try_from(operations.len()).map_err(|_| ConstraintResolutionError::TypeDepth)?;
             generalization.operations.insert(id, ordinal);
             operations.push(self.generalize_sealed_operation(id, level, generalization)?);
@@ -591,10 +657,11 @@ impl TypeConstraints {
     pub(super) fn sealed_operation_bindings(&self, instance: &super::InstantiatedScheme, generalization: &super::Generalization) -> Result<Vec<crate::sema::schemes::SealedOperationBinding>, super::SchemeOperationError> {
         instance.operations.iter().map(|id| {
             let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-            Ok(match entry.selection {
-                Some(signature) => crate::sema::schemes::SealedOperationBinding::Selected(signature),
-                None => crate::sema::schemes::SealedOperationBinding::Forwarded(*generalization.operations.get(id).ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?),
-            })
+            if let Some(ordinal) = generalization.operations.get(id) {
+                return Ok(crate::sema::schemes::SealedOperationBinding::Forwarded(*ordinal));
+            }
+            entry.selection.map(crate::sema::schemes::SealedOperationBinding::Selected)
+                .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))
         }).collect()
     }
 }

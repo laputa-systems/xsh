@@ -110,11 +110,35 @@ pub(crate) fn record_override_selection(receiver: &Type, overrides: &[RecordOver
 pub(crate) fn index_selection(receiver: &Type, key: &Type, constant_key: Option<crate::symbol::Name>) -> Option<(SealedOperationSignature, Type)> {
     Some(match receiver.unvalidated() {
         Type::List(item) if key.matches_expected(&Type::Int) => (SealedOperationSignature::IndexList, (**item).clone()),
-        Type::Map(required, item) if key.matches_expected(required) => (SealedOperationSignature::IndexMap, (**item).clone()),
+        Type::Map(required, item) if key.matches_expected(required) || index_requires_uint_key_validation(receiver, key) => (SealedOperationSignature::IndexMap, (**item).clone()),
         Type::Record(fields) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexRecord, fields.get(&constant_key?)?.clone()),
         Type::Module(module) if key.matches_expected(&Type::Str) => (SealedOperationSignature::IndexModule, module.exports.get(&constant_key?)?.field_value_type()?),
         _ => return None,
     })
+}
+
+pub(crate) fn index_requires_uint_key_validation(receiver: &Type, key: &Type) -> bool {
+    matches!(receiver.unvalidated(), Type::Map(required, _) if required.unvalidated() == &Type::UInt)
+        && key.unvalidated() == &Type::Int
+}
+
+pub(crate) fn index_may_require_uint_key_validation(receiver: &Type, key: &Type) -> bool {
+    let receiver_can_be_unsigned_map = match receiver.unvalidated() {
+        Type::Inference(_) => true,
+        Type::Map(required, _) if required.as_ref() == key => false,
+        Type::Map(required, _) => matches!(required.unvalidated(), Type::UInt | Type::Inference(_)),
+        _ => false,
+    };
+    let key_can_be_unvalidated_int = matches!(key.unvalidated(), Type::Int | Type::Inference(_));
+    receiver_can_be_unsigned_map && key_can_be_unvalidated_int
+}
+
+pub(crate) fn result_error_contract(ty: &Type) -> Option<&Type> {
+    match ty.unvalidated() {
+        Type::Optional(inner) => result_error_contract(inner),
+        Type::Result(_, error) => Some(error),
+        _ => None,
+    }
 }
 
 pub(crate) fn slice_selection(receiver: &Type) -> Option<(SealedOperationSignature, Type)> {

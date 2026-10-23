@@ -772,6 +772,7 @@ struct FullStore {
     wrapper_completions: Vec<schemes::FullWrapperCompletion>,
     wrapper_handlers: Vec<schemes::FullWrapperHandler>,
     wrapper_fields: Vec<schemes::FullWrapperField>,
+    wrapper_index_validations: Vec<schemes::FullWrapperIndexValidation>,
     scheme_wrappers: Vec<schemes::FullWrapper>,
     scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
     scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
@@ -885,6 +886,7 @@ impl Default for FullStore {
             wrapper_completions: Vec::new(),
             wrapper_handlers: Vec::new(),
             wrapper_fields: Vec::new(),
+            wrapper_index_validations: Vec::new(),
             scheme_wrappers: Vec::new(),
             scheme_application_arguments: Vec::new(),
             scheme_proc_returns: Vec::new(),
@@ -1141,6 +1143,7 @@ impl FullStore {
             + self.wrapper_completions.capacity() * size_of::<schemes::FullWrapperCompletion>()
             + self.wrapper_handlers.capacity() * size_of::<schemes::FullWrapperHandler>()
             + self.wrapper_fields.capacity() * size_of::<schemes::FullWrapperField>()
+            + self.wrapper_index_validations.capacity() * size_of::<schemes::FullWrapperIndexValidation>()
             + self.scheme_wrappers.capacity() * size_of::<schemes::FullWrapper>()
             + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
             + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
@@ -1272,6 +1275,7 @@ impl FullStore {
         self.wrapper_completions.shrink_to_fit();
         self.wrapper_handlers.shrink_to_fit();
         self.wrapper_fields.shrink_to_fit();
+        self.wrapper_index_validations.shrink_to_fit();
         self.scheme_wrappers.shrink_to_fit();
         self.scheme_application_arguments.shrink_to_fit();
         self.scheme_proc_returns.shrink_to_fit();
@@ -1733,7 +1737,7 @@ impl FullProgram {
         let Some(wrapper) = self.store.wrapper_site(owner, instruction)? else { return Ok(None); };
         let source = match &wrapper {
             schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
-            schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture relationship has no source mode")),
+            schemes::FullWrapper::Capture { .. } | schemes::FullWrapper::IndexValidation { .. } => return Err(IrVerifyError::new("wrapper relationship has no source mode")),
             schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no source mode")),
         };
         Ok(Some(match self.invocation_type_constructor(source, invocation)? {
@@ -3599,6 +3603,7 @@ struct FullCheckpoint {
     wrapper_completions: usize,
     wrapper_handlers: usize,
     wrapper_fields: usize,
+    wrapper_index_validations: usize,
     scheme_wrappers: usize,
     scheme_application_arguments: usize,
     scheme_proc_returns: usize,
@@ -5419,6 +5424,7 @@ impl FullBuilder {
             wrapper_completions: self.store.wrapper_completions.len(),
             wrapper_handlers: self.store.wrapper_handlers.len(),
             wrapper_fields: self.store.wrapper_fields.len(),
+            wrapper_index_validations: self.store.wrapper_index_validations.len(),
             scheme_wrappers: self.store.scheme_wrappers.len(),
             scheme_application_arguments: self.store.scheme_application_arguments.len(),
             scheme_proc_returns: self.store.scheme_proc_returns.len(),
@@ -5532,6 +5538,7 @@ impl FullBuilder {
         self.store.wrapper_completions.truncate(checkpoint.wrapper_completions);
         self.store.wrapper_handlers.truncate(checkpoint.wrapper_handlers);
         self.store.wrapper_fields.truncate(checkpoint.wrapper_fields);
+        self.store.wrapper_index_validations.truncate(checkpoint.wrapper_index_validations);
         self.store.scheme_wrappers.truncate(checkpoint.scheme_wrappers);
         self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
         self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
@@ -43743,7 +43750,9 @@ assert model[key] == 17
                                 },
                             });
                         }
-                        if key == 0 {
+                        if matches!(item_type, "Result[Int, Str]" | "Result[Int, Str]?") {
+                            assert_eq!(outcomes, [Outcome::CheckRejected, Outcome::CheckRejected], "an Int key can fail UInt validation, so a Str result envelope is unsafe even when this literal key is valid: {item_type}, key={key}, force_frames={force_frames}");
+                        } else if key == 0 {
                             assert!(matches!(outcomes[0], Outcome::Value(_) | Outcome::ErrorData(..)), "valid key must preserve its real payload: {item_type}: {outcomes:?}");
                         }
                         if outcomes[0] != outcomes[1] { mismatches.push((item_type, key, force_frames, outcomes)); }
@@ -43792,7 +43801,221 @@ pure read(values{annotation}, key: Int) -> Result[Int, Str] {{
 let values: Map[UInt, Str] = {{[0]: "zero"}}
 let _ = read(values, -1)
 "#);
-                assert!(fixture_result("generic-index-unsigned-error-contract.xsh", &source).is_err(), "unsigned schema failure cannot inhabit the Str error contract: {source}");
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("generic-index-unsigned-error-contract.xsh", &source);
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena_with_sources_and_options(
+                    &parsed.arena,
+                    &sources,
+                    source_id,
+                    crate::sema::check::CheckOptions::for_execution(),
+                );
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == crate::diagnostic::Severity::Error
+                        && matches!(
+                            diagnostic.code,
+                            Some(
+                                crate::diagnostic::DiagnosticCode::CheckTryError
+                                    | crate::diagnostic::DiagnosticCode::CheckCallableMismatch
+                            )
+                        )
+                        && diagnostic.message.contains("wrapper requires Str, found Error")
+                }), "unsigned schema failure cannot inhabit the Str error contract: {:?}", checked.diagnostics);
+            }
+        });
+    }
+
+    #[test]
+    fn caller_context_cannot_waive_generic_index_error_contracts() {
+        run_with_large_stack(|| {
+            for (name, source) in [
+                (
+                    "caller-try-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\npure caught(values, key) { try { read(values, key) } }\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet _ = caught(values, -1)\n",
+                ),
+                (
+                    "scheme-callable-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\nlet action = read\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet _ = action(values, -1)\n",
+                ),
+                (
+                    "mutable-aggregate-scheme-callable-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\nvar holder = {action: read}\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet _ = holder.action(values, -1)\n",
+                ),
+            ] {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file(name, source);
+                let parsed = Parser::parse_source_arena_only(source_id, source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena_with_sources_and_options(
+                    &parsed.arena,
+                    &sources,
+                    source_id,
+                    crate::sema::check::CheckOptions::for_execution(),
+                );
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == crate::diagnostic::Severity::Error
+                        && diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTryError)
+                        && diagnostic.message.contains("UInt map key validation error is outside the callable Result contract")
+                }), "caller try or scheme-callable alias cannot rescue a callee's Str error contract: {name}: {:?}", checked.diagnostics);
+            }
+        });
+    }
+
+    #[test]
+    fn unsigned_index_failures_must_fit_the_return_error_contract() {
+        run_with_large_stack(|| {
+            let check = |name: &str, source: &str| {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file(name, source);
+                let parsed = Parser::parse_source_arena_only(source_id, source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                Checker::check_arena_with_sources_and_options(
+                    &parsed.arena,
+                    &sources,
+                    source_id,
+                    crate::sema::check::CheckOptions::for_execution(),
+                )
+                .diagnostics
+            };
+
+            let invalid = [
+                (
+                    "ground-unsigned-index-result-str.xsh",
+                    "pure read(values: Map[UInt, Result[Int, Str]], key: Int) { values[key] }\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet selected = read(values, -1)\n",
+                ),
+                (
+                    "generic-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet selected = read(values, -1)\n",
+                ),
+                (
+                    "caller-try-cannot-rescue-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\npure caught(values, key) { try { read(values, key) } }\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet selected = caught(values, -1)\n",
+                ),
+                (
+                    "scheme-callable-unsigned-index-result-str.xsh",
+                    "pure read(values, key) { values[key] }\nlet action = read\nlet payload: Result[Int, Str] = Err(\"payload\")\nlet values: Map[UInt, Result[Int, Str]] = {[0]: payload}\nlet selected = action(values, -1)\n",
+                ),
+            ].into_iter().filter_map(|(name, source)| {
+                let diagnostics = check(name, source);
+                (!diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error))
+                    .then_some((name, diagnostics))
+            }).collect::<Vec<_>>();
+            assert!(invalid.is_empty(), "UInt-key validation failures cannot be published as Result error data with a Str contract: {invalid:?}");
+
+            let compatible = Arc::new(fixture("unsigned-index-result-error.xsh", r#"
+pure read(values: Map[UInt, Result[Int, Error]], key: Int) { values[key] }
+let payload: Result[Int, Error] = Err(error.failure("payload"))
+let values: Map[UInt, Result[Int, Error]] = {[0]: payload}
+let selected = read(values, -1)
+"#));
+            FullVerifier::verify(&compatible).unwrap();
+            let _symbols = compatible.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*compatible.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&compatible));
+                for step in 0..compatible.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(compatible.store.source_id, 0)).unwrap().unwrap();
+                }
+                let Value::Result(crate::runtime::value::ResultValue::Err(error)) = evaluator.lookup("selected").unwrap().value.clone() else {
+                    panic!("the UInt-key validation failure must use the accepted Error boundary");
+                };
+                let Value::Error(error) = *error else { panic!("the UInt-key validation failure must remain structured") };
+                assert_eq!(error.kind, "schema");
+            }
+
+            let signed = Arc::new(fixture("signed-index-result-str.xsh", r#"
+pure read(values: Map[Int, Result[Int, Str]], key: Int) { values[key] }
+let payload: Result[Int, Str] = Err("payload")
+let values: Map[Int, Result[Int, Str]] = {[-1]: payload}
+let selected = read(values, -1)
+"#));
+            FullVerifier::verify(&signed).unwrap();
+            let _symbols = signed.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*signed.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&signed));
+                for step in 0..signed.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(signed.store.source_id, 0)).unwrap().unwrap();
+                }
+                assert_eq!(
+                    evaluator.lookup("selected").unwrap().value,
+                    Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))),
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn generic_index_operation_errors_forward_into_capture() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-index-call-capture.xsh", r#"
+pure read(values, key) { values[key] }
+pure captured(values, key) { try { read(values, key) } }
+pure preserve_signed(values: Map[Int, Int], key: Int, payload: Result[Int, Str]) -> Result[Int, Str] {
+  try { let _ = read(values, key); payload? }
+}
+pure preserve_unsigned(values: Map[UInt, Int], key: UInt, payload: Result[Int, Str]) -> Result[Int, Str] {
+  try { let _ = read(values, key); payload? }
+}
+pure safe(values, key, payload: Result[Int, Str]) -> Result[Int, Str] {
+  let ignored = try { values[key] }
+  payload
+}
+pure safe_concrete(marker, values: Map[UInt, Int], key: Int, payload: Result[Int, Str]) -> Result[Int, Str] {
+  let _ = marker
+  let ignored = try { values[key] }
+  payload
+}
+pure read_data(values, key) { values[key] }
+pure discard_data(values, key, failure: Result[Int, Str]) -> Result[Int, Str] {
+  try { let _ = read_data(values, key); failure? }
+}
+let values: Map[UInt, Int] = {[0]: 7}
+let selected = captured(values, -1)
+assert match selected { Err(error) => error.message == "schema check failed: expected UInt, found Int"; Ok(_) => false }
+let payload: Result[Int, Str] = Err("payload")
+let signed: Map[Int, Int] = {[-1]: 7}
+let signed_selected = preserve_signed(signed, -1, payload)
+let unsigned_selected = preserve_unsigned(values, 0, payload)
+let safe_selected = safe(values, -1, payload)
+let safe_concrete_selected = safe_concrete(true, values, -1, payload)
+assert match signed_selected { Err(error) => error == "payload"; Ok(_) => false }
+assert match unsigned_selected { Err(error) => error == "payload"; Ok(_) => false }
+assert match safe_selected { Err(error) => error == "payload"; Ok(_) => false }
+assert match safe_concrete_selected { Err(error) => error == "payload"; Ok(_) => false }
+let data_payload: Result[Int, Error] = Err(error.failure("result data"))
+let data_values: Map[UInt, Result[Int, Error]] = {[0]: data_payload}
+let data_capture = discard_data(data_values, 0, Err("payload"))
+let invalid_data_capture = discard_data(data_values, -1, Err("payload"))
+let text_payload: Result[Int, Str] = Err("text result data")
+let text_values: Map[UInt, Result[Int, Str]] = {[0]: text_payload}
+let unsigned_key: UInt = 0
+let unsigned_data = read_data(text_values, unsigned_key)
+assert match data_capture { Err(error) => error == "payload"; Ok(_) => false }
+assert match invalid_data_capture { Err(error) => error == "payload"; Ok(_) => false }
+assert match unsigned_data { Err(error) => error == "text result data"; Ok(_) => false }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+                let Value::Result(crate::runtime::value::ResultValue::Err(error)) = evaluator.lookup("selected").unwrap().value.clone() else {
+                    panic!("the caller try boundary must capture the forwarded UInt-key failure");
+                };
+                let Value::Error(error) = *error else { panic!("the captured UInt-key failure must remain structured") };
+                assert_eq!(error.message, "schema check failed: expected UInt, found Int");
+                assert_eq!(evaluator.lookup("safe_selected").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))));
+                assert_eq!(evaluator.lookup("data_capture").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))));
+                assert_eq!(evaluator.lookup("invalid_data_capture").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))));
+                assert_eq!(evaluator.lookup("unsigned_data").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("text result data".into())))));
             }
         });
     }

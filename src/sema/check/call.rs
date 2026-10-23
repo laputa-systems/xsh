@@ -1356,10 +1356,10 @@ impl Checker {
     }
 
     pub(super) fn resolve_pending_call_instantiations(&mut self) {
-        for (span, evidence) in
+        for (site, evidence) in
             std::mem::take(&mut self.pending_call_instantiations)
         {
-            if self.call_instantiations.contains_key(&span) {
+            if self.call_instantiations.contains_key(&site) {
                 continue;
             }
             match self
@@ -1367,7 +1367,7 @@ impl Checker {
                 .resolve_instantiation_evidence(&evidence)
             {
                 Ok(instantiation) => {
-                    let previous = self.call_instantiations.insert(span, instantiation);
+                    let previous = self.call_instantiations.insert(site, instantiation);
                     assert!(previous.is_none(), "a call instantiation is published once");
                 }
                 Err(error) => {
@@ -1377,7 +1377,7 @@ impl Checker {
                         _ => DiagnosticCode::CheckLocalInference,
                     };
                     let message = call_instantiation_error_message(error);
-                    self.error(span.source, &message, code);
+                    self.error(site.source, &message, code);
                 }
             }
         }

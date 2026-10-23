@@ -1230,6 +1230,7 @@ fn verify_scheme_body_facts(
                     super::schemes::FullWrapper::Field { .. } => FullTag::ExprField,
                     super::schemes::FullWrapper::Fallback { .. } => FullTag::ExprResultFallback,
                     super::schemes::FullWrapper::Handler { .. } => FullTag::ExprMatch,
+                    super::schemes::FullWrapper::IndexValidation { .. } => FullTag::ExprIndex,
                     super::schemes::FullWrapper::Capture { .. } if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) => store.tags[instruction],
                     super::schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture wrapper has no capture instruction")),
                     super::schemes::FullWrapper::ProcCompletion { .. } => return Err(IrVerifyError::new("proc completion relationship has no executable instruction")),
@@ -1357,6 +1358,42 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
         (Some(actual), Some(expected)) => initializer_type_matches_annotation(&actual, &expected, budget, 0),
         _ => Ok(false),
     }
+}
+
+fn checked_uint_index_source_key(
+    decoder: &FullDecoder<'_>,
+    index: super::decode::ExprInstructionId<'_>,
+    receiver: &SchemeType,
+    physical_key: &SchemeType,
+    types: &BTreeMap<usize, SchemeType>,
+    slots: &body::LexicalScope,
+    scopes: &body::LexicalScopes,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Option<SchemeType>, IrVerifyError> {
+    if !receiver.closed_ground_type().is_some_and(|receiver| matches!(receiver.unvalidated(), Type::Map(key, _) if **key == Type::UInt)) {
+        return Ok(None);
+    }
+    if physical_key.closed_ground_type() != Some(Type::UInt) { return Ok(None); }
+    let index_instruction = index.raw() as usize;
+    let schema::ExprView::Param(slot) = decoder.expression_view(index_instruction)? else { return Ok(None) };
+    let Some(initializer) = slots.immutable_initializer(scopes, slot, budget)? else { return Ok(None) };
+    let schema::ExprView::Try { value: required, .. } = decoder.expression_view(initializer)? else { return Ok(None) };
+    let required_instruction = required.raw() as usize;
+    let schema::ExprView::Require { value: source, check, .. } = decoder.expression_view(required_instruction)? else { return Ok(None) };
+    if check.schema.is_some() || check.ty.materialize()? != Type::UInt { return Ok(None); }
+    let expected_slot = slots.slot_type(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("UInt index temporary has no lexical type"))?;
+    let physical_slot = types.get(&index_instruction).ok_or_else(|| IrVerifyError::new("UInt index temporary has no checked expression type"))?;
+    if !body_types_equal(expected_slot, physical_key) || !body_types_equal(physical_slot, physical_key) {
+        return Err(IrVerifyError::new("UInt index temporary disagrees with its checked local binding"));
+    }
+    let required_type = types.get(&required_instruction).ok_or_else(|| IrVerifyError::new("UInt index require has no checked expression type"))?;
+    let expected_required = SchemeType::Result(Box::new(SchemeType::Ground(Type::UInt)), Box::new(SchemeType::Ground(Type::Error)));
+    if !body_types_equal(required_type, &expected_required) {
+        return Err(IrVerifyError::new("UInt index require disagrees with its checked result"));
+    }
+    let actual = types.get(&(source.raw() as usize)).ok_or_else(|| IrVerifyError::new("UInt index require has no checked source type"))?;
+    budget.charge_scheme_clone(actual)?;
+    Ok(Some(actual.clone()))
 }
 
 #[derive(Clone)]
@@ -1650,6 +1687,7 @@ fn verify_body_expression(
     visited: &mut BTreeSet<usize>,
     registered_coverage: &mut BTreeSet<u32>,
     boundary: &PropagationBoundary,
+    expected_return: &SchemeType,
     completion_group: Option<u32>,
     completion_contributions: &mut Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
     budget: &mut SchemeInstantiationBudget,
@@ -1854,14 +1892,23 @@ fn verify_body_expression(
                 crate::runtime::eval::IndexOperand::Ordinary(index) => {
                     let key = child(index, budget)?;
                     let constant = slots.literal_string(scopes, decoder, index.raw() as usize, budget)?.map(|name| Name::intern(&name));
-                    (key, crate::sema::sealed_operation::IndexSyntax::Ordinary, constant)
+                    let operation_key = checked_uint_index_source_key(decoder, index, &receiver, &key, types, slots, scopes, budget)?.unwrap_or_else(|| key.clone());
+                    (operation_key, crate::sema::sealed_operation::IndexSyntax::Ordinary, constant)
                 }
                 crate::runtime::eval::IndexOperand::NegativeLiteral(distance) => (SchemeType::Ground(Type::Int), crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(std::num::NonZeroU32::new(distance.get() as u32).ok_or_else(|| IrVerifyError::new("literal index distance is invalid"))?), None),
             };
             operations::verify_index_site(store, scheme_scope, operation_sites[&instruction], &receiver, &key, ty, syntax, constant_key, budget)?;
+            let wrapper = wrapper_sites.get(&instruction).copied();
+            if let Some(contribution) = wrappers::verify_index_validation_site(
+                store, decoder.owner, scheme_scope, effect_scopes, wrapper, operation_sites[&instruction],
+                &receiver, &key, expected_return, boundary, completion_group, budget,
+            )? {
+                completion_contributions.push(contribution);
+            }
             ty.clone()
         }
         schema::ExprView::Index { base, index, .. } => {
+            if wrapper_sites.contains_key(&instruction) { return Err(IrVerifyError::new("index validation wrapper has no sealed operation")); }
             let crate::runtime::eval::IndexOperand::Ordinary(index) = index else { return Err(IrVerifyError::new("literal generic index has no retained operation")); };
             let mut source = child(base, budget)?;
             while let SchemeType::Validated(_, base) = source { budget.charge(1)?; source = *base; }
@@ -2357,6 +2404,7 @@ fn verify_call_instantiations(
         )?;
         let effect_rows = bounded(instantiation.arguments.effect_arguments, &store.call_effect_arguments,
             "generic call effect argument range is invalid")?;
+        let mut budget = SchemeInstantiationBudget::new(store);
         if let Some((caller_scheme, caller_scope)) =
             caller_scheme_for_instruction(store, instruction, scopes)?
         {
@@ -2367,18 +2415,19 @@ fn verify_call_instantiations(
                 type_rows,
                 row_rows,
                 effect_rows,
-                &mut row_field_coverage,
+                Some(&mut row_field_coverage),
+                &mut budget,
             )?;
-            let mut budget = SchemeInstantiationBudget::new(store);
             effects::verify_predicates(store, scheme, scope, &substitution.effects,
                 Some((store.scheme(caller_scheme)?, caller_scope)), &mut budget)?;
             applications::verify_bindings(store, scheme, scope,
                 applications::ApplicationSubstitution::Symbolic(&substitution),
                 Some((store.scheme(caller_scheme)?, caller_scope)),
                 bounded(instantiation.arguments.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut budget)?;
-            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut budget)?;
+            let operation_bindings = bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?;
+            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), operation_bindings, &mut budget)?;
             methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut budget)?;
-            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut budget)?;
+            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Symbolic(&substitution), Some((store.scheme(caller_scheme)?, caller_scope)), operation_bindings, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut budget)?;
             if reference {
                 let fact = scheme_body_fact_type(store, caller_scheme, instantiation.instruction, FullSchemeBodyFactKind::Expression)?
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked scheme type"))?;
@@ -2433,9 +2482,10 @@ fn verify_call_instantiations(
             applications::verify_bindings(store, scheme, scope,
                 applications::ApplicationSubstitution::Ground(&substitution), None,
                 bounded(instantiation.arguments.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
-            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?, &mut materialization)?;
+            let operation_bindings = bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?;
+            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, operation_bindings, &mut materialization)?;
             methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
-            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
+            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, operation_bindings, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
             if reference {
                 let fact = checked_expression_type_id(store, instantiation.instruction)
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked type"))?;
@@ -2839,11 +2889,11 @@ fn build_symbolic_substitution(
     type_rows: &[FullTypeArgument],
     row_rows: &[super::schemes::FullRowArgument],
     effect_rows: &[super::schemes::FullEffectArgument],
-    row_field_coverage: &mut [bool],
+    mut row_field_coverage: Option<&mut [bool]>,
+    budget: &mut SchemeInstantiationBudget,
 ) -> Result<SymbolicCallSubstitution, IrVerifyError> {
     let mut types = vec![None; callee_scope.type_parameters.len()];
     let mut type_ids = BTreeSet::new();
-    let mut budget = SchemeInstantiationBudget::new(store);
     for row in type_rows {
         if !type_ids.insert(row.binder) {
             return Err(IrVerifyError::new("generic call type binder is duplicated"));
@@ -2851,11 +2901,11 @@ fn build_symbolic_substitution(
         let Some(&binder) = callee_scope.type_binders.get(&row.binder) else {
             return Err(IrVerifyError::new("generic call type binder is out of scope"));
         };
-        let ty = decode_scheme_type(store, caller_scope, row.ty, &mut budget, 0)?;
+        let ty = decode_scheme_type(store, caller_scope, row.ty, budget, 0)?;
         validate_symbolic_call_type_argument(&ty, caller_scope, 0)?;
         let conversions = ValueConversionSet::from_bits(callee_scope.type_parameters[binder].conversions).ok_or_else(|| IrVerifyError::new("scheme conversion requirements are invalid"))?;
         for conversion in ValueConversion::ALL {
-            if conversions.contains(conversion) && !scheme_conversion(&ty, conversion, caller_scope, &mut budget)? {
+            if conversions.contains(conversion) && !scheme_conversion(&ty, conversion, caller_scope, budget)? {
                 return Err(IrVerifyError::new("generic call does not retain its conversion requirement"));
             }
         }
@@ -2881,12 +2931,11 @@ fn build_symbolic_substitution(
         };
         let mut fields = BTreeMap::new();
         let mut previous = None;
-        for field in mark_range(
-            row.fields,
-            &store.call_row_fields,
-            row_field_coverage,
-            "generic call row evidence range is invalid or overlaps",
-        )? {
+        let encoded_fields = match row_field_coverage.as_deref_mut() {
+            Some(coverage) => mark_range(row.fields, &store.call_row_fields, coverage, "generic call row evidence range is invalid or overlaps")?,
+            None => bounded(row.fields, &store.call_row_fields, "generic call row evidence range is invalid")?,
+        };
+        for field in encoded_fields {
             let text = store.string(field.name)?;
             if text.is_empty() || previous.is_some_and(|previous: &str| previous >= text) {
                 return Err(IrVerifyError::new("generic call row fields are not sorted unique"));
@@ -2898,7 +2947,7 @@ fn build_symbolic_substitution(
                     "generic call row evidence violates a lacks constraint",
                 ));
             }
-            let ty = decode_scheme_type(store, caller_scope, field.ty, &mut budget, 0)?;
+            let ty = decode_scheme_type(store, caller_scope, field.ty, budget, 0)?;
             validate_symbolic_substitution_type(&ty, caller_scope, 0)?;
             if fields.insert(name, ty).is_some() {
                 return Err(IrVerifyError::new("generic call row field is duplicated"));
@@ -2933,13 +2982,13 @@ fn build_symbolic_substitution(
     if rows.iter().any(Option::is_none) {
         return Err(IrVerifyError::new("generic call row substitution is incomplete"));
     }
-    let effects = effects::build_substitution(store, callee_scope, Some(caller_scope), effect_rows, &mut budget)?;
+    let effects = effects::build_substitution(store, callee_scope, Some(caller_scope), effect_rows, budget)?;
     let substitution = SymbolicCallSubstitution {
         effects,
         types: types.into_iter().map(Option::unwrap).collect(),
         rows: rows.into_iter().map(Option::unwrap).collect(),
     };
-    verify_symbolic_iterations(store, callee_scope, caller_scope, &substitution, &mut budget)?;
+    verify_symbolic_iterations(store, callee_scope, caller_scope, &substitution, budget)?;
     Ok(substitution)
 }
 

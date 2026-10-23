@@ -1313,7 +1313,7 @@ impl TypeConstraints {
                 family: method.family, receiver, argument_slots: method.argument_slots.clone(), arguments, result,
             }, None)?);
         }
-        let mut wrappers = Vec::new();
+        let mut wrappers_by_ordinal = vec![None; callable.requirements().wrappers.len()];
         let mut wrapper_groups = vec![None; callable.requirements().wrappers.len()];
         for (ordinal, requirement) in callable.requirements().wrappers.iter().enumerate() {
             if let super::wrapper_operation::WrapperRequirementKind::ProcCompletion { group: super::wrapper_operation::WrapperGroupRef::Ordinal(group), .. } = &requirement.kind {
@@ -1321,15 +1321,58 @@ impl TypeConstraints {
                 wrapper_groups[ordinal] = Some(super::wrapper_operation::WrapperGroupId::fresh());
             }
         }
-        for requirement in &callable.requirements().wrappers {
-            let mut requirement = requirement.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+        for (ordinal, source) in callable.requirements().wrappers.iter().enumerate() {
+            if matches!(&source.kind, super::wrapper_operation::WrapperRequirementKind::Capture { .. }) { continue; }
+            let mut requirement = source.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            if let super::wrapper_operation::WrapperRequirementKind::IndexValidation { operation, .. } = &mut requirement.kind {
+                let super::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal) = operation else { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation)); };
+                let operation_id = *operations.get(*operation_ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
+                if !matches!(self.operations.entries.get(&operation_id).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. })) {
+                    return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
+                }
+                *operation = super::wrapper_operation::WrapperOperationRef::Source(operation_id);
+            }
             super::wrapper_operation::map_wrapper_groups(&mut requirement, |group| match group {
-                super::wrapper_operation::WrapperGroupRef::Ordinal(ordinal) => wrapper_groups.get(ordinal as usize).and_then(|group| *group)
+                super::wrapper_operation::WrapperGroupRef::Ordinal(group) => wrapper_groups.get(group as usize).and_then(|group| *group)
                     .map(super::wrapper_operation::WrapperGroupRef::Source).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),
                 super::wrapper_operation::WrapperGroupRef::Source(_) => Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),
             })?;
-            wrappers.push(self.register_wrapper(scope, requirement).map_err(SchemeOperationError::Wrapper)?);
+            let id = self.register_wrapper(scope, requirement).map_err(SchemeOperationError::Wrapper)?;
+            wrappers_by_ordinal[ordinal] = Some(id);
         }
+        for (ordinal, source) in callable.requirements().wrappers.iter().enumerate() {
+            if !matches!(&source.kind, super::wrapper_operation::WrapperRequirementKind::Capture { .. }) { continue; }
+            let mut requirement = source.try_map(self, |this, ty| this.instantiate_scheme_type(ty, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0), |_, contract| contract.substitute(|id| effect_arguments.get(id).copied().map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;
+            if let super::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } = &mut requirement.kind {
+                let mut instantiated = Vec::with_capacity(contributions.len());
+                for contribution in contributions.iter() {
+                    let contribution = match contribution {
+                        super::wrapper_operation::WrapperErrorContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+                            let operation = *operations.get(*ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
+                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. })) {
+                                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
+                            }
+                            super::wrapper_operation::WrapperErrorContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Source(operation))
+                        }
+                        super::wrapper_operation::WrapperErrorContribution::IndexValidation(super::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation)),
+                        super::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(super::wrapper_operation::WrapperRequirementRef::Ordinal(wrapper_ordinal)) => {
+                            let wrapper = wrappers_by_ordinal.get(*wrapper_ordinal as usize).and_then(|wrapper| *wrapper).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper))?;
+                            if !matches!(self.wrappers.entries.get(&wrapper).map(|entry| &entry.requirement.kind), Some(super::wrapper_operation::WrapperRequirementKind::IndexValidation { .. })) {
+                                return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper));
+                            }
+                            super::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(super::wrapper_operation::WrapperRequirementRef::Source(wrapper))
+                        }
+                        super::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(super::wrapper_operation::WrapperRequirementRef::Source(_)) => return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper)),
+                        _ => contribution.clone(),
+                    };
+                    instantiated.push(contribution);
+                }
+                *contributions = instantiated.into();
+            }
+            let id = self.register_wrapper(scope, requirement).map_err(SchemeOperationError::Wrapper)?;
+            wrappers_by_ordinal[ordinal] = Some(id);
+        }
+        let wrappers = wrappers_by_ordinal.into_iter().collect::<Option<Vec<_>>>().ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedWrapper))?;
         for predicate in &callable.requirements().effect_predicates {
             let predicate = predicate.try_map_contracts(|contract| contract.substitute(|id| effect_arguments.get(id).copied()
                 .map(super::effects::EffectContract::variable).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))))?;

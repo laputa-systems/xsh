@@ -95,6 +95,7 @@ pub(super) fn require_callable(decoder: &FullDecoder<'_>, scopes: &VerifiedSchem
 pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &VerifiedSchemeScopes) -> Result<(), IrVerifyError> {
     let owner = OwnerEffects::for_function(decoder.store, index)?;
     verify_script_implementation(decoder.store, index, &owner)?;
+    verify_uint_index_return_contract(decoder, index)?;
     let mutable_captures = if owner.kind == CallableKind::Pure {
         let captures = decoder.store.functions[index].captures.bounds(decoder.store.captures.len())
             .ok_or_else(|| IrVerifyError::new("pure callable capture range is invalid"))?;
@@ -277,6 +278,36 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
         };
         if result != super::LoweredReturnKind::Plain(super::LoweredType::Stream) {
             return Err(IrVerifyError::new("stream callable kind requires a lazy stream return boundary"));
+        }
+    }
+    Ok(())
+}
+
+fn verify_uint_index_return_contract(decoder: &FullDecoder<'_>, index: usize) -> Result<(), IrVerifyError> {
+    if matches!(decoder.store.functions.get(index).ok_or_else(|| IrVerifyError::new("UInt index return owner is out of bounds"))?.contract, FullCallableContract::Scheme(_)) {
+        return Ok(());
+    }
+    let mut materialization = super::super::semantic::TypeMaterializationBudget::default();
+    let returned_id = decoder.function_return_type(index)?;
+    let returned = decoder.store.semantic.to_type_with_budget(returned_id, &mut materialization)?;
+    let Some(error) = crate::sema::sealed_operation::result_error_contract(&returned) else { return Ok(()); };
+    let mut captures = BTreeMap::new();
+    for instruction in decoder.instruction_range.clone() {
+        if decoder.store.tags[instruction] != FullTag::ExprIndex || captures_error(decoder, instruction, &mut captures, |at| decoder.instruction_parent_of(at))? { continue; }
+        let schema::ExprView::Index { base, index, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+        let receiver = decoder.derive_checked_expression_type(base.raw() as usize)?
+            .ok_or_else(|| IrVerifyError::new("ground UInt index receiver has no checked type"))?;
+        let key = match index {
+            crate::runtime::eval::IndexOperand::Ordinary(index) => {
+                decoder.derive_checked_expression_type(index.raw() as usize)?
+                    .ok_or_else(|| IrVerifyError::new("ground UInt index key has no checked type"))?
+            }
+            crate::runtime::eval::IndexOperand::NegativeLiteral(_) => Type::Int,
+        };
+        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key)
+            && !Type::Error.matches_expected(error)
+        {
+            return Err(IrVerifyError::new("ground UInt map index can produce Error outside its Result return contract"));
         }
     }
     Ok(())

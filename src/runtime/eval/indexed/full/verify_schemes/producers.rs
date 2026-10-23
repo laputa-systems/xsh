@@ -2106,9 +2106,12 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             proof.budget.charge(request.transfers.len())?;
             let mut actual = request.transfers;
             charged_capture_event_sort(&mut actual, &mut proof.budget)?;
-            let transfers = actual.iter().map(|(instruction, _)| *instruction).collect::<Vec<_>>();
-            proof.budget.charge(transfers.len())?;
-            if transfers.windows(2).any(|pair| pair[0] == pair[1]) { return Err(IrVerifyError::new("capture transfer is authenticated more than once")); }
+            proof.budget.charge(actual.len())?;
+            if actual.windows(2).any(|pair| pair[0].0 == pair[1].0 && pair[0].1 == pair[1].1) { return Err(IrVerifyError::new("capture transfer is authenticated more than once")); }
+            let mut transfers = Vec::with_capacity(actual.len());
+            for (instruction, _) in &actual {
+                if transfers.last() != Some(instruction) { transfers.push(*instruction); }
+            }
             for (instruction, error) in proof.derive_captured_error_events(&decoder, request.instruction, &transfers)? {
                 actual.push((instruction, crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(crate::sema::schemes::SchemeType::Ground(error))));
             }
@@ -2117,6 +2120,8 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             if actual.len() != expected.len() || !actual.iter().zip(expected.iter()).all(|((_, actual), expected)| match (actual, expected) {
                 (crate::sema::wrapper_operation::WrapperErrorContribution::Source(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Source(expected))
                 | (crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(expected)) => super::body_types_equal(actual, expected),
+                (crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(expected))) => actual == expected,
+                (crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(actual)), crate::sema::wrapper_operation::WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(expected))) => actual == expected,
                 _ => false,
             }) { return Err(IrVerifyError::new("capture contributions disagree with its actual body")); }
             continue;

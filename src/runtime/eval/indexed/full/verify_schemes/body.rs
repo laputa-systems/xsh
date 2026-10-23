@@ -63,6 +63,17 @@ impl LexicalScope {
     pub(super) fn slot_type<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a SchemeType>, IrVerifyError> {
         Ok(self.binding(scopes, slot, budget)?.map(|binding| &binding.ty))
     }
+
+    pub(super) fn immutable_initializer(
+        &self,
+        scopes: &LexicalScopes,
+        slot: usize,
+        budget: &mut SchemeInstantiationBudget,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let Some(binding) = self.binding(scopes, slot, budget)? else { return Ok(None) };
+        if binding.mutable { return Ok(None); }
+        Ok(binding.initializer.map(|(instruction, _)| instruction))
+    }
 }
 
 enum Obligation {
@@ -948,13 +959,14 @@ pub(super) fn verify_body(
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), completion_group, &mut completion_contributions, budget, constant_budget)?;
-                        if let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(&scope, &scopes)
-                            && let Some(transfer) = wrappers::actual_transfer(store, scheme_scope, wrapper_sites.get(&instruction).copied(), decoder.expression_view(instruction)?, types, budget)?
-                        {
-                            let request = captures.get_mut(*request).filter(|request| request.instruction == *capture && request.owner == decoder.owner).ok_or_else(|| IrVerifyError::new("captured transfer has no actual capture owner"))?;
-                            budget.charge(1)?;
-                            request.transfers.push((instruction, transfer));
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), expected_return, completion_group, &mut completion_contributions, budget, constant_budget)?;
+                        if let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(&scope, &scopes) {
+                            let transfers = wrappers::actual_transfer(store, scheme_scope, effect_scopes, wrapper_sites.get(&instruction).copied(), operation_sites.get(&instruction).copied(), instruction, decoder.expression_view(instruction)?, types, budget)?;
+                            if !transfers.is_empty() {
+                                budget.charge(transfers.len())?;
+                                let request = captures.get_mut(*request).filter(|request| request.instruction == *capture && request.owner == decoder.owner).ok_or_else(|| IrVerifyError::new("captured transfer has no actual capture owner"))?;
+                                request.transfers.extend(transfers.into_iter().map(|transfer| (instruction, transfer)));
+                            }
                         }
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
@@ -1629,6 +1641,46 @@ mod tests {
         let wrappers = bounded(program.store.scheme(scheme).unwrap().wrappers, &program.store.scheme_wrappers, "wrappers").unwrap();
         assert_eq!(wrappers.iter().filter(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. })).count(), 1);
         FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn generic_index_capture_requires_its_conditional_operation_relation() {
+        let program = prepare("pure safe(values, key, payload: Result[Int, Str]) -> Result[Int, Str] { let ignored = try { values[key] }; payload }");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "safe").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { unreachable!() };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let wrappers = bounded(scheme.wrappers, &program.store.scheme_wrappers, "wrapper range is invalid").unwrap();
+        let (result, detail) = wrappers.iter().find_map(|wrapper| match wrapper {
+            super::super::super::schemes::FullWrapper::Capture { result, detail } => Some((*result, *detail)),
+            _ => None,
+        }).unwrap();
+        let capture = program.store.wrapper_captures[detail as usize];
+        let contributions = capture.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        assert_eq!(contributions.len(), 1);
+        assert!(matches!(program.store.wrapper_contributions[contributions.start], super::super::super::schemes::FullWrapperContribution::IndexValidation(_)));
+
+        let mut missing_relation = program.clone();
+        missing_relation.store.wrapper_contributions[capture.contributions.start as usize] =
+            super::super::super::schemes::FullWrapperContribution::Explicit(result);
+        let error = FullVerifier::verify(&missing_relation).unwrap_err();
+        assert_eq!(error.message, "capture contributions disagree with its actual body");
+        assert!(!error.message.contains("unowned"), "the forged relation retained its owned contribution row");
+
+        let concrete = prepare("pure safe(marker, values: Map[UInt, Int], key: Int, payload: Result[Int, Str]) -> Result[Int, Str] { let _ = marker; let ignored = try { values[key] }; payload }");
+        let owner = concrete.store.functions.iter().position(|function| concrete.store.string(function.name).unwrap() == "safe").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = concrete.store.functions[owner].contract else { unreachable!() };
+        let scheme = concrete.store.scheme(scheme_id).unwrap();
+        let wrappers = bounded(scheme.wrappers, &concrete.store.scheme_wrappers, "wrapper range is invalid").unwrap();
+        let (operation, detail) = wrappers.iter().find_map(|wrapper| match wrapper {
+            super::super::super::schemes::FullWrapper::IndexValidation { operation, detail } => Some((*operation, *detail)),
+            _ => None,
+        }).expect("the concrete UInt-key operation retains its lexical capture boundary");
+        assert_eq!(
+            concrete.store.wrapper_index_validations[detail as usize].boundary,
+            super::super::super::schemes::FullWrapperBoundary::Captured,
+        );
+        assert!(matches!(bounded(scheme.operations, &concrete.store.scheme_operations, "operation range is invalid").unwrap().get(operation as usize), Some(super::super::super::schemes::FullSealedOperation::Index { .. })));
+        FullVerifier::verify(&concrete).unwrap();
     }
 
     fn remove_scheme_body_fact(program: &mut FullProgram, instruction: usize) {

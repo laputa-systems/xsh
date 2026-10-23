@@ -1839,6 +1839,14 @@ of a list literal is `check.index-out-of-range`:
 `lint.prefer-negative-index` rewrites `list[list.len() - 1]`. `map[key]` and `record["field"]` fail when the key or
 field is missing; use `.get(...)` for a `Result`.
 
+Indexing `Map[UInt, V]` with an `Int` expression validates the key as `UInt`;
+a negative value fails with a Schema error. If that failure can propagate from
+a function returning `Result`, the function's error type must admit `Error`.
+A caller-side `try` does not widen the called function's `Result` error type.
+Handle the index inside the function or pass a `UInt` key when it is already
+validated. With a `UInt` key, a stored `Result` error remains ordinary result
+data.
+
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
 type. Either bound may be omitted. Negative bounds count from the end, and
 both bounds are clamped into `[0, len]`; an end before the start gives an

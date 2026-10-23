@@ -64,21 +64,71 @@ impl TypeConstraints {
                     WrapperRequirementKind::Field { source, result, .. } => (vec![source.clone()], vec![result.clone()]),
                     WrapperRequirementKind::Fallback { source, fallback, result } => (vec![source.clone()], vec![result.clone(), fallback.clone()]),
                     WrapperRequirementKind::Handler { source, result, error, handler } => (vec![source.clone()], vec![result.clone(), error.clone(), handler.clone()]),
-                    WrapperRequirementKind::Capture { contributions, result, .. } => (contributions.iter().map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => ty.clone() }).collect(), vec![result.clone()]),
+                    WrapperRequirementKind::Capture { contributions, result, .. } => {
+                        let mut inputs = Vec::new();
+                        for term in contributions.iter() {
+                            match term {
+                                WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => inputs.push(ty.clone()),
+                                WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
+                                    let entry = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                                    inputs.extend(entry.operation.inputs().cloned());
+                                }
+                                WrapperErrorContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                                WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Source(requirement)) => {
+                                    let source = self.wrappers.entries.get(requirement).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                                    if source.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                                    let WrapperRequirementKind::IndexValidation {
+                                        operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), boundary,
+                                    } = &source.requirement.kind else { return Err(ConstraintResolutionError::ForeignVariable); };
+                                    let operation_entry = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                                    if operation_entry.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                                    inputs.extend(operation_entry.operation.inputs().cloned());
+                                    if let crate::sema::wrapper_operation::WrapperBoundary::Return(ty)
+                                    | crate::sema::wrapper_operation::WrapperBoundary::ErrorReturn(ty) = boundary { inputs.push(ty.clone()); }
+                                }
+                                WrapperErrorContribution::IndexValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                            }
+                        }
+                        (inputs, vec![result.clone()])
+                    }
+                    WrapperRequirementKind::IndexValidation { operation, boundary } => {
+                        let crate::sema::wrapper_operation::WrapperOperationRef::Source(operation) = operation else { return Err(ConstraintResolutionError::ForeignVariable); };
+                        let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                        if indexed.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                        let mut inputs = indexed.operation.inputs().cloned().collect::<Vec<_>>();
+                        match boundary {
+                            crate::sema::wrapper_operation::WrapperBoundary::Return(ty)
+                            | crate::sema::wrapper_operation::WrapperBoundary::ErrorReturn(ty) => inputs.push(ty.clone()),
+                            crate::sema::wrapper_operation::WrapperBoundary::ProcCompletion { returned, .. } => inputs.push(returned.clone()),
+                            crate::sema::wrapper_operation::WrapperBoundary::Captured
+                            | crate::sema::wrapper_operation::WrapperBoundary::Producer
+                            | crate::sema::wrapper_operation::WrapperBoundary::TopLevel => {}
+                        }
+                        (inputs, Vec::new())
+                    }
                     WrapperRequirementKind::ProcCompletion { returned: Type::Result(_, output), contributions: WrapperCompletionContributions::Ready(contributions), .. } => {
-                        let inputs = contributions.iter().filter_map(|term| match term {
-                            WrapperCompletionContribution::PropagatedError(error) => Some(error.clone()),
-                            WrapperCompletionContribution::ReturnedResult(source) | WrapperCompletionContribution::FieldSource(source) => match source {
-                                Type::Result(_, error) => Some((**error).clone()),
-                                Type::Inference(_) => Some(source.clone()),
-                                _ => None,
-                            },
-                            WrapperCompletionContribution::ApplicationSource(source) => match source {
-                                Type::Result(_, error) => Some((**error).clone()),
-                                Type::Inference(_) => Some(source.clone()),
-                                _ => None,
-                            },
-                        }).collect();
+                        let mut inputs = Vec::new();
+                        for term in contributions.iter() {
+                            match term {
+                                WrapperCompletionContribution::PropagatedError(error) => inputs.push(error.clone()),
+                                WrapperCompletionContribution::ReturnedResult(source) | WrapperCompletionContribution::FieldSource(source) => match source {
+                                    Type::Result(_, error) => inputs.push((**error).clone()),
+                                    Type::Inference(_) => inputs.push(source.clone()),
+                                    _ => {}
+                                },
+                                WrapperCompletionContribution::ApplicationSource(source) => match source {
+                                    Type::Result(_, error) => inputs.push((**error).clone()),
+                                    Type::Inference(_) => inputs.push(source.clone()),
+                                    _ => {}
+                                },
+                                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)) => {
+                                    let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                                    if indexed.owner != entry.owner { return Err(ConstraintResolutionError::ForeignVariable); }
+                                    inputs.extend(indexed.operation.inputs().cloned());
+                                }
+                                WrapperCompletionContribution::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(_)) => return Err(ConstraintResolutionError::ForeignVariable),
+                            }
+                        }
                         (inputs, vec![(**output).clone()])
                     }
                     WrapperRequirementKind::ProcCompletion { .. } => (Vec::new(), Vec::new()),
