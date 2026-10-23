@@ -395,18 +395,23 @@ mod tests {
             }
             let program = Arc::new(builder.finish_with_statements(entries[0].0));
             let session = CheckSession::new(program, Arc::new(sources));
-            let mut published: Option<Arc<crate::sema::schemes::TypeScheme>> = None;
+            let mut published: Option<(FunctionDefId, Arc<crate::sema::schemes::TypeScheme>)> = None;
             for index in if reverse { [1, 0] } else { [0, 1] } {
                 let (statements, source) = entries[index];
                 let checked = session.check(statements, source, CheckOptions::default());
                 assert!(checked.diagnostics.is_empty(), "root={index}: {:?}", checked.diagnostics);
-                let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.namespace == Some(module_name)).unwrap();
+                let (&definition, declaration) = checked.checked_declarations.functions.iter().find(|(_, declaration)| declaration.namespace == Some(module_name)).unwrap();
                 let scheme = declaration.scheme.as_ref().unwrap();
                 assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Stream);
                 assert_eq!(scheme.type_parameters().len(), 1);
                 assert_eq!(checked.call_instantiations.len(), 1);
-                if let Some(previous) = &published { assert!(Arc::ptr_eq(previous, scheme)); }
-                else { published = Some(Arc::clone(scheme)); }
+                let arguments = checked.call_instantiations.values().flat_map(|evidence| evidence.instances())
+                    .flat_map(|call| call.type_arguments().values()).cloned().collect::<Vec<_>>();
+                assert_eq!(arguments, vec![SchemeType::Ground(if index == 0 { Type::Int } else { Type::Str })]);
+                if let Some((previous_definition, previous)) = &published {
+                    assert_eq!(*previous_definition, definition);
+                    assert_eq!(previous.as_ref(), scheme.as_ref());
+                } else { published = Some((definition, Arc::clone(scheme))); }
             }
         }
     }
@@ -885,6 +890,7 @@ mod tests {
             let module = Parser::parse_source_into_arena_builder(module_id, module_text, &mut builder);
             assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
             let module_name = builder.symbol_owner().intern("shared");
+            let callees = [builder.symbol_owner().intern("left"), builder.symbol_owner().intern("right")];
             builder.push_arena_module("shared".to_string(), module_name, module.statements);
             for &(statements, _) in &entries {
                 for statement in builder.statement_ids(statements) {
@@ -895,15 +901,15 @@ mod tests {
             }
             let program = Arc::new(builder.finish_with_statements(entries[0].0));
             let session = CheckSession::new(program, Arc::new(sources));
-            let mut published: Option<Vec<Arc<crate::sema::schemes::TypeScheme>>> = None;
+            let mut published: Option<BTreeMap<FunctionDefId, Arc<crate::sema::schemes::TypeScheme>>> = None;
             for index in if reverse { [1, 0] } else { [0, 1] } {
                 let (statements, source) = entries[index];
                 let checked = session.check(statements, source, CheckOptions::default());
                 assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-                let schemes = checked.checked_declarations.functions.values().filter(|declaration| declaration.namespace == Some(module_name))
-                    .map(|declaration| Arc::clone(declaration.scheme.as_ref().expect("an exported recursive helper retains its scheme"))).collect::<Vec<_>>();
+                let schemes = checked.checked_declarations.functions.iter().filter(|(_, declaration)| declaration.namespace == Some(module_name))
+                    .map(|(&definition, declaration)| (definition, Arc::clone(declaration.scheme.as_ref().expect("an exported recursive helper retains its scheme")))).collect::<BTreeMap<_, _>>();
                 assert_eq!(schemes.len(), 2);
-                for scheme in &schemes {
+                for scheme in schemes.values() {
                     if callbacks {
                         assert_eq!(scheme.callable().requirements().applications.len(), 2);
                     } else {
@@ -911,11 +917,14 @@ mod tests {
                         assert_eq!(scheme.params()[0].ty, scheme.return_type().clone());
                     }
                 }
-                if let Some(previous) = &published {
-                    for scheme in &schemes {
-                        assert!(previous.iter().any(|previous| Arc::ptr_eq(previous, scheme)));
-                    }
-                } else { published = Some(schemes); }
+                let selected = checked.checked_declarations.functions.values().find(|declaration| declaration.namespace == Some(module_name) && declaration.name == callees[index]).unwrap();
+                let SchemeType::Parameter(value_parameter) = &selected.scheme.as_ref().unwrap().params()[if callbacks { 2 } else { 0 }].ty else { panic!("the selected recursive helper retains its value parameter"); };
+                let calls = checked.call_instantiations.iter().filter(|(site, _)| site.source.source_id == source && site.role == crate::sema::schemes::InstantiationRole::Call)
+                    .flat_map(|(_, evidence)| evidence.instances()).collect::<Vec<_>>();
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].type_arguments().get(value_parameter), Some(&SchemeType::Ground(if index == 0 { Type::Int } else { Type::Str })));
+                if let Some(previous) = &published { assert_eq!(previous, &schemes); }
+                else { published = Some(schemes); }
             }
         }
         }
