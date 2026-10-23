@@ -260,6 +260,28 @@ impl Checker {
             self.error(body_span, &format!("callable application requirement failed: {error}"), DiagnosticCode::CheckCallableMismatch);
             return None;
         }
+        let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
+        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements) =
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
+        let constructor_owner = crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration());
+        if self.type_constraints.has_constructor_error_defaults(constructor_owner) {
+            let mut inputs = types.clone();
+            for &owner in component {
+                if owner == declaration.effect_declaration() { continue; }
+                if let Some(shape) = self.declaration_inference.pending(FunctionDeclarationId::new(owner)).and_then(super::PendingFunctionSig::provisional) {
+                    inputs.extend(shape.params().iter().map(|parameter| parameter.signature.ty.clone()));
+                }
+            }
+            inputs.extend(read_bindings.iter().filter_map(|&id| {
+                let declaration = self.resolved_bindings.declarations.get(&id)?;
+                self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
+                    .map(|binding| binding.ty.clone())
+            }));
+            if let Err(error) = self.type_constraints.complete_constructor_error_defaults(constructor_owner, component, &inputs) {
+                self.error(body_span, &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        }
         if !self.validate_local_inference(declaration.effect_declaration(), component, &types) {
             return None;
         }
@@ -269,9 +291,6 @@ impl Checker {
                 .cloned()
                 .unwrap_or_else(|| shape.return_ty().clone()),
         );
-        let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
         let mut constructor_producers = BTreeMap::new();
         for (&expression, &kind) in self.nonmaterial_constructor_producers() {
             if !expression_spans.contains(&program.arena.expr(expression).span) { continue; }

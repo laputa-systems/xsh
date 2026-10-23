@@ -948,6 +948,44 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn result_pattern_calls_close_only_constructor_phantom_errors() {
+        let definition = "pure choose(outcome, fallback) { match outcome { Ok(value) => value; Err(_) => fallback } }";
+        let calls = "let number = choose(Ok(9), 4)\nlet word = choose(Ok(\"ready\"), \"waiting\")";
+        let source = format!("{definition}\n{calls}");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let (work, checked) = crate::sema::inference_work::collect(|| Checker::check_arena(&parsed.arena, &source));
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        assert_eq!(work.function_body_check_entries, 1);
+        assert_eq!(checked.function_body_check_entries, 1);
+        for call in checked.call_instantiations.values().flat_map(|evidence| evidence.instances()) {
+            assert!(call.type_arguments().values().any(|ty| *ty == crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Error)));
+        }
+        accepts("", &format!("{calls}\n{definition}"));
+        accepts(&format!("{definition}\npure wrapped(value) {{ choose(Ok(value), value) }}"), "let number = wrapped(9)\nlet word = wrapped(\"ready\")");
+        let definition = "error Failure = Missing\npure same(left, right) { var selected = left; selected = right; selected }";
+        for call in ["same(Ok(9), typed)", "same(right: typed, left: Ok(9))", "same(left: Ok(9), right: typed)"] {
+            accepts(definition, &format!("let typed: Result[Int, Failure] = Err(Failure.Missing())\nlet actual = {call}\nlet verified: Result[Int, Failure] = actual"));
+        }
+        accepts(&format!("{definition}\npure relay(value) {{ same(Ok(9), value) }}"), "let typed: Result[Int, Failure] = Err(Failure.Missing())\nlet actual = relay(typed)\nlet verified: Result[Int, Failure] = actual");
+        accepts(definition, "let typed: Result[Int, Failure] = Err(Failure.Missing())\nlet actual = same(same(Ok(9), Ok(9)), typed)\nlet verified: Result[Int, Failure] = actual");
+    }
+
+    #[test]
+    fn constructor_phantom_defaults_preserve_bare_and_explicit_contexts() {
+        accepts("error Failure = Missing", "let direct: Result[Int, Failure] = Ok(9)\nlet bare = Ok(9)\nlet verified: Result[Int, Error] = bare");
+        for source in [
+            "let bare = Ok(9)\nlet incompatible: Result[Int, Str] = bare",
+            "error Failure = Missing\npure same(left, right) { var selected = left; selected = right; selected }\nlet incompatible: Result[Int, Failure] = same(Ok(9), Ok(9))",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
     fn wrapper_fallback_constructor_context_preserves_result_error_payloads() {
         let calls = "let source: Result[Int, Str]? = null\nlet selected: Result[Int, Str] = fallback(source)";
         accepts("pure fallback(value: Result[Int, Str]?) -> Result[Int, Str] { value ?? Ok(0) }", calls);

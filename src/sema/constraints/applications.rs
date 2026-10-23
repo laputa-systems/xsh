@@ -682,7 +682,7 @@ impl CallableApplications {
         let dependencies = changes[from..].iter().filter_map(|change| match change {
             ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
             ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
-            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) | ConstraintChange::Method(_) | ConstraintChange::Wrapper(_) => None,
+            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) | ConstraintChange::Method(_) | ConstraintChange::Wrapper(_) | ConstraintChange::ConstructorDefault(_) => None,
         }).collect::<BTreeSet<_>>();
         for dependency in dependencies {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();

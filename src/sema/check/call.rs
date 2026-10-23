@@ -1732,6 +1732,17 @@ impl Checker {
         expected
     }
 
+    fn constructor_error_default(&mut self, error: Type, span: Span) -> Type {
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        match self.type_constraints.record_constructor_error_default(owner, &error, span) {
+            Ok(()) => error,
+            Err(error) => {
+                self.error(span, &format!("constructor error context cannot be retained: {error:?}"), DiagnosticCode::CheckLocalInference);
+                Type::Invalid
+            }
+        }
+    }
+
     pub(super) fn check_constructor_call_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1778,9 +1789,13 @@ impl Checker {
                 });
                 self.boundary.expected_schema = previous;
                 let error = match expected_context {
-                    Some(Type::Result(_, error)) => error.as_ref().clone(),
+                    Some(Type::Result(_, error)) => self.constructor_error_default(error.as_ref().clone(), span),
                     Some(expected) => match self.type_constraints.wrapper_constructor_context_is_deferred(expected) {
                         Ok(true) => self.fresh_wrapper_type(span),
+                        Ok(false) if matches!(expected, Type::Inference(_)) => {
+                            let error = self.fresh_wrapper_type(span);
+                            self.constructor_error_default(error, span)
+                        }
                         Ok(false) => Type::Error,
                         Err(error) => {
                             self.error(span, &format!("wrapper constructor context is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);

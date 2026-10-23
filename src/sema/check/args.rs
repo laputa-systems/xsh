@@ -184,6 +184,8 @@ impl Checker {
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) -> bool {
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let constructor_arguments = self.type_constraints.begin_constructor_arguments(owner);
         let diagnostics_before_arguments = self.diagnostics.len();
         self.check_function_call_arguments_with_instance_arena(
             arena,
@@ -205,15 +207,27 @@ impl Checker {
                             && label.span.end() <= span.end()
                     })
             });
-        if argument_error { return false; }
+        if argument_error {
+            if let Err(error) = self.type_constraints.reject_constructor_arguments(constructor_arguments) {
+                self.error(span, &format!("constructor argument scope cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
+            }
+            return false;
+        }
         match self.type_constraints.solve_callable_applications() {
             Ok(()) => {
+                if let Err(error) = self.type_constraints.finish_constructor_arguments(constructor_arguments) {
+                    self.error(span, &format!("constructor error inference failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return false;
+                }
                 if let Some(instantiation) = &contract.instantiation {
                     self.record_pending_call_instantiation(span, instantiation.clone());
                 }
                 true
             }
             Err(error) => {
+                if let Err(error) = self.type_constraints.reject_constructor_arguments(constructor_arguments) {
+                    self.error(span, &format!("constructor argument scope cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
+                }
                 let code = if matches!(error, crate::sema::constraints::CallableApplicationError::Effects(crate::sema::constraints::EffectConstraintError::Mismatch)) {
                     DiagnosticCode::CheckEffectViolation
                 } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType }

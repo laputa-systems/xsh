@@ -29,6 +29,8 @@ pub(crate) use wrapper_constraints::{WrapperConstraintError, WrapperOperationId}
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
 #[path = "constraints/input_support.rs"]
 mod input_support;
+#[path = "constraints/constructor_defaults.rs"]
+mod constructor_defaults;
 #[path = "constraints/map_key.rs"]
 mod map_key_constraints;
 pub(crate) use map_key_constraints::MapKeyConstraintError;
@@ -189,6 +191,7 @@ enum ConstraintChange {
     Operation(operation_constraints::OperationChange),
     Method(method_constraints::MethodChange),
     Wrapper(wrapper_constraints::WrapperChange),
+    ConstructorDefault(constructor_defaults::ConstructorDefaultChange),
 }
 
 #[derive(Clone, Copy)]
@@ -574,6 +577,7 @@ pub struct TypeConstraints {
     operations: operation_constraints::SealedOperations,
     methods: method_constraints::SealedMethods,
     wrappers: wrapper_constraints::WrapperOperations,
+    constructor_defaults: constructor_defaults::ConstructorErrorDefaults,
     counters: ConstraintCounterStorage,
     trial_changes: Option<Vec<ConstraintChange>>,
 }
@@ -588,6 +592,7 @@ impl Default for TypeConstraints {
             operations: operation_constraints::SealedOperations::default(),
             methods: method_constraints::SealedMethods::default(),
             wrappers: wrapper_constraints::WrapperOperations::default(),
+            constructor_defaults: constructor_defaults::ConstructorErrorDefaults::default(),
             counters: ConstraintCounterStorage::for_current_work_scope(),
             trial_changes: None,
         }
@@ -605,6 +610,7 @@ impl Clone for TypeConstraints {
             operations: self.operations.clone(),
             methods: self.methods.clone(),
             wrappers: self.wrappers.clone(),
+            constructor_defaults: self.constructor_defaults.clone(),
             counters: self.counters.clone(),
             trial_changes: None,
         }
@@ -827,6 +833,7 @@ impl TypeConstraints {
         retained = retained.saturating_add(self.operations.retained_bytes());
         retained = retained.saturating_add(self.methods.retained_bytes());
         retained = retained.saturating_add(self.wrappers.retained_bytes());
+        retained = retained.saturating_add(self.constructor_defaults.retained_bytes());
         retained
     }
 
@@ -4297,6 +4304,7 @@ impl TypeConstraints {
                 ConstraintChange::Operation(change) => self.operations.rollback(change),
                 ConstraintChange::Method(change) => self.methods.rollback(change),
                 ConstraintChange::Wrapper(change) => self.wrappers.rollback(change),
+                ConstraintChange::ConstructorDefault(change) => self.constructor_defaults.rollback(change),
             }
         }
     }

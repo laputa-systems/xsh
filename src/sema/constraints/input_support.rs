@@ -5,13 +5,15 @@ use rustc_hash::FxHashSet;
 use std::collections::BTreeSet;
 
 #[derive(Default)]
-struct UnresolvedVariables {
+pub(super) struct UnresolvedVariables {
     types: FxHashSet<TypeVariableId>,
     rows: FxHashSet<RowVariableId>,
     effects: BTreeSet<EffectVariableId>,
 }
 
 impl UnresolvedVariables {
+    pub(super) fn contains_type(&self, variable: TypeVariableId) -> bool { self.types.contains(&variable) }
+
     fn is_subset(&self, other: &Self) -> bool {
         self.types.is_subset(&other.types) && self.rows.is_subset(&other.rows)
             && self.effects.is_subset(&other.effects)
@@ -32,8 +34,15 @@ impl TypeConstraints {
         holes: &[Type],
         formals: &[Type],
     ) -> Result<bool, ConstraintResolutionError> {
-        if !component.contains(&owner) { return Err(ConstraintResolutionError::ForeignVariable); }
         let holes = self.unresolved_input_variables(holes)?;
+        Ok(holes.is_subset(&self.input_bound_variables(owner, component, formals)?))
+    }
+
+    pub(super) fn input_bound_variables(
+        &self, owner: crate::sema::check::EffectDeclarationId,
+        component: &BTreeSet<crate::sema::check::EffectDeclarationId>, formals: &[Type],
+    ) -> Result<UnresolvedVariables, ConstraintResolutionError> {
+        if !component.contains(&owner) { return Err(ConstraintResolutionError::ForeignVariable); }
         let mut supported = self.unresolved_input_variables(formals)?;
         let mut visited = BTreeSet::new();
         let mut operations = BTreeSet::new();
@@ -85,7 +94,7 @@ impl TypeConstraints {
                 }
                 changed = true;
             }
-            if !changed { return Ok(holes.is_subset(&supported)); }
+            if !changed { return Ok(supported); }
         }
     }
 
