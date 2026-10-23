@@ -8,6 +8,18 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
+`ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
+Record and conditional values instantiate independently; mutable bindings
+retain one concrete instance. Factory calls retain separate invocation and
+value evidence at the same span. Both execution routes pass after frontend
+disposal. Independent review finds no demonstrated false acceptance in the
+checked target, effect, binder mapping or runtime paths. This is provisional:
+module owner transport and retained-table accounting are missing, nested
+mutable record replacement needs reproduction, and generic composition and the
+remaining storage families still require coverage. No full-library or native
+qualification is claimed for these checkpoints.
+
 Source `d54631649` builds matching verification binaries and completes the
 138-selector native inference boundary in normal and forced-frame modes.
 Each mode reports 123 passes, fifteen failures and no skips; every selector

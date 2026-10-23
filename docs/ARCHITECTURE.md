@@ -491,6 +491,15 @@ Concrete projection distinguishes unknown contracts from unresolved expressions;
 scoped substitution and retained predicates prove symbolic permission checks.
 Capture removes only outward Error inside its actual lexical boundary.
 
+Stored generic callable values retain a finite set of actual function targets
+and one complete checked contract. Relationship identities belong to their
+semantic table. Full IR maps each target's type, row and effect binders to the
+canonical contract and authenticates the physical producer's target set.
+Invocation and value materialization retain distinct checked evidence, including
+when a factory expression needs both at the same source span. Both execution
+routes use the same checked materialization operation. Dynamic value calls have
+their own effect authority; direct calls retain their physical target checks.
+
 Prepared applications retain their actual callee, ordered argument domains,
 result, kind, effects, argument layout, and Proc return relationships. A selected
 application must match the actual callable contract. A forwarded application
