@@ -1843,7 +1843,16 @@ impl TypeConstraints {
             established: None, contribution, resolution_error: Some(error),
         };
         let actual = self.resolve(actual).map_err(conflict)?;
+        if let Some(optional) = self.optional_wrapper_call_argument_type(instance, expected, &actual).map_err(conflict)? {
+            return self.commit_constraint_transaction(|constraints| {
+                constraints.constrain(expected, &optional, contribution)?;
+                let optional = constraints.resolve(&optional).map_err(conflict)?;
+                if !optional.contains_inference() && actual.matches_expected(&optional) { return Ok(()); }
+                constraints.constrain(&optional, &actual, contribution)
+            });
+        }
         if !actual.contains_any() || actual.contains_inference() || actual.contains_recovery() {
+            if !expected.contains_inference() && !actual.contains_inference() && actual.matches_expected(expected) { return Ok(()); }
             return self.constrain(expected, &actual, contribution);
         }
         let owned = instance.type_arguments.values().filter_map(|ty| match ty {
@@ -6989,6 +6998,42 @@ mod tests {
             constraints.generalize_types(&[variable], 0),
             Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedType))
         ));
+    }
+
+    #[test]
+    fn checked_call_optional_wrapper_injection_rolls_back_rejected_arguments() {
+        let mut constraints = TypeConstraints::default();
+        let argument = constraints.fresh_at_level(span(1), 1);
+        let wrapper = constraints.register_wrapper(CallableApplicationScope::Invocation, super::super::wrapper_operation::WrapperRequirement {
+            kind: super::super::wrapper_operation::WrapperRequirementKind::Fallback { source: argument.clone(), fallback: Type::Int, result: Type::Int },
+            span: span(2),
+        }).unwrap();
+        let instance = InstantiatedScheme {
+            params: vec![argument.clone()], return_type: Type::Int,
+            type_arguments: BTreeMap::new(), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
+            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper],
+        };
+        assert!(constraints.constrain_checked_call_argument(&instance, &argument, &Type::Str, span(3)).is_err());
+        assert_eq!(constraints.resolve(&argument).unwrap(), argument);
+        constraints.constrain_checked_call_argument(&instance, &argument, &Type::Int, span(4)).unwrap();
+        constraints.solve_wrapper_operations().unwrap();
+        assert_eq!(constraints.resolve(&argument).unwrap(), Type::Optional(Box::new(Type::Int)));
+        constraints.constrain_checked_call_argument(&instance, &argument, &Type::Null, span(5)).unwrap();
+        let argument = constraints.fresh_at_level(span(6), 1);
+        let result = constraints.fresh_at_level(span(7), 1);
+        let wrapper = constraints.register_wrapper(CallableApplicationScope::Invocation, super::super::wrapper_operation::WrapperRequirement {
+            kind: super::super::wrapper_operation::WrapperRequirementKind::Fallback { source: argument.clone(), fallback: Type::Str, result: result.clone() },
+            span: span(8),
+        }).unwrap();
+        let instance = InstantiatedScheme {
+            params: vec![argument.clone()], return_type: result.clone(),
+            type_arguments: BTreeMap::new(), row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(),
+            applications: Vec::new(), operations: Vec::new(), methods: Vec::new(), wrappers: vec![wrapper],
+        };
+        constraints.constrain_checked_call_argument(&instance, &argument, &Type::Null, span(9)).unwrap();
+        constraints.solve_wrapper_operations().unwrap();
+        assert_eq!(constraints.resolve(&argument).unwrap(), Type::Optional(Box::new(Type::Str)));
+        assert_eq!(constraints.resolve(&result).unwrap(), Type::Str);
     }
 
     #[test]

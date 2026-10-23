@@ -4589,6 +4589,83 @@ fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
 }
 
 #[cfg(test)]
+mod optional_fallback_inference_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::Checker;
+
+    #[test]
+    fn null_observation_preserves_generic_identity_and_opaque_result_data() {
+        let source = "pure observe(value) { let _ = value != null; value }\nlet number: Int = observe(7)\nlet text: Str = observe(\"kept\")\nlet opaque: Result[Int, Str] = Err(\"kept\")\nlet retained: Result[Int, Str] = observe(opaque)\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+        for domain in ["Int", "Str", "Result[Int, Str]"] {
+            let source = format!("pure observe(value: {domain}) -> {domain} {{ let _ = value != null; value }}");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{domain}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{domain}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn optional_fallback_preserves_nullable_parameters_without_caller_training() {
+        let mut failures = Vec::new();
+        for (label, source, accepted) in [
+            ("typed nonrecursive", "pure fallback(offset: Int?) -> Int { -(offset ?? 0) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present)\nlet zero: Int = fallback(missing)\n", true),
+            ("inferred nonrecursive", "pure fallback(offset) { -(offset ?? 0) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present)\nlet zero: Int = fallback(missing)\n", true),
+            ("typed recursive", "pure fallback(offset: Int?, depth: Int) -> Int { if depth == 0 { -(offset ?? 0) } else { fallback(offset, depth - 1) } }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present, 2)\nlet zero: Int = fallback(missing, 2)\n", true),
+            ("inferred recursive", "pure fallback(offset, depth: Int) { if depth == 0 { -(offset ?? 0) } else { fallback(offset, depth - 1) } }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present, 2)\nlet zero: Int = fallback(missing, 2)\n", true),
+            ("inferred nonrecursive null observation", "pure fallback(offset) { let seen = false or offset != null; let _ = seen; -(offset ?? 0) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present)\nlet zero: Int = fallback(missing)\n", true),
+            ("inferred recursive null observation", "pure fallback(offset, depth: Int) { let seen = false or offset != null; let _ = seen; if depth == 0 { -(offset ?? 0) } else { fallback(offset, depth - 1) } }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present, 2)\nlet zero: Int = fallback(missing, 2)\n", true),
+            ("typed proc", "pure consume(value: Int) -> Int { value }\nproc fallback(offset: Int?) [] -> Result[Int] { let seen = false or offset != null; let _ = seen; consume(-(offset ?? 0)) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present)?\nlet zero: Int = fallback(missing)?\n", true),
+            ("inferred proc", "pure consume(value: Int) -> Int { value }\nproc fallback(offset) [] { let seen = false or offset != null; let _ = seen; consume(-(offset ?? 0)) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present)?\nlet zero: Int = fallback(missing)?\n", true),
+            ("typed recursive proc", "pure consume(value: Int) -> Int { value }\nproc fallback(offset: Int?, depth: Int) [] -> Result[Int] { let seen = false or offset != null; let _ = seen; if depth == 0 { consume(-(offset ?? 0)) } else { fallback(offset, depth - 1) } }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present, 2)?\nlet zero: Int = fallback(missing, 2)?\n", true),
+            ("inferred recursive proc", "pure consume(value: Int) -> Int { value }\nproc fallback(offset, depth: Int) [] { let seen = false or offset != null; let _ = seen; if depth == 0 { consume(-(offset ?? 0)) } else { fallback(offset, depth - 1) } }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = fallback(present, 2)?\nlet zero: Int = fallback(missing, 2)?\n", true),
+            ("typed proc recursive relay", "pure consume(value: Int) -> Int { value }\nproc fallback(offset: Int?) [] -> Result[Int] { let seen = false or offset != null; let _ = seen; consume(-(offset ?? 0)) }\nproc absolute(offset: Int?, depth: Int) [] -> Result[Int] { if depth == 0 { fallback(offset) } else { parse(offset, depth - 1) } }\nproc parse(offset: Int?, depth: Int) [] -> Result[Int] { absolute(offset, depth) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = parse(present, 2)?\nlet zero: Int = parse(missing, 2)?\n", true),
+            ("inferred proc recursive relay", "pure consume(value: Int) -> Int { value }\nproc fallback(offset) [] { let seen = false or offset != null; let _ = seen; consume(-(offset ?? 0)) }\nproc absolute(offset, depth: Int) [] { if depth == 0 { fallback(offset) } else { parse(offset, depth - 1) } }\nproc parse(offset, depth: Int) [] { absolute(offset, depth) }\nlet present: Int? = 7\nlet missing: Int? = null\nlet number: Int = parse(present, 2)?\nlet zero: Int = parse(missing, 2)?\n", true),
+            ("typed null observation with plain success argument", "pure fallback(offset: Int?) -> Int { let seen = offset != null; let _ = seen; -(offset ?? 0) }\nlet number: Int = fallback(7)\nlet zero: Int = fallback(null)\n", true),
+            ("inferred null observation with plain success argument", "pure fallback(offset) { let seen = offset != null; let _ = seen; -(offset ?? 0) }\nlet number: Int = fallback(7)\nlet zero: Int = fallback(null)\n", true),
+            ("inferred plain success argument without null observation", "pure fallback(offset) { -(offset ?? 0) }\nlet number: Int = fallback(7)\nlet zero: Int = fallback(null)\n", true),
+            ("fallback argument retains independent numeric requirements", "pure fallback(offset) { let _ = offset ?? 0; offset + 1 }\nlet number = fallback(7)\n", false),
+            ("plain integer is not optional", "pure fallback(offset: Int) -> Int { -(offset ?? 0) }\n", false),
+            ("string fallback cannot establish numeric source", "pure fallback(offset) { -(offset ?? \"wrong\") }\nlet present: Str? = \"wrong\"\nlet number = fallback(present)\n", false),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{label}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if errors.is_empty() != accepted { failures.push(format!("{label}: {errors:?}")); }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn optional_fallback_call_arguments_keep_values_and_wrappers_on_both_routes() {
+        let source = "pure is_present(value) { value != null }\npure is_absent(value) { value == null }\npure fallback(value) { value ?? 0 }\npure constant_with_tag(tag) { let _ = tag; fallback(31) }\npure observed(value) { let _ = value != null; value ?? 0 }\npure observe(value) { let _ = value != null; value }\npure retained(value) { let _ = value ?? 0; value }\npure nested(value) { value ?? Ok(0) }\nproc proc_fallback(value) [] { value ?? 0 }\nproc text_fallback(value) [] { value ?? \"kept\" }\ntest arguments {\n  let recovered = fallback\n  assert recovered(37) == 37\n  assert fallback(7) == 7\n  assert fallback(value: 23) == 23\n  assert constant_with_tag(\"kept\") == 31\n  assert fallback(null) == 0\n  assert observed(9) == 9\n  assert observed(null) == 0\n  let present: Int? = 11\n  assert fallback(present) == 11\n  let failure: Result[Int, Str] = Err(\"kept\")\n  let missing: Int? = null\n  assert is_present(7)\n  assert is_present(\"kept\")\n  assert is_present(failure)\n  assert !is_present(missing)\n  assert !is_absent(7)\n  assert is_absent(missing)\n  let success: Result[Int, Str] = Ok(13)\n  assert fallback(failure) == 0\n  assert fallback(success) == 13\n  let optional_result: Result[Int, Str]? = failure\n  assert nested(optional_result) == failure\n  assert observe(7) == 7\n  assert observe(\"kept\") == \"kept\"\n  assert observe(failure) == failure\n  let kept: Int? = retained(17)\n  let absent: Int? = retained(null)\n  assert kept == 17\n  assert absent == null\n  assert proc_fallback(19)? == 19\n  assert proc_fallback(null)? == 0\n  assert text_fallback(null)? == \"kept\"\n}\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "optional-fallback-arguments.xsh",
+            crate::loader::entry_source_from_text("optional-fallback-arguments.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("arguments", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty() && result.output.traceback.is_none(), "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        }
+    }
+}
+
+#[cfg(test)]
 mod arena_tests {
     use super::Checker;
     use crate::sema::check::{CheckOptions, ResolvedBindings};

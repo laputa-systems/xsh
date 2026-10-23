@@ -278,17 +278,19 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) {
-        if let Some(instance) = instance.filter(|_| actual.contains_any()) {
-            if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
-                if conflict.resolution_error.is_some() {
-                    self.report_inferred_type_conflict(conflict);
-                } else {
-                    self.reject_dynamic_use("a generic function argument", None, span);
+        if !self.scheme_callable_types_compatible(expected, actual) {
+            if let Some(instance) = instance.filter(|instance| actual.contains_any() || !instance.wrappers.is_empty()) {
+                if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
+                    if conflict.resolution_error.is_some() || !actual.contains_any() {
+                        self.report_inferred_type_conflict(conflict);
+                    } else {
+                        self.reject_dynamic_use("a generic function argument", None, span);
+                    }
+                    return;
                 }
-                return;
+            } else {
+                self.expect_type(expected, actual, span);
             }
-        } else {
-            self.expect_type(expected, actual, span);
         }
         if let Err(error) = self.type_constraints.solve_wrapper_operations() {
             let code = match &error {
