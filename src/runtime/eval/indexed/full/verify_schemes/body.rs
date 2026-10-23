@@ -4918,6 +4918,41 @@ mod structured_pipeline_tests {
         assert!(FullVerifier::verify(&mutated_item).is_err());
     }
 
+    #[test]
+    fn generic_pipeline_nullable_callbacks_retain_their_actual_item_proof() {
+        let source = "pure optional_callback(value: Int?) -> Bool { value != null }\npure routed(value, other) { let action = optional_callback; let _ = other; [value] |> map(action) }\n";
+        let program = prepare(source);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "routed").unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("nullable owner is quantified"); };
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let item_slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::Map { slot, .. } => Some(slot),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == item_slot)).unwrap();
+        let mut wrong_binding = program.clone();
+        wrong_binding.store.extra[program.store.data[read].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
+        let list = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::List(_)))).unwrap();
+        let schema::ExprView::List(mut values) = decoder.expression_view(list).unwrap() else { unreachable!() };
+        let value = values.next().unwrap().unwrap().raw() as usize;
+        let mut wrong_source = program.clone();
+        wrong_source.store.extra[program.store.data[value].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let mut missing_relation = program.clone();
+        missing_relation.store.schemes[scheme.index()].applications.len = 0;
+        assert!(FullVerifier::verify(&missing_relation).is_err());
+        let source = format!("{source}let rejected = routed(\"wrong\", 1)\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_callbacks_execute_after_disposal_on_both_routes() {

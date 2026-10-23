@@ -4103,8 +4103,10 @@ impl<'a> ProducerProof<'a> {
                         let Type::List(item) = expected.as_ref() else { return Err(IrVerifyError::new("ground rest parameter has no list contract")) };
                         Arc::new((**item).clone())
                     } else { expected };
-                    self.contextual_argument(decoder, instruction, &expected)?;
-                    self.expression(decoder.owner, instruction, expected, false);
+                    if !self.scoped_nullable_pipeline_argument(decoder, instruction, &expected)? {
+                        self.contextual_argument(decoder, instruction, &expected)?;
+                        self.expression(decoder.owner, instruction, expected, false);
+                    }
                 }
                 ProducerArgument::Splice(instruction) => {
                     if !rest { return Err(IrVerifyError::new("ground producer splice has no rest parameter")); }
@@ -4119,6 +4121,22 @@ impl<'a> ProducerProof<'a> {
             if flags & 3 == 0 { return Err(IrVerifyError::new("ground producer call omits a required argument")); }
         }
         Ok(())
+    }
+
+    fn scoped_nullable_pipeline_argument(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!(expected, Type::Optional(_)) || expected.has_unsigned_constraint() { return Ok(false); }
+        let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { return Ok(false); };
+        let binding = self.binding(decoder.owner, instruction, slot)?;
+        let Some(source) = self.index.owners[&decoder.owner].pipeline_sources.get(&binding) else { return Ok(false); };
+        if !matches!(source.role, super::super::PipelineStageSlotRole::Item) { return Ok(false); }
+        let Some(actual @ super::SchemeType::Parameter(_)) = self.scoped_expression_type(decoder, instruction)? else { return Ok(false); };
+        if self.index.owners[&decoder.owner].writers.get(&binding).is_some_and(|writers| !writers.is_empty()) {
+            return Err(IrVerifyError::new("nullable pipeline argument has mutable item writers"));
+        }
+        let function = self.store.functions.get(function_index(decoder.owner)?).ok_or_else(|| IrVerifyError::new("nullable pipeline argument owner is invalid"))?;
+        let FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
+        let scope = self.index.scheme_scopes(self.store)?.get(scheme)?;
+        super::applications::nullable_assignment_matches_ground(self.store, decoder.owner, scope, &actual, expected, &mut self.budget)
     }
 
     fn checked_unsigned_parameter_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize, function: usize, parameter: usize, expected: &Type) -> Result<bool, IrVerifyError> {
