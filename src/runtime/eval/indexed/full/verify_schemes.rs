@@ -3289,10 +3289,42 @@ fn verify_instantiated_call_arguments(
             value.raw() as usize,
             materialization,
             0,
-        )?
-        .ok_or_else(|| {
-            IrVerifyError::new("generic call argument has no closed checked type")
-        })?;
+        )?;
+        let actual = match actual {
+            Some(actual) => actual,
+            None if !is_splice => {
+                let Some(actual) = annotated_optional_record_argument_type(
+                    store,
+                    &decoder,
+                    value.raw() as usize,
+                    materialization,
+                )? else {
+                    return Err(IrVerifyError::new(
+                        "generic call argument has no closed checked type",
+                    ));
+                };
+                ensure_closed_type(&actual)?;
+                if !actual.matches_expected(&expected) {
+                    return Err(IrVerifyError::new(
+                        "generic call argument does not match its checked parameter slot",
+                    ));
+                }
+                materialization.charge_clone(&actual)?;
+                materialization.charge(1)?;
+                ground_arguments.push(producers::GroundArgumentRequest {
+                    owner: decoder.owner,
+                    call: instruction,
+                    argument: value.raw() as usize,
+                    expected: actual.clone(),
+                });
+                CheckedArgumentType::Known(actual)
+            }
+            None => {
+                return Err(IrVerifyError::new(
+                    "generic call argument has no closed checked type",
+                ));
+            }
+        };
         if matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap)
             || (matches!(actual, CheckedArgumentType::ListItems(_))
                 && matches!(store.tags.get(value.raw() as usize), Some(FullTag::ExprList | FullTag::ExprListBuild)))
@@ -3793,6 +3825,50 @@ fn checked_argument_type(
         };
     }
     Ok(Some(actual))
+}
+
+fn annotated_optional_record_argument_type(
+    store: &FullStore,
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    materialization: &mut SchemeInstantiationBudget,
+) -> Result<Option<Type>, IrVerifyError> {
+    let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else {
+        return Ok(None);
+    };
+    let (annotation, checked_type, initializer) = if super::driver_owner_index(decoder.owner).is_some() {
+        let Some(source) = decoder.driver_local_let_source(slot, |amount| materialization.charge(amount))? else {
+            return Ok(None);
+        };
+        (source.annotation, Some(source.checked_type), source.initializer)
+    } else {
+        let (has_local_write, initializer) = decoder.local_immutable_let_initializer(slot)?;
+        if !has_local_write { return Ok(None); }
+        let Some(initializer) = initializer else { return Ok(None) };
+        (
+            decoder.local_immutable_let_annotation(slot)?,
+            decoder.checked_slot_type(slot)?,
+            initializer,
+        )
+    };
+    let Some(annotation) = annotation else { return Ok(None) };
+    if checked_type.is_some_and(|checked| checked != annotation) {
+        return Err(IrVerifyError::new(
+            "local slot type fact disagrees with its declaration annotation",
+        ));
+    }
+    let annotation = store.semantic.to_type_with_budget(
+        annotation,
+        &mut materialization.semantic_types,
+    )?;
+    ensure_closed_type(&annotation)?;
+    if annotation.contains_any()
+        || !matches!(annotation.unvalidated(), Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)))
+        || store.tags.get(initializer) != Some(&FullTag::ExprRecord)
+    {
+        return Ok(None);
+    }
+    Ok(Some(annotation))
 }
 
 fn driver_rel_path_literal_matches_annotation(

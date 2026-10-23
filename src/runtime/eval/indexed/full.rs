@@ -30131,6 +30131,176 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
     }
 
     #[test]
+    fn generic_optional_record_arguments_keep_their_closed_source_types() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "generic-optional-record-arguments.xsh",
+                r#"
+type TextRow = {name: Str}
+type IntRow = {name: Int}
+type MaybeRow = {name: Str?}
+pure optional_name(value) { value?.name }
+let text: TextRow? = {name: "demo"}
+let number: IntRow? = {name: 7}
+let missing: TextRow? = null
+let nested: MaybeRow? = {name: null}
+let text_name = optional_name(text)
+let number_name = optional_name(number)
+let missing_name = optional_name(missing)
+let nullable_name = optional_name(nested)
+assert text_name == "demo"
+assert number_name == 7
+assert missing_name == null
+assert nullable_name == null
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+
+            fn driver_let_step(program: &FullProgram, name: &str) -> usize {
+                program
+                    .store
+                    .driver_steps
+                    .iter()
+                    .enumerate()
+                    .find_map(|(step_index, step)| {
+                        if step.tag != FullDriverTag::Let {
+                            return None;
+                        }
+                        let decoder =
+                            verify_schemes::decoder_for_driver_step(&program.store, step_index)
+                                .unwrap();
+                        let mut payload =
+                            FullCursor::new(program.store.payload(step.data.range()).unwrap());
+                        (Name::decode(&decoder, &mut payload).unwrap().as_str() == name)
+                            .then_some(step_index)
+                    })
+                    .unwrap()
+            }
+
+            fn driver_validation_type_word(program: &FullProgram, step_index: usize) -> usize {
+                let step = program.store.driver_steps[step_index];
+                let decoder =
+                    verify_schemes::decoder_for_driver_step(&program.store, step_index).unwrap();
+                let mut payload = FullCursor::new(program.store.payload(step.data.range()).unwrap());
+                let _: Name = FullCodec::decode(&decoder, &mut payload).unwrap();
+                let _: Option<LoweredType> = FullCodec::decode(&decoder, &mut payload).unwrap();
+                let validation_start = payload.index;
+                assert!(Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)
+                    .unwrap()
+                    .is_some());
+                let range = step.data.range().bounds(program.store.extra.len()).unwrap();
+                range.start + validation_start + 1
+            }
+
+            let number_step = driver_let_step(&program, "number");
+            let nested_step = driver_let_step(&program, "nested");
+            let call_step = driver_let_step(&program, "number_name");
+            assert!(number_step < call_step);
+            let number_decoder =
+                verify_schemes::decoder_for_driver_step(&program.store, number_step).unwrap();
+            let number_value = program
+                .store
+                .driver_instruction_range(number_step)
+                .unwrap()
+                .find(|&instruction| {
+                    matches!(
+                        number_decoder.expression_view(instruction),
+                        Ok(schema::ExprView::Int(7))
+                    )
+                })
+                .unwrap();
+            let nested_decoder =
+                verify_schemes::decoder_for_driver_step(&program.store, nested_step).unwrap();
+            let nested_null = program
+                .store
+                .driver_instruction_range(nested_step)
+                .unwrap()
+                .find(|&instruction| {
+                    matches!(
+                        nested_decoder.expression_view(instruction),
+                        Ok(schema::ExprView::Null)
+                    )
+                })
+                .unwrap();
+            let number_type = program
+                .store
+                .driver_slots
+                .iter()
+                .find(|slot| {
+                    slot.name != IR_NONE
+                        && program.store.string(slot.name).unwrap() == "number"
+                })
+                .unwrap()
+                .type_id;
+            let text_type = program
+                .store
+                .driver_slots
+                .iter()
+                .find(|slot| {
+                    slot.name != IR_NONE
+                        && program.store.string(slot.name).unwrap() == "text"
+                })
+                .unwrap()
+                .type_id;
+            assert_ne!(number_type, text_type);
+
+            let mut wrong_payload = (*program).clone();
+            wrong_payload.store.tags[number_value] = program.store.tags[nested_null];
+            wrong_payload.store.data[number_value] = program.store.data[nested_null];
+            let validation_type_word = driver_validation_type_word(&wrong_payload, number_step);
+            let stale_validation = {
+                let mut forged = wrong_payload.clone();
+                forged.store.extra[validation_type_word] = text_type.raw();
+                forged
+            };
+            assert_eq!(
+                FullVerifier::verify(&stale_validation).unwrap_err().message,
+                "driver annotation disagrees with its runtime validation"
+            );
+
+            let wrong_payload = Arc::new(wrong_payload);
+            FullVerifier::verify(&wrong_payload).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*wrong_payload.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&wrong_payload));
+                evaluator.force_frames = force_frames;
+                let mut failure = None;
+                for step in 0..wrong_payload.driver_step_count().unwrap() {
+                    match evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(wrong_payload.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                    {
+                        Ok(_) => {}
+                        Err(error) => {
+                            failure = Some((step, error));
+                            break;
+                        }
+                    }
+                }
+                let (step, error) = failure.expect("the declaration validator rejects the record");
+                assert_eq!(step, number_step);
+                assert!(step < call_step);
+                assert_eq!(error.kind, "type-error");
+            }
+        });
+    }
+
+    #[test]
     fn full_verifier_rejects_generic_field_evidence_from_erased_any_locals() {
         fn reject_erased_field(source: &str, target: &str) {
             let program = fixture("generic-erased-field-evidence.xsh", source);
