@@ -3520,3 +3520,35 @@ let pair = env ({PATH:"/xsh/first:/xsh/second"}) { let view = env.PATH; {view, h
         }
     });
 }
+
+fn assert_constant_null_return_representations(definitions: &str) {
+    let source = format!(r#"{definitions}
+let integer: Null = absent(7)
+let text: Null = absent("kept")
+let task_integer: Null = null_task(7)?
+let task_text: Null = null_task("kept")?
+assert integer == null
+assert text == null
+assert task_integer == null
+assert task_text == null
+"#);
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}
+
+#[test]
+fn typed_constant_null_returns_keep_their_physical_representation() {
+    assert_constant_null_return_representations("proc null_task(marker: Any) -> Result[Null] { return null }\npure absent(marker: Any) -> Null { return null }");
+}
+
+#[test]
+fn generic_constant_null_returns_keep_their_physical_representation() {
+    assert_constant_null_return_representations("proc null_task(marker) { return null }\npure absent(marker) { return null }");
+}

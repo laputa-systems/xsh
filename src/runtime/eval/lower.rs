@@ -526,7 +526,7 @@ fn scheme_completion_result_parts(ty: &SchemeType) -> Option<(SchemeType, Scheme
 fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
     while let SchemeType::Validated(_, base) = ty { ty = base; }
     match ty {
-        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Optional(_))),
+        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Null | Type::Optional(_))),
         SchemeType::Callable { kind, .. } => Some(LoweredType::Function(*kind)),
         SchemeType::SchemeCallable(_) => Some(LoweredType::SchemeCallable),
         SchemeType::List(_) => Some(LoweredType::List),

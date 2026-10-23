@@ -54685,6 +54685,31 @@ assert other(7) == 7
         foreign_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(scheme_fixture_root_function(&program, "other")).unwrap();
         assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
     }
+
+    #[test]
+    fn generic_constant_null_returns_reject_nonnull_physical_producers() {
+        let program = fixture("generic-constant-null-proof.xsh", r#"
+proc unknown_return(value) { return null }
+pure absent(value) { return null }
+pure nonnull(value) { true }
+let integer: Null = unknown_return(7)?
+let text: Null = unknown_return("kept")?
+assert integer == null
+assert text == null
+assert absent(7) == null
+assert absent("kept") == null
+assert nonnull(7)
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let boolean = function_instruction_indices(&program, "nonnull", FullTag::ExprBool)[0];
+        for name in ["unknown_return", "absent"] {
+            let instruction = function_instruction_indices(&program, name, FullTag::ExprNull)[0];
+            let mut wrong = program.clone();
+            wrong.store.tags[instruction] = FullTag::ExprBool;
+            wrong.store.data[instruction] = program.store.data[boolean];
+            FullVerifier::verify(&wrong).expect_err("a boxed Null return must still prove a physical Null producer");
+        }
+    }
 }
 
 #[cfg(test)]
