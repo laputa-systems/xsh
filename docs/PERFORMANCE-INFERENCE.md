@@ -319,10 +319,31 @@ form. Site 111 is therefore a current
 source meaning/elaboration selector, not evidence of a missing inference
 relationship. SPEC 9.3 says a private proc's plain value tail defaults to
 `Result[T]`, while an explicit `-> Input` preserves the direct record result.
-Deleting this annotation alone changes the return contract. This does not
-establish author intent or classify other Proc return annotations. Site 110's
-`env` edge is independently inferable in this reduced probe, which does not
-classify the entire effect cohort.
+Deleting this annotation alone changes the return contract. The 209 retained
+Proc return annotations split into 170 outer `Result[...]` types and 39 plain
+value types. The plain types include aliases to records: `InputResult` at site
+121 resolves to the record declared in `core/wc.xsh`, and
+`collectors.SourceRead` at site 2061 resolves through
+`core/lib/system_report_collect.xsh` to the record in `core/lib/sys_source.xsh`.
+Under SPEC 9.3, these explicit plain return types select a direct value result
+where an inferred Proc value tail has a `Result[T]` envelope. This class is a
+source meaning/elaboration selector, not a missing inference relationship. It
+does not establish author intent or make plain return annotations an
+immutable floor. Site 110's `env` edge is independently inferable in this
+reduced probe, which does not classify the entire effect cohort.
+
+A separate diagnostic on compiler source `f87c6d69` used the canonical
+1,843-row retained table, so it included only the historical 1,040 removals.
+The original roots and first nine utility selectors passed; the reduced XSH
+root check then failed with seven diagnostics: one list-splice error at
+`cut.xsh` site 168, one `RecoveryType` error for `date_parse.xsh`'s `multiply`
+at sites 738–740, two `stream-sort` errors, and three indexed-build errors.
+The candidate retained all 758 Proc annotations and 202 effect clauses. The
+765 and 1,501 diagnostics from more-erased views are not independent counts of
+causes and cannot be attributed wholesale to the additional 719 Proc and 202
+effect erasures. This diagnostic ran no reduced selectors, Laputa checks, or
+interface comparisons and earns no removal or parity credit; the frozen
+9,194-site denominator and accepted 1,040 table are unchanged.
 
 For site 439, the reduced `plan_json_remote` pair checked with and without its
 annotations, the caller's `?` worked in both forms, and both printed the same
