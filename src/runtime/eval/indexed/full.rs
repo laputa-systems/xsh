@@ -54795,6 +54795,41 @@ assert nonnull(7)
             FullVerifier::verify(&wrong).expect_err("a boxed Null return must still prove a physical Null producer");
         }
     }
+
+    #[test]
+    fn late_byte_at_receivers_preserve_optional_results_after_frontend_disposal() {
+        let program = Arc::new(fixture("late-byte-at-results.xsh", r#"
+pure bytes_length(raw: Bytes) -> Int { raw.len() }
+pure text_length(raw: Str) -> Int { raw.byte_len() }
+pure bytes_probe(raw) {
+    let equal = raw.byte_at(0) == 65
+    let missing = raw.byte_at(9) == null
+    let size = bytes_length(raw)
+    {equal, missing, size}
+}
+pure text_probe(raw) {
+    let equal = raw.byte_at(0) == 65
+    let missing = raw.byte_at(9) == null
+    let size = text_length(raw)
+    {equal, missing, size}
+}
+assert bytes_probe(b"A") == {equal: true, missing: true, size: 1}
+assert bytes_probe(b"B") == {equal: false, missing: true, size: 1}
+assert bytes_probe(b"") == {equal: false, missing: true, size: 0}
+assert text_probe("A") == {equal: true, missing: true, size: 1}
+assert text_probe("B") == {equal: false, missing: true, size: 1}
+assert text_probe("") == {equal: false, missing: true, size: 0}
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
 }
 
 #[cfg(test)]

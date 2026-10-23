@@ -245,6 +245,11 @@ The last two rows are rejected because any `Int` key can fail UInt validation,
 and a Schema error cannot satisfy the declared `Str` error payload. A separately
 validated `UInt` key preserves a stored `Result[Int, Str]` error as data.
 
+Pending registered methods constrain their result cell when every viable
+candidate has the same closed concrete return type. Receiver selection remains
+pending, and no selected call evidence is published until a unique operation
+is established.
+
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical
 method site identifies its owned requirement; call evidence either selects a
