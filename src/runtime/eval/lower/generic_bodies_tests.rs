@@ -772,6 +772,32 @@ stream values(value: Int) [] -> Stream[Int] { yield value }
 }
 
 #[test]
+fn selected_callback_defaults_execute_after_frontend_disposal() {
+    let source = r#"
+type Pair = {left: Stream[Int], right: Stream[Int]}
+pure fresh_values() -> Stream[Int] { range(31, 32) }
+pure defaulted(head: Pair, value: Stream[Int] = fresh_values()) -> Stream[Int] { value }
+pure select(first, second, head: Pair) -> Stream[Int] { second(head) }
+pure direct(head: Pair) -> Stream[Int] { defaulted(head) }
+pure relay(head: Pair) -> Stream[Int] { select(defaulted, defaulted, head) }
+let head = {left: fresh_values(), right: fresh_values()}
+let direct_values = direct(head)
+let selected_values = relay(head)
+assert direct_values.collect() == [31]
+assert selected_values.collect() == [31]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
 fn materialized_named_callable_arguments_execute_after_frontend_disposal() {
     let source = r#"
 pure identity(payload) { payload }

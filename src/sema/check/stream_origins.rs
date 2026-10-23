@@ -795,6 +795,44 @@ mod tests {
     }
 
     #[test]
+    fn selected_callback_defaults_match_the_direct_default_origin() {
+        use crate::sema::check::Checker;
+        use crate::source::SourceId;
+        use crate::syntax::parser::Parser;
+
+        let source = "type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            pure fresh_values() -> Stream[Int] { range(31, 32) }\n\
+            pure defaulted(head: Pair, value: Stream[Int] = fresh_values()) -> Stream[Int] { value }\n\
+            pure select(first, second, head: Pair) -> Stream[Int] { second(head) }\n\
+            pure direct(head: Pair) -> Stream[Int] { defaulted(head) }\n\
+            pure relay(head: Pair) -> Stream[Int] { select(defaulted, defaulted, head) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let defaulted_declaration = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "defaulted")
+            .expect("the defaulted stream callable is checked");
+        let defaulted_owner = super::EffectDeclarationId { namespace: None, body: defaulted_declaration.body };
+        let summaries = ["defaulted", "direct", "relay"].into_iter().map(|name| {
+            let declaration = checked.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str().as_str() == name)
+                .expect("the defaulted stream callable is checked");
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            (name, &checked.stream_origin_summaries.declarations[&owner])
+        }).collect::<BTreeMap<_, _>>();
+        assert_eq!(summaries["defaulted"].defaults.get(&1), Some(&StreamOrigins::default()));
+        assert_eq!(summaries["defaulted"].returned.0, [(
+            super::ProjectionPath::default(),
+            super::StreamOrigin::Formal { owner: defaulted_owner, parameter: 1, projection: super::ProjectionPath::default() },
+        )].into_iter().collect());
+        assert_eq!(summaries["direct"].returned, *summaries["defaulted"].defaults.get(&1).unwrap());
+        assert_eq!(summaries["relay"].returned, summaries["direct"].returned);
+    }
+
+    #[test]
     fn explicitly_typed_callback_arguments_keep_their_formal_stream_projection() {
         use crate::sema::check::Checker;
         use crate::source::SourceId;
@@ -1505,7 +1543,6 @@ impl Checker {
             let id = *instance.applications.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
             let Some(layout) = self.type_constraints.settled_callable_application_binding(id)
                 .map_err(|_| StreamOriginBoundaryError)? else { continue; };
-            if !layout.omitted_slots.is_empty() { continue; }
             let Some(callee_slot) = Self::direct_stream_formal_slot(&formal_slots, &requirement.callee) else { continue; };
             let Some(callee_origins) = actuals.get(&callee_slot) else { continue; };
             let Some(targets) = callee_origins.selected_callable_targets() else { continue; };
@@ -1520,6 +1557,10 @@ impl Checker {
                 let parameters = arena.arena.params(definition.params);
                 if callback_summary.parameters.len() != parameters.len()
                     || layout.argument_slots.iter().any(|slot| *slot >= parameters.len())
+                    || layout.omitted_slots.iter().any(|slot| {
+                        *slot >= parameters.len()
+                            || parameters[*slot].default.is_none()
+                    })
                 { complete = false; break; }
                 let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
                 for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
@@ -1537,6 +1578,12 @@ impl Checker {
                         origin = origin.prefix(StreamProjection::Element)?;
                     }
                     callback_actuals.entry(slot).or_default().join(&origin);
+                }
+                if !complete { break; }
+                for &slot in &layout.omitted_slots {
+                    let Some(default) = callback_summary.defaults.get(&slot) else { complete = false; break; };
+                    if callback_actuals.contains_key(&slot) || default.has_application_dependency() || default.has_pending() { complete = false; break; }
+                    callback_actuals.insert(slot, default.clone());
                 }
                 if !complete { break; }
                 let Ok(returned) = callback_summary.returned.substitute(&callback_actuals) else { complete = false; break; };
