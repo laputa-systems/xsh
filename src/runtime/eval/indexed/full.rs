@@ -22073,6 +22073,73 @@ assert observed_words == [Ok("row")]
         });
     }
 
+    #[test]
+    fn inferred_unit_proc_propagation_uses_known_errors_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = concat!(
+                "error Failure = Lost(message: Str)\n",
+                "proc grounded(value: Result[Unit, Str]) { value? }\n",
+                "proc generalized(witness, value: Result[Unit, Str]) { value? }\n",
+                "proc custom(value: Result[Unit, Failure]) { value? }\n",
+                "proc defaulted() { let _ = true }\n",
+                "let text_failure: Result[Unit, Str] = Err(\"kept\")\n",
+                "let custom_failure: Result[Unit, Failure] = Err(Failure.Lost(\"custom\"))\n",
+                "let grounded_success: Result[Unit, Str] = grounded(Ok())\n",
+                "let grounded_failure: Result[Unit, Str] = grounded(text_failure)\n",
+                "assert match grounded_success { Ok() => true, else => false }\n",
+                "assert grounded_failure == Err(\"kept\")\n",
+                "let generalized_int_success: Result[Unit, Str] = generalized(7, Ok())\n",
+                "let generalized_str_success: Result[Unit, Str] = generalized(\"witness\", Ok())\n",
+                "let generalized_int: Result[Unit, Str] = generalized(7, text_failure)\n",
+                "let generalized_str: Result[Unit, Str] = generalized(\"witness\", text_failure)\n",
+                "assert match generalized_int_success { Ok() => true, else => false }\n",
+                "assert match generalized_str_success { Ok() => true, else => false }\n",
+                "assert generalized_int == Err(\"kept\")\n",
+                "assert generalized_str == Err(\"kept\")\n",
+                "assert match custom(custom_failure) { Err(error) => error.message == \"custom\", else => false }\n",
+                "let default_result: Result[Unit] = defaulted()\n",
+                "assert default_result == Ok()\n",
+            );
+            let program = Arc::new(fixture("inferred-unit-proc-propagation.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+
+            let source = "error Failure = Lost(message: Str)\nproc invalid(value: Result[Unit, Str]) -> Result[Unit, Failure] { value? }\n";
+            let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = parsed.arena.symbol_owner().with_current(|| {
+                Checker::check_arena_with_options(
+                    &parsed.arena,
+                    source,
+                    CheckOptions::for_execution(),
+                )
+            });
+            assert!(
+                checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTryError)
+                }),
+                "{:?}",
+                checked.diagnostics,
+            );
+        });
+    }
+
     fn same_named_binding_capture_fixture() -> FullProgram {
         let entry_source = "let flag: Bool = false\n\
                            use model\n\

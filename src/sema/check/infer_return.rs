@@ -639,12 +639,16 @@ impl Checker {
                     if failure_only {
                         ty = self.failure_only_proc_unit_envelope(program, def);
                     }
-                    let validation_start = self.diagnostics.len();
-                    self.expect_type(&ty, &actual, body_span);
                     if failure_only {
+                        let validation_start = self.diagnostics.len();
+                        self.expect_type(&ty, &actual, body_span);
                         ty = if self.diagnostics[validation_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
                             Type::Invalid
                         } else { actual };
+                    } else if propagated.is_empty() {
+                        self.expect_type(&ty, &actual, body_span);
+                    } else {
+                        ty = actual;
                     }
                 }
             }

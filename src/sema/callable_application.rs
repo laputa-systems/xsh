@@ -44,8 +44,18 @@ pub(crate) struct CallableApplication<T, V> {
 pub(crate) fn inferred_proc_return_envelope(value: Type, propagated: &[Type]) -> Type {
     match value {
         Type::Result(ok, error) => Type::Result(ok, Box::new(propagated.iter().fold(*error, |joined, error| join_error_types(&joined, error)))),
+        Type::Unit if !propagated.is_empty() => Type::Result(
+            Box::new(Type::Unit),
+            Box::new(join_propagated_error_types(propagated)),
+        ),
         value => Type::Result(Box::new(value), Box::new(Type::Error)),
     }
+}
+
+fn join_propagated_error_types(propagated: &[Type]) -> Type {
+    let (first, rest) = propagated.split_first().expect("propagated errors are nonempty");
+    rest.iter()
+        .fold(first.clone(), |joined, error| join_error_types(&joined, error))
 }
 
 pub(crate) fn join_error_types(left: &Type, right: &Type) -> Type {

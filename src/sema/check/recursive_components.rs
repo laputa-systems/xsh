@@ -522,7 +522,7 @@ mod tests {
             ("error Failure = Lost(message: Str)\nproc mixed(flag: Bool) { if flag { Err(Failure.Lost(message: \"lost\")) } else { let _ = true } }\n", None, Some("Error")),
             ("proc invalid() { Err(\"lost\") }\n", Some(DiagnosticCode::CheckTypeMismatch), None),
             ("proc unknown(action: Pure) { action.call() }\n", Some(DiagnosticCode::CheckInferReturn), None),
-            ("proc invalid(flag: Bool, value: Result[Int, Str]) { if flag { let ignored = value? } else { let _ = true } }\n", Some(DiagnosticCode::CheckTryError), None),
+            ("proc invalid(flag: Bool, value: Result[Int, Str]) { if flag { let ignored = value? } else { let _ = true } }\n", None, Some("Str")),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
@@ -537,6 +537,7 @@ mod tests {
                         let expected_return = match expected_return.unwrap() {
                             "Lost" => Type::ErrorVariant { family, variant: crate::symbol::Name::intern("Lost") },
                             "Family" => Type::ErrorFamily(family),
+                            "Str" => Type::Str,
                             "Error" => Type::Error,
                             _ => unreachable!(),
                         };
