@@ -251,45 +251,11 @@ frozen_main() {
     cat "$scratch/accepted-validation.log" >&2
     return 1
   fi
-  local witness_rows=$scratch/frozen-witnesses.tsv
-  PYTHONDONTWRITEBYTECODE=1 python3 "$repo/dev/performance/corpus/frozen_witnesses.py" \
-    "$scratch/archive" >"$witness_rows"
-  python3 - "$frozen_retained" "$retained" "$witness_rows" <<'PY'
-import csv
-import sys
-
-def site_rows(path):
-    with open(path, newline='') as source:
-        rows = list(csv.reader(source, delimiter='\t'))
-    if not rows or rows[0] != ['site', 'reason']:
-        raise SystemExit(f'invalid retained table header: {path}')
-    values = {}
-    for row in rows[1:]:
-        if len(row) != 2 or not row[0].isdecimal() or not row[1]:
-            raise SystemExit(f'invalid retained row in {path}: {row}')
-        site = int(row[0])
-        if site in values:
-            raise SystemExit(f'duplicate retained site {site} in {path}')
-        values[site] = row
-    return values
-
-accepted_rows = site_rows(sys.argv[1])
-candidate_rows = site_rows(sys.argv[2])
-accepted = set(accepted_rows)
-candidate = set(candidate_rows)
-with open(sys.argv[3], newline='') as source:
-    rows = csv.DictReader(source, delimiter='\t')
-    proc = {
-        int(row['site'])
-        for row in rows
-        if row['classification'] in {'proc-parameter-contract', 'proc-return-contract'}
-    }
-removed = accepted - candidate
-if candidate - accepted or removed - proc or any(
-    candidate_rows[site] != accepted_rows[site] for site in candidate
-):
-    raise SystemExit('candidate must preserve the frozen retained set except selected Proc contracts')
-PY
+  if ! PYTHONDONTWRITEBYTECODE=1 python3 "$repo/dev/performance/corpus/frozen_witnesses.py" \
+    "$scratch/archive" --validate-retained-candidate "$frozen_retained" "$retained" \
+    >/dev/null; then
+    return 1
+  fi
 
   mkdir -p "$scratch/expected"
   if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \

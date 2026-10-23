@@ -355,6 +355,82 @@ def verify_view_digest(view_root, expected_name, expected_count, expected_digest
         )
 
 
+def retained_rows_by_site(rows, source_name):
+    values = {}
+    for row in rows:
+        if len(row) != 2 or not row[0].isdecimal() or not row[1]:
+            raise ValueError(f"invalid retained row in {source_name}: {row}")
+        site_id = int(row[0])
+        if site_id in values:
+            raise ValueError(f"duplicate retained site {site_id} in {source_name}")
+        values[site_id] = row
+    return values
+
+
+def validate_frozen_candidate_rows(accepted_rows, candidate_rows, proc_sites, effect_sites):
+    accepted = retained_rows_by_site(accepted_rows, "accepted table")
+    candidate = retained_rows_by_site(candidate_rows, "candidate table")
+    accepted_sites = set(accepted)
+    if (
+        len(accepted_sites) != sum(EXPECTED_COUNTS.values())
+        or len(proc_sites) != 758
+        or len(effect_sites) != 202
+        or not proc_sites.issubset(accepted_sites)
+        or not effect_sites.issubset(accepted_sites)
+        or proc_sites & effect_sites
+    ):
+        raise ValueError("candidate validation inputs do not describe the frozen retained cohorts")
+
+    if set(candidate) - set(accepted):
+        raise ValueError("candidate introduces rows outside the frozen retained cohort")
+    removed = set(accepted) - set(candidate)
+    if removed - proc_sites - effect_sites:
+        raise ValueError("candidate removes a retained row outside selected Proc and joint-effect cohorts")
+    removed_effects = removed & effect_sites
+    if removed_effects and removed_effects != effect_sites:
+        raise ValueError("candidate must remove either zero or all 202 joint-effect rows")
+    if any(candidate[site_id] != accepted[site_id] for site_id in candidate):
+        raise ValueError("candidate changes a frozen retained row")
+
+
+def validate_frozen_candidate(accepted_path, candidate_path, views_root=None):
+    def retained_file(path):
+        with open(path, newline="", encoding="utf-8") as source:
+            rows = list(csv.reader(source, delimiter="\t"))
+        if not rows or rows[0] != ["site", "reason"]:
+            raise ValueError(f"invalid retained table header: {path}")
+        return rows[1:]
+
+    sites, eligibility, retained, _individual_effect_ids, _effect_facts = load_corpus()
+    if views_root is not None:
+        validate_views(views_root, sites, eligibility, retained)
+    accepted_rows = retained_file(accepted_path)
+    accepted = retained_rows_by_site(accepted_rows, accepted_path)
+    expected_accepted = {
+        site_id: [str(site_id), row["reason"]]
+        for site_id, row in retained.items()
+    }
+    if accepted != expected_accepted:
+        raise ValueError("accepted table does not match the frozen retained cohort")
+    retained_ids = set(retained)
+    proc_sites = {
+        site.site
+        for site in sites
+        if site.site in retained_ids and site.reason in {PROC_PARAMETER_REASON, PROC_RETURN_REASON}
+    }
+    effect_sites = {
+        site.site
+        for site in sites
+        if site.site in retained_ids and site.kind == "effect-list" and site.reason == EFFECT_REASON
+    }
+    validate_frozen_candidate_rows(
+        accepted_rows,
+        retained_file(candidate_path),
+        proc_sites,
+        effect_sites,
+    )
+
+
 def safe_source_file(view_root, project, relative):
     base = project_root(view_root, project)
     relative_path = PurePosixPath(relative)
@@ -817,13 +893,28 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("views_root", type=Path)
+    parser.add_argument("views_root", type=Path, nargs="?")
+    parser.add_argument(
+        "--validate-retained-candidate",
+        nargs=2,
+        metavar=("ACCEPTED", "CANDIDATE"),
+    )
     parser.add_argument(
         "--select",
         choices=("all", "proc", "effects", "remaining"),
         default="all",
     )
     args = parser.parse_args()
+    if args.validate_retained_candidate is not None:
+        if args.select != "all":
+            parser.error("--select cannot be combined with --validate-retained-candidate")
+        try:
+            validate_frozen_candidate(*args.validate_retained_candidate, args.views_root)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        return
+    if args.views_root is None:
+        parser.error("views_root is required")
     sites, eligibility, retained, individual_effect_ids, effect_facts = load_corpus()
     validate_views(args.views_root, sites, eligibility, retained)
     rows = witness_rows(

@@ -1,7 +1,9 @@
 import sys
 sys.dont_write_bytecode = True
 
+import csv
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -28,6 +30,91 @@ def site(site_id=1, kind="parameter-type", owner="pure f parameter x", reason=""
 
 
 class FrozenWitnessTests(unittest.TestCase):
+    def test_frozen_candidate_allows_zero_or_all_effects_and_rejects_other_cohorts(self):
+        WORK_TMP.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="frozen-candidate-", dir=WORK_TMP) as temporary:
+            root = Path(temporary)
+            sites, _eligibility, retained, _individual_effect_ids, _effect_facts = corpus.load_corpus()
+            accepted = [
+                [str(site_id), row["reason"]]
+                for site_id, row in sorted(retained.items())
+            ]
+            proc_sites = {
+                site.site
+                for site in sites
+                if site.site in retained and site.reason in {corpus.PROC_PARAMETER_REASON, corpus.PROC_RETURN_REASON}
+            }
+            effect_sites = {
+                site.site
+                for site in sites
+                if site.site in retained and site.kind == "effect-list" and site.reason == corpus.EFFECT_REASON
+            }
+            selected_proc = set(sorted(proc_sites)[:2])
+            accepted_path = root / "accepted.tsv"
+            candidate_path = root / "candidate.tsv"
+
+            def write_table(path, header, rows):
+                with path.open("w", newline="", encoding="utf-8") as destination:
+                    writer = csv.writer(destination, delimiter="\t", lineterminator="\n")
+                    writer.writerow(header)
+                    writer.writerows(rows)
+
+            write_table(accepted_path, ("site", "reason"), accepted)
+
+            def validate(candidate_rows, accepted_rows=accepted):
+                write_table(accepted_path, ("site", "reason"), accepted_rows)
+                write_table(candidate_path, ("site", "reason"), candidate_rows)
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        str(corpus.ROOT / "dev/performance/corpus/frozen_witnesses.py"),
+                        "--validate-retained-candidate",
+                        str(accepted_path),
+                        str(candidate_path),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+
+            zero_effects = [row for row in accepted if int(row[0]) not in selected_proc]
+            all_effects = [
+                row for row in accepted
+                if int(row[0]) not in effect_sites | selected_proc
+            ]
+            self.assertEqual(validate(zero_effects).returncode, 0)
+            self.assertEqual(validate(all_effects).returncode, 0)
+
+            partial_effects = [row for row in accepted if int(row[0]) != min(effect_sites)]
+            partial_result = validate(partial_effects)
+            self.assertNotEqual(partial_result.returncode, 0)
+            self.assertIn("zero or all 202", partial_result.stderr)
+
+            accepted_sites = set(retained)
+            foreign = accepted + [[str(max(accepted_sites) + 1), "foreign"]]
+            self.assertNotEqual(validate(foreign).returncode, 0)
+
+            nonproc_site = min(accepted_sites - proc_sites - effect_sites)
+            missing_nonproc = [row for row in accepted if int(row[0]) != nonproc_site]
+            self.assertIn("outside selected Proc and joint-effect", validate(missing_nonproc).stderr)
+
+            changed_reason = [
+                [row[0], row[1] + " changed"] if int(row[0]) == nonproc_site else row
+                for row in accepted
+            ]
+            self.assertIn("changes a frozen retained row", validate(changed_reason).stderr)
+
+            wrong_accepted = [
+                [row[0], row[1] + " changed"] if int(row[0]) == nonproc_site else row
+                for row in accepted
+            ]
+            self.assertIn(
+                "accepted table does not match the frozen retained cohort",
+                validate(accepted, wrong_accepted).stderr,
+            )
+
     def test_frozen_tables_keep_the_accepted_denominators_and_effect_partition(self):
         sites, eligibility, retained, individual, facts = corpus.load_corpus()
         retained_sites = [candidate for candidate in sites if candidate.site in retained]
