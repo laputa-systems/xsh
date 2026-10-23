@@ -1,7 +1,7 @@
 # Testing
 
 Use `cargo dev gate PATH...` for the narrowest check owned by changed paths.
-Run `cargo dev gate --batch` for the full local integration gate and
+Run `cargo dev gate --full` for the full local integration gate and
 `cargo dev test linux` for Linux verification in `Dockerfile.test`. Gate
 selection lives in `dev/gates.xsh`; profile and platform rules live in
 `dev/test_workflows.xsh` and `dev/targets.xsh`.
@@ -42,6 +42,44 @@ selection. Unfiltered runs, metadata requests, and benchmarks pass directly to
 libtest.
 
 ## Gates
+
+`cargo dev gate PATH...` selects Change verification from the component catalogue.
+Use `--tier edit` for an Edit request, and repeat `--case ID` for explicit cases.
+Use `--plan` to inspect cases, ownership reasons and required products without
+building products or starting Docker. Add `--json` for schema 1 inspection output.
+`selection_complete` describes ownership and closure resolution, not execution.
+Saved plans carry no execution authority and cannot be passed back for execution.
+Unknown paths produce incomplete scope and exit 2. They never select a broad fallback.
+
+Only the sole `cargo dev gate --full` request enters comprehensive verification.
+The former `--batch` flag and `internal gate-batch` operation are removed.
+Aliases and prerequisites are resolved before commands start. A focused closure
+containing a manual case, a missing ID or a cycle fails with exit 2.
+Native-file IDs emitted by path plans replay with `--case ID`. Planning rejects
+duplicate IDs, missing files and native files that resolve outside the owned root.
+Scenario cases require explicit `--case ID` selection. Path ownership cannot
+select a Scenario through a prerequisite.
+
+The initial focused cases include `showcase/tokei/correctness` and
+`core/lsmem/correctness`. Each selects its existing native behavior module.
+Edit rejects Change-only cases before preparing products. Edit runtime is limited
+to 30 seconds and Change runtime to 300 seconds across selected automatic cases.
+Each command also has its declared case limit. Explicit Scenario cases use their
+declared per-case limit and do not increase any automatic case's budget.
+
+Compilation runs outside the runtime budget and is reported as a separate stage.
+Cargo prepares each needed test harness once with `--no-run`. Selected tests then
+run through that executable directly, without another Cargo invocation.
+Deadline expiry consumes owned process cleanup and exits 2. Required child failures
+exit 1 while retaining the raw status. Gate cancellation consumes cleanup and exits
+130. No timeout or failure can request Full verification.
+
+Result reconciliation, source snapshot binding, per-case product profiles and
+explicit workload inputs remain open campaign work. Explicit Full still uses the
+static batch sequence. Its catalogue closure qualification remains open.
+The current Git path collection is line-based and does not qualify newline or
+non-UTF-8 working-tree paths. These checks do not qualify P0 or the post-inference
+campaign.
 
 Process tests and native suites use the optimized `verification` profile by
 default. It disables LTO and uses 64 codegen units. Release tests are for final

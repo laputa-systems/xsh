@@ -658,7 +658,7 @@ def batch_command() -> list[str]:
         "dev/main.xsh",
         "--",
         "internal",
-        "gate-batch",
+        "gate-full",
     ]
 
 

@@ -92,15 +92,13 @@ proc gate_git_directory(ctx: context.Context) [process, error, io] {
 }
 
 ## Runs selected Linux lane checks inside the pinned container.
-export proc gate_lane(ctx: context.Context, paths: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.target_dir)
+export proc gate_lane(ctx: context.Context, paths: List[Str]) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   defer repair_target(ctx)
-  gate_git_directory(ctx)
   gates.lane(ctx, paths)
 }
 
 ## Runs the complete Linux batch sequence inside the pinned container.
-export proc gate_batch(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+export proc gate_full(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.target_dir)
   defer repair_target(ctx)
   gate_git_directory(ctx)

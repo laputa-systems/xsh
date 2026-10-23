@@ -1749,8 +1749,8 @@ def print_plan(plan: dict[str, Any]) -> None:
         "cleanup_marker": str(NATIVE_CLEANUP_MARKER),
         "cleanup_policy": plan["environment"]["cleanup_verification"],
         "launcher_self_tests": plan["launcher_self_tests"],
-        "broad_batch_owner": "cargo dev gate --batch",
-        "full_native_suite": "owned by cargo dev gate --batch; no repeat here",
+        "broad_batch_owner": "cargo dev gate --full",
+        "full_native_suite": "owned by cargo dev gate --full; no repeat here",
         "non_goals": plan["non_goals"],
     }, indent=2))
 

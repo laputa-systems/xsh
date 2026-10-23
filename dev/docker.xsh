@@ -1,6 +1,7 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
 use stage as stages
+use stage_contract as contract
 use targets
 
 ## Host-side tool paths mounted read-only into the pinned Linux test container.
@@ -205,20 +206,19 @@ export pure internal_argv(
   argv.extend(extra)
 }
 
-## Runs one container-internal lifecycle operation without a shell intermediary.
-export proc run_internal(
+proc internal_command(
   ctx: context.Context,
   operation: Str,
   privileged: Bool,
   extra: List[Str],
-) [fs, process, env, error, io] -> Result[Unit, Error] {
+) [fs, process, env, error, io] -> Result[contract.CommandSpec, Error] {
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
   let available_link_tools = host_link_tools(ctx)?
   var common_git = null
-  if operation in ["gate-lane", "gate-batch"] {
+  if operation in ["gate-lane", "gate-full"] {
     cd (ctx.root) {
       let output = run.text git rev-parse --path-format=absolute --git-common-dir
       common_git = fp"{output.trim()}"
@@ -237,14 +237,24 @@ export proc run_internal(
     git_common_dir: common_git,
     host_link_tools: available_link_tools,
   )?
-  stages.execute(
-    stages.command(
+  stages.command(
       f"docker-{operation}",
       ctx.target.triple,
       "docker",
       argv,
       ctx.root,
       {},
-    ),
   )
+}
+
+## Runs one container-internal lifecycle operation through the stage diagnostics.
+export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Unit, Error] {
+  stages.execute(internal_command(ctx, operation, privileged, extra)?)
+}
+
+## Returns the owned container launch status without replacing its raw child code.
+export proc run_internal_status(ctx: context.Context, operation: Str, privileged: Bool, extra: List[Str]) [fs, process, env, error, io] -> Result[Status, Error] {
+  let spec = internal_command(ctx, operation, privileged, extra)?
+  print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
+  process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))
 }

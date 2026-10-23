@@ -932,7 +932,7 @@ def lint_command(
 
 
 def gate_batch_command() -> list[str]:
-    return ["cargo", "dev", "gate", "--batch"]
+    return ["cargo", "dev", "gate", "--full"]
 
 
 def ensure_native_marker_clear() -> None:
@@ -1310,7 +1310,7 @@ def run(args: argparse.Namespace) -> int:
                 return 130
             if not gate_stage["observation_accepted"]:
                 receipt["state"] = "failed"
-                receipt["error"] = "canonical cargo dev gate --batch did not produce valid observations"
+                receipt["error"] = "canonical cargo dev gate --full did not produce valid observations"
                 receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 json_write(receipt_path, receipt)
                 return 1
