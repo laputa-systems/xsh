@@ -35,6 +35,7 @@ fn collect_body_type_facts(
     prepared: &crate::sema::constants::PreparedConstants,
     bindings: &super::ResolvedBindings,
     selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+    selected_nullary: impl Fn(ExprId) -> bool,
     command_sites: &BTreeMap<(Span, Name), super::BindingId>,
     defaults: &[ExprId],
 ) -> (
@@ -69,7 +70,7 @@ fn collect_body_type_facts(
                 if let Some(ty) = checked.get(&arena.expr(id).span) {
                     types.insert(id, ty.clone());
                 }
-                if prepared.values.contains_key(&id) { continue; }
+                if prepared.values.contains_key(&id) || selected_nullary(id) { continue; }
                 if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = arena.expr(id).kind
                     && selected_calls.contains_key(&arena.expr(id).span)
                 {
@@ -196,6 +197,33 @@ struct PreparedCheckedFunction {
 }
 
 impl Checker {
+    fn checked_nullary_tag_producer_span(&self, program: &ArenaProgram, expression: ExprId, ty: &Type) -> Option<Span> {
+        let node = program.arena.expr(expression);
+        let family = match node.kind {
+            ArenaExprKind::Ident(name) if matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite) => {
+                let variant = self.tag_variants.get(&name)?;
+                (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+            }
+            ArenaExprKind::Field { base, name } => match program.arena.expr(base).kind {
+                ArenaExprKind::Item => {
+                    let super::InferredVariant::Tag { type_name, variant, field_types } = self.inferred_variants.get(&node.span)? else { return None; };
+                    (name == *variant && field_types.is_empty()).then_some(*type_name)?
+                }
+                ArenaExprKind::Ident(_) => {
+                    let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(program, base) else { return None; };
+                    if !binding.static_namespace { return None; }
+                    let id = self.resolved_bindings.expressions.get(&base)?;
+                    let super::BindingKind::Module(owner) = self.resolved_bindings.declarations.get(id)?.kind else { return None; };
+                    let variant = self.user_modules.get(owner.as_str().as_str())?.tag_variants.get(&name)?;
+                    (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        (*ty == Type::Tag(family)).then_some(node.span)
+    }
+
     pub(super) fn generalize_pending_function(
         &mut self,
         program: &ArenaProgram,
@@ -220,7 +248,9 @@ impl Checker {
         for &definition in definitions {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls,
+                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                &self.resolved_command_sites, &defaults);
             captures.extend(reads);
         }
         let types = captures.into_iter().filter_map(|id| {
@@ -282,7 +312,9 @@ impl Checker {
         }
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
-            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls, &self.resolved_command_sites, &defaults);
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings, &self.selected_function_calls,
+                |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                &self.resolved_command_sites, &defaults);
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
             Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
             _ => None,
@@ -472,30 +504,7 @@ impl Checker {
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
-                let node = program.arena.expr(expression);
-                let family = match node.kind {
-                    crate::syntax::arena::ArenaExprKind::Ident(name) if matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite) => {
-                        let variant = self.tag_variants.get(&name)?;
-                        (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
-                    }
-                    crate::syntax::arena::ArenaExprKind::Field { base, name } => match program.arena.expr(base).kind {
-                        crate::syntax::arena::ArenaExprKind::Item => {
-                            let super::InferredVariant::Tag { type_name, variant, field_types } = self.inferred_variants.get(&node.span)? else { return None; };
-                            (name == *variant && field_types.is_empty()).then_some(*type_name)?
-                        }
-                        crate::syntax::arena::ArenaExprKind::Ident(_) => {
-                            let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(program, base) else { return None; };
-                            if !binding.static_namespace { return None; }
-                            let id = self.resolved_bindings.expressions.get(&base)?;
-                            let super::BindingKind::Module(owner) = self.resolved_bindings.declarations.get(id)?.kind else { return None; };
-                            let variant = self.user_modules.get(owner.as_str().as_str())?.tag_variants.get(&name)?;
-                            (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
-                        }
-                        _ => return None,
-                    },
-                    _ => return None,
-                };
-                (ty.closed_ground_type() == Some(Type::Tag(family))).then_some(node.span)
+                ty.closed_ground_type().and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, &ty))
             }));
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
                 if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_))
@@ -2838,11 +2847,11 @@ mod imported_pure_tests {
         let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
         assert!(!facts.read_bindings().contains(&namespace));
         let bindings = super::super::ResolvedBindings::collect(&program);
-        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
+        let (types, _, spans, _, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, |_| false, &BTreeMap::new(), &[]);
         let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
         assert!(spans.contains(&program.arena.expr(callee).span));
         assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
-        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), &BTreeMap::new(), &[]);
+        let (unselected_types, _, _, unselected_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &BTreeMap::new(), |_| false, &BTreeMap::new(), &[]);
         assert_eq!(types, unselected_types);
         assert!(unselected_reads.contains(&namespace));
         let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
@@ -2864,7 +2873,7 @@ mod imported_pure_tests {
                 None => assert!(output.diagnostics.is_empty(), "{globals} {prefix} {argument}: {:?}", output.diagnostics),
             }
             let bindings = super::super::ResolvedBindings::collect(&program);
-            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, &BTreeMap::new(), &[]);
+            let (_, _, _, reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings, &output.selected_function_calls, |_| false, &BTreeMap::new(), &[]);
             if globals.is_empty() {
                 assert!(reads.contains(&namespace));
             } else {

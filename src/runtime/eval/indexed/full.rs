@@ -22632,6 +22632,182 @@ run true
     }
 
     #[test]
+    fn generic_nullary_tag_producers_authenticate_nominal_layouts() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-nullary-tag-proofs.xsh", r#"
+enum State { Ready, Missing, Payload(Int) }
+enum Other { Foreign }
+pure foreign() -> Other { Foreign }
+pure payload() -> State { Payload(1) }
+pure keep(value, state: State) {
+    let _ = true
+    if state == .Ready { value } else { value }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "keep");
+            let other = scheme_fixture_root_function(&program, "foreign");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let tag = function_instruction_indices(&program, "keep", FullTag::ExprTag)[0];
+            let boolean = function_instruction_indices(&program, "keep", FullTag::ExprBool)[0];
+            let schema::ExprView::Tag { type_name, name, fields, .. } = decoder.expression_view(tag).unwrap() else { unreachable!() };
+            assert_eq!(fields.len(), 0);
+            let words = program.store.data[tag].range().bounds(program.store.extra.len()).unwrap();
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+            let foreign_tag = function_instruction_indices(&program, "foreign", FullTag::ExprTag)[0];
+            let foreign_words = program.store.data[foreign_tag].range().bounds(program.store.extra.len()).unwrap();
+            let payload_tag = function_instruction_indices(&program, "payload", FullTag::ExprTag)[0];
+            let payload_words = program.store.data[payload_tag].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_family = cold();
+            wrong_family.store.extra[words.start..words.start + 2].copy_from_slice(&program.store.extra[foreign_words.start..foreign_words.start + 2]);
+            assert_eq!(FullVerifier::verify(&wrong_family).unwrap_err().message, "generic body expression disagrees with its checked type");
+            let mut wrong_layout = cold();
+            wrong_layout.store.extra[words.start + 1] = program.store.extra[payload_words.start + 1];
+            assert_eq!(FullVerifier::verify(&wrong_layout).unwrap_err().message, "generic nullary tag producer disagrees with its declared payload layout");
+            let mut missing_layout = cold();
+            let _symbols = program.symbol_owner().enter();
+            let key = CheckedPatternVariantKey { kind: CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
+            missing_layout.store.declared_pattern_variants.remove(&key);
+            assert_eq!(FullVerifier::verify(&missing_layout).unwrap_err().message, "checked nominal pattern schema has no canonical declaration");
+            let mut wrong_fact = cold();
+            wrong_fact.store.scheme_body_facts[fact(tag)].value = program.store.scheme_body_facts[fact(boolean)].value;
+            assert!(FullVerifier::verify(&wrong_fact).is_err());
+            let mut foreign_owner = cold();
+            foreign_owner.store.scheme_body_facts[fact(tag)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+            let mut payload = cold();
+            assert_eq!(owner + 1, program.store.functions.len());
+            let end = u32::try_from(program.store.tags.len()).unwrap();
+            assert!(payload.store.driver_steps.iter().all(|step| step.instruction_start == end));
+            payload.store.tags.push(program.store.tags[boolean]);
+            payload.store.data.push(program.store.data[boolean]);
+            payload.store.resource_transfers.push(false);
+            payload.store.checked_call_target_required.push(false);
+            let block = IrBlockId::from_raw(program.store.extra[words.start + 2]).unwrap();
+            let start = u32::try_from(payload.store.extra.len()).unwrap();
+            payload.store.extra.extend_from_slice(&[1, end]);
+            payload.store.blocks[block.index()].instructions = IrRange::new(start, 2);
+            for step in &mut payload.store.driver_steps { step.instruction_start = end + 1; }
+            assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic nullary tag producer has payload fields");
+        });
+    }
+
+    #[test]
+    fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
+pure divide(value: Int, divisor: Int) -> Int { value / divisor }
+pure checked(days: Int) -> Int { divide(days + 719468, 146097) }
+pure shifted(days, marker) {
+    let _ = marker
+    let _ = true
+    let _ = "wrong"
+    let shifted = days + 719468
+    if shifted > 0 { divide(shifted, 146097) } else { 0 }
+}
+pure keep(value) { value }
+assert shifted(0, "marker") == 4
+assert shifted(0, "marker") == checked(0)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "shifted");
+            let other = scheme_fixture_root_function(&program, "keep");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let arithmetic = function_instruction_indices(&program, "shifted", FullTag::ExprBinary).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Binary { op: BinaryOp::Add, .. })
+            }).unwrap();
+            let schema::ExprView::Binary { left, right, .. } = decoder.expression_view(arithmetic).unwrap() else { unreachable!() };
+            let (left, right) = (left.raw() as usize, right.raw() as usize);
+            let text = function_instruction_indices(&program, "shifted", FullTag::ExprStr)[0];
+            let boolean = function_instruction_indices(&program, "shifted", FullTag::ExprBool)[0];
+            let marker = decoder.instruction_range.clone().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let mut wrong_operand = (*program).clone();
+            wrong_operand.store.tags[right] = program.store.tags[text];
+            wrong_operand.store.data[right] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_operand).is_err());
+            let words = program.store.data[arithmetic].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = (*program).clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Eq);
+            wrong_operation.store.extra[words.start] = operation;
+            assert!(FullVerifier::verify(&wrong_operation).is_err());
+            let mut wrong_result = (*program).clone();
+            wrong_result.store.scheme_body_facts[fact(arithmetic)].value = program.store.scheme_body_facts[fact(boolean)].value;
+            assert!(FullVerifier::verify(&wrong_result).is_err());
+            let mut wrong_binder = (*program).clone();
+            let words = program.store.data[left].range().bounds(program.store.extra.len()).unwrap();
+            wrong_binder.store.extra[words.start] = 1;
+            wrong_binder.store.scheme_body_facts[fact(left)].value = program.store.scheme_body_facts[fact(marker)].value;
+            assert!(FullVerifier::verify(&wrong_binder).is_err());
+            let mut foreign_owner = (*program).clone();
+            foreign_owner.store.scheme_body_facts[fact(arithmetic)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        });
+    }
+
+    #[test]
+    fn generic_result_returns_preserve_symbolic_success_with_error_subtypes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-result-error-subtype-return.xsh", r#"
+error Failure = Rejected
+pure invalid(text: Str) { Failure.Rejected(text) }
+pure select(value, failed: Bool) {
+    let _ = "wrong"
+    if failed { return Err(invalid("rejected")) }
+    Ok(value)
+}
+assert select(7, false) == Ok(7)
+assert select("seven", false) == Ok("seven")
+assert match select(7, true) { Err(_) => true; Ok(_) => false }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "select");
+            let other = scheme_fixture_root_function(&program, "invalid");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let failure = function_instruction_indices(&program, "select", FullTag::ExprErr)[0];
+            let text = function_instruction_indices(&program, "select", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_body = (*program).clone();
+            wrong_body.store.scheme_body_facts[fact(failure)].value = program.store.scheme_body_facts[fact(text)].value;
+            assert!(FullVerifier::verify(&wrong_body).is_err());
+            let mut foreign_owner = (*program).clone();
+            foreign_owner.store.scheme_body_facts[fact(failure)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_result_pattern_fields() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-result-pattern-argument.xsh", r#"
@@ -22889,6 +23065,81 @@ assert read() == 7
             wrong_item.store.tags.swap(records[0], texts[0]);
             wrong_item.store.data.swap(records[0], texts[0]);
             assert!(FullVerifier::verify(&wrong_item).is_err());
+        });
+    }
+
+    #[test]
+    fn ground_checked_parameters_authenticate_mutable_record_sources() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("ground-checked-record-argument.xsh", r#"
+type ByteCount = {high: UInt, low: UInt, overflow: Bool}
+pure byte_count(size) {
+    {high: size / 1000000000, low: size % 1000000000, overflow: false}
+}
+pure add_bytes(left: ByteCount, right: ByteCount) {
+    let low = left.low + right.low
+    let high = left.high + right.high + low / 1000000000
+    {high: high, low: low % 1000000000, overflow: left.overflow or right.overflow}
+}
+pure width(size: Int, replacement: Str) -> Int {
+    let _ = replacement
+    var total = byte_count(0)
+    for item in [size] {
+        total = add_bytes(total, byte_count(item))
+    }
+    total.low
+}
+assert width(7, "wrong") == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+                let error = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "width")),
+                    CallableKind::Pure,
+                    &[Value::Int(-1), Value::Str("wrong".into())],
+                    Span::at(program.store.source_id, 0),
+                ).unwrap().unwrap_err();
+                assert_eq!(error.kind, "type-error");
+            }
+            let owner = scheme_fixture_root_function(&program, "add_bytes");
+            let params = program.store.functions[owner].params.bounds(program.store.params.len()).unwrap();
+            for parameter in params {
+                let cold = program.store.param_cold.binary_search_by_key(&(parameter as u32), |row| row.param).unwrap();
+                let mut missing_check = (*program).clone();
+                missing_check.store.param_cold[cold].validation = IR_NONE;
+                assert_eq!(FullVerifier::verify(&missing_check).unwrap_err().message, "unsigned parameter is missing its runtime validation");
+                let mut wrong_check = (*program).clone();
+                let integer = SemanticPoolBuilder::default().intern_type(&mut wrong_check.store.semantic, &Type::Int).unwrap();
+                let validation = wrong_check.store.param_cold[cold].validation;
+                wrong_check.store.validations[validation as usize].type_id = integer;
+                assert_eq!(FullVerifier::verify(&wrong_check).unwrap_err().message, "unsigned parameter validation disagrees with its signature");
+            }
+            let owner = scheme_fixture_root_function(&program, "width");
+            let decoder = function_view_decoder(&program.store, owner);
+            let replacement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let declaration = function_instruction_indices(&program, "width", FullTag::StmtLet).into_iter().find(|&instruction| {
+                matches!(decoder.statement_view(instruction).unwrap(), schema::StmtView::Let { value, .. }
+                    if matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. }))
+            }).unwrap();
+            let words = program.store.data[declaration].range().bounds(program.store.extra.len()).unwrap();
+            let schema::StmtView::Let { slot, .. } = decoder.statement_view(declaration).unwrap() else { unreachable!() };
+            let stored = program.store.semantic.to_type(decoder.checked_slot_type(slot).unwrap().unwrap()).unwrap();
+            let Type::Record(fields) = stored else { unreachable!() };
+            program.symbols.with_current(|| {
+                assert_eq!(fields[&Name::intern("high")], Type::Int);
+                assert_eq!(fields[&Name::intern("low")], Type::Int);
+            });
+            let mut lying_writer = (*program).clone();
+            lying_writer.store.extra[words.start + 1] = u32::try_from(replacement).unwrap();
+            assert!(FullVerifier::verify(&lying_writer).is_err());
         });
     }
 
@@ -39649,6 +39900,120 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn automatic_path_entry_uses_argv_conversion_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = "proc main(first: Path, second: Path) [io, error] {\n  print first.display() second.display()\n}\nmain(@args)?\n";
+            for force_frames in [false, true] {
+                for (arguments, accepted) in [
+                    (vec!["a", "b"], true),
+                    (vec!["a"], false),
+                    (vec!["a", "b", "c"], false),
+                    (vec!["a\0", "b"], false),
+                ] {
+                    let (evaluator, plan, entry_span) = {
+                        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                            "automatic-path-entry.xsh", crate::loader::entry_source_from_text("automatic-path-entry.xsh", source.to_string()), Vec::new());
+                        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                        let source_id = sources.files()[0].id();
+                        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+                        let entry = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
+                        let entry_span = parsed.arena.arena.stmt(entry).span;
+                        let mut evaluator = Evaluator::new_with_sources(arguments.into_iter().map(str::to_string).collect(), sources);
+                        evaluator.force_frames = force_frames;
+                        let plan = parsed.arena.symbol_owner().with_current(|| {
+                            evaluator.prepare_checked_compact_indexed_only(&parsed.arena, source_id, false, declarations)
+                        }).unwrap();
+                        (evaluator, plan, entry_span)
+                    };
+                    let program = evaluator.indexed_program.as_ref().unwrap();
+                    FullVerifier::verify(program).unwrap();
+                    let entry = program.driver_step_count().unwrap() - 1;
+                    assert!(program.driver_step_is_skip(entry).unwrap());
+                    assert_eq!(program.driver_step_view(entry).unwrap().source_span().unwrap(), entry_span);
+                    let output = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("prepared entry remains executable"));
+                    if accepted {
+                        assert_eq!(output.stdout, b"a b\n");
+                        assert!(output.stderr.is_empty());
+                        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                        assert!(output.traceback.is_none());
+                        assert_eq!(output.status, 0);
+                    } else {
+                        assert!(output.stdout.is_empty());
+                        assert!(output.traceback.is_some());
+                        assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::RuntimeCompactUnsupportedMain)), "{:?}", output.diagnostics);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn automatic_entry_preserves_defaults_rest_and_explicit_calls() {
+        run_with_large_stack(|| {
+            for force_frames in [false, true] {
+                for (name, source, arguments, expected) in [
+                    ("default", "proc main(target: Path = p\"default\") [io, error] { print target.display() }\nmain(@args)?\n", Vec::new(), "default\n"),
+                    ("rest", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\n", vec!["a", "b"], "a,b\n"),
+                    ("nonfinal", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\nprint \"after\"\n", vec!["original"], "original\nafter\noriginal\n"),
+                    ("pure", "pure main(...words: List[Str]) -> Str { words.join(\",\") }\nprint main(@args)\n", vec!["original"], "original\n"),
+                    ("test", "test main { assert false }\n", Vec::new(), ""),
+                ] {
+                    let (evaluator, plan) = {
+                        let path = format!("entry-{name}.xsh");
+                        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(&path,
+                            crate::loader::entry_source_from_text(&path, source.to_string()), Vec::new());
+                        assert!(parsed.diagnostics.is_empty(), "{name}: {:?}", parsed.diagnostics);
+                        let source_id = sources.files()[0].id();
+                        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                        assert!(declarations.diagnostics.is_empty(), "{name}: {:?}", declarations.diagnostics);
+                        let mut evaluator = Evaluator::new_with_sources(arguments.into_iter().map(str::to_string).collect(), sources);
+                        evaluator.force_frames = force_frames;
+                        let plan = parsed.arena.symbol_owner().with_current(|| {
+                            evaluator.prepare_checked_compact_indexed_only(&parsed.arena, source_id, false, declarations)
+                        }).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                        (evaluator, plan)
+                    };
+                    let output = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("{name}: prepared entry remains executable"));
+                    assert_eq!(output.stdout, expected.as_bytes(), "{name}: {:?} {:?}", output.diagnostics, output.traceback);
+                    assert!(output.diagnostics.is_empty(), "{name}: {:?}", output.diagnostics);
+                    assert!(output.traceback.is_none(), "{name}: {:?}", output.traceback);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn automatic_entry_rejects_shadowed_script_arguments() {
+        run_with_large_stack(|| {
+            let source = "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nlet args = [\"shadow\"]\nmain(@args)?\n";
+            let path = "shadowed-script-arguments.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, source.to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, sources.files()[0].id());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckStandardModuleShadow)), "{:?}", checked.diagnostics);
+        });
+    }
+
+    #[test]
+    fn imported_main_splices_remain_module_initialization_errors() {
+        run_with_large_stack(|| {
+            let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+            let root = tempfile::TempDir::new_in(scratch).unwrap();
+            std::fs::write(root.path().join("entry_module.xsh"), "##! Explicit module entry call.\nproc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\n").unwrap();
+            let path = root.path().join("entry.xsh");
+            let path = path.to_str().unwrap();
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, "use entry_module\n".to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(declarations.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleTopLevel)), "{:?}", declarations.diagnostics);
+        });
+    }
+
+    #[test]
     fn compact_driver_executes_effects_after_arena_drop() {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
@@ -54189,3 +54554,134 @@ mod formal_bridge;
 
 #[cfg(test)]
 mod noncompletion_tests;
+
+#[cfg(test)]
+mod namespace_error_body_tests {
+    fn prepare(root: &std::path::Path, source: &str) -> super::FullProgram {
+        let entry = root.join("entry.xsh");
+        let file = entry.to_str().unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.to_owned()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{}", renderer.render(&declarations.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &declarations, source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn imported_generic_error_producers_keep_their_nominal_namespace() {
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        for module in ["first", "second"] {
+            std::fs::write(root.path().join(format!("{module}.xsh")), r#"##! Nominal error fixture.
+## A failure with module ownership.
+export error Collision = Failed
+pure invalid(text: Str) { Collision.Failed(text) }
+## Keeps a generic success and an owned error.
+export pure attempt(value, failed: Bool) {
+    if failed { return Err(invalid("rejected")) }
+    Ok(value)
+}
+"#).unwrap();
+        }
+        let source = r#"use first as left
+use second as right
+assert left.attempt(7, false) == Ok(7)
+assert right.attempt("kept", false) == Ok("kept")
+assert match left.attempt(7, true) { Err(left.Collision.Failed {message}) => message == "rejected"; Err(_) => false; Ok(_) => false }
+assert match right.attempt("kept", true) { Err(right.Collision.Failed {message}) => message == "rejected"; Err(_) => false; Ok(_) => false }
+"#;
+        let program = std::sync::Arc::new(prepare(root.path(), source));
+        super::FullVerifier::verify(&program).unwrap();
+        let producer = |module: &str| {
+            let owner = program.store.functions.iter().enumerate().find_map(|(owner, function)| {
+                let span = program.function_definition_spans[owner];
+                (program.store.string(function.name).unwrap() == "attempt" && program.sources.get(span.source_id).unwrap().name().ends_with(&format!("/{module}.xsh"))).then_some(owner)
+            }).unwrap();
+            let calls = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == super::FullTag::ExprDirectPureCall).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            let function = super::IrFunctionId::new(owner).unwrap();
+            let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == function && fact.instruction as usize == calls[0] && fact.kind() == super::schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            (function, fact)
+        };
+        let (_, first) = producer("first");
+        let (other, second) = producer("second");
+        let first_type = program.store.scheme_body_facts[first].ty().unwrap();
+        let second_type = program.store.scheme_body_facts[second].ty().unwrap();
+        assert_eq!(program.store.scheme_types[first_type.index()].tag, super::schema::FullSchemeTypeTag::Ground);
+        assert_ne!(program.store.scheme_types[first_type.index()].first, program.store.scheme_types[second_type.index()].first);
+        let mut wrong_family = (*program).clone();
+        wrong_family.store.scheme_types[first_type.index()] = program.store.scheme_types[second_type.index()];
+        assert_eq!(super::FullVerifier::verify(&wrong_family).unwrap_err().message, "generic declaration disagrees with its initializer");
+        let mut foreign_owner = (*program).clone();
+        foreign_owner.store.scheme_body_facts[first].function = other;
+        assert!(super::FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod closed_call_result_tests {
+    fn prepare(typed: bool) -> super::FullProgram {
+        let parameters = if typed { "year: Int, month: Int, day: Int) -> Int" } else { "year, month, day)" };
+        let source = r#"pure floor_div(value: Int, divisor: Int) -> Int { value / divisor - (if value < 0 and value % divisor != 0 { 1 } else { 0 }) }
+pure positive_mod(value: Int, divisor: Int) -> Int { let remainder = value % divisor; if remainder < 0 { remainder + divisor } else { remainder } }
+pure is_leap(year) { positive_mod(year, 33) in [1, 5, 9, 13, 17, 22, 26, 30] }
+pure day_number(PARAMETERS {
+    let previous = year - 1
+    var leaps = floor_div(previous, 33) * 8
+    for offset in range(positive_mod(previous, 33)) {
+        if is_leap(offset + 1) { leaps += 1 }
+    }
+    let month_start = if month <= 6 { 31 * (month - 1) } else { 186 + 30 * (month - 7) }
+    365 * previous + leaps + month_start + day - 1
+}
+pure from_days(days) {
+    let number = days + day_number(1405, 1, 1)
+    var year = floor_div(number, 365) + 1
+    while day_number(year + 1, 1, 1) <= number { year += 1 }
+    while day_number(year, 1, 1) > number { year -= 1 }
+    let offset = number - day_number(year, 1, 1)
+    {year, month: offset / 31 + 1, day: offset % 31 + 1}
+}
+assert from_days(0) == {year: 1405, month: 1, day: 1}
+"#.replace("PARAMETERS", parameters);
+        let file = "closed-calendar-call-result.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.clone()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{}", renderer.render(&declarations.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &declarations, &source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn typed_numeric_callee_preserves_closed_call_result_provenance() {
+        super::FullVerifier::verify(&prepare(true)).unwrap();
+    }
+
+    #[test]
+    fn generic_numeric_callee_preserves_closed_call_result_provenance() {
+        let program = std::sync::Arc::new(prepare(false));
+        super::FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+
+    }
+}

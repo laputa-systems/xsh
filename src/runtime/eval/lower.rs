@@ -2498,10 +2498,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             statements: Vec::with_capacity(statements.len()),
             scratch: self.scratch.clone(),
         };
-        for stmt in statements {
+        let automatic_main = self.current_namespace.is_none()
+            && statements.iter().copied().any(|stmt| super::compact_root_proc_main_exists(self.program, stmt));
+        for (index, stmt) in statements.iter().enumerate() {
             self.output.top_level_statements += 1;
             let blockers_before = self.output.blocker_events;
-            let mut item = self.lower_top_level_stmt(*stmt, &known);
+            let mut item = if super::compact_should_skip_auto_main_stmt(self.program, statements, index, automatic_main) {
+                None
+            } else {
+                self.lower_top_level_stmt(*stmt, &known)
+            };
             if self.output.blocker_events != blockers_before {
                 item = None;
             }
@@ -2736,7 +2742,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .program
             .arena
             .span(self.program.arena.block(def.body).span);
-        let scheme_body_facts = self.declarations.scheme_bodies.get(&body_span).cloned();
+        let scheme_body_facts = self.declarations.scheme_bodies.get(&body_span).map(|facts| {
+            let mut canonicalize = |ty: &mut Type| *ty = self.canonicalize_checked_type(ty.clone());
+            let scheme = Arc::new(facts.scheme().map_ground_types(&mut canonicalize));
+            facts.map_ground_types(scheme, &mut canonicalize)
+        });
         let scheme = scheme_body_facts
             .as_ref()
             .map(|facts| Arc::clone(facts.scheme()));
@@ -4394,6 +4404,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 push_build_row!(self, expr, BuildExprRow::Require { value, check, span })
             }
+            ArenaExprKind::Field { .. } if self.bodies.inferred_variants.contains_key(&expression) => {
+                self.lower_inferred_variant(expression, slots, Some(current_function), None)?
+            }
+            ArenaExprKind::Field { base, name }
+                if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding))
+                    .is_some_and(|declaration| matches!(declaration.kind, BindingKind::Module(_)))
+                    && matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module)
+                        if self.compact_qualified_tag_variant_arity(module, name) == Some(0)) => {
+                self.lower_expr(expression, slots, Some(current_function), None)?
+            }
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
                 if facts.wrapper_site(expression).is_none() {
@@ -4843,9 +4863,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let function = self.function_index().checked_target_key(target)?;
                     let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None)?;
                     let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
-                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression)).cloned()
-                        && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
-                    { return self.block_scheme_lowering_expr(expression); }
+                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression)).cloned() {
+                        let result_type = ty.closed_ground_type().map(|ty| self.canonicalize_checked_type(ty));
+                        let mut scratch = self.scratch.borrow_mut();
+                        if !scratch.record_call_instantiation(lowered, instantiation)
+                            || result_type.is_some_and(|ty| !scratch.record_checked_call_result_type(lowered, ty))
+                        { drop(scratch); return self.block_scheme_lowering_expr(expression); }
+                    }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 if let Some(callable) = self.bodies.typed_callable_calls.get(&expression).cloned() {

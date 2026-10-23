@@ -1775,9 +1775,10 @@ mod contextual_variant_body_tests {
         for module in ["left", "right"] {
             std::fs::write(root.path().join(format!("{module}.xsh")), "##! Nominal state fixture.\n## A state with two nullary choices.\nexport enum State: Str { Ready = \"ready\", Missing = \"missing\" }\n").unwrap();
         }
-        for (tail, accepted) in [
-            ("let number: Int = keep(7, a.Ready)\nlet word: Str = keep(\"kept\", a.Missing)\ntest imported_variants { assert keep(7, a.Ready) == 7; assert keep(\"kept\", a.Missing) == \"kept\"; assert named(7, a.Ready) == 7; assert named(\"kept\", a.Missing) == \"kept\" }\n", true),
-            ("let wrong = keep(7, b.Ready)\n", false),
+        for (tail, expected_error) in [
+            ("let number: Int = keep(7, a.Ready)\nlet word: Str = keep(\"kept\", a.Missing)\ntest imported_variants { assert keep(7, a.Ready) == 7; assert keep(\"kept\", a.Missing) == \"kept\"; assert named(7, a.Ready) == 7; assert named(\"kept\", a.Missing) == \"kept\" }\n", None),
+            ("let wrong = keep(7, b.Ready)\n", Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)),
+            ("pure namespace_value(value) { let _ = a; value }\n", Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)),
         ] {
             let source = format!("use left as a\nuse right as b\npure keep(value, state: a.State) {{ if state == .Ready {{ value }} else {{ value }} }}\npure named(value, state: a.State) {{ if state == a.Ready {{ value }} else {{ value }} }}\n{tail}");
             let entry = root.path().join("entry.xsh");
@@ -1786,9 +1787,12 @@ mod contextual_variant_body_tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, parsed.arena.source_text_source_id().unwrap());
             let rejected = checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
-            assert_eq!(!rejected, accepted, "{:?}", checked.diagnostics);
+            assert_eq!(!rejected, expected_error.is_none(), "{:?}", checked.diagnostics);
+            if let Some(code) = expected_error {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{:?}", checked.diagnostics);
+            }
             #[cfg(feature = "native-tests")]
-            if accepted {
+            if expected_error.is_none() {
                 let source_id = parsed.arena.source_text_source_id().unwrap();
                 let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
                 for force_frames in [false, true] {

@@ -11,23 +11,58 @@ on `campaign/full-inference-integration`. Pushing remains forbidden.
 The owner's 2026-10-23 closeout order retains inference qualification, local
 `master` integration and cleanup before Pyramid closes. The subsequent request
 expands independent Pyramid implementation now, alongside inference, using five
-expert lanes and one shared two-build limit. Pyramid qualification still waits
+expert lanes initially. The repeated acceleration request now widens this to
+seven expert lanes plus the coordinator, retaining the shared two-build and
+single-native limits. Independent checker repairs proceed while lowering owns
+their earlier prerequisites; ready reviews run alongside implementation.
+Approvals and next assignments use the follow-up operation that resumes idle
+lanes. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Provisional inference source `c1806448d` integrates scoped mutable argument
+Provisional inference source `a1fa6bcb2` integrates scoped mutable argument
 proofs, deferred sort-key checks, closed Null returns and pure-return validation.
 Focused controls pass. The actual historical system-report checker goes from
 two sort errors to zero. The mutable argument repair passes twelve controls
-plus strengthened writer positives; whole historical `wc` remains open on its
-separate signed-to-unsigned record boundary. Pure Str/Error joins now fail
+plus strengthened writer positives. The `wc` boundary now authenticates the
+exact ground callee's physical UInt parameter validation while proving the
+caller's actual stored type and all writers. Sixteen focused controls pass,
+including signed runtime rejection, missing/wrong guards, forged initializers
+and charged validation of a wide cached source. Pure Str/Error joins now fail
 during checking, while typed Str results and nominal errors remain valid.
 The shared Optional return relation now accepts a payload or Null under its
 matching Optional scheme while rejecting foreign binders. Arithmetic call
 arguments derive evidence from their physical operands through the existing
 producer proof. Its twelve focused controls pass; the exact historical gates
-and internal modules prepare and verify. The separate `wc` boundary remains
-open. These changes await the combined library and corpus boundary.
+and internal modules prepare and verify; the exact historical `wc` module also
+prepares and verifies. The shared Result return relation now preserves symbolic
+success binders while applying existing error-family widening; ten focused
+controls and independent review pass. A scoped integer producer bridge reuses
+the already verified same-owner arithmetic result, with fifteen focused
+controls. The exact historical date-parser module now fully prepares and
+verifies. Broader joint corpus checks remain open.
+
+List compound assignment now relates an unresolved target to a known List
+right operand through the existing constraints. Eight focused controls pass,
+including both execution routes and retained unsigned checks. On the actual
+broader system-report candidate, all compound-operator errors disappear; five
+generic-body eligibility errors remain. Those identify missing nominal variant
+producer evidence and are not a module pass or new removal credit.
+
+Matching verification products for frozen `a1fa6bcb2`, tree
+`ec65b4deec4eadffc83d062e11bae93609c0ea20`, are building in
+`.work/wt/full-inference-historical-product-qualification/` for the next corpus
+replay. No result is accepted until that owned command terminates and its
+source/products are checked.
+
+Frozen source `f1a8e1a4c`, tree
+`faba8d431c89c211076b5e8155ff21b2ba280b91`, passes the complete library command:
+2,235 passes, zero failures and three ignores. The owned command exits 0 and
+cleanup completes. The source stays clean. Its log is
+`.work/wt/full-inference-arithmetic-library-qualification/.work/tmp/arithmetic-full-library.log`.
+This source includes Optional and arithmetic-argument repairs, and excludes
+the later `wc` proof change. Matching-product native and corpus qualification
+remain pending.
 
 Frozen source `bdb9b165b` completes the full library command with 2,232 passes,
 one failure and three ignores; the command exits 101. The sole failure expects
@@ -53,7 +88,7 @@ mode, with zero skips. Logs and products are under
 This earlier source excludes the later sort, mutable-writer and pure-return
 repairs and supplies no qualification credit for them.
 
-The last zero-failure full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
+The earlier full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
 zero fail, and three remain ignored. Matching XSH and XSHT verification products
 build without warnings. The source tree is
 `d39903e9fe794a7fd811da1fd3c8a26c83290e36`. The full-library log is

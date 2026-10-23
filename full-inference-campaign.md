@@ -38,7 +38,11 @@ unimplemented inference, and three unsuccessful experiments are reasons to
 reassign diagnosis, not reasons to waive the deliverable.
 
 Keep at least four lanes active when four disjoint assignments are ready,
-with a ceiling of six. When fewer are ready, use every disjoint assignment
+with a ceiling of eight after the owner's repeated 2026-10-23 acceleration request.
+All delegated lanes use experts. The two-build and single-native limits remain.
+Use the follow-up task operation for approvals and next assignments so completed
+lanes resume immediately; messages alone do not restart them.
+When fewer are ready, use every disjoint assignment
 and have the coordinator resolve their dependencies. Never create competing
 signature redesigns to fill slots. The core compiler owner takes the coupled
 scheme/checker/lowerer/verifier changes end to end. Other lanes own independent

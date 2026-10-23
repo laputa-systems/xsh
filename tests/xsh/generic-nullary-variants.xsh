@@ -15,7 +15,9 @@ pure shadowed_variant_keep(value, GenericObserved: GenericVariantState) {
   {value, observed: GenericObserved == .GenericObserved}
 }
 
-pure callback_variant_fields() -> List[{GenericObserved: Str}] {
+type VariantField = {GenericObserved: Str}
+
+pure callback_variant_fields() -> List[VariantField] {
   [{GenericObserved: "b"}, {GenericObserved: "a"}] |> sort-by .GenericObserved
 }
 
