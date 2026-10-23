@@ -472,6 +472,32 @@ impl Checker {
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                let node = program.arena.expr(expression);
+                let family = match node.kind {
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite) => {
+                        let variant = self.tag_variants.get(&name)?;
+                        (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+                    }
+                    crate::syntax::arena::ArenaExprKind::Field { base, name } => match program.arena.expr(base).kind {
+                        crate::syntax::arena::ArenaExprKind::Item => {
+                            let super::InferredVariant::Tag { type_name, variant, field_types } = self.inferred_variants.get(&node.span)? else { return None; };
+                            (name == *variant && field_types.is_empty()).then_some(*type_name)?
+                        }
+                        crate::syntax::arena::ArenaExprKind::Ident(_) => {
+                            let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(program, base) else { return None; };
+                            if !binding.static_namespace { return None; }
+                            let id = self.resolved_bindings.expressions.get(&base)?;
+                            let super::BindingKind::Module(owner) = self.resolved_bindings.declarations.get(id)?.kind else { return None; };
+                            let variant = self.user_modules.get(owner.as_str().as_str())?.tag_variants.get(&name)?;
+                            (variant.field_count == 0 && variant.field_types.is_empty()).then_some(variant.type_name)?
+                        }
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                (ty.closed_ground_type() == Some(Type::Tag(family))).then_some(node.span)
+            }));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
                 if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_))
                     || self.resolved_bindings.expressions.contains_key(&expression)
                 { return None; }

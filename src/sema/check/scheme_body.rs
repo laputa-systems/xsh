@@ -436,7 +436,9 @@ pub(super) fn is_body_expression(
     while let Some(expression) = pending.pop() {
         if prepared.values.contains_key(&expression) {
             let Some(expected) = prepared.types.get(&expression) else { return false };
-            if expected.may_hold_resource() || types.get(&expression).and_then(|ty| ty.closed_ground_type()).as_ref() != Some(expected) { return false; }
+            let nullary_tag = matches!(prepared.values.get(&expression), Some(crate::sema::constants::LiteralConstant::Tag { family, fields, .. })
+                if fields.is_empty() && expected == &crate::sema::types::Type::Tag(*family));
+            if expected.may_hold_resource() && !nullary_tag || types.get(&expression).and_then(|ty| ty.closed_ground_type()).as_ref() != Some(expected) { return false; }
             continue;
         }
         if let Some(&kind) = constructor_producers.get(&expression) {
@@ -449,7 +451,9 @@ pub(super) fn is_body_expression(
                     && checked_operations.contains(&program.arena.expr(expression).span)
                     && types.get(&expression).is_some_and(|ty| matches!(ty, crate::sema::schemes::SchemeType::Callable { .. })
                         || matches!(ty.closed_ground_type(), Some(crate::sema::types::Type::SchemeCallable(_) | crate::sema::types::Type::Callable(_))));
-                if !named_callable && !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
+                let named_variant = checked_operations.contains(&program.arena.expr(expression).span)
+                    && matches!(types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::Tag(_)));
+                if !named_callable && !named_variant && !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {
@@ -458,6 +462,9 @@ pub(super) fn is_body_expression(
             ArenaExprKind::Field { base, name } if name == "PATH"
                 && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "env")
                 && types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) == Some(crate::sema::types::Type::EnvPathList) => {}
+            ArenaExprKind::Field { .. }
+                if checked_operations.contains(&program.arena.expr(expression).span)
+                    && matches!(types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::Tag(_))) => {}
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
             ArenaExprKind::Convert { value, .. } | ArenaExprKind::Require { value, .. } => {
                 if !checked_operations.contains(&program.arena.expr(expression).span) || !types.contains_key(&expression) { return false; }
@@ -1714,5 +1721,103 @@ mod tests {
             "pure returned(value: Int) { return value }\n",
             "returned"
         ));
+    }
+}
+
+#[cfg(test)]
+mod contextual_variant_body_tests {
+    fn errors(source: &str) -> Vec<crate::diagnostic::Diagnostic> {
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        checked.diagnostics.into_iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect()
+    }
+
+    fn accepts(source: &str) {
+        let errors = errors(source);
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_contextual_enum_variant_checks_its_nominal_domain() {
+        accepts("enum State: Str { Observed = \"observed\", Missing = \"missing\" }\npure keep(value: Int, state: State) -> Int { if state == .Observed { value } else { value } }\nlet number: Int = keep(7, Observed)\n");
+    }
+
+    #[test]
+    fn generic_contextual_enum_variant_preserves_its_selected_producer() {
+        accepts("enum State: Str { Observed = \"observed\", Missing = \"missing\" }\npure keep(value, state: State) { if state == .Observed { value } else { value } }\nlet number: Int = keep(7, Observed)\nlet word: Str = keep(\"kept\", Missing)\n");
+    }
+
+    #[test]
+    fn generic_named_enum_variant_retains_its_prepared_value() {
+        accepts("enum State: Str { Observed = \"observed\", Missing = \"missing\" }\npure keep(value, state: State) { if state == Observed { value } else { value } }\nlet number: Int = keep(7, Observed)\nlet word: Str = keep(\"kept\", Missing)\n");
+    }
+
+
+    #[test]
+    fn nullary_variant_support_rejects_payloads_and_unproved_captures() {
+        for (source, code) in [
+            ("enum State { Ready, Payload(Int) }\npure keep(value, state: State) { if state == .Payload { value } else { value } }\n", crate::diagnostic::DiagnosticCode::CheckArity),
+            ("enum State { Ready }\npure keep(value, state: State) { if state == .Missing { value } else { value } }\n", crate::diagnostic::DiagnosticCode::CheckInferredVariant),
+            ("enum Payload { Held(Int) }\nconst held = Held(7)\npure keep(value) { {value, held} }\n", crate::diagnostic::DiagnosticCode::CheckLocalInference),
+            ("enum Payload { Held(FsRoot) }\nproc outer(root: FsRoot) { let held = Held(root); pure keep(value) { {value, held} }; keep(7) }\n", crate::diagnostic::DiagnosticCode::CheckLocalInference),
+        ] {
+            let errors = errors(source);
+            assert!(errors.iter().any(|diagnostic| diagnostic.code == Some(code)), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn imported_nullary_variants_preserve_same_spelling_nominal_identity() {
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let root = tempfile::TempDir::new_in(scratch).unwrap();
+        for module in ["left", "right"] {
+            std::fs::write(root.path().join(format!("{module}.xsh")), "##! Nominal state fixture.\n## A state with two nullary choices.\nexport enum State: Str { Ready = \"ready\", Missing = \"missing\" }\n").unwrap();
+        }
+        for (tail, accepted) in [
+            ("let number: Int = keep(7, a.Ready)\nlet word: Str = keep(\"kept\", a.Missing)\ntest imported_variants { assert keep(7, a.Ready) == 7; assert keep(\"kept\", a.Missing) == \"kept\"; assert named(7, a.Ready) == 7; assert named(\"kept\", a.Missing) == \"kept\" }\n", true),
+            ("let wrong = keep(7, b.Ready)\n", false),
+        ] {
+            let source = format!("use left as a\nuse right as b\npure keep(value, state: a.State) {{ if state == .Ready {{ value }} else {{ value }} }}\npure named(value, state: a.State) {{ if state == a.Ready {{ value }} else {{ value }} }}\n{tail}");
+            let entry = root.path().join("entry.xsh");
+            let file = entry.to_str().unwrap();
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, parsed.arena.source_text_source_id().unwrap());
+            let rejected = checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
+            assert_eq!(!rejected, accepted, "{:?}", checked.diagnostics);
+            #[cfg(feature = "native-tests")]
+            if accepted {
+                let source_id = parsed.arena.source_text_source_id().unwrap();
+                let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+                for force_frames in [false, true] {
+                    let result = prepared.eval_test("imported_variants", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                    assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                    assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                    assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                    assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit)) || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{:?}", result.result);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn nullary_variant_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/generic-nullary-variants.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-nullary-variants.xsh", crate::loader::entry_source_from_text("generic-nullary-variants.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_nullary_variants_preserve_nominal_values", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit)) || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{:?}", result.result);
+        }
     }
 }
