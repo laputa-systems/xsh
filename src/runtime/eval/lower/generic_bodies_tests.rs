@@ -2320,6 +2320,10 @@ fn prepared_callable_host_call_checks_ground_stream_parameters() {
 
 #[test]
 fn prepared_callable_host_call_retains_native_stream_factory_contracts() {
+    on_scoped_body_test_stack(prepared_callable_host_call_retains_native_stream_factory_contracts_on_large_stack);
+}
+
+fn prepared_callable_host_call_retains_native_stream_factory_contracts_on_large_stack() {
     let directory = tempfile::Builder::new().prefix("host-stream-").tempdir_in(".work/tmp").unwrap();
     let path = directory.path().join("lines");
     std::fs::write(&path, b"first\nsecond\n").unwrap();

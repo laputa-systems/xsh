@@ -159,7 +159,7 @@ mod tests {
         let mut wrong_scheme = program.clone();
         wrong_scheme.store.extra[words.start + 1] = program.symbol_owner().with_current(|| Name::intern("keep").symbol().raw());
         let error = FullVerifier::verify(&wrong_scheme).unwrap_err();
-        assert_eq!(error.message, "function reference requires a checked scheme instance");
+        assert_eq!(error.message, "generic function value disagrees with its ground executable target");
     }
 
     fn entries(program: &FullProgram, instruction: usize) -> std::ops::Range<usize> {

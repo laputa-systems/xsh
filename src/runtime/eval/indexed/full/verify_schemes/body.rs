@@ -1920,8 +1920,9 @@ mod tests {
         missing.store.schemes[scheme.index()].body_facts.len -= 1;
         assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "scheme type tables contain unowned rows");
         let mut duplicated = program.clone();
-        duplicated.store.scheme_body_facts.push(program.store.scheme_body_facts[declaration]);
-        duplicated.store.schemes[scheme.index()].body_facts.len += 1;
+        let mut conflicting = program.store.scheme_body_facts[declaration];
+        conflicting.value = super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(conflicting.ty().unwrap());
+        append_scheme_body_fact(&mut duplicated, scheme, conflicting);
         assert_eq!(FullVerifier::verify(&duplicated).unwrap_err().message, "generic local declaration fact is duplicated");
         let mut escaped = program.clone();
         let other_owner = IrFunctionId::new(program.store.functions.len()).unwrap();
@@ -2228,7 +2229,14 @@ mod tests {
                 }
             }
             let message = FullVerifier::verify(&changed).unwrap_err().message;
-            assert!(matches!(message.as_str(), "generic index operands have no collection contract" | "generic slice bound is not an integer"), "{message}");
+            assert!(
+                matches!(
+                    (operation, message.as_str()),
+                    ("[value][index]", "generic index operands have no collection contract" | "generic index site disagrees with its sealed operation")
+                        | ("[value][index..]", "generic slice bound is not an integer" | "generic slice bound has no Int producer")
+                ),
+                "{operation}: {message}"
+            );
         }
     }
 
@@ -2242,7 +2250,7 @@ mod tests {
         let other = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Str("other")))).unwrap();
         let mut changed = program.clone();
         changed.store.data[key] = program.store.data[other];
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic index site disagrees with its sealed operation");
     }
 
 
@@ -2676,8 +2684,8 @@ mod tests {
         let mut target = program.clone();
         let payload = target.store.data[check_instruction].range().bounds(target.store.extra.len()).unwrap();
         let other_payload = target.store.data[other_check].range().bounds(target.store.extra.len()).unwrap();
-        target.store.extra[payload.start + 1] = expected.raw();
-        target.store.extra[payload.start + 2] = program.store.extra[other_payload.start + 2];
+        target.store.extra[payload.start + 2] = expected.raw();
+        target.store.extra[payload.start + 3] = program.store.extra[other_payload.start + 3];
         for instruction in range.clone().filter(|instruction| output.contains(instruction)) {
             if let Ok(schema::StmtView::Let { slot, annotation: Some(_), .. }) = decoder.statement_view(instruction) {
                 let payload = target.store.data[instruction].range().bounds(target.store.extra.len()).unwrap();
@@ -3532,13 +3540,15 @@ mod tests {
     #[test]
     fn generic_iteration_record_declarations_require_unique_complete_evidence() {
         let program = prepare("pure keep(value) { let {item: copy} = {item: value}; copy }");
+        let (_, scheme) = generic_owner(&program);
         let fact = program.store.scheme_body_facts.iter().position(|fact| fact.kind() == FullSchemeBodyFactKind::LocalImmutable && program.store.tags[fact.instruction as usize] == super::super::super::FullTag::StmtLetRecord).unwrap();
         let mut missing = program.clone();
         missing.store.scheme_body_facts[fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(missing.store.scheme_body_facts[fact].ty().unwrap());
         assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "generic body fact has an invalid instruction kind");
-        let duplicate = program.store.scheme_body_facts.iter().position(|other| other.kind() == FullSchemeBodyFactKind::LocalImmutable && other.instruction != program.store.scheme_body_facts[fact].instruction).unwrap();
         let mut changed = program.clone();
-        changed.store.scheme_body_facts[duplicate].instruction = changed.store.scheme_body_facts[fact].instruction;
+        let mut conflicting = program.store.scheme_body_facts[fact];
+        conflicting.value = super::super::super::schemes::FullSchemeBodyFactValue::LocalMutable(conflicting.ty().unwrap());
+        append_scheme_body_fact(&mut changed, scheme, conflicting);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic local declaration fact is duplicated");
     }
 

@@ -25116,7 +25116,7 @@ assert apply(40) == 42
             FullVerifier::verify(&forged).unwrap();
             let nullable = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Optional(Box::new(Type::Function(crate::sema::types::CallableKind::Pure)))).unwrap();
             let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
-            forged.store.extra[words.start + 1] = nullable.raw();
+            forged.store.extra[words.start + 2] = nullable.raw();
             let error = FullVerifier::verify(&forged).unwrap_err();
             assert!(error.message == "ground producer value disagrees with its checked contract", "{}", error.message);
         });
@@ -32433,7 +32433,7 @@ assert render(null)? == ""
         let mut forged = (*program).clone();
         let any = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Any).unwrap();
         let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
-        forged.store.extra[words.start + 1] = any.raw();
+        forged.store.extra[words.start + 2] = any.raw();
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert_eq!(error.message, "checked callable payload differs from its optional source");
     }
@@ -47162,8 +47162,8 @@ test test_typed_callable_record_field_is_called_like_a_method {
 
         let mut forged = program.clone();
         let constructor_payload = forged.store.data[constructor].range();
-        assert_eq!(forged.store.extra[constructor_payload.start as usize + 1], original_type.raw());
-        forged.store.extra[constructor_payload.start as usize + 1] = forged_type.raw();
+        assert_eq!(forged.store.extra[constructor_payload.start as usize + 2], original_type.raw());
+        forged.store.extra[constructor_payload.start as usize + 2] = forged_type.raw();
         forged.store.checked_expr_types[fact_index].type_id = forged_type;
         forged.store.checked_expr_types[field_fact_index].type_id = forged_callable;
         let call_payload = forged.store.data[typed_call].range();

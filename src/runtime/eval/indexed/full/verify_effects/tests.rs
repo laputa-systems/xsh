@@ -1540,7 +1540,7 @@ assert empty() == []
     let mut malformed = program.clone();
     malformed.store.checked_expr_types.retain(|fact| fact.is_contract());
     let nonempty = SemanticPoolBuilder::default().intern_type(&mut malformed.store.semantic, &Type::non_empty(*item)).unwrap();
-    let word = program.store.data[gate].range().start as usize + 1;
+    let word = program.store.data[gate].range().start as usize + 2;
     assert_eq!(program.store.extra[word], checked.raw());
     malformed.store.extra[word] = nonempty.raw();
     assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } if check.ty.id == nonempty));
@@ -3278,7 +3278,7 @@ assert read({selected: "kept", wrong: true}, [1]) == "kept"
     assert!(error.message.contains("contract"), "{error:?}");
     let mut weakened = program.clone();
     let optional = SemanticPoolBuilder::default().intern_type(&mut weakened.store.semantic, &Type::Optional(Box::new(Type::Str))).unwrap();
-    let check_type = gate_value + 1;
+    let check_type = gate_value + 2;
     assert_eq!(program.store.extra[check_type], checked.raw());
     weakened.store.extra[check_type] = optional.raw();
     weakened.store.checked_expr_types.retain(|fact| fact.instruction as usize != gate);
