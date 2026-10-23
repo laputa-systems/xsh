@@ -4863,9 +4863,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let function = self.function_index().checked_target_key(target)?;
                     let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None)?;
                     let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
-                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression)).cloned()
-                        && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
-                    { return self.block_scheme_lowering_expr(expression); }
+                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression)).cloned() {
+                        let result_type = ty.closed_ground_type().map(|ty| self.canonicalize_checked_type(ty));
+                        let mut scratch = self.scratch.borrow_mut();
+                        if !scratch.record_call_instantiation(lowered, instantiation)
+                            || result_type.is_some_and(|ty| !scratch.record_checked_call_result_type(lowered, ty))
+                        { drop(scratch); return self.block_scheme_lowering_expr(expression); }
+                    }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 if let Some(callable) = self.bodies.typed_callable_calls.get(&expression).cloned() {

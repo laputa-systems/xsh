@@ -54628,3 +54628,60 @@ assert match right.attempt("kept", true) { Err(right.Collision.Failed {message})
         }
     }
 }
+
+#[cfg(test)]
+mod closed_call_result_tests {
+    fn prepare(typed: bool) -> super::FullProgram {
+        let parameters = if typed { "year: Int, month: Int, day: Int) -> Int" } else { "year, month, day)" };
+        let source = r#"pure floor_div(value: Int, divisor: Int) -> Int { value / divisor - (if value < 0 and value % divisor != 0 { 1 } else { 0 }) }
+pure positive_mod(value: Int, divisor: Int) -> Int { let remainder = value % divisor; if remainder < 0 { remainder + divisor } else { remainder } }
+pure is_leap(year) { positive_mod(year, 33) in [1, 5, 9, 13, 17, 22, 26, 30] }
+pure day_number(PARAMETERS {
+    let previous = year - 1
+    var leaps = floor_div(previous, 33) * 8
+    for offset in range(positive_mod(previous, 33)) {
+        if is_leap(offset + 1) { leaps += 1 }
+    }
+    let month_start = if month <= 6 { 31 * (month - 1) } else { 186 + 30 * (month - 7) }
+    365 * previous + leaps + month_start + day - 1
+}
+pure from_days(days) {
+    let number = days + day_number(1405, 1, 1)
+    var year = floor_div(number, 365) + 1
+    while day_number(year + 1, 1, 1) <= number { year += 1 }
+    while day_number(year, 1, 1) > number { year -= 1 }
+    let offset = number - day_number(year, 1, 1)
+    {year, month: offset / 31 + 1, day: offset % 31 + 1}
+}
+assert from_days(0) == {year: 1405, month: 1, day: 1}
+"#.replace("PARAMETERS", parameters);
+        let file = "closed-calendar-call-result.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(file, crate::loader::entry_source_from_text(file, source.clone()), Vec::new());
+        let renderer = crate::diagnostic::DiagnosticRenderer::new();
+        assert!(parsed.diagnostics.is_empty(), "{}", renderer.render(&parsed.diagnostics, &sources));
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{}", renderer.render(&declarations.diagnostics, &sources));
+        super::FullBuilder::build_compact(&parsed.arena, &declarations, &source, std::sync::Arc::new(sources), source_id).unwrap()
+    }
+
+    #[test]
+    fn typed_numeric_callee_preserves_closed_call_result_provenance() {
+        super::FullVerifier::verify(&prepare(true)).unwrap();
+    }
+
+    #[test]
+    fn generic_numeric_callee_preserves_closed_call_result_provenance() {
+        let program = std::sync::Arc::new(prepare(false));
+        super::FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(std::sync::Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+
+    }
+}
