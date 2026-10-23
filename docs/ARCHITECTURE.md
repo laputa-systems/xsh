@@ -487,7 +487,13 @@ Checked expression facts and producer contexts use the same physical read contra
 Guard proofs authenticate each carrier's original binding and field path. Matching fresh collection and comprehension
 inputs retain all element, spread, iterable, filter, and body proofs under the
 actual checked gate. Every comprehension target proves its record nodes and
-selected fields from the actual iterable item, including empty and unused targets. A fresh list receiver can obtain a set element contract only
+selected fields from the actual iterable item, including empty and unused targets.
+A comprehension can derive an unannotated local list from its lexical empty-list
+declaration and complete append-writer census. Every nonempty append must
+independently produce the same closed list type. The proof charges traversal of
+that source type and retains every writer obligation. The loop variable uses the
+actual qualifier target and source item. Checked slot facts do not establish that
+relationship. A fresh list receiver can obtain a set element contract only
 when the selected registered method returns exactly the gate's set contract.
 Stored collection contracts and nominal validation remain independent.
 Generic shared-state restrictions remain separate.
