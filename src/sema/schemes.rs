@@ -1500,6 +1500,10 @@ impl SchemeType {
 
     pub(crate) fn matches_body_return(&self, expected: &Self) -> bool {
         if self == expected { return true; }
+        if let Self::Optional(inner) = expected {
+            if self == &Self::Ground(Type::Null) { return true; }
+            if !matches!(self, Self::Optional(_)) { return self.matches_body_return(inner); }
+        }
         match (self.closed_ground_type(), expected.closed_ground_type()) {
             (Some(actual), Some(expected)) => super::types::tail_type_matches_expected(&expected, &actual),
             _ => false,
