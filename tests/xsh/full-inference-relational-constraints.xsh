@@ -162,3 +162,8 @@ let rejected = forward(dynamic)
     test.expect(ctx, source, status: 3, stderr: ["type-error", "UInt"])?
   }
 }
+
+test test_full_inference_optional_guard_preserves_original_immutable_reads { |ctx|
+  let source = p"tests/fixtures/runtime/generic-guard-original-slot.xsh".read_text()?
+  test.expect(ctx, source + "\nverify_guard_original_slot()?\n", status: 0)?
+}

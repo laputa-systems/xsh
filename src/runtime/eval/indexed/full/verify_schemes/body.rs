@@ -99,6 +99,7 @@ enum Obligation {
     Expression(usize, LexicalScope),
     ApplicationReturn { instruction: usize, value: usize, site: super::super::schemes::FullSchemeApplicationReturn },
     Publish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, bindings: Vec<(usize, SchemeType, bool, Option<usize>)> },
+    GuardPublish { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType>, bindings: Vec<(usize, SchemeType, bool, Option<usize>)>, source: usize, actual: SchemeType, payload: SchemeType },
     Block { statements: Arc<[usize]>, position: usize, scope: LexicalScope, value: Option<SchemeType> },
 }
 
@@ -338,6 +339,49 @@ fn branch_scope(scope: &LexicalScope, scopes: &mut LexicalScopes, budget: &mut S
     let frame = scopes.frames.len();
     scopes.frames.push(LexicalFrame { parent: Some(scope.frame), bindings: BTreeMap::new() });
     Ok(LexicalScope { frame, loop_depth: scope.loop_depth, error_boundary: scope.error_boundary })
+}
+
+fn optional_guard_continuation(
+    scope: &LexicalScope, scopes: &mut LexicalScopes, decoder: &FullDecoder<'_>, instruction: usize,
+    actual: &SchemeType, payload: &SchemeType, expression_scopes: &BTreeMap<usize, LexicalScope>,
+    visited: &BTreeSet<usize>, budget: &mut SchemeInstantiationBudget,
+) -> Result<LexicalScope, IrVerifyError> {
+    let mut instruction = instruction;
+    let (slot, initializer) = loop {
+        budget.charge(1)?;
+        if !visited.contains(&instruction) { return Err(IrVerifyError::new("optional guard source has no executable proof")); }
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                let source_scope = expression_scopes.get(&instruction).ok_or_else(|| IrVerifyError::new("optional guard source has no lexical scope"))?;
+                let binding = source_scope.binding(scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("optional guard source has no lexical binding"))?;
+                if binding.mutable || binding.access != BindingAccess::Value || !body_types_equal(&binding.ty, actual) { return Ok(*scope); }
+                if scope.binding(scopes, slot, budget)?.is_some_and(|visible| std::ptr::eq(visible, binding)) {
+                    break (slot, binding.initializer);
+                }
+                let Some((initializer, initializer_scope)) = binding.initializer else { return Ok(*scope) };
+                let proved_scope = expression_scopes.get(&initializer).ok_or_else(|| IrVerifyError::new("optional guard initializer has no lexical scope"))?;
+                if proved_scope.frame != initializer_scope.frame || proved_scope.loop_depth != initializer_scope.loop_depth || proved_scope.error_boundary != initializer_scope.error_boundary {
+                    return Err(IrVerifyError::new("optional guard initializer is outside its checked lexical scope"));
+                }
+                instruction = initializer;
+            }
+            schema::ExprView::ValueBlock { body, .. } => {
+                let mut tail = None;
+                for statement in body { budget.charge(1)?; tail = Some(statement?.raw() as usize); }
+                let Some(tail) = tail else { return Ok(*scope) };
+                let schema::StmtView::Value { value } = decoder.statement_view(tail)? else { return Ok(*scope) };
+                instruction = value.raw() as usize;
+            }
+            _ => return Ok(*scope),
+        }
+    };
+    budget.charge_scheme_clone(payload)?;
+    let continuation = branch_scope(scope, scopes, budget)?;
+    budget.charge(1)?;
+    scopes.frames[continuation.frame].bindings.insert(slot, LocalBinding {
+        ty: payload.clone(), mutable: false, initializer, access: BindingAccess::Value,
+    });
+    Ok(continuation)
 }
 
 fn propagation_boundary<'a>(scope: &LexicalScope, scopes: &'a LexicalScopes) -> &'a PropagationBoundary {
@@ -962,6 +1006,10 @@ pub(super) fn verify_body(
     while let Some(obligation) = pending.pop() {
         budget.charge(1)?;
         match obligation {
+            Obligation::GuardPublish { statements, position, scope, value, bindings, source, actual, payload } => {
+                let scope = optional_guard_continuation(&scope, &mut scopes, decoder, source, &actual, &payload, &expression_scopes, &visited, budget)?;
+                pending.push(Obligation::Publish { statements, position, scope, value, bindings });
+            }
             Obligation::Publish { statements, position, scope, value, bindings } => {
                 for (slot, ty, mutable, initializer) in bindings { declare(&scope, &mut scopes, slot, ty, mutable, initializer.map(|initializer| (initializer, scope)), budget)?; }
                 pending.push(Obligation::Block { statements, position, scope, value });
@@ -1668,7 +1716,11 @@ pub(super) fn verify_body(
                             if slot >= slot_count || writers.insert(slot, ty.clone()).is_some() { return Err(IrVerifyError::new("generic guard success binding is duplicated or out of bounds")); }
                             bindings.push((slot, ty, false, None));
                         }
-                        pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings });
+                        if optional {
+                            pending.push(Obligation::GuardPublish { statements, position: position + 1, scope, value: value_contract, bindings, source: value.raw() as usize, actual, payload: success });
+                        } else {
+                            pending.push(Obligation::Publish { statements, position: position + 1, scope, value: value_contract, bindings });
+                        }
                         pending.push(Obligation::Block { statements: handler_statements.into(), position: 0, scope: handler, value: None });
                         pending.push(Obligation::Expression(value.raw() as usize, scope));
                         continue;
@@ -2906,6 +2958,59 @@ test namespace_borrow {
             forged.store.extra[payload.start] = target as u32;
             assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic body reads an uninitialized slot");
         }
+    }
+
+    #[test]
+    fn optional_guard_refinement_requires_the_actual_immutable_source() {
+        let program = prepare("pure keep(marker, source: Int?, other: Int?) -> Int? { let _ = marker; let _ = other; guard let number = source else { return null }; source }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (guard, source) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Guard { value, .. }) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(source).unwrap() else { unreachable!() };
+        let source = body.find_map(|statement| match decoder.statement_view(statement.unwrap().raw() as usize).unwrap() {
+            schema::StmtView::Let { value, .. } => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(source).unwrap(), schema::ExprView::Param(1)));
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        let words = wrong_source.store.data[source].range().bounds(wrong_source.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_source.store.extra[words.start] = 2;
+        assert_eq!(FullVerifier::verify(&wrong_source).unwrap_err().message, "generic body expression disagrees with its checked type");
+        let discarded = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Value { .. }))).unwrap();
+        let mut missing_guard = program.clone();
+        missing_guard.store.in_place.take();
+        missing_guard.store.tags[guard] = program.store.tags[discarded];
+        missing_guard.store.data[guard] = program.store.data[discarded];
+        assert!(FullVerifier::verify(&missing_guard).is_err());
+    }
+
+    #[test]
+    fn optional_guard_captures_do_not_refine_a_written_source() {
+        let program = prepare("pure keep(marker, value: Int?) -> Int? { let _ = marker; var source = value; guard let number = source else { return null }; source = null; number }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let source = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Assign { slot, .. }) => Some(slot),
+            _ => None,
+        }).unwrap();
+        let tail = range.filter_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Return { value }) => Some(value.raw() as usize),
+            _ => None,
+        }).last().unwrap();
+        assert!(matches!(decoder.expression_view(tail).unwrap(), schema::ExprView::Param(slot) if slot != source));
+        let mut written_source = program.clone();
+        written_source.store.in_place.take();
+        let words = written_source.store.data[tail].range().bounds(written_source.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        written_source.store.extra[words.start] = source as u32;
+        assert_eq!(FullVerifier::verify(&written_source).unwrap_err().message, "generic body expression disagrees with its checked type");
     }
 
     #[test]

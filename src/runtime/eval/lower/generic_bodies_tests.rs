@@ -4492,3 +4492,22 @@ proc observed() [] -> Str { events }
         }
     }
 }
+
+#[cfg(feature = "native-tests")]
+#[test]
+fn generic_optional_guard_original_slots_execute_after_frontend_disposal() {
+    let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-guard-original-slot.xsh")).unwrap();
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-guard-original-slot.xsh", crate::loader::entry_source_from_text("generic-guard-original-slot.xsh", source), Vec::new());
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed.arena.source_text_source_id().unwrap();
+    let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let prepared = Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+    for force_frames in [false, true] {
+        let result = prepared.eval_test("verify_guard_original_slot", Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+        assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+        assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        assert!(matches!(&result.result, Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+    }
+}
