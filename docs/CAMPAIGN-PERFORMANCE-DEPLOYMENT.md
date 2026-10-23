@@ -41,11 +41,14 @@ the shared owned Expression-fact query. Uniform native method effects remain
 independently checked. Receiver-dependent methods retain their selected effect
 proof. Immutable imported captures retain their actual binding and export
 identity. Combined products, native replay, corpus parity and final gates remain
-open. Tooling comparison also needs the published callable-relationship context.
-Its nested-factory comparison repair passes ten focused controls and independent
-source review. Review then finds exponential rendering of shared callable
-families. Local relationship labels and backreferences are under repair.
-A separately reproduced named-callable argument admission gap remains open.
+open. Tooling repair `d7ab77545`, integrated as `81894a393`, retains the
+published callable-relationship context in `CheckOutput` contract views.
+Comparison memoizes completed relationship pairs. Rendering expands each
+relationship once and uses local labels for later references. Nine XSH library
+controls and two XSHT comparison controls pass. Independent comparison review
+and parent rendering review are clear. `docs/XSHT.md` documents the new
+declaration accessor and diagnostic labels. Separately reproduced named-callable
+argument admission and pure-forwarding provenance gaps remain open.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.

@@ -94,16 +94,23 @@ must be nonzero. Comparison requires explicit entries and cannot combine with
 `--annotate` or `--summary`.
 
 The frontend facade exposes `CheckedCallableContract` through
-`CheckedFunctionDeclaration::callable_contract()` and
+`CheckOutput::callable_declaration_contract(definition)` and
 `CheckOutput::callable_contract_at(span)`. These immutable views share the
-checker-selected signature and retain its symbols after source disposal.
+checker-selected signature, symbols and published callable relationships after
+source disposal. `CheckedFunctionDeclaration::callable_contract()` exposes the
+declaration alone. Use the `CheckOutput` accessors when a signature contains
+nested generic callable relationships.
 At an invocation span, `callable_contract_at` returns the callee's declaration
 contract. `CheckOutput::callable_value_contract_at(span)` returns a contract
 only for a checked function value reference. Annotation consumers use this
 query for initializer and argument values.
-`is_generic()` and `kind()` describe the checked declaration; `Display` uses
-stable bound parameter names, and `equivalent_to` compares structure modulo
-bound type and row parameter names. `join_effects` combines finite effect
+`is_generic()` and `kind()` describe the checked declaration. `Display` uses
+stable bound parameter names and expands each nested callable relationship once.
+For example, `callable#0{...}` defines a relationship and a later `callable#0`
+refers to it. These local labels are diagnostic output, not annotation syntax.
+`equivalent_to` compares structure modulo bound type, row and effect parameter
+names, including complete nested callable target families. Missing relationship
+context cannot establish equivalence. `join_effects` combines finite effect
 requirements only when the remaining checked shape agrees; an unrestricted
 clause remains unrestricted. Per-call instantiation does not replace
 the declaration contract. Failed or unresolved declarations have no view.
