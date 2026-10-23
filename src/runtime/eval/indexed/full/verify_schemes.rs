@@ -1282,6 +1282,11 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
 #[derive(Clone)]
 enum PropagationBoundary {
     ResultError(Arc<SchemeType>),
+    InferredProcError {
+        owner: IrFunctionId,
+        scheme: FullSchemeId,
+        return_type: SchemeTypeId,
+    },
     StreamProducer(IrFunctionId),
     ProcApplication { owner: IrFunctionId, errors: Arc<[SchemeType]> },
     Unavailable,
@@ -1298,31 +1303,67 @@ impl PropagationBoundary {
     }
 
     fn for_scheme_function(store: &FullStore, owner: u32, ty: &SchemeType, scope: &SchemeScope, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+        let function_id = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("propagation boundary has no function owner"))?;
+        let function = store.functions.get(function_id.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner is out of bounds"))?;
+        let metadata = store.function_metadata.get(function_id.index()).ok_or_else(|| IrVerifyError::new("propagation boundary owner has no metadata"))?;
+        if metadata.defaulted_proc_return() {
+            let FullCallableContract::Scheme(scheme_id) = function.contract else {
+                return Err(IrVerifyError::new("defaulted Proc return has no scheme owner"));
+            };
+            let scheme = store.scheme(scheme_id)?;
+            let actual_return = decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
+            if metadata.callable_kind != crate::sema::types::CallableKind::Proc
+                || scheme.callable_kind != crate::sema::types::CallableKind::Proc
+                || scheme.explicit_return
+                || !body_types_equal(&actual_return, ty)
+            {
+                return Err(IrVerifyError::new("defaulted Proc return disagrees with its checked scheme"));
+            }
+            if super::scheme_return_has_generic_error_result(store, scheme.return_type)? {
+                return Ok(Self::InferredProcError {
+                    owner: function_id,
+                    scheme: scheme_id,
+                    return_type: scheme.return_type,
+                });
+            }
+        }
         let boundary = Self::for_function(store, owner, ty, budget)?;
         if !matches!(boundary, Self::Unavailable) { return Ok(boundary); }
-        let function = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("application propagation boundary has no function owner"))?;
-        let declaration = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary owner is out of bounds"))?;
-        let metadata = store.function_metadata.get(function.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary has no owner metadata"))?;
+        let declaration = store.functions.get(function_id.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary owner is out of bounds"))?;
+        let metadata = store.function_metadata.get(function_id.index()).ok_or_else(|| IrVerifyError::new("application propagation boundary has no owner metadata"))?;
         if metadata.callable_kind != crate::sema::types::CallableKind::Proc { return Ok(Self::Unavailable); }
         let FullCallableContract::Scheme(id) = declaration.contract else { return Ok(Self::Unavailable) };
         let scheme = store.scheme(id)?;
         let returned = decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
         if !body_types_equal(&returned, ty) { return Err(IrVerifyError::new("application propagation boundary disagrees with its owner return")); }
+        let instruction_range = store.function_instruction_range(function_id.index())?;
+        let first_return = store.scheme_application_returns
+            .partition_point(|site| (site.instruction as usize) < instruction_range.start);
+        let end_return = store.scheme_application_returns
+            .partition_point(|site| (site.instruction as usize) < instruction_range.end);
         let mut errors = Vec::new();
-        for application in bounded(scheme.applications, &store.scheme_applications, "application propagation boundary has an invalid requirement range")? {
+        for site in &store.scheme_application_returns[first_return..end_return] {
             budget.charge(1)?;
-            for envelope in bounded(application.proc_returns, &store.scheme_proc_returns, "application propagation boundary has an invalid return envelope range")? {
+            if site.function != function_id {
+                return Err(IrVerifyError::new("application propagation return belongs to another function"));
+            }
+            let application = bounded(scheme.applications, &store.scheme_applications, "application propagation boundary has an invalid requirement range")?
+                .get(site.application as usize)
+                .ok_or_else(|| IrVerifyError::new("application propagation return is out of scope"))?;
+            let envelope = bounded(application.proc_returns, &store.scheme_proc_returns, "application propagation boundary has an invalid return envelope range")?
+                .get(site.envelope as usize)
+                .ok_or_else(|| IrVerifyError::new("application propagation return envelope is out of scope"))?;
+            let result = decode_scheme_type(store, scope, envelope.result, budget, 0)?;
+            if !body_types_equal(&result, ty) {
+                return Err(IrVerifyError::new("application propagation return disagrees with its checked owner result"));
+            }
+            for error in bounded(envelope.propagated_errors, &store.scheme_children, "application propagation boundary has an invalid error range")? {
                 budget.charge(1)?;
-                let result = decode_scheme_type(store, scope, envelope.result, budget, 0)?;
-                if !body_types_equal(&result, ty) { continue; }
-                for error in bounded(envelope.propagated_errors, &store.scheme_children, "application propagation boundary has an invalid error range")? {
-                    budget.charge(1)?;
-                    errors.push(decode_scheme_type(store, scope, *error, budget, 0)?);
-                }
+                errors.push(decode_scheme_type(store, scope, *error, budget, 0)?);
             }
         }
         if errors.is_empty() { return Ok(Self::Unavailable); }
-        Ok(Self::ProcApplication { owner: function, errors: errors.into() })
+        Ok(Self::ProcApplication { owner: function_id, errors: errors.into() })
     }
 
     fn for_function(store: &FullStore, owner: u32, ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
@@ -1343,6 +1384,25 @@ impl PropagationBoundary {
 fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, boundary: &PropagationBoundary, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let compatible = match boundary {
         PropagationBoundary::ResultError(expected_error) => body_type_matches(error, expected_error, budget)?,
+        PropagationBoundary::InferredProcError { owner, scheme: expected_scheme, return_type } => {
+            let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("inferred Proc error boundary owner is out of bounds"))?;
+            let metadata = store.function_metadata.get(owner.index()).ok_or_else(|| IrVerifyError::new("inferred Proc error boundary owner has no metadata"))?;
+            let FullCallableContract::Scheme(scheme_id) = function.contract else {
+                return Err(IrVerifyError::new("inferred Proc error boundary has no scheme owner"));
+            };
+            let scheme = store.scheme(scheme_id)?;
+            if scheme_id != *expected_scheme
+                || scheme.return_type != *return_type
+                || metadata.callable_kind != crate::sema::types::CallableKind::Proc
+                || !metadata.defaulted_proc_return()
+                || scheme.callable_kind != crate::sema::types::CallableKind::Proc
+                || scheme.explicit_return
+                || !super::scheme_return_has_generic_error_result(store, scheme.return_type)?
+            {
+                return Err(IrVerifyError::new("inferred Proc error boundary disagrees with its checked scheme"));
+            }
+            true
+        }
         PropagationBoundary::StreamProducer(owner) => {
             if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Stream) {
                 return Err(IrVerifyError::new("stream propagation boundary has no actual producer owner"));

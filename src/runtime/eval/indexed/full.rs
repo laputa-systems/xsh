@@ -80,6 +80,9 @@ const DRIVER_SLOT_WRITE: u8 = 1 << 1;
 const DRIVER_SLOT_MUTABLE: u8 = 1 << 2;
 const DRIVER_SLOT_TEMPORARY: u8 = 1 << 3;
 const DRIVER_SLOT_DEFINITION: u8 = 1 << 4;
+const FUNCTION_METADATA_BASE_FLAGS: u8 = 0b11;
+const FUNCTION_METADATA_DEFAULTED_PROC_RETURN: u8 = 1 << 2;
+const FUNCTION_METADATA_FLAGS: u8 = FUNCTION_METADATA_BASE_FLAGS | FUNCTION_METADATA_DEFAULTED_PROC_RETURN;
 
 const EFFECT_IMPORT: u32 = 1 << 0;
 const EFFECT_CWD: u32 = 1 << 1;
@@ -668,6 +671,12 @@ struct FullFunctionMetadata {
     flags: u8,
     callable_kind: crate::sema::types::CallableKind,
     reserved: [u8; 2],
+}
+
+impl FullFunctionMetadata {
+    fn defaulted_proc_return(self) -> bool {
+        self.flags & FUNCTION_METADATA_DEFAULTED_PROC_RETURN != 0
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1339,6 +1348,44 @@ impl FullProgram {
             layouts.push(layout);
         }
         Ok(PreparedInvocationBindings { substitution: Arc::new(substitution), layouts: layouts.into() })
+    }
+
+    pub(in crate::runtime::eval) fn normalizes_result_error_payload(
+        &self,
+        function_index: usize,
+        invocation: &PreparedInvocationBindings,
+    ) -> Result<bool, IrVerifyError> {
+        let function = self.store.functions.get(function_index)
+            .ok_or_else(|| IrVerifyError::new("return normalization owner is out of bounds"))?;
+        let metadata = self.store.function_metadata.get(function_index)
+            .ok_or_else(|| IrVerifyError::new("return normalization owner has no metadata"))?;
+        if metadata.callable_kind != crate::sema::types::CallableKind::Proc {
+            return Ok(false);
+        }
+        match function.contract {
+            FullCallableContract::Ground(signature) => {
+                let Some(checked_return_type) = TypeId::from_raw(function.checked_return_type) else {
+                    return Ok(false);
+                };
+                let signature_return = self.store.semantic.signature_return_type(signature)?;
+                Ok(self.store.semantic.is_generic_error_result(checked_return_type)?
+                    && self.store.semantic.is_generic_error_result(signature_return)?)
+            }
+            FullCallableContract::Scheme(scheme_id) => {
+                if !metadata.defaulted_proc_return() {
+                    return Ok(false);
+                }
+                let scheme = self.store.scheme(scheme_id)?;
+                if scheme.callable_kind != crate::sema::types::CallableKind::Proc || scheme.explicit_return {
+                    return Err(IrVerifyError::new("defaulted Proc return metadata disagrees with its scheme"));
+                }
+                instantiated_scheme_return_has_generic_error_result(
+                    &self.store,
+                    scheme.return_type,
+                    &invocation.substitution,
+                )
+            }
+        }
     }
 
     fn invocation_return_type(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<Type, IrVerifyError> {
@@ -4076,7 +4123,8 @@ impl FullBuilder {
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
                 flags: u8::from(unit.kind() == CallableKind::Proc)
-                    | (u8::from(unit.is_exported()) << 1),
+                    | (u8::from(unit.is_exported()) << 1)
+                    | (u8::from(body.defaulted_proc_return) * FUNCTION_METADATA_DEFAULTED_PROC_RETURN),
                 callable_kind: body.callable_kind,
                 reserved: [0; 2],
             });
@@ -5552,6 +5600,74 @@ fn scheme_return_kind(
             None => LoweredReturnKind::Erased,
         },
     })
+}
+
+fn scheme_type_is_generic_error(
+    store: &FullStore,
+    type_id: SchemeTypeId,
+) -> Result<bool, IrVerifyError> {
+    let node = store.scheme_type(type_id)?;
+    if node.tag != schema::FullSchemeTypeTag::Ground {
+        return Ok(false);
+    }
+    let type_id = TypeId::from_raw(node.first)
+        .ok_or_else(|| IrVerifyError::new("scheme ground error type id is invalid"))?;
+    Ok(store.semantic.type_tag(type_id)? == super::semantic::TypeTag::Error)
+}
+
+fn scheme_return_has_generic_error_result(
+    store: &FullStore,
+    type_id: SchemeTypeId,
+) -> Result<bool, IrVerifyError> {
+    let node = store.scheme_type(type_id)?;
+    match node.tag {
+        schema::FullSchemeTypeTag::Ground => {
+            let type_id = TypeId::from_raw(node.first)
+                .ok_or_else(|| IrVerifyError::new("scheme ground return type id is invalid"))?;
+            store.semantic.is_generic_error_result(type_id)
+        }
+        schema::FullSchemeTypeTag::Result => {
+            let error = SchemeTypeId::from_raw(node.second)?;
+            scheme_type_is_generic_error(store, error)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn instantiated_scheme_return_has_generic_error_result(
+    store: &FullStore,
+    type_id: SchemeTypeId,
+    substitution: &verify_schemes::CallSubstitution,
+) -> Result<bool, IrVerifyError> {
+    let node = store.scheme_type(type_id)?;
+    match node.tag {
+        schema::FullSchemeTypeTag::Ground => {
+            let type_id = TypeId::from_raw(node.first)
+                .ok_or_else(|| IrVerifyError::new("scheme ground return type id is invalid"))?;
+            store.semantic.is_generic_error_result(type_id)
+        }
+        schema::FullSchemeTypeTag::Result => {
+            let error = SchemeTypeId::from_raw(node.second)?;
+            let error = store.scheme_type(error)?;
+            match error.tag {
+                schema::FullSchemeTypeTag::Ground => {
+                    let type_id = TypeId::from_raw(error.first)
+                        .ok_or_else(|| IrVerifyError::new("scheme ground error type id is invalid"))?;
+                    Ok(store.semantic.type_tag(type_id)? == super::semantic::TypeTag::Error)
+                }
+                schema::FullSchemeTypeTag::Parameter => Ok(substitution
+                    .types
+                    .get(error.first as usize)
+                    .is_some_and(|ty| *ty == Type::Error)),
+                _ => Ok(false),
+            }
+        }
+        schema::FullSchemeTypeTag::Parameter => Ok(substitution
+            .types
+            .get(node.first as usize)
+            .is_some_and(|ty| matches!(ty, Type::Result(_, error) if **error == Type::Error))),
+        _ => Ok(false),
+    }
 }
 
 fn driver_slot_runtime_kind(ty: &Type) -> Result<LoweredType, IrVerifyError> {
@@ -8336,7 +8452,8 @@ impl<'a> FullDecoder<'a> {
                 .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
             if metadata.owner != program_owner
                 || metadata.callable_kind != kind
-                || metadata.flags != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
+                || metadata.flags & FUNCTION_METADATA_BASE_FLAGS
+                    != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
                 || self.store.string(candidate.name)? != name.as_str()
             {
                 continue;
@@ -8390,7 +8507,7 @@ impl<'a> FullDecoder<'a> {
                 .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
             if metadata.owner != program_owner
                 || metadata.callable_kind != kind
-                || metadata.flags != expected_flags
+                || metadata.flags & FUNCTION_METADATA_BASE_FLAGS != expected_flags
                 || self.store.string(candidate.name)? != name.as_str()
             {
                 continue;
@@ -18242,8 +18359,32 @@ impl FullVerifier {
                     ));
                 }
             }
-            if metadata.flags & !0b11 != 0 {
+            if metadata.flags & !FUNCTION_METADATA_FLAGS != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
+            }
+            if metadata.reserved != [0; 2] {
+                return Err(IrVerifyError::new(
+                    "function metadata reserved bits are invalid",
+                ));
+            }
+            let defaulted_proc_return = metadata.defaulted_proc_return();
+            match function.contract {
+                FullCallableContract::Ground(_) if defaulted_proc_return => {
+                    return Err(IrVerifyError::new(
+                        "ground callable has defaulted Proc return metadata",
+                    ));
+                }
+                FullCallableContract::Scheme(scheme_id) => {
+                    let scheme = store.scheme(scheme_id)?;
+                    let expected = metadata.callable_kind == CallableKind::Proc
+                        && !scheme.explicit_return;
+                    if defaulted_proc_return != expected {
+                        return Err(IrVerifyError::new(
+                            "defaulted Proc return metadata disagrees with its scheme",
+                        ));
+                    }
+                }
+                FullCallableContract::Ground(_) => {}
             }
             let instructions = store.function_instruction_range(index)?;
             if instructions.start != previous_end {
@@ -22530,6 +22671,87 @@ assert observed_words == [Ok("row")]
     }
 
     #[test]
+    fn inferred_proc_result_error_payload_matches_its_checked_envelope_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = concat!(
+                "type TextRow = {name: Str}\n",
+                "type ErrorRow = {detail: Str}\n",
+                "proc grounded(value: Result[TextRow, Str]) { value?.name }\n",
+                "proc forwarded(value: Result[TextRow, Str]) -> Result[Str] { grounded(value) }\n",
+                "proc relay(value, failure: Result[Unit, Str]) { failure?; value }\n",
+                "proc integer(value: Result[Int, Int]) { value? }\n",
+                "proc record(value: Result[Int, ErrorRow]) { value? }\n",
+                "proc authored(value: Result[Int, Str]) -> Result[Int, Str] { value }\n",
+                "let failure: Result[TextRow, Str] = Err(\"kept\")\n",
+                "assert match grounded(failure) { Err(error) => error.message == \"kept\", else => false }\n",
+                "let relay_failure: Result[Unit, Str] = Err(\"relay kept\")\n",
+                "assert match relay(7, relay_failure) { Err(error) => error.message == \"relay kept\", else => false }\n",
+                "assert match relay(\"value\", relay_failure) { Err(error) => error.message == \"relay kept\", else => false }\n",
+                "let integer_failure: Result[Int, Int] = Err(42)\n",
+                "assert match integer(integer_failure) { Err(error) => error.message == \"42\", else => false }\n",
+                "let record_failure: Result[Int, ErrorRow] = Err({detail: \"record\"})\n",
+                "assert match record(record_failure) { Err(error) => error.message == \"non-Error Record error payload\", else => false }\n",
+                "let authored_failure: Result[Int, Str] = Err(\"authored kept\")\n",
+                "assert match authored(authored_failure) { Err(error) => error == \"authored kept\", else => false }\n",
+            );
+            let program = Arc::new(fixture("inferred-proc-result-error-normalization.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+
+                let mut trace_evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                trace_evaluator.force_frames = force_frames;
+                trace_evaluator.indexed_program = Some(Arc::clone(&program));
+                let failure = crate::runtime::value::Value::err(
+                    crate::runtime::value::Value::Str(Arc::from("trace")),
+                );
+                let forwarded = trace_evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "forwarded")),
+                        CallableKind::Proc,
+                        &[failure],
+                        Span::new(program.store.source_id, source.len(), source.len()),
+                    )
+                    .unwrap()
+                    .unwrap();
+                let crate::runtime::eval::Flow::Propagate(propagation) = trace_evaluator.question_flow(
+                    forwarded,
+                    Span::new(program.store.source_id, source.len(), source.len()),
+                ) else {
+                    panic!("forwarded error remains a Result propagation");
+                };
+                let propagation_operand = source.find("value?.name").unwrap();
+                assert_eq!(
+                    propagation.traceback.failing_span,
+                    Some(Span::new(
+                        program.store.source_id,
+                        propagation_operand,
+                        propagation_operand + "value".len(),
+                    )),
+                );
+                assert_eq!(propagation.error.error_message(), Some("trace"));
+            }
+        });
+    }
+
+    #[test]
     fn generic_proc_result_arguments_preserve_error_payloads() {
         run_with_large_stack(|| {
             let program = fixture("generic-proc-error-payload.xsh", concat!(
@@ -22552,6 +22774,112 @@ assert observed_words == [Ok("row")]
                 }
             }
         });
+    }
+
+    #[test]
+    fn inferred_proc_callback_return_normalizes_error_before_callback_execution() {
+        run_with_large_stack(|| {
+            let source = concat!(
+                "pure identity_int(value: Int) -> Int { value }\n",
+                "pure identity_str(value: Str) -> Str { value }\n",
+                "proc callback_result(value: Int) -> Result[Int, Str] { Err(\"callback error\") }\n",
+                "proc relay_call(action, value, failure: Result[Unit, Str]) { failure?; action(value) }\n",
+                "let failure: Result[Unit, Str] = Err(\"before callback\")\n",
+                "assert match relay_call(identity_int, 7, failure) { Err(error) => error.message == \"before callback\", else => false }\n",
+                "assert match relay_call(identity_str, \"value\", failure) { Err(error) => error.message == \"before callback\", else => false }\n",
+                "let success: Result[Unit, Str] = Ok()\n",
+                "assert relay_call(callback_result, 7, success) == Err(\"callback error\")\n",
+                "assert match relay_call(identity_int, 7, success) { Ok(value) => value == 7, else => false }\n",
+                "assert match relay_call(identity_str, \"value\", success) { Ok(value) => value == \"value\", else => false }\n",
+            );
+            let program = Arc::new(fixture("inferred-proc-callback-return.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(
+                            step,
+                            Span::new(program.store.source_id, 0, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn verifier_checks_defaulted_proc_return_metadata() {
+        let program = fixture(
+            "defaulted-proc-return-metadata.xsh",
+            concat!(
+                "proc generic(value) { value }\n",
+                "proc plain(value: Int) -> Int { value }\n",
+                "proc grounded(value: Result[Unit, Error]) -> Result[Unit, Error] { value? }\n",
+                "let sample: Result[Int, Str] = Err(\"sample\")\n",
+                "let observed = generic(sample)\n",
+                "let ground_sample: Result[Unit, Error] = Ok()\n",
+                "let observed_ground = grounded(ground_sample)\n",
+            ),
+        );
+        FullVerifier::verify(&program).unwrap();
+        let generic = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "generic")
+            .unwrap();
+        let plain = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "plain")
+            .unwrap();
+        let grounded = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "grounded")
+            .unwrap();
+        assert!(program.store.function_metadata[generic].defaulted_proc_return());
+        assert!(!program.store.function_metadata[grounded].defaulted_proc_return());
+
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.function_metadata[generic].callable_kind = CallableKind::Pure;
+        assert!(FullVerifier::verify(&wrong_kind).is_err());
+
+        let mut non_error_contract = program.clone();
+        non_error_contract.store.function_metadata[plain].flags |=
+            FUNCTION_METADATA_DEFAULTED_PROC_RETURN;
+        assert!(FullVerifier::verify(&non_error_contract).is_err());
+
+        let mut ground_contract = program.clone();
+        ground_contract.store.function_metadata[grounded].flags |=
+            FUNCTION_METADATA_DEFAULTED_PROC_RETURN;
+        assert!(FullVerifier::verify(&ground_contract).is_err());
+
+        let mut explicit_scheme = program.clone();
+        let FullCallableContract::Scheme(scheme) = explicit_scheme.store.functions[generic].contract
+        else {
+            panic!("generic proc has a scheme contract");
+        };
+        explicit_scheme.store.schemes[scheme.index()].explicit_return = true;
+        assert!(FullVerifier::verify(&explicit_scheme).is_err());
+
+        let mut reserved = program;
+        reserved.store.function_metadata[generic].reserved[0] = 1;
+        let error = FullVerifier::verify(&reserved).unwrap_err();
+        assert!(
+            error.message.contains("function metadata reserved bits are invalid"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
@@ -33107,6 +33435,7 @@ proc main() [env, error] -> Result[Unit] {
                 return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                 return_check: None,
                 checked_return_type: None,
+                defaulted_proc_return: false,
                 checked_function_signature: None,
                 slot_count: 1,
                 slot_type_facts: vec![None],
@@ -36213,7 +36542,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             .any(|metadata| metadata.flags & 1 != 0));
         FullVerifier::verify(&program).unwrap();
 
-        program.store.function_metadata[0].flags |= 1 << 2;
+        program.store.function_metadata[0].flags |= 1 << 3;
         let error = FullVerifier::verify(&program).unwrap_err();
         assert!(
             error.message.contains("function metadata flags are invalid"),
@@ -47698,6 +48027,7 @@ proc local() [env, error] -> Int {
                     return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                     return_check: None,
                     checked_return_type: None,
+                    defaulted_proc_return: false,
                     checked_function_signature: None,
                     slot_count: 1,
                     slot_type_facts: vec![None],

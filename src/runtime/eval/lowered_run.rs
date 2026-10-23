@@ -3894,7 +3894,34 @@ fn checked_lowered_return_value(
     header: &FunctionHeader,
     value: LoweredValue,
     span: Span,
+    pending_traceback: &mut Option<Traceback>,
+    normalize_error_payload: bool,
 ) -> Result<LoweredValue, RuntimeError> {
+    let value = if normalize_error_payload {
+        match value {
+            LoweredValue::ResultErr(error) => {
+                let trace_error = if matches!(error.as_ref(), Value::Error(_) | Value::RunError(_)) {
+                    None
+                } else {
+                    Some((
+                        TraceError::from_value(error.as_ref()),
+                        TraceError::from_propagated_value(error.as_ref()),
+                    ))
+                };
+                let error = inferred_proc_error_value(*error, span);
+                if let Some((raw_value_trace, propagated_trace)) = trace_error
+                    && let Some(traceback) = pending_traceback
+                    && (traceback.error == raw_value_trace || traceback.error == propagated_trace)
+                {
+                    traceback.error = TraceError::from_propagated_value(&error);
+                }
+                LoweredValue::ResultErr(Box::new(error))
+            }
+            value => value,
+        }
+    } else {
+        value
+    };
     let value = match header.return_kind {
         LoweredReturnKind::Erased => value,
         kind => lowered_return_value(kind, value, span)?,
@@ -3909,6 +3936,29 @@ fn checked_lowered_return_value(
         .with_span(span));
     }
     Ok(value)
+}
+
+fn inferred_proc_error_value(value: Value, span: Span) -> Value {
+    match value {
+        Value::Error(error) => Value::Error(error),
+        Value::RunError(error) => Value::RunError(error),
+        value => {
+            let message = match &value {
+                Value::Str(message) => message.to_string(),
+                Value::Int(_) | Value::Float(_) | Value::Duration(_) | Value::Bool(_) | Value::Path(_) => {
+                    let mut message = String::new();
+                    super::ValueView::Runtime(&value)
+                        .push_display(&mut message, span)
+                        .expect("scalar Result error payloads have display text");
+                    message
+                }
+                value => format!("non-Error {} error payload", value.type_name()),
+            };
+            Value::Error(Box::new(
+                RuntimeError::new("propagated", message).with_span(span),
+            ))
+        }
+    }
 }
 
 fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super::LoweredTypeCheck> {

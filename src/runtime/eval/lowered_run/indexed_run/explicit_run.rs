@@ -11507,12 +11507,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // The frame's own vectors are done with; the returned value has already
         // been taken out of `slots`.
         self.evaluator.frame_scratch.recycle(&mut call);
-        let header = Self::function_header(
-            call.execution.program(),
-            function,
-            kind,
-            call.call_span,
-        )?;
+        let program = call.execution.program();
+        let view = program
+            .function_view(function, kind)
+            .map_err(|error| indexed_error(error, call.call_span))?
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "return owner is missing").with_span(call.call_span))?;
+        let normalize_error_payload = program
+            .normalizes_result_error_payload(view.index(), &call.applications)
+            .map_err(|error| indexed_error(error, call.call_span))?;
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call.call_span))?;
         // Producer failures leave the stream boundary as runtime errors. Keep
         // the original propagation location when converting the Result value.
         let return_span = if call.producer {
@@ -11527,7 +11532,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let value = match flow {
             StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                super::super::checked_lowered_return_value(&header, value, return_span)
+                super::super::checked_lowered_return_value(
+                    &header,
+                    value,
+                    return_span,
+                    &mut self.evaluator.pending_traceback,
+                    normalize_error_payload,
+                )
             }
             // A producer ends by running out of statements; that is the end of
             // the stream, not a function that failed to return.

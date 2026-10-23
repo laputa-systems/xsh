@@ -1189,6 +1189,7 @@ struct FunctionBuild {
     return_check: Option<LoweredTypeCheck>,
     /// Exact checker return type used to verify calls through produced values.
     checked_return_type: Option<Type>,
+    defaulted_proc_return: bool,
     /// Full checker signature used to correlate function-reference values with their targets.
     checked_function_signature: Option<crate::sema::types::CallableType>,
     slot_count: usize,

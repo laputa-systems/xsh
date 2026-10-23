@@ -3059,6 +3059,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         } else {
             None
         };
+        let defaulted_proc_return = def.return_ty_defaulted
+            && callable_kind == CallableKind::Proc
+            && scheme.as_deref().is_some_and(|scheme| !scheme.explicit_return());
         let checked_function_signature = scheme.is_none().then(|| {
             self.declarations
                 .function_signatures
@@ -3090,6 +3093,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return_kind,
             return_check,
             checked_return_type,
+            defaulted_proc_return,
             checked_function_signature,
             slot_count: slots.count(),
             slot_type_facts,

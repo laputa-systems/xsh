@@ -163,9 +163,29 @@ impl Evaluator {
             );
         }
         let mut slots = slots;
-        let result = self
-            .start_indexed_producer(Arc::clone(&program), view, &header, &mut slots, PreparedInvocationBindings::default(), call_span)
-            .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span))
+        let invocation = PreparedInvocationBindings::default();
+        let normalize_error_payload = match program.normalizes_result_error_payload(view.index(), &invocation) {
+            Ok(normalize) => normalize,
+            Err(error) => return Some(Err(indexed_error(error, call_span))),
+        };
+        let result = self.start_indexed_producer(
+            Arc::clone(&program),
+            view,
+            &header,
+            &mut slots,
+            invocation,
+            call_span,
+        );
+        let result = result
+            .and_then(|value| {
+                super::super::checked_lowered_return_value(
+                    &header,
+                    value,
+                    call_span,
+                    &mut self.pending_traceback,
+                    normalize_error_payload,
+                )
+            })
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);
         Some(result)
@@ -190,8 +210,23 @@ impl Evaluator {
         }
         let header = view.header().map_err(|error| indexed_error(error, call_span))?;
         let mut slots = self.bind_lowered_values(&header, values, call_span)?;
-        let result = self.start_indexed_producer(Arc::clone(program), view, &header, &mut slots, invocation, call_span)
-            .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span));
+        let result = self.start_indexed_producer(
+            Arc::clone(program),
+            view,
+            &header,
+            &mut slots,
+            invocation,
+            call_span,
+        );
+        let result = result.and_then(|value| {
+            super::super::checked_lowered_return_value(
+                &header,
+                value,
+                call_span,
+                &mut self.pending_traceback,
+                false,
+            )
+        });
         self.recycle_lowered_slots(slots);
         result
     }

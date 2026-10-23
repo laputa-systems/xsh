@@ -228,6 +228,15 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
     }
 
+    pub(super) fn is_generic_error_result(&self, id: TypeId) -> Result<bool, IrVerifyError> {
+        if self.type_tag(id)? != TypeTag::Result {
+            return Ok(false);
+        }
+        let error = TypeId::from_raw(self.type_data[id.index()].rhs)
+            .ok_or_else(|| IrVerifyError::new("result error type id is invalid"))?;
+        Ok(self.type_tag(error)? == TypeTag::Error)
+    }
+
     #[cfg(test)]
     pub(super) fn set_module_export_payload_for_test(
         &mut self,
