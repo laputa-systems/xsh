@@ -68,14 +68,25 @@ can remain valid through runtime validation and are not rejection controls for
 this invariant. Matching verification products and the API selectors still
 require replay.
 
-The provisional Proc completion and effect repair executes ten focused
-selectors: six pass and four fail. Remaining failures concern authored Err
-source authentication, inferred effect ownership, and an application-return
-mutation fixture. No completion or effect acceptance follows from this run.
-Fresh diagnosis owns the effect failure while the implementation owner
-investigates the two source-proof cases. Generic index and slice inference
-is the next independent compiler tranche. Its tests must distinguish List
-from Map indexing, including their different negative-literal semantics.
+Constructor error inference repair `2ed526d67`, integrated as `c69597e25`,
+passes four initial controls, three existing wrapper controls, and eleven
+expanded controls with independent source review clear. Constructor-owned
+phantom error cells wait for all invocation arguments; declaration closure
+preserves input-supported relationships. Bare `Ok` retains its `Error`
+default. Rejected calls roll back bindings and close argument checkpoints.
+No runtime evidence or solver is added. Matching native qualification remains
+open; the SPEC template records the behavior and awaits combined generation.
+
+The provisional Proc completion and effect repair has rebased onto the
+combined scoped producer authority. Its latest executed twelve-selector run
+passes nine and fails three mutation-fixture assumptions; corrected fixtures
+are awaiting replay. This does not qualify the repair. Generic Index and Slice
+controls cover negative literal modes, forwarding, actual scalar module keys
+and dynamic payload provenance. A three-selector run passes both dynamic
+payload controls but exposes a real unsigned Map key regression: ordinary
+indexing rejects a negative key with `schema`, while the generic path returns
+`map-missing`. The repair must preserve the existing key validation. None of
+this provisional work has full native or performance acceptance.
 
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.

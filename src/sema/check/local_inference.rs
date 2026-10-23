@@ -134,8 +134,6 @@ impl Checker {
         }
     }
 
-    /// Checked facts carry canonical types, never inference identities. A
-    /// failed material contract becomes a recovery fact after its diagnostic.
     pub(super) fn resolve_checked_types(&mut self) {
         if let Err(error) = self.type_constraints.complete_constructor_error_defaults(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[]) {
             self.error(Span::at(crate::source::SourceId::new(0), 0), &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);

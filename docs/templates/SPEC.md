@@ -2441,6 +2441,12 @@ error type `E`, and `Err(.Variant(...))` selects the variant from `E`
 an error payload. This also applies when the result is stored in a typed local
 or passed to an inferred generic parameter.
 
+When a generic call leaves only an `Ok` constructor's error type unknown,
+inference waits for all actual arguments before defaulting it to `Error`.
+Later arguments can therefore supply a nominal error type regardless of named
+argument order. An error type related to a function input remains part of its
+inferred scheme. Bare `Ok(value)` without an expected type still uses `Error`.
+
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
 
