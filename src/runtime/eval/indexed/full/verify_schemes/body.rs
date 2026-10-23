@@ -4412,7 +4412,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_callbacks_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-callbacks.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-callbacks.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-callbacks.xsh", crate::loader::entry_source_from_text("generic-pipeline-callbacks.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
