@@ -183,6 +183,13 @@ fn project_structural_schema(schema: &SchemaExpectation, ty: &Type,
     SchemaExpectation { instances, children: Arc::new(children) }
 }
 
+pub(super) fn structural_schema_is_redundant(schema: &SchemaExpectation, ty: &Type,
+    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
+{
+    schema_has_obligations(schema)
+        && !schema_has_obligations(&project_structural_schema(schema, ty, identities))
+}
+
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
@@ -238,8 +245,7 @@ impl CheckedCallableContract {
     pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation>, checked: &Type) -> bool {
         let Some(schema) = schema else { return false; };
         let Some(ground) = ty.closed_ground_type() else { return false; };
-        ground == *checked && schema_has_obligations(schema)
-            && !schema_has_obligations(&project_structural_schema(schema, &ground, &self.schema_identities))
+        ground == *checked && structural_schema_is_redundant(schema, &ground, &self.schema_identities)
     }
 
     pub(crate) fn binder_correspondence(

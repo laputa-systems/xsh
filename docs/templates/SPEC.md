@@ -3363,6 +3363,14 @@ and defaulted schema obligations remain constrained. Removing a return
 annotation that selects `UInt` conversion or `Result` wrapping changes source
 meaning and does not qualify as an equivalent erasure.
 
+Local initializer comparison can project a redundant implicit structural check
+when both views independently establish the same stored type and initializer
+type, and all checked operations and effects remain unchanged. A canonical
+empty list literal can establish vacuous list membership. Missing or unknown
+producer evidence, unchecked `Any`, and empty maps or records do not establish
+that proof. Explicit validation, assignment checks, materializations and schema
+obligations remain constrained. This comparison never changes execution checks.
+
 The checker infers mutually recursive parameters and returns before checking
 callers. Variables that are independent of the captured environment can become
 rank-1 scheme parameters after the component is solved. Infinite types and

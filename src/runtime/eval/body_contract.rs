@@ -69,12 +69,27 @@ impl CheckedBodyContract {
             None => self.semantic.preserved_by(&candidate.semantic),
         };
         if !preserved { return false; }
-        if self.validations.len() != candidate.validations.len() { return false; }
-        self.validations.iter().all(|(site, original)| candidate.validations.get(site).is_some_and(|records| {
+        let original_validations = self.comparison_validations(candidate);
+        let candidate_validations = candidate.comparison_validations(self);
+        if original_validations.len() != candidate_validations.len() { return false; }
+        original_validations.iter().all(|(site, original)| candidate_validations.get(site).is_some_and(|records| {
             original == records || interface_proven && original.len() == records.len() && original.iter().zip(records).all(|(original, record)| {
                 original.interface_gate(site, self.interface.as_ref()) && record.interface_gate(site, candidate.interface.as_ref())
             })
         }))
+    }
+
+    fn comparison_validations<'a>(&'a self, candidate: &Self)
+        -> BTreeMap<&'a CanonicalBodyContractSite, Vec<&'a PreparedValidationContract>>
+    {
+        self.validations.iter().filter_map(|(site, records)| {
+            let records = records.iter().filter(|record| match record {
+                PreparedValidationContract::CheckedValue(check) if check.schema.is_none() =>
+                    !self.semantic.redundant_local_initializer_validation(&candidate.semantic, site, &check.ty),
+                _ => true,
+            }).collect::<Vec<_>>();
+            (!records.is_empty()).then_some((site, records))
+        }).collect()
     }
 }
 
@@ -172,6 +187,44 @@ mod tests {
             let original = declaration(original);
             let candidate = declaration(candidate);
             assert!(!original.preserved_by(&candidate), "{original:?}\n{candidate:?}");
+        }
+    }
+
+    #[test]
+    fn structural_local_storage_preserves_checked_operations_and_values() {
+        for (original, candidate) in [
+            ("type RawArgument = {marker: Str, value: Bytes}\npure keep(argument: Bytes) -> List[RawArgument] { var raw: List[RawArgument] = []; raw += [{marker: \"m\", value: argument}]; raw }\n",
+             "type RawArgument = {marker: Str, value: Bytes}\npure keep(argument: Bytes) -> List[RawArgument] { var raw = []; raw += [{marker: \"m\", value: argument}]; raw }\n"),
+            ("type Span = {first: Int, last: Int}\npure keep() -> List[Span] { let spans: List[Span] = collect { for first in [1, 3] { yield {first, last: first + 1} } }; spans }\n",
+             "type Span = {first: Int, last: Int}\npure keep() -> List[Span] { let spans = collect { for first in [1, 3] { yield {first, last: first + 1} } }; spans }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(original.interface.as_ref().unwrap().equivalent_to(candidate.interface.as_ref().unwrap()));
+            assert!(original.semantic.preserved_by(&candidate.semantic), "{:?}\n{:?}", original.semantic, candidate.semantic);
+            assert!(original.preserved_by(&candidate), "{:?}\n{:?}", original.validations, candidate.validations);
+        }
+    }
+
+    #[test]
+    fn structural_local_projection_retains_domains_effects_and_schema_obligations() {
+        for (original, candidate) in [
+            ("pure keep(value: Int) -> Int { let checked: UInt = value; checked }\n",
+             "pure keep(value: Int) -> Int { let checked = value; checked }\n"),
+            ("pure keep(value: Int) -> Any { let checked: Result[Int] = Ok(value); checked }\n",
+             "pure keep(value: Int) -> Any { let checked = value; checked }\n"),
+            ("nominal type Entry = {value: Int}\npure keep() -> List[Entry] { let entries: List[Entry] = [Entry(value: 1)]; entries }\n",
+             "nominal type Entry = {value: Int}\npure keep() -> List[Entry] { let entries = [Entry(value: 1)]; entries }\n"),
+            ("type Entry = {value: Int = 1}\npure keep() -> List[Entry] { let entries: List[Entry] = [{value: 1}]; entries }\n",
+             "type Entry = {value: Int = 1}\npure keep() -> List[Entry] { let entries = [{value: 1}]; entries }\n"),
+            ("type Entry[T] = {value: Int}\npure keep() -> List[Entry[Int]] { let entries: List[Entry[Int]] = [{value: 1}]; entries }\n",
+             "type Entry[T] = {value: Int}\npure keep() -> List[Entry[Int]] { let entries = [{value: 1}]; entries }\n"),
+            ("type Entry = {value: Int}\nproc keep() [io] -> List[Entry] { print \"observed\"; let entries: List[Entry] = [{value: 1}]; entries }\n",
+             "type Entry = {value: Int}\nproc keep() [io] -> List[Entry] { let entries = [{value: 1}]; entries }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(!original.preserved_by(&candidate));
         }
     }
 

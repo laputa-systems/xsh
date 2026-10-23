@@ -1,7 +1,7 @@
 use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
-use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_identities};
+use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_identities, structural_schema_is_redundant};
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
@@ -10,7 +10,7 @@ use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan, SchemeTy
 use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
-use crate::syntax::arena::{ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
+use crate::syntax::arena::{ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
 use crate::syntax::node::{BinaryOp, StreamStageKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -312,6 +312,27 @@ struct OperatorElaboration {
     result: OperandType,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalStorageValidation {
+    Absent,
+    Structural,
+    Retained,
+}
+
+#[derive(Clone, Debug)]
+struct LocalStorage {
+    initializer: OperandType,
+    stored: Type,
+    validation: LocalStorageValidation,
+}
+
+impl LocalStorage {
+    fn initializer_establishes(&self, ty: &Type) -> bool {
+        self.stored == *ty && (self.initializer.ground().as_ref() == Some(ty)
+            || matches!((&self.initializer, ty), (OperandType::EmptyList(_), Type::List(_))))
+    }
+}
+
 impl OperatorElaboration {
     fn preserved_by(&self, candidate: &Self, instance: Option<&CallableInstanceEvidence>,
         left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
@@ -325,6 +346,7 @@ impl OperatorElaboration {
 
 #[derive(Clone, Debug, Default)]
 struct NodeSelection {
+    local_storage: Option<LocalStorage>,
     binary: Option<OperatorElaboration>,
     requirement: Option<RequirementTarget>,
     constructor: Option<CheckedRecordConstructor>,
@@ -352,6 +374,15 @@ struct NodeSelection {
 }
 
 impl SemanticBodyContract {
+    pub(crate) fn redundant_local_initializer_validation(&self, candidate: &Self, site: &CanonicalBodyContractSite, ty: &Type) -> bool {
+        let SitePath::ValueStatement(path) = &site.0 else { return false; };
+        let Some(original) = self.selections.get(path).and_then(|selection| selection.local_storage.as_ref()) else { return false; };
+        let Some(candidate) = candidate.selections.get(path).and_then(|selection| selection.local_storage.as_ref()) else { return false; };
+        original.validation == LocalStorageValidation::Structural
+            && candidate.validation != LocalStorageValidation::Retained
+            && original.initializer_establishes(ty) && candidate.initializer_establishes(ty)
+    }
+
     /// Uses a loaded module's canonical key, or the entry's logical source name.
     pub(crate) fn source_name(&self) -> &str { &self.source_name }
 
@@ -730,7 +761,12 @@ impl Capture<'_> {
         if let Some(span) = span {
             self.seen_spans.insert(span);
             self.bodies.get_mut(owner).unwrap().span_paths.entry(span).or_insert_with(|| path.to_vec());
-            let selection = self.node_selection(span, namespace)?;
+            let mut selection = self.node_selection(span, namespace)?;
+            if let ArenaChild::Stmt(statement) = node
+                && matches!(owner.1, BodyContractOwner::Declaration(_))
+            {
+                selection.local_storage = self.local_storage(statement, namespace);
+            }
             if selection.stage.is_some() { self.seen_stages.insert((namespace, span)); }
             self.bodies.get_mut(owner).unwrap().selections.insert(path.to_vec(), selection);
         }
@@ -773,6 +809,27 @@ impl Capture<'_> {
             }
         }
         Ok(())
+    }
+
+    fn local_storage(&self, statement: StmtId, namespace: Option<Name>) -> Option<LocalStorage> {
+        let (target, annotation, value) = match self.program.arena.stmt(statement).kind {
+            ArenaStmtKind::Let { target, ty, initializer: ArenaExprOrRun::Expr(value) }
+            | ArenaStmtKind::Var { target, ty, initializer: ArenaExprOrRun::Expr(value) } => (target, ty, value),
+            _ => return None,
+        };
+        if !matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_)) { return None; }
+        let stored = self.checked.local_binding_types.get(&self.program.arena.stmt(statement).span)?.clone();
+        let validation = match annotation {
+            None => LocalStorageValidation::Absent,
+            Some(annotation) => {
+                let constructors = &self.checked.checked_declarations.record_constructors;
+                match constructors.annotation_expectation(&self.program.arena, annotation, namespace) {
+                    Ok(schema) if structural_schema_is_redundant(&schema, &stored, &self.schemas) => LocalStorageValidation::Structural,
+                    _ => LocalStorageValidation::Retained,
+                }
+            }
+        };
+        Some(LocalStorage { initializer: self.expression_type(value), stored, validation })
     }
 
     fn binary_elaboration(&mut self, expression: ExprId, operator: BinaryOp, left: ExprId, right: ExprId, result: OperandType)
@@ -947,6 +1004,7 @@ impl Capture<'_> {
         for (kind, spans) in control_sets(checked) { if spans.contains(&span) { control.insert(kind); } }
         if let Some(&kind) = facts.builtin_calls.get(&span) { control.insert(ControlFact::Builtin(kind)); }
         let selection = NodeSelection {
+            local_storage: None,
             binary: None,
             requirement: checked.requirement_targets.get(&span).cloned(),
             constructor: checked.record_constructor_instances.get(&span).cloned(),
@@ -1139,6 +1197,31 @@ mod tests {
         checked.local_binding_types.iter().find_map(|(span, ty)| {
             sources.span_text(*span).filter(|text| text.starts_with(&prefix)).map(|_| ty.clone())
         }).unwrap_or_else(|| panic!("missing checked type for `{name}`"))
+    }
+
+    #[test]
+    fn local_structural_validation_requires_independent_known_storage() {
+        let original = declaration("type Entry = {value: Int}\npure keep() -> List[Entry] { var entries: List[Entry] = []; entries += [{value: 1}]; entries }\n");
+        let candidate = declaration("type Entry = {value: Int}\npure keep() -> List[Entry] { var entries = []; entries += [{value: 1}]; entries }\n");
+        let (path, storage) = original.selections.iter().find_map(|(path, selection)| selection.local_storage.as_ref().map(|storage| (path.clone(), storage))).unwrap();
+        let ty = storage.stored.clone();
+        let site = CanonicalBodyContractSite(SitePath::ValueStatement(path.clone()));
+        assert!(original.redundant_local_initializer_validation(&candidate, &site, &ty));
+        for initializer in [OperandType::Missing, OperandType::Ground(Type::Any),
+            OperandType::Ground(Type::List(Box::new(Type::Unknown))),
+            OperandType::Ground(Type::Record(Arc::new(BTreeMap::new()))),
+            OperandType::Ground(Type::Map(Box::new(Type::Str), Box::new(Type::Int)))]
+        {
+            let mut incomplete = candidate.clone();
+            incomplete.selections.get_mut(&path).unwrap().local_storage.as_mut().unwrap().initializer = initializer;
+            assert!(!original.redundant_local_initializer_validation(&incomplete, &site, &ty));
+        }
+        let mut incomplete = candidate.clone();
+        incomplete.selections.get_mut(&path).unwrap().local_storage = None;
+        assert!(!original.redundant_local_initializer_validation(&incomplete, &site, &ty));
+        let mut changed = candidate;
+        changed.selections.get_mut(&path).unwrap().local_storage.as_mut().unwrap().stored = Type::Any;
+        assert!(!original.redundant_local_initializer_validation(&changed, &site, &ty));
     }
 
     fn list_item_length_receiver(program: &ArenaProgram) -> ExprId {
