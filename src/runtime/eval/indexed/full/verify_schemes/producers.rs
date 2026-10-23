@@ -2332,16 +2332,23 @@ impl<'a> ProducerProof<'a> {
         proof
     }
 
-    pub(super) fn pattern_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+    pub(super) fn binding_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
-            return Err(IrVerifyError::new("pattern argument proof has no mandatory producer demand"));
+            return Err(IrVerifyError::new("binding argument proof has no mandatory producer demand"));
         }
         let decoder = self.owner(owner)?;
         let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
         let binding = self.binding(owner, instruction, slot)?;
         self.budget.charge(1)?;
-        if !self.index.owners[&owner].pattern_sources.contains_key(&binding) { return Ok(None); }
-        let Some(source) = self.pattern_binding_type(&decoder, binding, slot)? else { return Ok(None) };
+        match binding {
+            ProducerBinding::ScopedDeclaration(declaration, _) => {
+                if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
+                    && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. })
+                { return Ok(None); }
+            }
+            ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
+        }
+        let Some(source) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)? else { return Ok(None) };
         self.binding_slot(owner, binding, slot, source)?;
         let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
         super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
@@ -6883,7 +6890,16 @@ impl<'a> ProducerProof<'a> {
                 schema::StmtView::Let { value, .. } | schema::StmtView::DefaultParameter { value, .. } => self.expression(owner, value.raw() as usize, Arc::clone(&expected), false),
                 schema::StmtView::Assign { value, check, .. } => {
                     let checked = check.map(|check| check.ty.materialize()).transpose()?;
-                    if checked.as_ref() != Some(expected.as_ref()) { self.expression(owner, value.raw() as usize, Arc::clone(&expected), false); }
+                    if checked.as_ref() != Some(expected.as_ref()) {
+                        if expected.has_unsigned_constraint() {
+                            let actual = self.derive_unannotated_type(decoder, value.raw() as usize)?
+                                .ok_or_else(|| IrVerifyError::new("unsigned storage writer has no authenticated source type"))?;
+                            if !super::initializer_type_matches_annotation(&actual, &expected, &mut self.budget, 0)? {
+                                return Err(IrVerifyError::new("storage writer bypasses an unsigned storage check"));
+                            }
+                        }
+                        self.expression(owner, value.raw() as usize, Arc::clone(&expected), false);
+                    }
                 }
                 schema::StmtView::LetInt { .. } | schema::StmtView::AssignInt { .. } => {
                     Self::reject_unchecked_unsigned_integer_writer(&expected)?;

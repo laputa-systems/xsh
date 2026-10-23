@@ -22681,6 +22681,178 @@ assert read(Err("absent"), "replacement") == 0
     }
 
     #[test]
+    fn generic_arguments_authenticate_mutable_cursor_writers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"
+type Position = {end: Int}
+type UnsignedPosition = {end: UInt}
+pure forward(value) { value }
+pure read(position: Position, replacement: Str) -> Int {
+    let _ = replacement
+    var cursor = 0
+    cursor = position.end
+    forward(cursor)
+}
+pure unsigned(position: UInt, replacement: Int) -> UInt {
+    let _ = replacement
+    var cursor: UInt = position
+    cursor = position
+    var scratch = 0
+    scratch = -1
+    forward(cursor)
+}
+pure converted(position: Int) -> UInt {
+    var cursor: UInt = 0
+    cursor = position
+    forward(cursor)
+}
+pure nested(position: UnsignedPosition, replacement: Position) -> UInt {
+    let _ = replacement
+    var cursor = position
+    cursor = position
+    forward(cursor.end)
+}
+assert read({end: 7}, "replacement") == 7
+assert unsigned(7, -1) == 7
+assert converted(7) == 7
+assert nested({end: 7}, {end: -1}) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "read");
+            let decoder = function_view_decoder(&program.store, owner);
+            let fields = function_instruction_indices(&program, "read", FullTag::ExprField);
+            assert_eq!(fields.len(), 1);
+            let field = fields[0];
+            let schema::ExprView::Field { name, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+            assert_eq!(name, "end");
+            let replacement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let mut lying_writer = (*program).clone();
+            lying_writer.store.tags.swap(field, replacement);
+            lying_writer.store.data.swap(field, replacement);
+            assert!(FullVerifier::verify(&lying_writer).is_err());
+            let read = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot >= 2)
+            }).unwrap();
+            let words = program.store.data[read].range().bounds(program.store.extra.len()).unwrap();
+            let mut foreign_binding = (*program).clone();
+            foreign_binding.store.extra[words.start] = 1;
+            let error = FullVerifier::verify(&foreign_binding).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            for name in ["unsigned", "nested"] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let decoder = function_view_decoder(&program.store, owner);
+                let assignments = function_instruction_indices(&program, name, FullTag::StmtAssign);
+                assert_eq!(assignments.len(), 1);
+                let assignment = assignments[0];
+                let schema::StmtView::Assign { value, check, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+                assert!(check.unwrap().ty.materialize().unwrap().has_unsigned_constraint());
+                assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(0)));
+                let words = program.store.data[value.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+                let value_slot = words.start;
+                let mut unchecked_domain = (*program).clone();
+                unchecked_domain.store.extra[words.start] = 1;
+                FullVerifier::verify(&unchecked_domain).unwrap();
+                let words = program.store.data[assignment].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[words.start + 3], 1);
+                let mut cursor = FullCursor::new(&program.store.extra[words.clone()]);
+                for _ in 0..3 { cursor.raw().unwrap(); }
+                let _: Option<LoweredTypeCheck> = FullCodec::decode(&decoder, &mut cursor).unwrap();
+                let start = u32::try_from(unchecked_domain.store.extra.len()).unwrap();
+                unchecked_domain.store.extra.extend_from_slice(&program.store.extra[words.start..words.start + 3]);
+                unchecked_domain.store.extra.push(0);
+                unchecked_domain.store.extra.extend_from_slice(&program.store.extra[words.start + cursor.index..words.end]);
+                let len = u32::try_from(unchecked_domain.store.extra.len()).unwrap() - start;
+                unchecked_domain.store.data[assignment] = IrData::from_range(IrRange::new(start, len));
+                unchecked_domain.store.extra[value_slot] = 0;
+                FullVerifier::verify(&unchecked_domain).unwrap();
+                unchecked_domain.store.extra[value_slot] = 1;
+                let error = FullVerifier::verify(&unchecked_domain).unwrap_err();
+                assert_eq!(error.message, "storage writer bypasses an unsigned storage check");
+            }
+            let owner = scheme_fixture_root_function(&program, "unsigned");
+            let decoder = function_view_decoder(&program.store, owner);
+            let assignments = function_instruction_indices(&program, "unsigned", FullTag::StmtAssign);
+            let schema::StmtView::Assign { slot, .. } = decoder.statement_view(assignments[0]).unwrap() else { unreachable!() };
+            let assignments = function_instruction_indices(&program, "unsigned", FullTag::StmtAssignInt);
+            assert_eq!(assignments.len(), 1);
+            let words = program.store.data[assignments[0]].range().bounds(program.store.extra.len()).unwrap();
+            let mut unchecked_integer_writer = (*program).clone();
+            unchecked_integer_writer.store.extra[words.start] = u32::try_from(slot).unwrap();
+            let error = FullVerifier::verify(&unchecked_integer_writer).unwrap_err();
+            assert_eq!(error.message, "integer writer bypasses an unsigned storage check");
+        });
+    }
+
+    #[test]
+    fn generic_arguments_authenticate_regex_cursor_updates() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-regex-cursor-argument.xsh", r#"
+pure between(text, start, end) { text.byte_slice(start, end - start) }
+pure inline(text: Str) -> Str {
+    var cursor = 0
+    let parts = collect {
+        for found in rx"x".find(text) {
+            yield between(text, cursor, found.start)
+            cursor = found.end
+        }
+        yield text.byte_slice(cursor)
+    }
+    parts.join("")
+}
+assert inline("axbx") == "ab"
+assert inline("plain") == "plain"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "inline");
+            let decoder = function_view_decoder(&program.store, owner);
+            let field = function_instruction_indices(&program, "inline", FullTag::ExprField).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Field { name: "start", .. })
+            }).unwrap();
+            let words = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.extra[words.start + 1] = scheme_fixture_string(&program, "text");
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            let program = fixture("generic-loop-source-argument.xsh", r#"
+pure forward(value) { value }
+pure read() -> Int {
+    let _ = ["wrong"]
+    for entry in [{start: 7}] { return forward(entry.start) }
+    0
+}
+assert read() == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let records = function_instruction_indices(&program, "read", FullTag::ExprRecord);
+            let texts = function_instruction_indices(&program, "read", FullTag::ExprStr);
+            assert_eq!(records.len(), 1);
+            assert_eq!(texts.len(), 1);
+            let mut wrong_item = program.clone();
+            wrong_item.store.tags.swap(records[0], texts[0]);
+            wrong_item.store.data.swap(records[0], texts[0]);
+            assert!(FullVerifier::verify(&wrong_item).is_err());
+        });
+    }
+
+    #[test]
     fn checked_record_lists_preserve_nominal_sources_during_optional_initialization() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-record-nominal-list.xsh", r#"

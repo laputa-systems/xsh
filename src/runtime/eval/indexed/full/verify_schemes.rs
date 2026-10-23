@@ -3680,7 +3680,7 @@ fn verify_instantiated_call_arguments(
         let actual = match actual {
             Some(actual) => actual,
             None if !is_splice => {
-                let actual = match producer_proof.pattern_argument_type(decoder.owner, value.raw() as usize)? {
+                let actual = match producer_proof.binding_argument_type(decoder.owner, value.raw() as usize)? {
                     Some(actual) => actual,
                     None => annotated_optional_record_argument_type(store, &decoder, value.raw() as usize, materialization)?
                         .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
