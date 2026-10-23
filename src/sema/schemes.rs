@@ -1504,6 +1504,9 @@ impl SchemeType {
             if self == &Self::Ground(Type::Null) { return true; }
             if !matches!(self, Self::Optional(_)) { return self.matches_body_return(inner); }
         }
+        if let (Self::Result(actual_ok, actual_error), Self::Result(expected_ok, expected_error)) = (self, expected) {
+            return actual_ok.matches_body_return(expected_ok) && actual_error.matches_body_return(expected_error);
+        }
         match (self.closed_ground_type(), expected.closed_ground_type()) {
             (Some(actual), Some(expected)) => super::types::tail_type_matches_expected(&expected, &actual),
             _ => false,
@@ -1750,6 +1753,33 @@ mod tests {
     use crate::syntax::arena::TypeDefId;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
+
+    #[test]
+    fn symbolic_result_returns_preserve_binders_error_domains_and_data() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let value = SchemeType::Parameter(super::SchemeTypeParameterId(0));
+            let other = SchemeType::Parameter(super::SchemeTypeParameterId(1));
+            let family = Name::intern("Failure");
+            let foreign = Name::intern("Foreign");
+            let variant = SchemeType::Ground(Type::ErrorVariant { family, variant: Name::intern("Rejected") });
+            let error = SchemeType::Ground(Type::Error);
+            let family_error = SchemeType::Ground(Type::ErrorFamily(family));
+            let foreign_error = SchemeType::Ground(Type::ErrorFamily(foreign));
+            let result = |ok, error| SchemeType::Result(Box::new(ok), Box::new(error));
+            let actual = result(value.clone(), variant.clone());
+            let expected = result(value.clone(), error.clone());
+            assert!(actual.matches_body_return(&expected));
+            assert!(actual.matches_body_return(&result(value.clone(), family_error)));
+            assert!(!actual.matches_body_return(&result(other, error.clone())));
+            assert!(!actual.matches_body_return(&result(value.clone(), foreign_error)));
+            assert!(!result(value.clone(), SchemeType::Ground(Type::Str)).matches_body_return(&expected));
+            assert!(!actual.matches_body_return(&value));
+            assert!(!value.matches_body_return(&expected));
+            assert!(!variant.matches_body_return(&expected));
+            assert!(!result(actual.clone(), error).matches_body_return(&expected));
+            assert!(!SchemeType::List(Box::new(actual)).matches_body_return(&SchemeType::List(Box::new(expected))));
+        });
+    }
 
 
     #[test]

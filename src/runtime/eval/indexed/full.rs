@@ -22632,6 +22632,50 @@ run true
     }
 
     #[test]
+    fn generic_result_returns_preserve_symbolic_success_with_error_subtypes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-result-error-subtype-return.xsh", r#"
+error Failure = Rejected
+pure invalid(text: Str) { Failure.Rejected(text) }
+pure select(value, failed: Bool) {
+    let _ = "wrong"
+    if failed { return Err(invalid("rejected")) }
+    Ok(value)
+}
+assert select(7, false) == Ok(7)
+assert select("seven", false) == Ok("seven")
+assert match select(7, true) { Err(_) => true; Ok(_) => false }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "select");
+            let other = scheme_fixture_root_function(&program, "invalid");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let failure = function_instruction_indices(&program, "select", FullTag::ExprErr)[0];
+            let text = function_instruction_indices(&program, "select", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_body = (*program).clone();
+            wrong_body.store.scheme_body_facts[fact(failure)].value = program.store.scheme_body_facts[fact(text)].value;
+            assert!(FullVerifier::verify(&wrong_body).is_err());
+            let mut foreign_owner = (*program).clone();
+            foreign_owner.store.scheme_body_facts[fact(failure)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_result_pattern_fields() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-result-pattern-argument.xsh", r#"
