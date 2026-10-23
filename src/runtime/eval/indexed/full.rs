@@ -49117,7 +49117,8 @@ tempdir outer {
   assert ! named_word.directory.exists()?
   let failed_path = fp"{outer}/failure"
   let failed = try { body_failure(7, failed_path)? }
-  assert failed is Err(_)
+  let failure_message = match failed { Err(problem) => problem.message; Ok(_) => "" }
+  assert failure_message == "body failed"
   assert ! failed_path.exists()?
   let blocked_parent = fp"{outer}/blocked"
   blocked_parent.write("file")?
@@ -49135,20 +49136,25 @@ assert initializations == 2
             let named_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "named").unwrap();
             let decoder = function_view_decoder(&program.store, named_owner);
             let removal = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FsRemove { .. }))).unwrap();
-            let schema::ExprView::FsRemove { path: target, .. } = decoder.expression_view(removal).unwrap() else { unreachable!() };
+            let schema::ExprView::FsRemove { path: target, missing_ok: Some(flag), .. } = decoder.expression_view(removal).unwrap() else { unreachable!() };
+            let expression_fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
             let mut wrong_flag = (*program).clone();
-            let payload = wrong_flag.store.data[removal].range();
-            wrong_flag.store.extra[payload.start as usize + 1] = target.raw();
+            wrong_flag.store.tags[flag.raw() as usize] = program.store.tags[target.raw() as usize];
+            wrong_flag.store.data[flag.raw() as usize] = program.store.data[target.raw() as usize];
+            wrong_flag.store.scheme_body_facts[expression_fact(flag.raw() as usize)].value = program.store.scheme_body_facts[expression_fact(target.raw() as usize)].value;
             assert!(FullVerifier::verify(&wrong_flag).is_err());
             let constructor = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Err { .. }))).unwrap();
+            let schema::ExprView::Err { value, .. } = decoder.expression_view(constructor).unwrap() else { unreachable!() };
             let mut wrong_payload = (*program).clone();
-            let payload = wrong_payload.store.data[constructor].range();
-            wrong_payload.store.extra[payload.start as usize] = target.raw();
+            wrong_payload.store.tags[value.raw() as usize] = program.store.tags[flag.raw() as usize];
+            wrong_payload.store.data[value.raw() as usize] = program.store.data[flag.raw() as usize];
+            wrong_payload.store.scheme_body_facts[expression_fact(value.raw() as usize)].value = program.store.scheme_body_facts[expression_fact(flag.raw() as usize)].value;
             assert!(FullVerifier::verify(&wrong_payload).is_err());
             let mut wrong_cause = (*program).clone();
+            let payload = wrong_cause.store.data[constructor].range();
             wrong_cause.store.extra[payload.start as usize + 1] = target.raw();
             assert!(FullVerifier::verify(&wrong_cause).is_err());
-            let fact_index = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == constructor && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let fact_index = expression_fact(constructor);
             let mut foreign_fact = (*program).clone();
             foreign_fact.store.scheme_body_facts[fact_index].function = IrFunctionId::new(named_owner + 1).unwrap();
             assert!(FullVerifier::verify(&foreign_fact).is_err());
@@ -49162,6 +49168,32 @@ assert initializations == 2
                 else if fact_index < scheme.body_facts.start as usize + scheme.body_facts.len as usize { scheme.body_facts.len -= 1; }
             }
             assert!(FullVerifier::verify(&missing_fact).is_err());
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn ordinary_tempdir_scopes_preserve_value_contracts_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("ordinary-tempdir-value-contracts.xsh", r#"
+proc fresh() [fs, error] -> Result[Int] { tempdir directory { 7 } }
+proc named(target: Path) [fs, error] -> Result[Int] { tempdir directory at target { 9 } }
+assert fresh()? == 7
+let captured: Result[Int] = try { fresh()? }
+assert captured == Ok(7)
+tempdir outer {
+  assert named(fp"{outer}/named")? == 9
+}
+"#));
+            FullVerifier::verify(&program).unwrap();
             let _symbols = program.symbol_owner().enter();
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
