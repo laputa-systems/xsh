@@ -85,3 +85,23 @@ test test_lint_rewrites_a_rebuilt_command_vector { |ctx|
   let after = test.expect(ctx, file.read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }
+
+test test_inferred_command_argv_keeps_text_and_path_word_domains {
+  pure make(spec, target, argv) {
+    process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment)
+  }
+  let spec = {cwd: p".", environment: {}}
+  let text: Any = make(spec, "not-launched", ["not-launched", "--flag"])
+  let path_plan: Any = make(spec, p"/not-launched", [p"/not-launched", p"--flag"])
+  assert text is Command
+  assert path_plan is Command
+}
+
+test test_inferred_command_argv_rejects_nonword_domains { |ctx|
+  for invocation in ["make(1, [\"word\"])", "make(true, [\"word\"])", "make(\"word\", [1])", "make(\"word\", [true])"] {
+    let source = "pure make(target, argv) { process.command_argv(target, argv) }\nlet plan = " + invocation + "\n"
+    let output = test.run_script(ctx, source)?
+    assert ! output.success
+    assert "err[check." in output.stderr, output.stderr
+  }
+}

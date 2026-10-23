@@ -6126,6 +6126,22 @@ impl<'a> ProducerProof<'a> {
     fn verify_process_command_argv(&mut self, decoder: &FullDecoder<'a>, instruction: usize, command: super::super::decode::ProcessCommandArgvView<'_>, expected: &Type) -> Result<(), IrVerifyError> {
         self.verify_process_command_contract(decoder, instruction, expected)?;
         if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
+        if let Some(actual) = self.scoped_expression_type(decoder, instruction)? {
+            if actual != super::SchemeType::Ground(Type::Command) { return Err(IrVerifyError::new("generic command result disagrees with its native contract")); }
+            let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,
+                command.stdout, command.stderr, command.stdout_append, command.stderr_append, command.timeout,
+                command.detach, command.new_session, command.ignore_hup, command.cpu_max, command.accept, command.same_group];
+            let mut actual = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                actual.push(argument.map(|argument| self.scoped_expression_type(decoder, argument.raw() as usize)?
+                    .ok_or_else(|| IrVerifyError::new("generic command argument has no owned body contract"))).transpose()?);
+            }
+            let FullCallableContract::Scheme(id) = self.store.functions[function_index(decoder.owner)?].contract else {
+                return Err(IrVerifyError::new("generic command has no scheme owner"));
+            };
+            super::commands::process_command_argv(&actual, self.index.scheme_scopes(self.store)?.get(id)?, &mut self.budget)?;
+            return Ok(());
+        }
         let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,
             command.stdout, command.stderr, command.stdout_append, command.stderr_append, command.timeout,
             command.detach, command.new_session, command.ignore_hup, command.cpu_max, command.accept, command.same_group];

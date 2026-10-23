@@ -2278,6 +2278,15 @@ fn verify_body_expression(
             let arguments = [Some(child(path, budget)?), missing_ok.map(|value| child(value, budget)).transpose()?];
             SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsRemove, &arguments, budget)?)
         }
+        schema::ExprView::ProcessCommandArgv(command) => {
+            let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env,
+                command.stdin, command.stdout, command.stderr, command.stdout_append, command.stderr_append,
+                command.timeout, command.detach, command.new_session, command.ignore_hup, command.cpu_max,
+                command.accept, command.same_group];
+            let mut actual = Vec::with_capacity(arguments.len());
+            for argument in arguments { actual.push(argument.map(|value| child(value, budget)).transpose()?); }
+            SchemeType::Ground(commands::process_command_argv(&actual, scheme_scope, budget)?)
+        }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
             let mut arguments = Vec::new();
             for argument in args { arguments.push(argument?.map(|argument| child(argument, budget)).transpose()?); }

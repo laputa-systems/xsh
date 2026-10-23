@@ -4978,7 +4978,29 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
                         ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
                     }
-                    if let (Some(receiver), Some(crate::modules::MethodReceiver::Path)) = (receiver, plan.receiver)
+                    if receiver.is_none() && plan.signature.op == RuntimeOp::ProcessCommandArgv {
+                        if ordered.len() > 16 { return self.block_scheme_lowering_expr(expression); }
+                        let command = LoweredProcessCommandArgv {
+                            target: ordered.first().copied().flatten()?,
+                            argv: ordered.get(1).copied().flatten()?,
+                            cwd: ordered.get(2).copied().flatten(),
+                            env: ordered.get(3).copied().flatten(),
+                            stdin: ordered.get(4).copied().flatten(),
+                            stdout: ordered.get(5).copied().flatten(),
+                            stderr: ordered.get(6).copied().flatten(),
+                            stdout_append: ordered.get(7).copied().flatten(),
+                            stderr_append: ordered.get(8).copied().flatten(),
+                            timeout: ordered.get(9).copied().flatten(),
+                            detach: ordered.get(10).copied().flatten(),
+                            new_session: ordered.get(11).copied().flatten(),
+                            ignore_hup: ordered.get(12).copied().flatten(),
+                            cpu_max: ordered.get(13).copied().flatten(),
+                            accept: ordered.get(14).copied().flatten(),
+                            same_group: ordered.get(15).copied().flatten(),
+                            span,
+                        };
+                        push_build_row!(self, expr, BuildExprRow::ProcessCommandArgv(Box::new(command)))
+                    } else if let (Some(receiver), Some(crate::modules::MethodReceiver::Path)) = (receiver, plan.receiver)
                         && !plan.signature.pure
                         && plan.signature.effects.contains(&crate::syntax::node::Effect::Fs)
                     {

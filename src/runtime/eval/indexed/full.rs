@@ -54641,6 +54641,50 @@ proc local() [env, error] -> Int {
             Ok(LoweredType::Any)
         );
     }
+
+    #[test]
+    fn inferred_process_command_words_keep_strict_domains_and_physical_roles() {
+        let program = Arc::new(fixture("inferred-process-command-words.xsh", r#"
+pure make(spec, target, argv, other: List[Int], delay: Duration) {
+    let _ = other
+    process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment, timeout: delay)
+}
+pure other(value) { value }
+let spec = {cwd: p".", environment: {}}
+let text = make(spec, "not-launched", ["not-launched", "--flag"], [1], 10ms)
+let path_plan = make(spec, p"/not-launched", [p"/not-launched", p"--flag"], [2], 20ms)
+let text_value: Any = text
+let path_value: Any = path_plan
+assert text_value is Command
+assert path_value is Command
+assert other(7) == 7
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "make");
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprProcessCommandArgv).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::ExprView::ProcessCommandArgv(command) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        for argument in [command.target, command.argv, command.timeout.unwrap()] {
+            let argument = argument.raw() as usize;
+            let mut wrong = (*program).clone();
+            let payload = wrong.store.data[argument].range().bounds(wrong.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            wrong.store.extra[payload.start] = 3;
+            FullVerifier::verify(&wrong).expect_err("physical command roles must retain the declared strict domains");
+        }
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == IrFunctionId::new(owner).unwrap() && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+        let mut foreign_owner = (*program).clone();
+        foreign_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(scheme_fixture_root_function(&program, "other")).unwrap();
+        assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+    }
 }
 
 #[cfg(test)]

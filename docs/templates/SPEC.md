@@ -4395,7 +4395,10 @@ block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `accept`, `detach`, `new_session`, `ignore_hup`, `same_group`, and exactly one
 `run` or `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
+`argv` includes `argv[0]`. An unannotated wrapper retains the requirement that
+its target and each argv item are `Str` or `Path`; separate calls may use either
+domain. This does not widen list storage or admit ordinary argv conversions such
+as `Int` and `Bool`. When the executable is `argv[0]`, the vector alone is
 the command (`run @argv`, 11.1); `command_argv` is for an executable that
 intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
