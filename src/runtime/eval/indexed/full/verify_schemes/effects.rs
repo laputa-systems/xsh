@@ -347,6 +347,45 @@ impl<'a> ScopedEffectProof<'a> {
         if target_fact != Some(target) {
             return Err(IrVerifyError::new("generic invocation effect target has no checked call"));
         }
+        self.instantiated_call_contract(owner, instruction, target, target_id, budget)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn value_call_contract(&self, decoder: &super::super::FullDecoder<'_>, instruction: usize, target: usize, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+        let owner = super::super::ExecutableOwner::from_raw(decoder.owner)?;
+        let range = match owner {
+            super::super::ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
+            super::super::ExecutableOwner::Driver(step) => self.store.driver_instruction_range(step)?,
+        };
+        if decoder.instruction_range != range || !range.contains(&instruction) {
+            return Err(IrVerifyError::new("scheme callable effect site belongs to another executable owner"));
+        }
+        let super::super::schema::ExprView::DynamicCall { callee, .. } = decoder.expression_view(instruction)? else {
+            return Err(IrVerifyError::new("scheme callable effect site is not a value call"));
+        };
+        if self.store.checked_call_targets.binary_search_by_key(&(instruction as u32), |fact| fact.instruction).is_ok() {
+            return Err(IrVerifyError::new("scheme callable effect site carries a direct target"));
+        }
+        let site = self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction)
+            .map_err(|_| IrVerifyError::new("scheme callable effect site has no checked relationship"))?;
+        let site = self.store.scheme_callable_calls[site];
+        let source = super::checked_expression_type_id(self.store, callee.raw())
+            .ok_or_else(|| IrVerifyError::new("scheme callable effect source has no checked contract"))?;
+        let crate::sema::types::Type::SchemeCallable(source) = self.store.semantic.to_type_with_budget(source, &mut budget.semantic_types)? else {
+            return Err(IrVerifyError::new("scheme callable effect source is not quantified"));
+        };
+        if self.store.semantic.scheme_callable_index(source)? != site.relationship {
+            return Err(IrVerifyError::new("scheme callable effect source disagrees with its relationship"));
+        }
+        let relationship = self.store.scheme_callable_values.get(site.relationship as usize)
+            .ok_or_else(|| IrVerifyError::new("scheme callable effect relationship is out of bounds"))?;
+        if relationship.canonical.index() != target {
+            return Err(IrVerifyError::new("scheme callable effect target disagrees with its relationship"));
+        }
+        let target_id = self.function_scope(target)?.ok_or_else(|| IrVerifyError::new("scheme callable effect target has no scheme"))?;
+        self.instantiated_call_contract(owner, instruction, target, target_id, budget)
+    }
+
+    fn instantiated_call_contract(&self, owner: super::super::ExecutableOwner, instruction: usize, target: usize, target_id: super::super::schemes::FullSchemeId, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
         let scope = self.scopes.get(target_id)?;
         let caller = match owner {
             super::super::ExecutableOwner::Function(function) => self.function_scope(function.index())?,
