@@ -8,24 +8,86 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-The owner's 2026-10-23 closeout order is: complete full inference, merge all
-qualified work to local `master`, clean `.work/`, then finish the pyramid
-campaign. Pyramid execution waits for inference qualification and cleanup.
+The owner's 2026-10-23 closeout order retains inference qualification, local
+`master` integration and cleanup before Pyramid closes. The subsequent request
+expands independent Pyramid implementation now, alongside inference, using five
+expert lanes and one shared two-build limit. Pyramid qualification still waits
+for the accepted inference source. Its isolated integration branch is
+`campaign/pyramid-integration`; no pushes are authorized.
 
-The latest combined source `f87c6d69a` passes the full Rust library boundary:
-2,205 pass, zero fail, and three remain ignored. Matching XSH and XSHT
-verification products build without warnings. The source tree is
-`19d8eda5efd1eeb42601354bd79194123df8d753`. The full-library log is
-`.work/wt/full-inference-integration/.work/tmp/repaired-full-library.log`;
+Provisional inference source `c1806448d` integrates scoped mutable argument
+proofs, deferred sort-key checks, closed Null returns and pure-return validation.
+Focused controls pass. The actual historical system-report checker goes from
+two sort errors to zero. The mutable argument repair passes twelve controls
+plus strengthened writer positives; whole historical `wc` remains open on its
+separate signed-to-unsigned record boundary. Pure Str/Error joins now fail
+during checking, while typed Str results and nominal errors remain valid.
+The shared Optional return relation now accepts a payload or Null under its
+matching Optional scheme while rejecting foreign binders. Arithmetic call
+arguments derive evidence from their physical operands through the existing
+producer proof. Its twelve focused controls pass; the exact historical gates
+and internal modules prepare and verify. The separate `wc` boundary remains
+open. These changes await the combined library and corpus boundary.
+
+Frozen source `bdb9b165b` completes the full library command with 2,232 passes,
+one failure and three ignores; the command exits 101. The sole failure expects
+Null data returns to remain rejected, contrary to the campaign's explicit
+return rule. Correction `4b4e4cf57` replaces that obsolete expectation with
+typed Null calls, retaining its other rejection controls; the exact test passes.
+The failed full run remains evidence, not a successful full-library gate.
+Its log is
+`.work/wt/full-inference-domain-library-qualification/.work/tmp/domain-full-library.log`.
+
+Matching `bdb9b165b` verification products build without warnings. The Null,
+deferred-sort and two pure-return selectors each pass once in normal and
+forced-frame modes: eight passes, zero failures or skips. Matching products and
+native logs are under
+`.work/wt/full-inference-domain-product-qualification/.work/`.
+These products exclude the later Optional and arithmetic repairs. The XSH
+product is 42,455,328 bytes; XSHT is 50,810,944 bytes. No speedup is claimed.
+
+Frozen source `a6178b9f5` has matching warning-free verification products.
+Its new Null-return native selector passes once in each normal and forced-frame
+mode, with zero skips. Logs and products are under
+`.work/wt/full-inference-null-pattern-qualification/.work/`.
+This earlier source excludes the later sort, mutable-writer and pure-return
+repairs and supplies no qualification credit for them.
+
+The last zero-failure full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
+zero fail, and three remain ignored. Matching XSH and XSHT verification products
+build without warnings. The source tree is
+`d39903e9fe794a7fd811da1fd3c8a26c83290e36`. The full-library log is
+`.work/wt/full-inference-integration/.work/tmp/parameter-context-full-library.log`;
 matching build and products are in
-`.work/wt/full-inference-repaired-qualification/.work/`.
+`.work/wt/full-inference-parameter-context-qualification/.work/`.
 
-The XSH product is 42,429,240 bytes with SHA-256
-`60ec49f6f0e97ea1fc5c93a2a8adcaece0cb2b48d17f384217489114a222f476`.
-The XSHT product is 50,784,152 bytes with SHA-256
-`54ffcce8d56cc5f5461f028ba67c2fa2b599d30280757e52d8c8d60641a2be65`.
-The system-report orchestration and joint corpus checks now use these frozen
-products. Native capability, corpus and final campaign qualification remain open.
+The XSH product is 42,430,688 bytes with SHA-256
+`2cdbaa455fa16693fded208c7e7185ecdbe698681a592255e601d45f73c8f9da`.
+The XSHT product is 50,785,576 bytes with SHA-256
+`ac69cff66fa4f12054f0ad831b873c26a5089aa08bd7ced2687e8b722252e713`.
+Normal and forced-frame capability runs each pass all 143 selectors with zero
+failures or skips; the preceding 140-selector boundary is retained. All six API
+catalog selectors pass. Their logs and detail directories are under that
+checkout's `.work/tmp/parameter-context-native-{normal,forced,api}`. These
+results establish this capability boundary, not corpus or final qualification.
+
+The original corpus passes the require-target check. Ground RecordUpdate
+repair `3d62c73c2`, integrated as `b1c26aeb3`, proves the actual base and every
+replacement against existing field paths. Eight focused controls pass and
+independent review is clear. Nominal-field repair `a589a1583`, integrated as
+`c637b226e`, preserves exact source Tag identities through checked fields and
+charges the complete source-type validation. All twelve focused checks pass,
+including cold preparation of the complete original system-report module.
+Independent review is clear. Runtime corpus qualification remains open. The
+historical 1,040-removal cohort alone also fails on the preceding `f87c6d69a`
+products with seven diagnostics: one list splice, one arithmetic generalization,
+two sort keys and three cold generic-argument builds. Additional Proc/effect
+erasures are not needed to reproduce those seven failures. Their raw log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-joint-f87c6d69-historical1843-utility9-diagnostic.log`.
+The list-splice fix `70ee168f6`, integrated as `efa83632e`, resolves the canonical
+inferred operand shape before enforcing List-only splicing. Six controls pass,
+including Result/Stream rejection; independent review is clear. Other causes
+are under investigation. This later repair needs broader combined qualification.
 
 The preceding frozen source `4fafeefbb` has 2,193 library passes, six failures
 and three ignores. Its matching system-report selector also fails before its
@@ -160,7 +222,8 @@ Parameter-context repair `d9d43aecd`, integrated as `3b9bac2ea`, retains the
 selected parameter's structural schema context, preserving actual nominal and
 rest-item schemas. All six controls pass, including Any/callable/unresolved
 target rejections and nominal-instance retention. Independent review is clear;
-the actual corpus failure needs a matching-product replay.
+the matching-product replay passes that typing boundary but stops at the
+separate RecordUpdate proof gap described above.
 
 A nine-utility diagnostic reaches the jointly reduced ten-XSH-root check and
 fails with 1,501 diagnostics. These are not independent causes. One source-backed

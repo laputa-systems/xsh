@@ -1531,13 +1531,10 @@ mod ordinary_body_tests {
             "let operation = factory()?\nlet answer: Int = operation(42)",
         );
 
-        let source = "proc unknown_return(value) { return null }";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckInferReturn)
-        }), "{source}\n{:?}", checked.diagnostics);
+        accepts(
+            "proc null_return(value) { return null }",
+            "let integer: Null = null_return(7)?\nlet text: Null = null_return(\"demo\")?",
+        );
 
         let source = "var shared = {items: [0]}\nproc remember(value) { shared.items = shared.items.push(value); value }\nproc factory() { return remember }\nlet operation = factory()?\nlet integer = operation(42)\nlet text = operation(\"demo\")";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

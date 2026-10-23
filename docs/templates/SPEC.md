@@ -3333,6 +3333,8 @@ pure declarations share provisional parameter and return types within their
 component. The checker solves every member before generalizing the component;
 recursive calls use those shared monotypes, and independent outside calls
 instantiate the published schemes freshly.
+`Null` is a closed return type, including inside records and containers.
+A null-only value supplies no optional payload type or domain schema.
 Checked tooling contracts retain quantified parameter relationships and open
 record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter

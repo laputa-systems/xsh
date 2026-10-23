@@ -1513,7 +1513,10 @@ proc read(plugin: Plugin) {
         let span = parsed.arena.arena.expr(id).span;
         assert!(matches!(
             checked.projections[&span].callable,
-            Some(xsh::frontend::check::ModuleExportType::Pure { .. })
+            Some(xsh::frontend::check::ModuleExportType::Callable {
+                kind: xsh::frontend::check::CallableKind::Pure,
+                ..
+            })
         ));
     }
     for (id, ty) in compact.expr_types {

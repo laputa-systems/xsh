@@ -9594,6 +9594,25 @@ impl<'a> FullDecoder<'a> {
         Ok(writers)
     }
 
+    fn checked_record_update_target_type<'t>(
+        mut target: &'t Type,
+        path: impl IntoIterator<Item = Result<Name, IrVerifyError>>,
+        charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<&'t Type, IrVerifyError> {
+        for name in path {
+            charge(1)?;
+            let Type::Record(fields) = target else {
+                return Err(IrVerifyError::new(
+                    "checked record update path crosses a non-record field",
+                ));
+            };
+            target = fields.get(&name?).ok_or_else(|| {
+                IrVerifyError::new("checked record update field is absent from its result type")
+            })?;
+        }
+        Ok(target)
+    }
+
     fn checked_record_update_matches_type(
         &self,
         base: usize,
@@ -9608,20 +9627,7 @@ impl<'a> FullDecoder<'a> {
         self.checked_expression_matches_type(base, expected)?;
         for update in &mut updates {
             let (path, value, _) = update?;
-            let mut target_type = expected;
-            for name in path {
-                let name = name?;
-                let Type::Record(target_fields) = target_type else {
-                    return Err(IrVerifyError::new(
-                        "checked record update path crosses a non-record field",
-                    ));
-                };
-                target_type = target_fields.get(&name).ok_or_else(|| {
-                    IrVerifyError::new(
-                        "checked record update field is absent from its result type",
-                    )
-                })?;
-            }
+            let target_type = Self::checked_record_update_target_type(expected, path, &mut |_| Ok(()))?;
             if target_type.contains_typed_callable() {
                 self.checked_expression_matches_type(value.raw() as usize, target_type)
                     .map_err(|_| {
@@ -22623,6 +22629,324 @@ run true
 
     fn fixture(name: &str, source: &str) -> FullProgram {
         fixture_result(name, source).unwrap()
+    }
+
+    #[test]
+    fn generic_arguments_authenticate_result_pattern_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-result-pattern-argument.xsh", r#"
+type Entry = {size: Int, wrong: Str}
+pure forward(value) { value }
+pure read(input: Result[Entry, Str], replacement: Str) -> Int {
+    let _ = replacement
+    if let Ok(entry) = input { forward(entry.size) } else { 0 }
+}
+assert read(Ok({size: 7, wrong: "wrong"}), "replacement") == 7
+assert read(Err("absent"), "replacement") == 0
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "read");
+            let decoder = function_view_decoder(&program.store, owner);
+            let fields = function_instruction_indices(&program, "read", FullTag::ExprField);
+            assert_eq!(fields.len(), 1);
+            let field = fields[0];
+            let schema::ExprView::Field { base, name, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+            assert_eq!(name, "size");
+            let payload = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.extra[payload.start + 1] = scheme_fixture_string(&program, "wrong");
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            assert!(matches!(decoder.expression_view(base.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot >= 2));
+            let binding = program.store.data[base.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+            let mut foreign_binding = (*program).clone();
+            foreign_binding.store.extra[binding.start] = 0;
+            let error = FullVerifier::verify(&foreign_binding).unwrap_err();
+            assert_eq!(error.message, "generic call argument has no closed checked type");
+            let patterns = program.store.patterns.iter().enumerate().filter_map(|(index, tag)| (*tag == FullPatternTag::ResultOk).then_some(index)).collect::<Vec<_>>();
+            assert_eq!(patterns.len(), 1);
+            let mut wrong_pattern = (*program).clone();
+            wrong_pattern.store.patterns[patterns[0]] = FullPatternTag::ResultErr;
+            let error = FullVerifier::verify(&wrong_pattern).unwrap_err();
+            assert_eq!(error.message, "generic call argument has no closed checked type");
+        });
+    }
+
+    #[test]
+    fn generic_arguments_authenticate_mutable_cursor_writers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"
+type Position = {end: Int}
+type UnsignedPosition = {end: UInt}
+pure forward(value) { value }
+pure read(position: Position, replacement: Str) -> Int {
+    let _ = replacement
+    var cursor = 0
+    cursor = position.end
+    forward(cursor)
+}
+pure unsigned(position: UInt, replacement: Int) -> UInt {
+    let _ = replacement
+    var cursor: UInt = position
+    cursor = position
+    var scratch = 0
+    scratch = -1
+    forward(cursor)
+}
+pure converted(position: Int) -> UInt {
+    var cursor: UInt = 0
+    cursor = position
+    forward(cursor)
+}
+pure nested(position: UnsignedPosition, replacement: Position) -> UInt {
+    let _ = replacement
+    var cursor = position
+    cursor = position
+    forward(cursor.end)
+}
+assert read({end: 7}, "replacement") == 7
+assert unsigned(7, -1) == 7
+assert converted(7) == 7
+assert nested({end: 7}, {end: -1}) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "read");
+            let decoder = function_view_decoder(&program.store, owner);
+            let fields = function_instruction_indices(&program, "read", FullTag::ExprField);
+            assert_eq!(fields.len(), 1);
+            let field = fields[0];
+            let schema::ExprView::Field { name, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+            assert_eq!(name, "end");
+            let replacement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let mut lying_writer = (*program).clone();
+            lying_writer.store.tags.swap(field, replacement);
+            lying_writer.store.data.swap(field, replacement);
+            assert!(FullVerifier::verify(&lying_writer).is_err());
+            let read = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot >= 2)
+            }).unwrap();
+            let words = program.store.data[read].range().bounds(program.store.extra.len()).unwrap();
+            let mut foreign_binding = (*program).clone();
+            foreign_binding.store.extra[words.start] = 1;
+            let error = FullVerifier::verify(&foreign_binding).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            for name in ["unsigned", "nested"] {
+                let owner = scheme_fixture_root_function(&program, name);
+                let decoder = function_view_decoder(&program.store, owner);
+                let assignments = function_instruction_indices(&program, name, FullTag::StmtAssign);
+                assert_eq!(assignments.len(), 1);
+                let assignment = assignments[0];
+                let schema::StmtView::Assign { value, check, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+                assert!(check.unwrap().ty.materialize().unwrap().has_unsigned_constraint());
+                assert!(matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Param(0)));
+                let words = program.store.data[value.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+                let value_slot = words.start;
+                let mut unchecked_domain = (*program).clone();
+                unchecked_domain.store.extra[words.start] = 1;
+                FullVerifier::verify(&unchecked_domain).unwrap();
+                let words = program.store.data[assignment].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[words.start + 3], 1);
+                let mut cursor = FullCursor::new(&program.store.extra[words.clone()]);
+                for _ in 0..3 { cursor.raw().unwrap(); }
+                let _: Option<LoweredTypeCheck> = FullCodec::decode(&decoder, &mut cursor).unwrap();
+                let start = u32::try_from(unchecked_domain.store.extra.len()).unwrap();
+                unchecked_domain.store.extra.extend_from_slice(&program.store.extra[words.start..words.start + 3]);
+                unchecked_domain.store.extra.push(0);
+                unchecked_domain.store.extra.extend_from_slice(&program.store.extra[words.start + cursor.index..words.end]);
+                let len = u32::try_from(unchecked_domain.store.extra.len()).unwrap() - start;
+                unchecked_domain.store.data[assignment] = IrData::from_range(IrRange::new(start, len));
+                unchecked_domain.store.extra[value_slot] = 0;
+                FullVerifier::verify(&unchecked_domain).unwrap();
+                unchecked_domain.store.extra[value_slot] = 1;
+                let error = FullVerifier::verify(&unchecked_domain).unwrap_err();
+                assert_eq!(error.message, "storage writer bypasses an unsigned storage check");
+            }
+            let owner = scheme_fixture_root_function(&program, "unsigned");
+            let decoder = function_view_decoder(&program.store, owner);
+            let assignments = function_instruction_indices(&program, "unsigned", FullTag::StmtAssign);
+            let schema::StmtView::Assign { slot, .. } = decoder.statement_view(assignments[0]).unwrap() else { unreachable!() };
+            let assignments = function_instruction_indices(&program, "unsigned", FullTag::StmtAssignInt);
+            assert_eq!(assignments.len(), 1);
+            let words = program.store.data[assignments[0]].range().bounds(program.store.extra.len()).unwrap();
+            let mut unchecked_integer_writer = (*program).clone();
+            unchecked_integer_writer.store.extra[words.start] = u32::try_from(slot).unwrap();
+            let error = FullVerifier::verify(&unchecked_integer_writer).unwrap_err();
+            assert_eq!(error.message, "integer writer bypasses an unsigned storage check");
+        });
+    }
+
+    #[test]
+    fn generic_arguments_authenticate_regex_cursor_updates() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-regex-cursor-argument.xsh", r#"
+pure between(text, start, end) { text.byte_slice(start, end - start) }
+pure checked_between(text: Str, start: Int, end: Int) -> Str { text.byte_slice(start, end - start) }
+pure trimmed(text: Str) -> Str {
+    let _ = "wrong"
+    for hidden in [1] { let _ = hidden }
+    let parts = collect {
+        for found in rx"`[^`]+`".find(text) {
+            yield between(found.text, 1, found.text.byte_len() - 1)
+        }
+    }
+    parts.join("")
+}
+pure inline(text: Str) -> Str {
+    var cursor = 0
+    let parts = collect {
+        for found in rx"x".find(text) {
+            yield between(text, cursor, found.start)
+            cursor = found.end
+        }
+        yield text.byte_slice(cursor)
+    }
+    parts.join("")
+}
+assert inline("axbx") == "ab"
+assert inline("plain") == "plain"
+assert trimmed("`x` and `yz`") == "xyz"
+assert checked_between("`x`", 1, "`x`".byte_len() - 1) == "x"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "inline");
+            let decoder = function_view_decoder(&program.store, owner);
+            let field = function_instruction_indices(&program, "inline", FullTag::ExprField).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Field { name: "start", .. })
+            }).unwrap();
+            let words = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.extra[words.start + 1] = scheme_fixture_string(&program, "text");
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            let owner = scheme_fixture_root_function(&program, "trimmed");
+            let decoder = function_view_decoder(&program.store, owner);
+            let arithmetic = function_instruction_indices(&program, "trimmed", FullTag::ExprBinary);
+            assert_eq!(arithmetic.len(), 1);
+            let arithmetic = arithmetic[0];
+            let schema::ExprView::Binary { op: BinaryOp::Sub, right, .. } = decoder.expression_view(arithmetic).unwrap() else { unreachable!() };
+            let right = right.raw() as usize;
+            let text = function_instruction_indices(&program, "trimmed", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_operand = (*program).clone();
+            wrong_operand.store.tags[right] = program.store.tags[text];
+            wrong_operand.store.data[right] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_operand).is_err());
+            let hidden = function_instruction_indices(&program, "trimmed", FullTag::ExprParam).into_iter().find(|&instruction| {
+                instruction < arithmetic && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot > 0)
+            }).unwrap();
+            let mut escaped_operand = (*program).clone();
+            escaped_operand.store.tags[right] = program.store.tags[hidden];
+            escaped_operand.store.data[right] = program.store.data[hidden];
+            assert!(FullVerifier::verify(&escaped_operand).is_err());
+            let words = program.store.data[arithmetic].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = (*program).clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Eq);
+            wrong_operation.store.extra[words.start] = operation;
+            assert!(FullVerifier::verify(&wrong_operation).is_err());
+            let program = fixture("generic-loop-source-argument.xsh", r#"
+pure forward(value) { value }
+pure read() -> Int {
+    let _ = ["wrong"]
+    for entry in [{start: 7}] { return forward(entry.start) }
+    0
+}
+assert read() == 7
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let records = function_instruction_indices(&program, "read", FullTag::ExprRecord);
+            let texts = function_instruction_indices(&program, "read", FullTag::ExprStr);
+            assert_eq!(records.len(), 1);
+            assert_eq!(texts.len(), 1);
+            let mut wrong_item = program.clone();
+            wrong_item.store.tags.swap(records[0], texts[0]);
+            wrong_item.store.data.swap(records[0], texts[0]);
+            assert!(FullVerifier::verify(&wrong_item).is_err());
+        });
+    }
+
+    #[test]
+    fn checked_record_lists_preserve_nominal_sources_during_optional_initialization() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-record-nominal-list.xsh", r#"
+enum State { Present, Absent }
+enum Other { Different }
+type Row = {state: State, driver: Str?}
+type Collection = {links: List[Row]}
+pure package(state: State, wrong: Other) -> Collection {
+    let _ = wrong
+    Collection(links: [{state: state, driver: null}])
+}
+let result = package(Present, Different)
+assert result.links[0].state == Present
+assert result.links[0].driver == null
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "package");
+            let decoder = function_view_decoder(&program.store, owner);
+            let reads = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+            }).collect::<Vec<_>>();
+            assert_eq!(reads.len(), 1);
+            let read = reads[0];
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let (_, state, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+            let (_, other, _) = program.store.semantic.signature_param(signature, 1).unwrap();
+            assert!(matches!(program.store.semantic.to_type(state).unwrap(), Type::Tag(_)));
+            assert!(matches!(program.store.semantic.to_type(other).unwrap(), Type::Tag(_)));
+            assert_ne!(state, other);
+            let facts = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            assert!(facts.len() >= 2);
+            let mut with_source_fact = (*program).clone();
+            assert!(matches!(with_source_fact.store.slot_type_facts[facts.start + 1], IR_NONE) || with_source_fact.store.slot_type_facts[facts.start + 1] == other.raw());
+            with_source_fact.store.slot_type_facts[facts.start + 1] = other.raw();
+            FullVerifier::verify(&with_source_fact).unwrap();
+            let payload = with_source_fact.store.data[read].range().bounds(with_source_fact.store.extra.len()).unwrap();
+            let mut lying_source_fact = with_source_fact.clone();
+            lying_source_fact.store.extra[payload.start] = 1;
+            lying_source_fact.store.slot_type_facts[facts.start + 1] = state.raw();
+            let error = FullVerifier::verify(&lying_source_fact).unwrap_err();
+            assert_eq!(error.message, "checked record field disagrees with its contract");
+            let mut wrong_nominal = with_source_fact;
+            wrong_nominal.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&wrong_nominal).unwrap_err();
+            assert_eq!(error.message, "checked record field disagrees with its contract");
+        });
     }
 
     #[test]
@@ -41481,6 +41805,62 @@ pure selected() -> Str {
             truncated.store.pattern_data[row] =
                 IrData::from_range(IrRange::new(payload.start as u32, payload.len() as u32 - 1));
             assert!(FullVerifier::verify(&truncated).is_err());
+        });
+    }
+
+    #[test]
+    fn ground_record_updates_authenticate_nested_optional_replacements() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("ground-record-update-contracts.xsh", r#"
+enum State { Observed, Denied }
+type Observation = {state: State, value: Str?}
+type SourceRead = {observation: Observation, errno: Int?, error_kind: Str?}
+type Inspect = pure(source: SourceRead) -> Int
+pure inspect(source: SourceRead) -> Int { source.errno ?? 0 }
+pure apply(action: Inspect, observed: SourceRead, wrong: Int) -> Int {
+    let _ = wrong
+    action({...observed, observation.state: Denied, observation.value: null, errno: 13, error_kind: "denied"})
+}
+let observed = SourceRead(observation: {state: Observed, value: "text"}, errno: null, error_kind: null)
+assert apply(inspect, observed, 0) == 13
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "apply");
+            let decoder = function_view_decoder(&program.store, owner);
+            let update = function_instruction_indices(&program, "apply", FullTag::ExprRecordUpdate)[0];
+            let schema::ExprView::RecordUpdate { base, .. } = decoder.expression_view(update).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(base.raw() as usize).unwrap(), schema::ExprView::Param(1)));
+            let mut wrong_base = (*program).clone();
+            let base_words = wrong_base.store.data[base.raw() as usize].range().bounds(wrong_base.store.extra.len()).unwrap();
+            wrong_base.store.extra[base_words.start] = 2;
+            let error = FullVerifier::verify(&wrong_base).unwrap_err();
+            assert_eq!(error.message, "ground record update base disagrees with its result contract");
+            let integer = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(13)))).unwrap();
+            let text = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("denied")))).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.tags[integer] = FullTag::ExprStr;
+            wrong_field.store.data[integer] = program.store.data[text];
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+            let payload = program.store.data[update].range().bounds(program.store.extra.len()).unwrap();
+            let updates = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let entries = program.store.blocks[updates.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let path = IrBlockId::from_raw(program.store.extra[entries.start + 1]).unwrap();
+            let names = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(Name::from_symbol(Symbol::from_raw(program.store.extra[names.start + 1])), program_name(&program, "observation"));
+            let wrong = program_name(&program, "wrong").symbol().raw();
+            let mut wrong_path = (*program).clone();
+            wrong_path.store.extra[names.start + 1] = wrong;
+            let error = FullVerifier::verify(&wrong_path).unwrap_err();
+            assert_eq!(error.message, "checked record update field is absent from its result type");
         });
     }
 

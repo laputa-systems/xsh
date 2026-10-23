@@ -1899,7 +1899,7 @@ struct RecordProducerWriters {
     types: BTreeMap<usize, Arc<Type>>,
 }
 
-struct ProducerProof<'a> {
+pub(super) struct ProducerProof<'a> {
     store: &'a FullStore,
     contexts: ProducerContexts<'a>,
     used_contexts: BTreeMap<u32, (super::super::ExecutableOwner, Arc<Type>)>,
@@ -1932,19 +1932,22 @@ struct ProducerProof<'a> {
     budget: SchemeInstantiationBudget,
 }
 
-pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, requests: SchemeProducerRequests) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerRequests) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+    let store = proof.store;
+    let index = proof.index;
     if index.demand == crate::runtime::eval::ProducerDemand::Absent
         && store.checked_expr_types.iter().any(|fact| !fact.is_contract())
     {
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent {
-        if !requests.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
+        if !requests.is_empty() || !proof.scheme_applications.is_empty() || !proof.pending.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
         return Ok(Vec::new());
     }
+    proof.budget.charge(requests.applications.len())?;
+    proof.scheme_applications.extend(requests.applications);
     let mut scheme_methods = requests.methods;
     let completion_requests = requests.completions;
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     let mut completion_contributions = BTreeMap::new();
     for request in completion_requests {
         proof.budget.charge(request.actual.len().saturating_add(1))?;
@@ -1965,11 +1968,6 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         {
             proof.budget.charge(2)?;
             proof.ground_function(index)?;
-        }
-    }
-    for call in &store.checked_call_targets {
-        if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
-            proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize);
         }
     }
     for &step in &index.driver_outputs {
@@ -2322,6 +2320,47 @@ impl ConditionalProducerType {
 }
 
 impl<'a> ProducerProof<'a> {
+    pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
+        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        if index.demand == crate::runtime::eval::ProducerDemand::Needed {
+            for call in &store.checked_call_targets {
+                if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
+                    proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize);
+                }
+            }
+        }
+        proof
+    }
+
+    pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
+            return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));
+        }
+        let decoder = self.owner(owner)?;
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
+            op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
+        }) {
+            let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
+            let binding = self.binding(owner, instruction, slot)?;
+            self.budget.charge(1)?;
+            match binding {
+                ProducerBinding::ScopedDeclaration(declaration, _) => {
+                    if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
+                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. })
+                    { return Ok(None); }
+                }
+                ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
+            }
+            let Some(source) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)? else { return Ok(None) };
+            self.binding_slot(owner, binding, slot, source)?;
+        }
+        let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
+        super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(&actual)?;
+        Ok(Some((*actual).clone()))
+    }
+
     fn require_callable_effects(&mut self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
         let index = self.index;
         super::super::verify_effects::require_callable(decoder, index.scheme_scopes(self.store)?, &mut self.budget, instruction, effects, pure, |at| {
@@ -4707,6 +4746,24 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, value.raw() as usize, Arc::new((**value_type).clone()), false);
                 Ok(())
             }
+            schema::ExprView::RecordUpdate { base, mut updates, .. } => {
+                let source = self.need_context(&decoder, base.raw() as usize)?
+                    .ok_or_else(|| IrVerifyError::new("ground record update base has no record contract"))?;
+                if !matches!(source.as_ref(), Type::Record(_))
+                    || !super::initializer_type_matches_annotation(&source, &expected, &mut self.budget, 0)?
+                {
+                    return Err(IrVerifyError::new("ground record update base disagrees with its result contract"));
+                }
+                self.expression(owner, base.raw() as usize, Arc::clone(&source), false);
+                for _ in 0..updates.len() {
+                    self.budget.charge(1)?;
+                    let (path, value, _) = updates.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground record update entry is missing"))?;
+                    let target = FullDecoder::checked_record_update_target_type(&source, path, &mut |amount| self.budget.charge(amount))?;
+                    self.budget.charge_clone(target)?;
+                    self.expression(owner, value.raw() as usize, Arc::new(target.clone()), false);
+                }
+                Ok(())
+            }
             schema::ExprView::MapLiteral(mut entries) => {
                 let Type::Map(key_type, value_type) = expected.unvalidated() else { return Err(IrVerifyError::new("ground map literal has no map contract")) };
                 for entry in &mut entries {
@@ -5003,7 +5060,16 @@ impl<'a> ProducerProof<'a> {
                     self.expression(owner, value.raw() as usize, source, false);
                     return Ok(());
                 }
-                let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                let mut runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                if check.schema.is_none() && !runtime_complete {
+                    let (actual, fact) = self.operand_context(&decoder, value.raw() as usize)?.into_parts();
+                    if let Some(actual) = actual
+                        && super::runtime_complete_storage_check_from_source(&actual, &checked, &mut self.budget)?
+                    {
+                        self.expression_with_fact(owner, value.raw() as usize, actual, false, fact);
+                        runtime_complete = true;
+                    }
+                }
                 let mut checked_record = false;
                 if check.schema.is_none() {
                     let input = value.raw() as usize;
@@ -5815,7 +5881,8 @@ impl<'a> ProducerProof<'a> {
                 if result { return Ok(true); }
             }
         }
-        if super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+        if (super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+            || super::runtime_complete_storage_check_from_source(actual, checked, &mut self.budget)?)
             && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
         { return Ok(true); }
         Ok(false)
@@ -6827,7 +6894,16 @@ impl<'a> ProducerProof<'a> {
                 schema::StmtView::Let { value, .. } | schema::StmtView::DefaultParameter { value, .. } => self.expression(owner, value.raw() as usize, Arc::clone(&expected), false),
                 schema::StmtView::Assign { value, check, .. } => {
                     let checked = check.map(|check| check.ty.materialize()).transpose()?;
-                    if checked.as_ref() != Some(expected.as_ref()) { self.expression(owner, value.raw() as usize, Arc::clone(&expected), false); }
+                    if checked.as_ref() != Some(expected.as_ref()) {
+                        if expected.has_unsigned_constraint() {
+                            let actual = self.derive_unannotated_type(decoder, value.raw() as usize)?
+                                .ok_or_else(|| IrVerifyError::new("unsigned storage writer has no authenticated source type"))?;
+                            if !super::initializer_type_matches_annotation(&actual, &expected, &mut self.budget, 0)? {
+                                return Err(IrVerifyError::new("storage writer bypasses an unsigned storage check"));
+                            }
+                        }
+                        self.expression(owner, value.raw() as usize, Arc::clone(&expected), false);
+                    }
                 }
                 schema::StmtView::LetInt { .. } | schema::StmtView::AssignInt { .. } => {
                     Self::reject_unchecked_unsigned_integer_writer(&expected)?;
