@@ -25984,7 +25984,7 @@ assert observed.scoped == Ok(8)
             assert_eq!(branches.store.scheme_types[other.result.index()].tag, schema::FullSchemeTypeTag::Parameter);
             wrong_branch_envelope.store.scheme_types[claimed.index()] = branches.store.scheme_types[other.result.index()];
             let error = FullVerifier::verify(&wrong_branch_envelope).unwrap_err();
-            assert!(error.message.contains("application return producer has no matching proc envelope"), "{}", error.message);
+            assert!(error.message.contains("application propagation return disagrees with its checked owner result"), "{}", error.message);
         });
     }
 
