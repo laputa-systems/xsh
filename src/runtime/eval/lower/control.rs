@@ -5,6 +5,15 @@ use super::{
      lowered_arena_run_capture_type,
 };
 
+pub(super) enum TempDirLoweringDomain<'a> {
+    Ordinary,
+    Generalized {
+        facts: &'a crate::sema::schemes::SchemeBodyFacts,
+        visited: &'a mut super::FxHashSet<ExprId>,
+        types: &'a mut super::BTreeMap<BuildExprId, super::SchemeType>,
+    },
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_tail_block(
         &mut self,
@@ -952,171 +961,158 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    /// `tempdir NAME { body }` is the scope that `let root = fs.tempdir()?`,
-    /// `defer root.close()?`, and `let NAME = root.host_path()?` open, so the
-    /// directory is removed after the body's own cleanup on every exit, by the
-    /// same defer machinery. Only a failure to create the directory becomes the
-    /// scope's `Err`; the body's tail (or `Unit`) is its `Ok`.
-    ///
-    /// `tempdir NAME at PATH { body }` is the same scope over a directory the
-    /// program names: `PATH` is evaluated once, whatever is there is removed,
-    /// the directory is created, and its removal is deferred around the body.
-    /// A failure to clear or create it is the scope's `Err`.
     pub(super) fn lower_tempdir_scope(
-        &mut self,
-        path: Option<ExprId>,
-        block: BlockId,
-        span: Span,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
+        &mut self, path: Option<ExprId>, block: BlockId, span: Span,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let Some(path) = path else {
-            return self.lower_fresh_tempdir_scope(block, span, slots, current_function, item_slot);
+        self.lower_tempdir_scope_in_domain(path, block, span, slots, current_function, item_slot,
+            &mut TempDirLoweringDomain::Ordinary)
+    }
+
+    fn tempdir_expression(&mut self, row: BuildExprRow, ty: super::SchemeType,
+        domain: &mut TempDirLoweringDomain<'_>) -> BuildExprId {
+        let value = super::build_expr(&self.scratch, row);
+        if let TempDirLoweringDomain::Generalized { types, .. } = domain { types.insert(value, ty); }
+        value
+    }
+
+    fn tempdir_declaration(&mut self, slot: usize, value: BuildExprId, ty: super::SchemeType,
+        slots: &mut SlotScope, domain: &mut TempDirLoweringDomain<'_>) -> BuildStmtId {
+        let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
+        if matches!(domain, TempDirLoweringDomain::Generalized { .. }) {
+            slots.scheme_declarations.insert(declaration, super::super::SchemeLocalDeclaration {
+                ty, mutability: super::super::SchemeLocalMutability::Immutable,
+            });
+        }
+        declaration
+    }
+
+    fn tempdir_failure(&mut self, slots: &mut SlotScope, ty: super::SchemeType,
+        domain: &mut TempDirLoweringDomain<'_>) -> (super::BuildPatternId, Option<BuildExprId>, BuildExprId) {
+        let slot = slots.reserve("tempdir.failed");
+        let pattern = push_build_row!(self, pattern, BuildPatternRow::ResultErr { slot: Some(slot), unit_only: false });
+        let value = self.tempdir_expression(BuildExprRow::Param(slot), super::SchemeType::Ground(Type::Error), domain);
+        let failure = self.tempdir_expression(BuildExprRow::Err { value, cause: None }, ty, domain);
+        (pattern, None, failure)
+    }
+
+    fn tempdir_path_binding(&mut self, block: BlockId, slots: &mut SlotScope,
+        domain: &TempDirLoweringDomain<'_>) -> Option<usize> {
+        match self.program.arena.block_params(self.program.arena.block(block).params) {
+            [parameter] if parameter.name.as_str() != "_" => {
+                if matches!(domain, TempDirLoweringDomain::Generalized { .. }) {
+                    Some(slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?,
+                        parameter.name, super::SchemeType::Ground(Type::Path)))
+                } else {
+                    self.declare_source_at(self.program.arena.span(parameter.span), parameter.name, Some(Type::Path), slots)
+                }
+            }
+            _ => Some(slots.reserve("tempdir.path")),
+        }
+    }
+
+    fn tempdir_body_in_domain(&mut self, block: BlockId, mut body: Vec<BuildStmtId>, span: Span,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        domain: &mut TempDirLoweringDomain<'_>) -> Option<BuildExprId> {
+        let (tail, ty) = match domain {
+            TempDirLoweringDomain::Ordinary => return self.lower_tempdir_body(block, body, span, slots, current_function, item_slot),
+            TempDirLoweringDomain::Generalized { facts, visited, types } => {
+                let statements = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
+                let mut tail = None;
+                if let Some((&last, prefix)) = statements.split_last() {
+                    for &statement in prefix {
+                        self.lower_scheme_statement(statement, slots, current_function?, facts, visited, types, &mut body)?;
+                    }
+                    if self.bodies.statement_positions.get(&last) != Some(&crate::sema::check::StatementPosition::Statement) {
+                        tail = Some(self.lower_scheme_tail_value(last, slots, current_function?, facts, visited, types, &mut body)?);
+                    } else {
+                        self.lower_scheme_statement(last, slots, current_function?, facts, visited, types, &mut body)?;
+                    }
+                }
+                match tail {
+                    Some(tail) => (tail, types.get(&tail)?.clone()),
+                    None => {
+                        let unit = push_build_row!(self, expr, BuildExprRow::Unit);
+                        types.insert(unit, super::SchemeType::Ground(Type::Unit));
+                        (unit, super::SchemeType::Ground(Type::Unit))
+                    }
+                }
+            }
         };
-        // The path is evaluated where the scope is written, before the
-        // directory name exists.
-        let path = self.lower_expr(path, slots, current_function, item_slot)?;
+        let ty = super::SchemeType::Result(Box::new(ty), Box::new(super::SchemeType::Ground(Type::Error)));
+        let value = self.tempdir_expression(BuildExprRow::Ok(tail), ty.clone(), domain);
+        body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+        Some(self.tempdir_expression(BuildExprRow::ValueBlock { body, span }, ty, domain))
+    }
+
+    pub(super) fn lower_tempdir_scope_in_domain(&mut self, path: Option<ExprId>, block: BlockId, span: Span,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+        domain: &mut TempDirLoweringDomain<'_>) -> Option<BuildExprId> {
+        use super::SchemeType;
+        let ground = SchemeType::Ground;
+        let unit_result = SchemeType::Result(Box::new(ground(Type::Unit)), Box::new(ground(Type::Error)));
+        let path = match path {
+            Some(expression) => Some(match domain {
+                TempDirLoweringDomain::Ordinary => self.lower_expr(expression, slots, current_function, item_slot)?,
+                TempDirLoweringDomain::Generalized { facts, visited, types } => self.lower_scheme_lazy_expression(expression, slots, current_function?, facts, visited, types)?,
+            }),
+            None => None,
+        };
         let saved = slots.enter();
         let result = (|| {
-            let at_slot = slots.reserve("tempdir.at");
-            let at =
-                |lowerer: &mut Self| push_build_row!(lowerer, expr, BuildExprRow::Param(at_slot));
-            let remove = |lowerer: &mut Self| {
-                let path = at(lowerer);
-                let missing_ok = push_build_row!(lowerer, expr, BuildExprRow::Bool(true));
-                push_build_row!(
-                    lowerer,
-                    expr,
-                    BuildExprRow::FsRemove {
-                        path,
-                        missing_ok: Some(missing_ok),
-                        span,
-                    }
-                )
-            };
-            let failed_slot = slots.reserve("tempdir.failed");
-            // An arm that hands a failed step's `Err` on as the scope's value.
-            let failed_arm = |lowerer: &mut Self| {
-                let failed = push_build_row!(
-                    lowerer,
-                    pattern,
-                    BuildPatternRow::Bind { slot: failed_slot }
-                );
-                let failure = push_build_row!(lowerer, expr, BuildExprRow::Param(failed_slot));
-                (failed, None, failure)
-            };
-            let done = |lowerer: &mut Self| {
-                push_build_row!(
-                    lowerer,
-                    pattern,
-                    BuildPatternRow::ResultOk {
-                        slot: None,
-                        unit_only: false
-                    }
-                )
-            };
-
-            let scope = {
+            if let Some(path) = path {
+                let at_slot = slots.reserve("tempdir.at");
+                let at = |lowerer: &mut Self, domain: &mut TempDirLoweringDomain<'_>| lowerer.tempdir_expression(BuildExprRow::Param(at_slot), ground(Type::Path), domain);
+                let remove = |lowerer: &mut Self, domain: &mut TempDirLoweringDomain<'_>| {
+                    let path = at(lowerer, domain);
+                    let missing_ok = lowerer.tempdir_expression(BuildExprRow::Bool(true), ground(Type::Bool), domain);
+                    lowerer.tempdir_expression(BuildExprRow::FsRemove { path, missing_ok: Some(missing_ok), span }, unit_result.clone(), domain)
+                };
                 let inner = slots.enter();
                 let scope = (|| {
-                    let removal = remove(self);
-                    let removal = push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Try {
-                            value: removal,
-                            span
-                        }
-                    );
-                    let mut body = vec![push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::Defer {
-                            value: removal,
-                            on_error: false,
-                        }
-                    )];
-                    let value = at(self);
-                    let path_slot = match self
-                        .program
-                        .arena
-                        .block_params(self.program.arena.block(block).params)
-                    {
-                        [param] if param.name.as_str() != "_" => {
-                            self.declare_source_at(self.program.arena.span(param.span), param.name, Some(Type::Path), slots)?
-                        }
-                        _ => slots.reserve("tempdir.path"),
-                    };
-                    body.push(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::Let {
-                            slot: path_slot,
-                            value,
-                            annotation: None,
-                        }
-                    ));
-                    self.lower_tempdir_body(block, body, span, slots, current_function, item_slot)
+                    let removal = remove(self, domain);
+                    let removal = self.tempdir_expression(BuildExprRow::Try { value: removal, span }, ground(Type::Unit), domain);
+                    let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: removal, on_error: false })];
+                    let value = at(self, domain);
+                    let path_slot = self.tempdir_path_binding(block, slots, domain)?;
+                    body.push(self.tempdir_declaration(path_slot, value, ground(Type::Path), slots, domain));
+                    self.tempdir_body_in_domain(block, body, span, slots, current_function, item_slot, domain)
                 })();
                 slots.exit(inner);
-                scope?
-            };
-
-            let created = {
-                let path = at(self);
-                push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::FsMkdir {
-                        path,
-                        parents: None,
-                        span,
-                    }
-                )
-            };
-            let entered = {
-                let arms = vec![(done(self), None, scope), failed_arm(self)];
-                push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::MatchExpr {
-                        value: created,
-                        arms,
-                        span,
-                    }
-                )
-            };
-            let cleared = remove(self);
-            let outcome = {
-                let arms = vec![(done(self), None, entered), failed_arm(self)];
-                push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::MatchExpr {
-                        value: cleared,
-                        arms,
-                        span,
-                    }
-                )
-            };
-            let body = vec![
-                push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::Let {
-                        slot: at_slot,
-                        value: path,
-                        annotation: None,
-                    }
-                ),
-                push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }),
-            ];
-            Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::ValueBlock { body, span }
-            ))
+                let scope = scope?;
+                let ty = match domain { TempDirLoweringDomain::Generalized { types, .. } => types.get(&scope)?.clone(), _ => ground(Type::Unit) };
+                let path_value = at(self, domain);
+                let created = self.tempdir_expression(BuildExprRow::FsMkdir { path: path_value, parents: None, span }, unit_result.clone(), domain);
+                let done = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: None, unit_only: false });
+                let failure = self.tempdir_failure(slots, ty.clone(), domain);
+                let entered = self.tempdir_expression(BuildExprRow::MatchExpr { value: created, arms: vec![(done, None, scope), failure], span }, ty.clone(), domain);
+                let cleared = remove(self, domain);
+                let done = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: None, unit_only: false });
+                let failure = self.tempdir_failure(slots, ty.clone(), domain);
+                let outcome = self.tempdir_expression(BuildExprRow::MatchExpr { value: cleared, arms: vec![(done, None, entered), failure], span }, ty.clone(), domain);
+                let body = vec![self.tempdir_declaration(at_slot, path, ground(Type::Path), slots, domain), push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome })];
+                Some(self.tempdir_expression(BuildExprRow::ValueBlock { body, span }, ty, domain))
+            } else {
+                let root_result = SchemeType::Result(Box::new(ground(Type::FsRoot)), Box::new(ground(Type::Error)));
+                let created = self.tempdir_expression(BuildExprRow::FsTempDir { span }, root_result, domain);
+                let root_slot = slots.reserve("tempdir.root");
+                let opened = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: Some(root_slot), unit_only: false });
+                let root_method = |lowerer: &mut Self, op: RuntimeOp, ty: Type, domain: &mut TempDirLoweringDomain<'_>| {
+                    let receiver = lowerer.tempdir_expression(BuildExprRow::Param(root_slot), ground(Type::FsRoot), domain);
+                    let result = SchemeType::Result(Box::new(ground(ty.clone())), Box::new(ground(Type::Error)));
+                    let call = lowerer.tempdir_expression(BuildExprRow::ModuleCall { call_plan: None, op, args: vec![Some(receiver)], span }, result, domain);
+                    lowerer.tempdir_expression(BuildExprRow::Try { value: call, span }, ground(ty), domain)
+                };
+                let close = root_method(self, RuntimeOp::FsCloseRoot, Type::Unit, domain);
+                let mut body = vec![push_build_row!(self, stmt, BuildStmtRow::Defer { value: close, on_error: false })];
+                let path = root_method(self, RuntimeOp::FsRootPath, Type::Path, domain);
+                let path_slot = self.tempdir_path_binding(block, slots, domain)?;
+                body.push(self.tempdir_declaration(path_slot, path, ground(Type::Path), slots, domain));
+                let scope = self.tempdir_body_in_domain(block, body, span, slots, current_function, item_slot, domain)?;
+                let ty = match domain { TempDirLoweringDomain::Generalized { types, .. } => types.get(&scope)?.clone(), _ => ground(Type::Unit) };
+                let failure = self.tempdir_failure(slots, ty.clone(), domain);
+                Some(self.tempdir_expression(BuildExprRow::MatchExpr { value: created, arms: vec![(opened, None, scope), failure], span }, ty, domain))
+            }
         })();
         slots.exit(saved);
         result
@@ -1304,9 +1300,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         result
     }
 
-    /// The statements of a `tempdir` body after `prefix`, which holds the
-    /// deferred removal and the binding of the directory name, as the value
-    /// block whose value is `Ok` of the body's tail.
     fn lower_tempdir_body(
         &mut self,
         block: BlockId,
@@ -1351,90 +1344,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self,
             expr,
             BuildExprRow::ValueBlock { body, span }
-        ))
-    }
-
-    fn lower_fresh_tempdir_scope(
-        &mut self,
-        block: BlockId,
-        span: Span,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<BuildExprId> {
-        let created = push_build_row!(self, expr, BuildExprRow::FsTempDir { span });
-        let failed_slot = slots.reserve("tempdir.failed");
-        let failed = push_build_row!(self, pattern, BuildPatternRow::Bind { slot: failed_slot });
-        let failure = push_build_row!(self, expr, BuildExprRow::Param(failed_slot));
-        let saved = slots.enter();
-        let result = (|| {
-            let root_slot = slots.reserve("tempdir.root");
-            let opened = push_build_row!(
-                self,
-                pattern,
-                BuildPatternRow::ResultOk {
-                    slot: Some(root_slot),
-                    unit_only: false
-                }
-            );
-            let root_method = |lowerer: &mut Self, op: RuntimeOp| {
-                let receiver = push_build_row!(lowerer, expr, BuildExprRow::Param(root_slot));
-                let call = push_build_row!(
-                    lowerer,
-                    expr,
-                    BuildExprRow::ModuleCall {
-                        call_plan: None,
-                        op,
-                        args: vec![Some(receiver)],
-                        span,
-                    }
-                );
-                push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span })
-            };
-            let mut body = Vec::new();
-            let close = root_method(self, RuntimeOp::FsCloseRoot);
-            body.push(push_build_row!(
-                self,
-                stmt,
-                BuildStmtRow::Defer {
-                    value: close,
-                    on_error: false,
-                }
-            ));
-            let path = root_method(self, RuntimeOp::FsRootPath);
-            let path_slot = match self
-                .program
-                .arena
-                .block_params(self.program.arena.block(block).params)
-            {
-                [param] if param.name.as_str() != "_" => {
-                    self.declare_source_at(self.program.arena.span(param.span), param.name, Some(Type::Path), slots)?
-                }
-                _ => slots.reserve("tempdir.path"),
-            };
-            body.push(push_build_row!(
-                self,
-                stmt,
-                BuildStmtRow::Let {
-                    slot: path_slot,
-                    value: path,
-                    annotation: None,
-                }
-            ));
-            let scope =
-                self.lower_tempdir_body(block, body, span, slots, current_function, item_slot)?;
-            Some((opened, scope))
-        })();
-        slots.exit(saved);
-        let (opened, scope) = result?;
-        Some(push_build_row!(
-            self,
-            expr,
-            BuildExprRow::MatchExpr {
-                value: created,
-                arms: vec![(opened, None, scope), (failed, None, failure)],
-                span,
-            }
         ))
     }
 

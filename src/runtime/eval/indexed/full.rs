@@ -49038,6 +49038,143 @@ let cleanup_failed = try { explicit(opaque, true) }
     }
 
     #[test]
+    fn inferred_tempdir_scopes_preserve_payloads_and_cleanup_on_both_routes() {
+        run_with_large_stack(|| {
+
+            let program = Arc::new(fixture("inferred-tempdir-scopes.xsh", r#"
+var initializations = 0
+var entries = 0
+var deferred_present = false
+proc initialize(target: Path) [fs, error] -> Path {
+  initializations += 1
+  target.write("replace me")?
+  target
+}
+proc materialize(row) [fs, error] {
+  tempdir directory {
+    let file = fp"{directory}/payload"
+    file.write(row.text)?
+    let text = file.read_text()?
+    {length: text.byte_len(), token: row.token, directory: directory}
+  }
+}
+proc named(row, target: Path) [fs, error] {
+  tempdir directory at initialize(target) {
+    let file = fp"{directory}/payload"
+    file.write(row.text)?
+    {token: row.token, directory: directory}
+  }
+}
+proc early(marker) [fs, error] -> Result[Path] {
+  let _ = marker
+  tempdir directory {
+    defer {
+      let _ = fs.children(directory)?
+      deferred_present = true
+    }
+    return Ok(directory)
+  }
+  Ok(/)
+}
+proc body_failure(marker, target: Path) [fs, error] -> Result[Unit] {
+  let _ = marker
+  tempdir directory at target {
+    fp"{directory}/payload".write("created")?
+    let failure: Result[Unit, Error] = Err(error.failure("body failed"))
+    let _ = failure?
+    return Ok()
+  }
+  Ok()
+}
+proc enter(row, target: Path) [fs, error] {
+  tempdir directory at target {
+    entries += 1
+    row.token
+  }
+}
+proc nested(row) [fs, error] { tempdir directory { row.value } }
+let expected: Result[Int, Error] = Ok(9)
+assert nested({value: expected})? == expected
+let early_number = early(17)?
+let early_word = early("kept")?
+assert ! early_number.exists()?
+assert ! early_word.exists()?
+assert deferred_present
+let number = materialize({text: "alpha", token: 17})?
+let word = materialize({text: "xy", token: "kept"})?
+assert number.length == 5
+assert number.token == 17
+assert word.length == 2
+assert word.token == "kept"
+assert ! number.directory.exists()?
+assert ! word.directory.exists()?
+tempdir outer {
+  let named_number = named({text: "alpha", token: 17}, fp"{outer}/number")?
+  let named_word = named({text: "xy", token: "kept"}, fp"{outer}/word")?
+  assert named_number.token == 17
+  assert named_word.token == "kept"
+  assert ! named_number.directory.exists()?
+  assert ! named_word.directory.exists()?
+  let failed_path = fp"{outer}/failure"
+  let failed = try { body_failure(7, failed_path)? }
+  assert failed is Err(_)
+  assert ! failed_path.exists()?
+  let blocked_parent = fp"{outer}/blocked"
+  blocked_parent.write("file")?
+  let rejected = enter({token: 17}, fp"{blocked_parent}/child")
+  assert rejected is Err(_)
+  assert entries == 0
+}
+assert initializations == 2
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for name in ["materialize", "named"] {
+                let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+                assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+            }
+            let named_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "named").unwrap();
+            let decoder = function_view_decoder(&program.store, named_owner);
+            let removal = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::FsRemove { .. }))).unwrap();
+            let schema::ExprView::FsRemove { path: target, .. } = decoder.expression_view(removal).unwrap() else { unreachable!() };
+            let mut wrong_flag = (*program).clone();
+            let payload = wrong_flag.store.data[removal].range();
+            wrong_flag.store.extra[payload.start as usize + 1] = target.raw();
+            assert!(FullVerifier::verify(&wrong_flag).is_err());
+            let constructor = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Err { .. }))).unwrap();
+            let mut wrong_payload = (*program).clone();
+            let payload = wrong_payload.store.data[constructor].range();
+            wrong_payload.store.extra[payload.start as usize] = target.raw();
+            assert!(FullVerifier::verify(&wrong_payload).is_err());
+            let mut wrong_cause = (*program).clone();
+            wrong_cause.store.extra[payload.start as usize + 1] = target.raw();
+            assert!(FullVerifier::verify(&wrong_cause).is_err());
+            let fact_index = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == constructor && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let mut foreign_fact = (*program).clone();
+            foreign_fact.store.scheme_body_facts[fact_index].function = IrFunctionId::new(named_owner + 1).unwrap();
+            assert!(FullVerifier::verify(&foreign_fact).is_err());
+            let mut misdirected_fact = (*program).clone();
+            misdirected_fact.store.scheme_body_facts[fact_index].instruction = target.raw();
+            assert!(FullVerifier::verify(&misdirected_fact).is_err());
+            let mut missing_fact = (*program).clone();
+            missing_fact.store.scheme_body_facts.remove(fact_index);
+            for scheme in &mut missing_fact.store.schemes {
+                if scheme.body_facts.start as usize > fact_index { scheme.body_facts.start -= 1; }
+                else if fact_index < scheme.body_facts.start as usize + scheme.body_facts.len as usize { scheme.body_facts.len -= 1; }
+            }
+            assert!(FullVerifier::verify(&missing_fact).is_err());
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
     fn inferred_body_error_failure_requires_a_checked_string_argument() {
         let check = |name: &str, source: &str| {
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(

@@ -1977,6 +1977,17 @@ fn verify_body_expression(
             let head = head.ok_or_else(|| IrVerifyError::new("generic process pipeline has no head"))?;
             SchemeType::Ground(Type::run_pipeline_output(head, propagate).ok_or_else(|| IrVerifyError::new("generic process pipeline has no output contract"))?)
         }
+        schema::ExprView::FsTempDir { .. } => {
+            SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsTempDir, &[], budget)?)
+        }
+        schema::ExprView::FsMkdir { path, parents, .. } => {
+            let arguments = [Some(child(path, budget)?), parents.map(|value| child(value, budget)).transpose()?];
+            SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsMkdir, &arguments, budget)?)
+        }
+        schema::ExprView::FsRemove { path, missing_ok, .. } => {
+            let arguments = [Some(child(path, budget)?), missing_ok.map(|value| child(value, budget)).transpose()?];
+            SchemeType::Ground(commands::native_call(decoder, crate::modules::RuntimeOp::FsRemove, &arguments, budget)?)
+        }
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
             let mut arguments = Vec::new();
             for argument in args { arguments.push(argument?.map(|argument| child(argument, budget)).transpose()?); }

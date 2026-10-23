@@ -539,6 +539,21 @@ pub(super) fn is_body_expression(
                 pending.push(message);
                 if !supports_scoped_body(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, block) { return false; }
             }
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
+                let result = types.get(&expression).and_then(|ty| match ty {
+                    crate::sema::schemes::SchemeType::Result(_, error) => error.closed_ground_type(),
+                    crate::sema::schemes::SchemeType::Ground(crate::sema::types::Type::Result(_, error)) => Some((**error).clone()),
+                    _ => None,
+                });
+                if result != Some(crate::sema::types::Type::Error) { return false; }
+                if let Some(path) = path {
+                    if types.get(&path).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(crate::sema::types::Type::Path) { return false; }
+                    pending.push(path);
+                }
+                let Some(inner) = handler_bindings(program, bindings, available, block) else { return false; };
+                if !supports_scoped_body(program, owner_kind, prepared, command_sites, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, block) { return false; }
+            }
             ArenaExprKind::Retry { delays, pattern, block, .. } => {
                 pending.extend(program.arena.expr_ids(delays));
                 if let Some(pattern) = pattern {

@@ -4204,6 +4204,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::ErrorContext { message, body, span })
             }
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                let mut domain = control::TempDirLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                self.lower_tempdir_scope_in_domain(path, block, span, slots, Some(current_function), None, &mut domain)?
+            }
             ArenaExprKind::ContextScope { kind, input, block, .. } => {
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let body = self.lower_scheme_tail_block(block, slots, current_function, facts, visited, lowered_types)?;
