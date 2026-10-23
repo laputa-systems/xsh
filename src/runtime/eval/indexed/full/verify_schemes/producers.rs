@@ -3376,36 +3376,43 @@ impl<'a> ProducerProof<'a> {
         if module.exact
             && path.is_empty()
             && let Some(export) = exports.iter().find(|export| match export {
-                super::super::LoweredModuleExport::GenericCallable { name, .. } => *name == field,
+                super::super::LoweredModuleExport::Callable { name, .. } | super::super::LoweredModuleExport::GenericCallable { name, .. } => *name == field,
                 _ => false,
             })
         {
-            let super::super::LoweredModuleExport::GenericCallable { kind, function_namespace, .. } = export else { unreachable!() };
-            if !matches!(module.exports.get(&field), Some(ModuleExportType::GenericCallable { kind: registered, optional: false }) if registered == kind) {
-                return Err(IrVerifyError::new("callable import registration disagrees with its generic export"));
-            }
+            let (kind, function_namespace) = match export {
+                super::super::LoweredModuleExport::Callable { kind, function_namespace, .. }
+                | super::super::LoweredModuleExport::GenericCallable { kind, function_namespace, .. } => (*kind, *function_namespace),
+                _ => unreachable!(),
+            };
             let child_index = child.checked_sub(1).map(|index| index as usize)
                 .filter(|index| *index < self.store.driver_programs.len())
                 .ok_or_else(|| IrVerifyError::new("callable import child program is invalid"))?;
             let child_owner = self.store.driver_programs[child_index].owner;
             if child_owner == IR_NONE || self.store.string(child_owner)? != function_namespace.as_str() {
-                return Err(IrVerifyError::new("generic callable import is not owned by its child module"));
+                return Err(IrVerifyError::new("callable import is not owned by its child module"));
             }
-            let function = super::super::decode::FunctionNameView::Qualified(crate::symbol::QualifiedName::new(*function_namespace, field));
+            let function = super::super::decode::FunctionNameView::Qualified(crate::symbol::QualifiedName::new(function_namespace, field));
             let (target, contract, target_kind) = decoder.function_reference_contract(function)?;
-            if target_kind != *kind { return Err(IrVerifyError::new("generic callable import kind differs from its target")); }
+            if target_kind != kind { return Err(IrVerifyError::new("callable import kind differs from its target")); }
             let metadata = self.store.function_metadata.get(target.index())
-                .ok_or_else(|| IrVerifyError::new("generic callable import target metadata is missing"))?;
-            if metadata.owner != child_owner || metadata.callable_kind != *kind
-                || metadata.flags != (0b10 | u8::from(*kind == CallableKind::Proc))
+                .ok_or_else(|| IrVerifyError::new("callable import target metadata is missing"))?;
+            let flags = 0b10 | u8::from(kind == CallableKind::Proc);
+            if metadata.owner != child_owner || metadata.callable_kind != kind
+                || metadata.flags & super::super::FUNCTION_METADATA_BASE_FLAGS != flags
                 || self.store.string(self.store.functions[target.index()].name)? != field.as_str()
-            { return Err(IrVerifyError::new("generic callable import target differs from its export")); }
-            let super::super::FullCallableContract::Scheme(scheme_id) = contract else {
-                return Err(IrVerifyError::new("generic callable import has no scheme contract"));
-            };
-            let scheme = self.store.scheme(scheme_id)?;
-            if scheme.callable_kind != *kind || !scheme.is_quantified(&self.store)? {
-                return Err(IrVerifyError::new("generic callable import has no matching quantified contract"));
+            { return Err(IrVerifyError::new("callable import target differs from its export")); }
+            match (export, module.exports.get(&field), contract) {
+                (super::super::LoweredModuleExport::Callable { .. }, Some(ModuleExportType::Callable { kind: registered, sig, optional: false }), super::super::FullCallableContract::Ground(signature))
+                    if *registered == kind && self.store.semantic.signature_matches_callable(signature, sig)? => {}
+                (super::super::LoweredModuleExport::GenericCallable { .. }, Some(ModuleExportType::GenericCallable { kind: registered, optional: false }), super::super::FullCallableContract::Scheme(id))
+                    if *registered == kind && metadata.flags == flags => {
+                    let scheme = self.store.scheme(id)?;
+                    if scheme.callable_kind != kind || !scheme.is_quantified(&self.store)? {
+                        return Err(IrVerifyError::new("generic callable import has no matching quantified contract"));
+                    }
+                }
+                _ => return Err(IrVerifyError::new("callable import registration disagrees with its actual target contract")),
             }
             return Ok((owner, CallableProducer::Function(target.index())));
         }
