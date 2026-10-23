@@ -24,7 +24,7 @@ test test_full_inference_pipeline_inputs_reject_other_iteration_domains { |ctx|
       f"pure collect_values(source) {{ source |> collect }}\npure rejected(source: {source_type}) {{ collect_values(source) }}\n",
     )?
     assert output.status == 2
-    assert output.stderr.contains("error[check.")
+    assert "err[check." in output.stderr
   }
 }
 
@@ -35,7 +35,7 @@ test test_full_inference_pipeline_source_views_reject_nested_result_layers { |ct
       f"pure collect_values(values: Result[Result[{payload}]]) -> List[Int] {{ values |> collect }}\n",
     )?
     assert output.status == 2
-    assert output.stderr.contains("error[check.stream-input]")
+    assert "err[check.stream-input]" in output.stderr
   }
 }
 
