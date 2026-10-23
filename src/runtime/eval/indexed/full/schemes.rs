@@ -458,25 +458,27 @@ pub(super) enum FullSealedOperation {
     Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
     Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
     Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
+    RecordOverride { receiver: SchemeTypeId, result: SchemeTypeId, overrides: IrRange },
 }
 
 impl FullSealedOperation {
-    pub(super) fn inputs(self) -> [Option<SchemeTypeId>; 2] {
-        match self {
-            Self::Binary { left, right, .. } => [Some(left), Some(right)],
-            Self::Index { receiver, key, .. } => [Some(receiver), Some(key)],
-            Self::Slice { receiver, .. } => [Some(receiver), None],
-        }
+    pub(super) fn inputs(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
+        let (fixed, overrides): (_, &[FullSchemeField]) = match self {
+            Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
+            Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
+            Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
+            Self::RecordOverride { receiver, overrides, .. } => {
+                let range = overrides.bounds(store.scheme_fields.len()).ok_or_else(|| super::IrVerifyError::new("record override field range is invalid"))?;
+                ([Some(receiver), None], &store.scheme_fields[range])
+            }
+        };
+        Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> SchemeTypeId {
-        match self { Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } => result }
+        match self { Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => result }
     }
-    pub(super) fn types(self) -> impl Iterator<Item = SchemeTypeId> {
-        match self {
-            Self::Binary { left, right, result, .. } => [Some(left), Some(right), Some(result)],
-            Self::Index { receiver, key, result, .. } => [Some(receiver), Some(key), Some(result)],
-            Self::Slice { receiver, result, .. } => [Some(receiver), Some(result), None],
-        }.into_iter().flatten()
+    pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
+        Ok(self.inputs(store)?.chain(std::iter::once(self.result())))
     }
 }
 
@@ -853,6 +855,13 @@ impl FullBuilder {
                 crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
                 crate::sema::sealed_operation::SealedOperation::Slice { receiver, result, bounds, .. } => FullSealedOperation::Slice { receiver, result, bounds },
+                crate::sema::sealed_operation::SealedOperation::RecordOverride { receiver, overrides, result, .. } => {
+                    let mut fields = Vec::with_capacity(overrides.len());
+                    for field in overrides.iter() { fields.push(FullSchemeField { name: self.intern_string(field.name.as_str().as_str())?.raw(), ty: field.ty }); }
+                    let start = self.store.scheme_fields.len();
+                    self.store.scheme_fields.extend(fields);
+                    FullSealedOperation::RecordOverride { receiver, result, overrides: super::table_range(start, self.store.scheme_fields.len())? }
+                }
             };
             self.store.scheme_operations.push(encoded);
         }

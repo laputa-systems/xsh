@@ -259,12 +259,12 @@ pub(super) fn extend_call_binder_evidence(
         let ordinal = outputs.len();
         let mut inputs = BTreeSet::new();
         let mut output = BTreeSet::new();
-        for (roots, binders) in [(operation.inputs(), &mut inputs), ([Some(operation.result()), None], &mut output)] {
-            for root in roots.into_iter().flatten() {
-                let (types, rows) = scheme_type_binders(store, root, budget)?;
-                binders.extend(types.into_iter().map(|id| (false, id)));
-                binders.extend(rows.into_iter().map(|id| (true, id)));
-            }
+        for (root, is_output) in operation.inputs(store)?.map(|root| (root, false)).chain(std::iter::once((operation.result(), true))) {
+            budget.charge(1)?;
+            let binders = if is_output { &mut output } else { &mut inputs };
+            let (types, rows) = scheme_type_binders(store, root, budget)?;
+            binders.extend(types.into_iter().map(|id| (false, id)));
+            binders.extend(rows.into_iter().map(|id| (true, id)));
         }
         if let ApplicationSubstitution::Symbolic(substitution) = substitution {
             let projected = super::operations::symbolic_output_binders(store, scope, *operation, substitution, budget)?;

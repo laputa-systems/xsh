@@ -2196,6 +2196,10 @@ impl Checker {
             _ => None,
         };
         let mut has_spread = false;
+        let relational_spread = matches!(fields.first().map(|field| &field.kind), Some(ArenaRecordFieldKind::Spread { .. }))
+            && fields.iter().skip(1).all(|field| matches!(field.kind, ArenaRecordFieldKind::Named { .. } | ArenaRecordFieldKind::Shorthand { .. }));
+        let mut open_spread = None;
+        let mut overrides = Vec::new();
         let mut last_span = span;
         for field in fields {
             match &field.kind {
@@ -2218,6 +2222,7 @@ impl Checker {
                                 }
                             }
                         }
+                        ty @ Type::Inference(_) if relational_spread => { open_spread = Some(ty); }
                         Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
                         Type::Unknown => {}
                         _ => {
@@ -2273,6 +2278,7 @@ impl Checker {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(field_expected, &ty, value_span);
                     }
+                    if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
                     record.insert(*name, ty);
                     if let Some(origins) = &mut origins { origins.insert(*name, Some(*value)); }
                 }
@@ -2301,6 +2307,7 @@ impl Checker {
                     {
                         self.expect_type(field_expected, &ty, field_span);
                     }
+                    if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
                     record.insert(*name, ty);
                     if let Some(origins) = &mut origins { origins.insert(*name, None); }
                 }
@@ -2320,6 +2327,9 @@ impl Checker {
             }
         }
         if let Some(origins) = origins { self.record_local_aggregate_fields(span, origins); }
+        if let Some(receiver) = open_spread {
+            return self.check_sealed_postfix_operation(span, DiagnosticCode::CheckSpreadNotRecord, |result| crate::sema::sealed_operation::SealedOperation::RecordOverride { receiver, overrides: overrides.into(), result, span });
+        }
         Type::Record(record.into())
     }
 

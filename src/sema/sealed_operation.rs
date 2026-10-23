@@ -19,10 +19,17 @@ pub(crate) enum IndexSyntax { Ordinary, NegativeLiteral(std::num::NonZeroU32) }
 pub(crate) enum SliceBounds { Unbounded, Start, End, Both }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecordOverrideField<T> {
+    pub(crate) name: crate::symbol::Name,
+    pub(crate) ty: T,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SealedOperation<T> {
     Binary(SealedBinaryOperation<T>),
     Index { receiver: T, key: T, result: T, syntax: IndexSyntax, constant_key: Option<crate::symbol::Name>, span: Span },
     Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
+    RecordOverride { receiver: T, overrides: std::sync::Arc<[RecordOverrideField<T>]>, result: T, span: Span },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +42,7 @@ pub(crate) enum SealedOperationSignature {
     SliceList,
     SliceStr,
     SliceBytes,
+    RecordOverride,
 }
 
 impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
@@ -43,32 +51,43 @@ impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
 
 impl<T> SealedOperation<T> {
     pub(crate) fn span(&self) -> Span {
-        match self { Self::Binary(operation) => operation.span, Self::Index { span, .. } | Self::Slice { span, .. } => *span }
+        match self { Self::Binary(operation) => operation.span, Self::Index { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
     }
     pub(crate) fn result(&self) -> &T {
-        match self { Self::Binary(operation) => &operation.result, Self::Index { result, .. } | Self::Slice { result, .. } => result }
+        match self { Self::Binary(operation) => &operation.result, Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => result }
     }
     pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
-        match self {
-            Self::Binary(operation) => [Some(&operation.left), Some(&operation.right)],
-            Self::Index { receiver, key, .. } => [Some(receiver), Some(key)],
-            Self::Slice { receiver, .. } => [Some(receiver), None],
-        }.into_iter().flatten()
+        let (fixed, overrides): (_, &[RecordOverrideField<T>]) = match self {
+            Self::Binary(operation) => ([Some(&operation.left), Some(&operation.right)], &[]),
+            Self::Index { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
+            Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
+            Self::RecordOverride { receiver, overrides, .. } => ([Some(receiver), None], overrides),
+        };
+        fixed.into_iter().flatten().chain(overrides.iter().map(|field| &field.ty))
     }
     pub(crate) fn types(&self) -> impl Iterator<Item = &T> { self.inputs().chain(std::iter::once(self.result())) }
-    pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        match self {
-            Self::Binary(operation) => [Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)],
-            Self::Index { receiver, key, result, .. } => [Some(receiver), Some(key), Some(result)],
-            Self::Slice { receiver, result, .. } => [Some(receiver), Some(result), None],
-        }.into_iter().flatten()
+    pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> where T: Clone {
+        let (fixed, overrides): (_, &mut [RecordOverrideField<T>]) = match self {
+            Self::Binary(operation) => ([Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)], &mut []),
+            Self::Index { receiver, key, result, .. } => ([Some(receiver), Some(key), Some(result)], &mut []),
+            Self::Slice { receiver, result, .. } => ([Some(receiver), Some(result), None], &mut []),
+            Self::RecordOverride { receiver, overrides, result, .. } => ([Some(receiver), Some(result), None], std::sync::Arc::make_mut(overrides)),
+        };
+        fixed.into_iter().flatten().chain(overrides.iter_mut().map(|field| &mut field.ty))
     }
     pub(crate) fn same_kind<U>(&self, other: &SealedOperation<U>) -> bool {
         match (self, other) {
             (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
             (Self::Index { syntax, constant_key, .. }, SealedOperation::Index { syntax: right_syntax, constant_key: right_key, .. }) => syntax == right_syntax && constant_key == right_key,
             (Self::Slice { bounds, .. }, SealedOperation::Slice { bounds: right, .. }) => bounds == right,
+            (Self::RecordOverride { overrides, .. }, SealedOperation::RecordOverride { overrides: right, .. }) => overrides.len() == right.len() && overrides.iter().zip(right.iter()).all(|(left, right)| left.name == right.name),
             _ => false,
+        }
+    }
+    pub(crate) fn owned_fields_bytes(&self) -> usize {
+        match self {
+            Self::RecordOverride { overrides, .. } => 2 * std::mem::size_of::<usize>() + overrides.len() * std::mem::size_of::<RecordOverrideField<T>>(),
+            _ => 0,
         }
     }
     pub(crate) fn try_map<U, E>(&self, mut map: impl FnMut(&T) -> Result<U, E>) -> Result<SealedOperation<U>, E> {
@@ -76,8 +95,16 @@ impl<T> SealedOperation<T> {
             Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
             Self::Index { receiver, key, result, syntax, constant_key, span } => SealedOperation::Index { receiver: map(receiver)?, key: map(key)?, result: map(result)?, syntax: *syntax, constant_key: *constant_key, span: *span },
             Self::Slice { receiver, result, bounds, span } => SealedOperation::Slice { receiver: map(receiver)?, result: map(result)?, bounds: *bounds, span: *span },
+            Self::RecordOverride { receiver, overrides, result, span } => SealedOperation::RecordOverride { receiver: map(receiver)?, overrides: overrides.iter().map(|field| Ok(RecordOverrideField { name: field.name, ty: map(&field.ty)? })).collect::<Result<Vec<_>, E>>()?.into(), result: map(result)?, span: *span },
         })
     }
+}
+
+pub(crate) fn record_override_selection(receiver: &Type, overrides: &[RecordOverrideField<Type>]) -> Option<(SealedOperationSignature, Type)> {
+    let Type::Record(fields) = receiver.unvalidated() else { return None };
+    let mut fields = fields.as_ref().clone();
+    for field in overrides { fields.insert(field.name, field.ty.clone()); }
+    Some((SealedOperationSignature::RecordOverride, Type::Record(fields.into())))
 }
 
 pub(crate) fn index_selection(receiver: &Type, key: &Type, constant_key: Option<crate::symbol::Name>) -> Option<(SealedOperationSignature, Type)> {

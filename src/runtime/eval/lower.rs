@@ -4661,10 +4661,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     push_build_row!(self, expr, BuildExprRow::MapLiteral(entries))
                 } else {
                     let mut entries = Vec::new();
-                    for field in fields {
+                    for (index, field) in fields.into_iter().enumerate() {
                         entries.push(match field.kind {
                             ArenaRecordFieldKind::Named { name, value, .. } => LoweredRecordEntry::Field(name, self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?),
-                            ArenaRecordFieldKind::Shorthand { name, span } => LoweredRecordEntry::Field(name, self.lower_scheme_shorthand(self.program.arena.span(span), name, Self::scheme_record_field(&ty, name)?, slots, lowered_types, body)?),
+                            ArenaRecordFieldKind::Shorthand { name, span } => {
+                                let field_type = match facts.operation_site(expression) {
+                                    Some(ordinal) => {
+                                        let crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } = facts.scheme().callable().requirements().operations.get(ordinal as usize)? else { return None };
+                                        let field = overrides.get(index.checked_sub(1)?)?;
+                                        if field.name != name { return None; }
+                                        field.ty.clone()
+                                    }
+                                    None => Self::scheme_record_field(&ty, name)?,
+                                };
+                                LoweredRecordEntry::Field(name, self.lower_scheme_shorthand(self.program.arena.span(span), name, field_type, slots, lowered_types, body)?)
+                            },
                             ArenaRecordFieldKind::Spread { expr, .. } => LoweredRecordEntry::Spread(self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?),
                             _ => return self.block_scheme_lowering_expr(expression),
                         });
@@ -4959,7 +4970,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
-        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. })
+        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::Record(_))
             && let Some(ordinal) = facts.operation_site(expression)
             && self.scratch.borrow_mut().scheme_operations.insert(lowered.index(), ordinal).is_some()
         { return self.block_scheme_lowering_expr(expression); }

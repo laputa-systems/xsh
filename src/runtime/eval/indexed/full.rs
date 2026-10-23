@@ -21246,7 +21246,7 @@ macro_rules! impl_build_id_codec {
                 if let Some(operation) = operation {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
-                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(method) = method {
@@ -43737,6 +43737,219 @@ assert last(keyed) == "negative"
                     evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
                 }
             }
+        });
+    }
+
+    #[test]
+    fn generic_record_overrides_preserve_remainders_collisions_and_forwarded_rows() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-record-overrides.xsh", r#"
+pure rebuild(row) {
+  let _ = row.name
+  {...row, name: "changed", index: 7, unique: {1, 2}}
+}
+pure relay(row) { rebuild(row) }
+let rebuild_alias = relay
+let first = rebuild_alias({name: "old", extra: 9, index: "before", unique: false})
+let second = rebuild_alias({name: "old", extra: "ready", index: false, unique: 3})
+assert first == {name: "changed", extra: 9, index: 7, unique: {1, 2}}
+assert second == {name: "changed", extra: "ready", index: 7, unique: {1, 2}}
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn uncalled_generic_record_overrides_authenticate_known_output_fields() {
+        run_with_large_stack(|| {
+            let program = fixture("uncalled-generic-record-overrides.xsh", r#"
+pure rebuild(row) {
+  let _ = row.name
+  let _ = false
+  {...row, name: "changed", index: 7}
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "rebuild");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
+            let scheme = program.store.scheme(id).unwrap();
+            let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
+            let schemes::FullSealedOperation::RecordOverride { result, overrides, .. } = program.store.scheme_operations[operations.start] else { unreachable!() };
+            let result = program.store.scheme_types[result.index()];
+            assert_eq!(result.tag, schema::FullSchemeTypeTag::Record);
+            let fields = result.children.bounds(program.store.scheme_fields.len()).unwrap();
+            let field = fields.into_iter().find(|&field| program.store.string(program.store.scheme_fields[field].name).unwrap() == "index").unwrap();
+            let boolean = program.store.scheme_types.iter().enumerate().find_map(|(index, node)| {
+                if node.tag != schema::FullSchemeTypeTag::Ground { return None; }
+                (program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap() == Type::Bool).then(|| schemes::SchemeTypeId::from_raw(index as u32).unwrap())
+            }).unwrap();
+            let override_fields = overrides.bounds(program.store.scheme_fields.len()).unwrap();
+            let actual_index = program.store.scheme_fields[override_fields].iter().find(|field| program.store.string(field.name).unwrap() == "index").unwrap().ty;
+            let actual_index_node = program.store.scheme_types[actual_index.index()];
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(actual_index_node.first).unwrap()).unwrap(), Type::Int);
+            let original = program.store.scheme_fields[field].ty;
+            assert_eq!(program.store.semantic.to_type(TypeId::from_raw(program.store.scheme_types[original.index()].first).unwrap()).unwrap(), Type::Int);
+            let output_tail = result.first;
+            let mut outputs = Vec::new();
+            for node in &program.store.scheme_types {
+                if node.tag != schema::FullSchemeTypeTag::Record || node.first != output_tail { continue; }
+                let fields = node.children.bounds(program.store.scheme_fields.len()).unwrap();
+                for field in &program.store.scheme_fields[fields] {
+                    if program.store.string(field.name).unwrap() == "index" { outputs.push(field.ty); }
+                }
+            }
+            assert!(outputs.len() >= 3, "the result requirement, body fact, and return contract all retain the same output field claim");
+            assert!(!outputs.contains(&actual_index), "the physical override keeps its independent Int contract");
+            let mut wrong = program;
+            let boolean = wrong.store.scheme_types[boolean.index()];
+            for output in outputs { wrong.store.scheme_types[output.index()] = boolean; }
+            assert_eq!(wrong.store.scheme_types[actual_index.index()], actual_index_node);
+            FullVerifier::verify(&wrong).expect_err("an uncalled generic record must prove actual overridden field types independently of its result metadata");
+        });
+    }
+
+    #[test]
+    fn generic_record_overrides_preserve_full_rebuild_body() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-record-rebuild-body.xsh", r#"
+pure rebuild(row) {
+  let {name: name, items: items} = row
+  let copied = [item for item in items]
+  var indexed = {[0]: copied[0]}
+  indexed[1] = copied[1]
+  let unique = {item for item in copied}
+  {...row, name: name.upper(), items: copied.push(copied[0]), index: indexed, unique: unique}
+}
+let numbers = rebuild({name: "nums", items: [3, 1], extra: 7, index: "old", unique: false})
+let words = rebuild({name: "words", items: ["b", "a"], extra: "retained", index: false, unique: 9})
+assert numbers.name == "NUMS"
+assert numbers.items == [3, 1, 3]
+assert numbers.index[1] == 1
+assert numbers.unique == {1, 3}
+assert numbers.extra == 7
+assert words.name == "WORDS"
+assert words.items == ["b", "a", "b"]
+assert words.index[1] == "a"
+assert words.unique == {"a", "b"}
+assert words.extra == "retained"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_record_overrides_preserve_ordered_duplicate_shorthand_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-record-override-order.xsh", r#"
+proc first() [io] -> Int { print "first"; 1 }
+proc second() [io] -> Str { print "second"; "last" }
+proc finish() [io] -> Bool { print "finish"; true }
+proc rebuild(row) [io] {
+  let _ = row.name
+  let name = first()
+  {...row, name, name: second(), ready: finish()}
+}
+let result = rebuild({name: "old", extra: 9})?
+assert result == {name: "last", extra: 9, ready: true}
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                assert_eq!(evaluator.stdout, b"first\nsecond\nfinish\n");
+            }
+        });
+    }
+
+    #[test]
+    fn generic_record_overrides_reject_missing_nonrecord_and_dynamic_inputs() {
+        for actual in ["{extra: 9}", "7", "[7]", "\"row\""] {
+            let source = format!("pure rebuild(row) {{ let _ = row.name; {{...row, name: \"changed\"}} }}\nlet _ = rebuild({actual})\n");
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("generic-record-override-rejection.xsh", &source);
+            let parsed = Parser::parse_source_arena_only(source_id, &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(!checked.diagnostics.is_empty(), "the source must satisfy its required record domain: {source}");
+        }
+        let source = "pure rebuild(row) { let _ = row.name; {...row, name: \"changed\"} }\nlet value: Any = {name: \"opaque\"}\nlet _ = rebuild(value)\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("generic-record-override-dynamic.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(!checked.diagnostics.is_empty(), "an opaque Any does not establish a record spread domain");
+    }
+
+    #[test]
+    fn generic_record_override_sites_authenticate_order_source_ranges_and_remainders() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-record-override-owned-proof.xsh", r#"
+pure rebuild(row) { let _ = row.name; {...row, name: "changed", index: 7} }
+pure other(row) { let _ = row.name; {...row, name: "other", index: 8} }
+let unused = {foreign: true}
+let result = rebuild({name: "old", extra: 9})
+assert result.extra == 9
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "rebuild");
+            let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
+            let scheme = program.store.scheme(id).unwrap();
+            let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
+            let operation = operations.start;
+            let schemes::FullSealedOperation::RecordOverride { receiver, overrides, result } = program.store.scheme_operations[operation] else { unreachable!() };
+            let fields = overrides.bounds(program.store.scheme_fields.len()).unwrap();
+            let record = function_instruction_indices(&program, "rebuild", FullTag::ExprRecord)[0];
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::ExprView::Record(entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+            let words = program.store.blocks[entries.block_identity_for_test().index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(&program.store.extra[words.start..words.start + 4], &[3, 1, program.store.extra[words.start + 2], 0]);
+            let mut source = program.clone();
+            source.store.extra.swap(words.start + 2, words.start + 8);
+            FullVerifier::verify(&source).expect_err("the actual spread source must satisfy its receiver contract");
+            let mut order = program.clone();
+            for offset in 0..3 { order.store.extra.swap(words.start + 3 + offset, words.start + 6 + offset); }
+            FullVerifier::verify(&order).expect_err("the physical override order must match its owned relationship");
+            let mut shared = program.clone();
+            let schemes::FullSealedOperation::RecordOverride { overrides: target, .. } = &mut shared.store.scheme_operations[operation] else { unreachable!() };
+            *target = program.store.scheme_types[receiver.index()].children;
+            FullVerifier::verify(&shared).expect_err("record override fields cannot share another owned field range");
+            let mut field_type = program.clone();
+            field_type.store.scheme_fields[fields.start].ty = program.store.scheme_fields[fields.start + 1].ty;
+            FullVerifier::verify(&field_type).expect_err("an override field must retain its actual value contract");
+            let call = scheme_fixture_root_call(&program, "rebuild");
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == call).unwrap();
+            let rows = instance.arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
+            let output = program.store.scheme_types[result.index()].first;
+            let parameters = scheme.row_parameters.bounds(program.store.scheme_row_parameters.len()).unwrap();
+            let output = program.store.scheme_row_parameters[parameters.start + output as usize].id;
+            let row = rows.into_iter().find(|&row| program.store.call_row_arguments[row].binder == output).unwrap();
+            let remainder = program.store.call_row_arguments[row].fields.bounds(program.store.call_row_fields.len()).unwrap();
+            assert_eq!(remainder.len(), 1);
+            let other = scheme_fixture_root_function(&program, "other");
+            let mut wrong_remainder = program.clone();
+            wrong_remainder.store.call_row_fields[remainder.start].name = program.store.functions[other].name;
+            FullVerifier::verify(&wrong_remainder).expect_err("the actual source extras determine the output remainder names");
+            let mut wrong_owner = program;
+            let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction == record as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
+            fact.function = IrFunctionId::new(other).unwrap();
+            FullVerifier::verify(&wrong_owner).expect_err("the record relationship must belong to its actual body owner");
         });
     }
 

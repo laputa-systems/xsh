@@ -1,7 +1,7 @@
 use super::*;
 use super::applications::ApplicationSubstitution;
 use super::super::schemes::{FullOperationBinding, FullSealedOperation};
-use crate::sema::sealed_operation::{SealedBinaryOperation, SealedOperation, SealedOperationSignature, arithmetic_operator, arithmetic_selection, index_selection, slice_selection};
+use crate::sema::sealed_operation::{SealedBinaryOperation, SealedOperation, SealedOperationSignature, arithmetic_operator, arithmetic_selection, index_selection, slice_selection, record_override_selection, RecordOverrideField};
 
 fn domain_accepts(domain: crate::sema::sealed_operation::ArithmeticDomain, ty: &SchemeType) -> bool {
     use crate::sema::sealed_operation::ArithmeticDomain as D;
@@ -27,6 +27,12 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
             constant_key: if constant_key == IR_NONE { None } else { Some(Name::intern(store.string(constant_key)?)) }, span,
         },
         FullSealedOperation::Slice { receiver, result, bounds } => SealedOperation::Slice { receiver: substitution.ty(store, scope, receiver, budget)?, result: substitution.ty(store, scope, result, budget)?, bounds, span },
+        FullSealedOperation::RecordOverride { receiver, overrides, result } => {
+            let fields = bounded(overrides, &store.scheme_fields, "record override field range is invalid")?;
+            budget.charge(fields.len())?;
+            let overrides = fields.iter().map(|field| Ok(RecordOverrideField { name: Name::intern(store.string(field.name)?), ty: substitution.ty(store, scope, field.ty, budget)? })).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            SealedOperation::RecordOverride { receiver: substitution.ty(store, scope, receiver, budget)?, overrides: overrides.into(), result: substitution.ty(store, scope, result, budget)?, span }
+        }
     })
 }
 
@@ -39,10 +45,14 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         SealedOperation::Binary(operation) => arithmetic_selection(operation.operator, &operation.left, &operation.right).map(|(signature, result)| (SealedOperationSignature::Binary(signature), result)),
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
+        SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
-    if !body_type_matches(&SchemeType::Ground(result), operation.result(), budget)? { return Err(IrVerifyError::new("sealed operation result disagrees with its input signature")); }
+    let matches = if matches!(operation, SealedOperation::RecordOverride { .. }) {
+        operation.result().closed_ground_type().as_ref() == Some(&result)
+    } else { body_type_matches(&SchemeType::Ground(result), operation.result(), budget)? };
+    if !matches { return Err(IrVerifyError::new("sealed operation result disagrees with its input signature")); }
     Ok(signature)
 }
 
@@ -79,6 +89,26 @@ pub(super) fn symbolic_output_binders(
                 _ => None,
             }
         }
+        SealedOperation::RecordOverride { mut receiver, overrides, .. } => {
+            while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
+            let parameter = decode_scheme_type(store, scope, encoded.result(), budget, 0)?;
+            let SchemeType::Record { fields: expected, .. } = parameter else { return Ok(evidence) };
+            let mut fields = match receiver {
+                SchemeType::Record { fields, .. } => fields,
+                SchemeType::Ground(receiver) => {
+                    let Type::Record(fields) = receiver.unvalidated() else { return Ok(evidence) };
+                    budget.charge(fields.len())?;
+                    fields.iter().map(|(&name, ty)| { budget.charge_clone(ty)?; Ok((name, SchemeType::Ground(ty.clone()))) }).collect::<Result<BTreeMap<_, _>, IrVerifyError>>()?
+                }
+                _ => return Ok(evidence),
+            };
+            for field in overrides.iter() { budget.charge(1)?; budget.charge_scheme_clone(&field.ty)?; fields.insert(field.name, field.ty.clone()); }
+            for (name, expected) in expected {
+                budget.charge(1)?;
+                if let Some(actual) = fields.get(&name) { verify_symbolic_argument_evidence(&expected, actual, scope, substitution, SymbolicEvidenceSource::Projection, &mut evidence, budget, 0)?; }
+            }
+            return Ok(evidence);
+        }
         SealedOperation::Binary(_) => unreachable!(),
     };
     if let Some(projection) = projection {
@@ -114,6 +144,60 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn record_contract(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(BTreeMap<Name, SchemeType>, SchemeRowTail), IrVerifyError> {
+    let mut ty = ty;
+    for _ in 0..=128 {
+        budget.charge(1)?;
+        return match ty {
+            SchemeType::Validated(_, inner) => { ty = inner; continue; }
+            SchemeType::Record { fields, tail } => {
+                budget.charge_scheme_clone(ty)?;
+                Ok((fields.clone(), tail.clone()))
+            }
+            SchemeType::Ground(ty) => {
+                let Type::Record(fields) = ty.unvalidated() else { return Err(IrVerifyError::new("record override has no record domain")); };
+                budget.charge(fields.len())?;
+                let fields = fields.iter().map(|(&name, ty)| { budget.charge_clone(ty)?; Ok((name, SchemeType::Ground(ty.clone()))) }).collect::<Result<_, IrVerifyError>>()?;
+                Ok((fields, SchemeRowTail::Closed))
+            }
+            _ => Err(IrVerifyError::new("record override has no record domain")),
+        };
+    }
+    Err(IrVerifyError::new("record override type nesting is too deep"))
+}
+
+pub(super) fn verify_record_override_site(
+    store: &FullStore, scope: &SchemeScope, ordinal: u32, receiver: &SchemeType,
+    overrides: &[(Name, SchemeType)], result: &SchemeType, budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize)
+        .ok_or_else(|| IrVerifyError::new("record override ordinal is out of scope"))?;
+    let SealedOperation::RecordOverride { receiver: required, overrides: fields, result: output, .. } = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)? else {
+        return Err(IrVerifyError::new("record override site has another operation requirement"));
+    };
+    if !body_types_equal(receiver, &required) || !body_types_equal(result, &output) || fields.len() != overrides.len() {
+        return Err(IrVerifyError::new("record override site disagrees with its owned requirement"));
+    }
+    let (mut derived, input_tail) = record_contract(receiver, budget)?;
+    let (output_fields, output_tail) = record_contract(result, budget)?;
+    for (required, (name, ty)) in fields.iter().zip(overrides) {
+        budget.charge(1)?;
+        if required.name != *name || !body_types_equal(&required.ty, ty) { return Err(IrVerifyError::new("record override order or field contract disagrees with its producer")); }
+        budget.charge_scheme_clone(ty)?;
+        derived.insert(*name, ty.clone());
+    }
+    for (name, ty) in &derived {
+        budget.charge(1)?;
+        if output_fields.get(name).is_none_or(|output| !body_types_equal(output, ty)) { return Err(IrVerifyError::new("record override result disagrees with its derived known fields")); }
+    }
+    match (input_tail, output_tail) {
+        (SchemeRowTail::Closed, SchemeRowTail::Closed) if derived.len() == output_fields.len() => {}
+        (SchemeRowTail::Parameter(input), SchemeRowTail::Parameter(output)) if input != output => {}
+        _ => return Err(IrVerifyError::new("record override result has no independent remainder")),
     }
     Ok(())
 }

@@ -202,6 +202,17 @@ project required constant fields through the existing journaled row constraint;
 a string key cannot establish a record domain. Slice sites prove their ordered
 bounds as integers and authenticate which bounds were present.
 
+A leading open-record spread and finite named or shorthand overrides retain a
+`RecordOverride` requirement in the same sealed-operation lifecycle. The
+requirement owns the receiver, ordered override names and types, result, and a
+distinct output row remainder. The output remainder removes overridden labels
+from the input remainder. Input rows may contain those labels. Cold verification
+proves the actual spread and each ordered value, derives known output fields,
+and checks the complete result when the input closes. Duplicate overrides retain
+all value evaluations and use the last value's type. Shorthand lowering uses each
+source override's type rather than the final record field type. Existing record
+rows execute the construction without a new opcode or runtime solver.
+
 The indexed `Index` operand distinguishes an ordinary expression from a nonzero
 negative-literal distance. Cold verification authenticates that form against the
 owned requirement and actual producer contracts. A generic negative literal

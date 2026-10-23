@@ -193,6 +193,10 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
                 format!("index({inputs}{literal}{field}) -> {result}")
             }
             crate::sema::sealed_operation::SealedOperation::Slice { bounds, .. } => format!("slice({bounds:?}, {inputs}) -> {result}"),
+            crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } => {
+                let names = overrides.iter().map(|field| field.name.as_str().to_string()).collect::<Vec<_>>().join(", ");
+                format!("record-override([{names}], {inputs}) -> {result}")
+            }
         });
     }
     for wrapper in &scheme.callable().requirements().wrappers {

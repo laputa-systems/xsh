@@ -523,7 +523,12 @@ fn verify_scheme_tables(
             .ok_or_else(|| IrVerifyError::new("full scheme id is out of bounds"))?;
         let mut roots = Vec::new();
         for operation in bounded(scheme.operations, &store.scheme_operations, "scheme operation range is invalid")? {
-            roots.extend(operation.types());
+            if let super::schemes::FullSealedOperation::RecordOverride { overrides, .. } = operation {
+                let fields = mark_range(*overrides, &store.scheme_fields, &mut field_coverage, "record override fields overlap or are out of bounds")?;
+                application_budget.charge(fields.len())?;
+                for field in fields { if store.string(field.name)?.is_empty() { return Err(IrVerifyError::new("record override field name is empty")); } }
+            }
+            for root in operation.types(store)? { application_budget.charge(1)?; roots.push(root); }
         }
         for method in bounded(scheme.methods, &store.scheme_methods, "scheme method range is invalid")? {
             application_budget.charge(2 + method.arguments.len as usize)?;
@@ -1209,7 +1214,7 @@ fn verify_scheme_body_facts(
             let instruction = fact.instruction as usize;
             if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
-                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice) || ordinal >= scheme.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord) || ordinal >= scheme.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
@@ -1778,6 +1783,18 @@ fn verify_body_expression(
                     return Err(IrVerifyError::new("generic map spread disagrees with its checked domain"));
                 }
             }
+            ty.clone()
+        }
+        schema::ExprView::Record(mut entries) if operation_sites.contains_key(&instruction) => {
+            let Some(Ok(super::decode::RecordEntryView::Spread(source))) = entries.next() else { return Err(IrVerifyError::new("record override has no leading physical spread")); };
+            let source = child(source, budget)?;
+            let mut overrides = Vec::new();
+            for entry in &mut entries {
+                budget.charge(1)?;
+                let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("record override contains another spread")); };
+                overrides.push((name, child(value, budget)?));
+            }
+            operations::verify_record_override_site(store, scheme_scope, operation_sites[&instruction], &source, &overrides, ty, budget)?;
             ty.clone()
         }
         schema::ExprView::Record(_) => constructors::record_type(decoder, instruction, constructors, visited, budget, |instruction, budget| {

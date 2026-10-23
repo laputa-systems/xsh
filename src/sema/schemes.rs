@@ -680,6 +680,7 @@ impl CallableRequirements {
         }
         bytes = bytes.saturating_add(self.operations.capacity() * size_of::<super::sealed_operation::SealedOperation<SchemeType>>());
         for operation in &self.operations {
+            bytes = bytes.saturating_add(operation.owned_fields_bytes());
             for ty in operation.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
         }
         bytes = bytes.saturating_add(self.methods.capacity() * size_of::<MethodFamilyRequirement<SchemeType>>());

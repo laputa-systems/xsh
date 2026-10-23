@@ -3214,8 +3214,13 @@ read, including shadowed locals and checked immutable captures. Their ordinary
 record, map, or contextual set interpretation is unchanged.
 Named record fields and record spreads use the ordinary ordered
 field rules: later permitted fields replace earlier fields, while every
-expression still evaluates in source order. Computed map keys keep a checked
-scalar key domain; map values may retain the callable's type parameters.
+expression still evaluates in source order. A leading spread of an inferred
+record can retain unknown fields while later named or shorthand fields replace
+known or unknown fields. Each call preserves the source's remaining fields and
+their types. Replacements may have different types from the source fields.
+The source must satisfy every field read in the body. An opaque `Any` does not
+establish the record domain. Computed map keys keep a checked scalar key domain;
+map values may retain the callable's type parameters.
 Map spreads preserve both domains. Scalar-key set literals use the ordinary
 set conversion and remove duplicates. Text and path interpolation use the
 ordinary display and formatting rules. An inferred operand retains the display

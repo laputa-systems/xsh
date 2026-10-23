@@ -1,6 +1,6 @@
 use super::{Binding, ConstraintChange, ConstraintConflict, ConstraintResolutionError, RowTail, TypeConstraints, Variable, MAX_TYPE_DEPTH};
 use super::application_constraints::ApplicationDependency;
-use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedBinaryOperation, SealedOperation, SealedOperationSignature, index_selection, slice_selection, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
+use crate::sema::sealed_operation::{ArithmeticDomain, ArithmeticSignature, SealedOperation, SealedOperationSignature, index_selection, slice_selection, record_override_selection, arithmetic_domain_accepts, arithmetic_result, arithmetic_selection};
 use crate::sema::types::Type;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -24,6 +24,7 @@ pub(crate) enum SealedOperationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sema::sealed_operation::SealedBinaryOperation;
 
     #[test]
     fn sealed_postfix_operations_preserve_input_ambiguity_and_atomic_rollback() {
@@ -82,6 +83,72 @@ mod tests {
         let rows = constraints.rows.len();
         constraints.solve_sealed_operations().unwrap();
         assert_eq!(constraints.rows.len(), rows);
+    }
+
+    #[test]
+    fn sealed_record_overrides_keep_distinct_remainders_and_atomic_rollback() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let name = crate::symbol::Name::intern("name");
+            let index = crate::symbol::Name::intern("index");
+            let extra = crate::symbol::Name::intern("extra");
+            let mut constraints = TypeConstraints::default();
+            let source = constraints.fresh_at_level(span, 1);
+            constraints.project_record_field(&source, name, 1, span).unwrap();
+            let result = constraints.fresh_at_level(span, 1);
+            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::RecordOverride {
+                receiver: source.clone(), result: result.clone(), span,
+                overrides: vec![crate::sema::sealed_operation::RecordOverrideField { name, ty: Type::Str }, crate::sema::sealed_operation::RecordOverrideField { name: index, ty: Type::Bool }].into(),
+            }).unwrap();
+            let operations = constraints.operations.clone();
+            let rows = constraints.rows.len();
+            constraints.trial(|candidate| {
+                candidate.solve_sealed_operations().unwrap();
+                let super::super::ConstraintType::Record(input) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(source.clone())).unwrap() else { panic!("input remains an open record") };
+                let super::super::ConstraintType::Record(output) = candidate.resolve_constraint(&super::super::ConstraintType::Ground(result.clone())).unwrap() else { panic!("output retains a separate open record") };
+                assert_ne!(input.tail, output.tail);
+                let RowTail::Variable(input) = input.tail else { unreachable!() };
+                let RowTail::Variable(output) = output.tail else { unreachable!() };
+                let super::super::RowVariable::Representative(input) = &candidate.rows[&input] else { unreachable!() };
+                let super::super::RowVariable::Representative(output) = &candidate.rows[&output] else { unreachable!() };
+                assert!(!input.lacks.contains(&index));
+                assert!(output.lacks.contains(&index));
+                Ok(())
+            }).unwrap();
+            assert_eq!(constraints.operations, operations);
+            assert_eq!(constraints.rows.len(), rows);
+            assert_eq!(constraints.resolve(&result).unwrap(), result);
+            constraints.solve_sealed_operations().unwrap();
+            let rows = constraints.rows.len();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.rows.len(), rows);
+            constraints.constrain(&source, &Type::Record(BTreeMap::from([(name, Type::Int), (index, Type::Str), (extra, Type::UInt)]).into()), span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Record(BTreeMap::from([(name, Type::Str), (index, Type::Bool), (extra, Type::UInt)]).into()));
+        });
+    }
+
+    #[test]
+    fn sealed_record_override_census_counts_owned_field_allocations() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let owner = super::super::CallableApplicationScope::Invocation;
+            let mut baseline = TypeConstraints::default();
+            let receiver = baseline.fresh(span);
+            let result = baseline.fresh(span);
+            baseline.register_sealed_operation(owner, SealedOperation::Slice { receiver, result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+            let baseline = baseline.operations.retained_bytes();
+            for count in [1, 16] {
+                let mut constraints = TypeConstraints::default();
+                let receiver = constraints.fresh(span);
+                let result = constraints.fresh(span);
+                constraints.register_sealed_operation(owner, SealedOperation::RecordOverride {
+                    receiver, result, span,
+                    overrides: (0..count).map(|_| crate::sema::sealed_operation::RecordOverrideField { name: crate::symbol::Name::intern("index"), ty: Type::Int }).collect::<Vec<_>>().into(),
+                }).unwrap();
+                assert_eq!(constraints.operations.retained_bytes() - baseline, 2 * std::mem::size_of::<usize>() + count * std::mem::size_of::<crate::sema::sealed_operation::RecordOverrideField<Type>>());
+            }
+        });
     }
 
     #[test]
@@ -184,6 +251,7 @@ impl SealedOperations {
         use std::mem::size_of;
         self.entries.len() * size_of::<(SealedOperationId, ScopedOperation)>()
             + self.entries.values().flat_map(|entry| entry.operation.types()).map(super::type_owned_payload_bytes).sum::<usize>()
+            + self.entries.values().map(|entry| entry.operation.owned_fields_bytes()).sum::<usize>()
             + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span), SealedOperationId)>()
             + self.watchers.len() * size_of::<(ApplicationDependency, BTreeSet<SealedOperationId>)>()
             + self.watchers.values().map(|ids| ids.len() * size_of::<SealedOperationId>()).sum::<usize>()
@@ -344,6 +412,49 @@ impl TypeConstraints {
                         };
                         this.constrain_operation_type(&result, &selected, span, changes)?;
                         if receiver.contains_inference() || key.contains_inference() { continue; }
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                    SealedOperation::RecordOverride { receiver, overrides, result, span } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        let overrides = overrides.iter().map(|field| Ok(crate::sema::sealed_operation::RecordOverrideField { name: field.name, ty: this.resolve_with_changes(&field.ty, 0, changes)? })).collect::<Result<Vec<_>, ConstraintResolutionError>>()?;
+                        if let Type::Inference(variable) = receiver.unvalidated() {
+                            let row = match this.record_binding(*variable)? {
+                                Some(record) => this.resolve_row(&record.shape)?,
+                                None => {
+                                    let tail = this.fresh_row_inner(span, level.unwrap_or(0), BTreeSet::new(), changes);
+                                    let shape = super::RowShape { fields: BTreeMap::new(), tail: RowTail::Variable(tail) };
+                                    this.bind_record_inner(*variable, &shape, span, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))?;
+                                    shape
+                                }
+                            };
+                            let mut fields = row.fields;
+                            for field in &overrides { fields.insert(field.name, field.ty.clone()); }
+                            let resolved_result = this.resolve_with_changes(&result, 0, changes)?;
+                            if let Type::Inference(variable) = resolved_result.unvalidated() {
+                                if let Some(record) = this.record_binding(*variable)? {
+                                    let established = this.resolve_row(&record.shape)?.fields;
+                                    for (name, ty) in &fields {
+                                        if let Some(existing) = established.get(name) {
+                                            this.constrain_operation_type(existing, ty, span, changes)?;
+                                        } else {
+                                            this.project_record_field_with_changes(&resolved_result, *name, ty, level.unwrap_or(0), span, changes).map_err(SealedOperationError::Constraint)?;
+                                        }
+                                    }
+                                } else {
+                                    let tail = this.fresh_row_inner(span, level.unwrap_or(0), fields.keys().copied().collect(), changes);
+                                    let shape = super::RowShape { fields, tail: RowTail::Variable(tail) };
+                                    this.bind_record_inner(*variable, &shape, span, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))?;
+                                }
+                            }
+                            continue;
+                        }
+                        let Some((selection, selected)) = record_override_selection(&receiver, &overrides) else {
+                            return Err(SealedOperationError::UnsupportedPostfix { operation: "record spread", receiver, key: None });
+                        };
+                        this.constrain_operation_type(&result, &selected, span, changes)?;
+                        if receiver.contains_inference() || overrides.iter().any(|field| field.ty.contains_inference()) { continue; }
                         let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
                         if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;

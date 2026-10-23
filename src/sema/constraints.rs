@@ -1943,6 +1943,7 @@ impl TypeConstraints {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn constrain_rows(
         &mut self,
         expected: &RowShape,
