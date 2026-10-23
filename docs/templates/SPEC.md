@@ -3216,6 +3216,9 @@ field contracts, including ordinary unsigned validation, and a failure exposes
 no partial update. Complete typed storage checks remain active in a quantified
 body; an annotation does not replace proof of its actual input.
 
+A quantified proc supports both `tempdir` heads with their ordinary result
+and cleanup rules (10.4).
+
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
 source order.
@@ -3801,9 +3804,12 @@ the tail of a `try` block: `try { tempdir dir at path { 1 } }` is a
 the scope with a `T` tail is the function's result. The scope's `Err` reports
 only a failure to enter: to create the fresh directory, or to clear the path
 and create the directory there; the body does not run. Failures inside the
-body propagate to their ordinary destination. The scope needs the `fs` effect
-and is rejected in pure functions. The path is an ordinary value that may
-leave the scope, but it names a removed directory once the scope ends.
+body propagate to their ordinary destination. The scope needs the `fs` effect.
+Failures to create, clear, or remove the directory can propagate, so a
+restricted Proc must also permit the `error` effect unless an enclosing `try`
+or `retry` captures that propagation. Pure functions reject the scope. The path
+is an ordinary value that may leave the scope, but it names a removed directory
+once the scope ends.
 
 Neither `tempdir` nor `at` is reserved. `tempdir` starts a scope only when a
 name and then `{` or the word `at` follow on the same line; the path after

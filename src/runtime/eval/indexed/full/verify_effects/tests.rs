@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::runtime::eval::Evaluator;
-use crate::sema::check::Checker;
+use crate::sema::check::{CheckOptions, Checker};
+use crate::syntax::parser::Parser;
 
 fn fixture(source: &str) -> FullProgram {
     let name = "native-internal-effects.xsh";
@@ -1770,6 +1771,124 @@ tempdir site { assert publish(site)? == 4 }
         }
         let error = FullVerifier::verify(&without_effect(&program, owner, Effect::Fs)).unwrap_err();
         assert!(error.message.contains("requires effect fs"), "{error:?}");
+    });
+}
+
+#[test]
+fn tempdir_cleanup_propagation_requires_error_unless_captured() {
+    on_large_stack(|| {
+        let source = r#"
+proc declared_at(target: Path) [fs, error] -> Result[Int] {
+    tempdir scratch at target { 1 }
+}
+proc inferred_fresh() {
+    tempdir scratch { 1 }
+}
+proc inferred_at(target: Path) {
+    tempdir scratch at target { 1 }
+}
+proc captured_at(target: Path) [fs] -> Result[Result[Int]] {
+    try { tempdir scratch at target { 1 } }
+}
+proc retried_at(target: Path) [fs] -> Result[Int] {
+    retry [] { tempdir scratch at target { 1 }? }
+}
+tempdir parent {
+    assert declared_at(fp"{parent}/declared")? == 1
+    assert inferred_fresh()? == 1
+    assert inferred_at(fp"{parent}/inferred")? == 1
+    let captured = captured_at(fp"{parent}/captured")?
+    assert captured? == 1
+    assert retried_at(fp"{parent}/retried")? == 1
+}
+"#;
+        let mut program = fixture(source);
+        program.store.checked_expr_types.retain(|fact| fact.is_contract());
+        let retried = function(&program, "retried_at");
+        let decoder = function_view_decoder(&program.store, retried);
+        let propagated_tempdir = program.store.function_instruction_range(retried).unwrap().find_map(|instruction| {
+            let schema::ExprView::Try { value, .. } = decoder.expression_view(instruction).ok()? else { return None };
+            let value = value.raw() as usize;
+            (program.store.tags[value] == FullTag::ExprValueBlock).then_some(value)
+        }).unwrap();
+        let source_contract = program.store.checked_expr_types.iter()
+            .find(|fact| fact.instruction as usize == propagated_tempdir)
+            .expect("the checked TempDir Result type remains a source contract");
+        assert!(source_contract.is_contract());
+        assert_eq!(program.store.semantic.to_type(source_contract.type_id).unwrap(),
+            Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+        FullVerifier::verify(&program).unwrap();
+        for name in ["inferred_fresh", "inferred_at"] {
+            let owner = function(&program, name);
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else {
+                panic!("inferred tempdir effects are closed")
+            };
+            let signature = program.store.semantic.to_signature_with_budget(
+                signature,
+                0,
+                &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default(),
+            ).unwrap();
+            let effects = signature.effects.concrete().unwrap().unwrap();
+            assert!(effects.contains(&Effect::Fs), "{name}: {effects:?}");
+            assert!(effects.contains(&Effect::Error), "{name}: {effects:?}");
+        }
+        execute_both(&program);
+
+        for restricted in [
+            "proc restricted() [fs] -> Result[Int] { tempdir scratch { 1 } }\n",
+            "proc restricted(target: Path) [fs] -> Result[Int] { tempdir scratch at target { 1 } }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), restricted);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(
+                &parsed.arena,
+                restricted,
+                CheckOptions::for_execution(),
+            );
+            assert!(checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)
+            }), "{restricted}: {:?}", checked.diagnostics);
+        }
+
+        let pure = "pure restricted() { tempdir scratch { 1 } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), pure);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            pure,
+            CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckPureEffect)
+        }), "{:?}", checked.diagnostics);
+
+        let mut missing = program.clone();
+        missing.store.checked_expr_types.retain(|fact| fact.instruction as usize != propagated_tempdir);
+        assert!(FullVerifier::verify(&missing).unwrap_err().message.contains("captured propagation"));
+
+        let mut forged = program.clone();
+        let wrong_result = SemanticPoolBuilder::default().intern_type(
+            &mut forged.store.semantic,
+            &Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
+        ).unwrap();
+        forged.store.checked_expr_types.iter_mut()
+            .find(|fact| fact.instruction as usize == propagated_tempdir).unwrap().type_id = wrong_result;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("producer") || error.message.contains("contract"), "{error:?}");
+
+        for wrong_result in [
+            Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
+            Type::Result(Box::new(Type::Int), Box::new(Type::Any)),
+            Type::Result(Box::new(Type::Any), Box::new(Type::Any)),
+        ] {
+            let mut forged = program.clone();
+            let wrong_type = SemanticPoolBuilder::default()
+                .intern_type(&mut forged.store.semantic, &wrong_result)
+                .unwrap();
+            forged.store.checked_expr_types.iter_mut()
+                .find(|fact| fact.instruction as usize == propagated_tempdir).unwrap().type_id = wrong_type;
+            assert!(FullVerifier::verify(&forged).is_err(), "accepted forged TempDir Result contract {wrong_result:?}");
+        }
     });
 }
 

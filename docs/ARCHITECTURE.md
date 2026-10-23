@@ -576,9 +576,11 @@ retain the ordinary static escape rule and check symbolic values before resource
 transfer and context restoration.
 
 Generalized Proc `tempdir` scopes use the ordinary `MatchExpr` and `ValueBlock`
-rows and deferred cleanup. Entry failure arms reconstruct `Err` from the actual
-filesystem error payload. Generated expressions and immutable locals carry owned
-type facts. Body returns and errors keep their ordinary destinations.
+rows and deferred cleanup. They retain the `fs` requirement and the `error`
+requirement for failures that are not lexically captured. Entry failure arms
+reconstruct `Err` from the actual filesystem error payload. Generated
+expressions and immutable locals carry owned type facts. Body returns and
+errors keep their ordinary destinations.
 
 Selected native calls retain their registry identity, argument layout, and
 ordinary effect contract in generalized bodies. Native selection does not imply

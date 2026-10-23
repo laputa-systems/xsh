@@ -11452,10 +11452,18 @@ impl<'a> FullDecoder<'a> {
             matches!(&view, schema::ExprView::UInt(_)) && ty == Type::UInt;
         let checked_capture_result = matches!(self.store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
             && matches!(ty, Type::Result(_, _));
+        let checked_result_control_flow = matches!(self.store.tags[instruction], FullTag::ExprMatch | FullTag::ExprValueBlock)
+            && matches!(ty, Type::Result(_, _));
         let checked_result_constructor = fact.authenticates_result_constructor(self.store.tags[instruction], &ty)?;
         if checked_capture_result {
             if fact.function_ref().is_some() || fact.with_error_source() {
                 return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
+            }
+            verify_schemes::ensure_closed_type(&ty)?;
+        }
+        if checked_result_control_flow {
+            if fact.function_ref().is_some() || fact.with_error_source() {
+                return Err(IrVerifyError::new("Result control-flow contract carries unrelated evidence"));
             }
             verify_schemes::ensure_closed_type(&ty)?;
         }
@@ -11467,6 +11475,7 @@ impl<'a> FullDecoder<'a> {
             && !checked_unsigned_integer_literal
             && !matches!(&view, schema::ExprView::PreparedConstant(_))
             && !checked_capture_result
+            && !checked_result_control_flow
             && !checked_result_constructor
         {
             return Err(IrVerifyError::new(
@@ -18441,10 +18450,18 @@ impl FullVerifier {
             let checked_prepared_constant = store.tags[instruction] == FullTag::ExprPreparedConstant;
             let checked_capture_result = matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
                 && matches!(ty, Type::Result(_, _));
+            let checked_result_control_flow = matches!(store.tags[instruction], FullTag::ExprMatch | FullTag::ExprValueBlock)
+                && matches!(ty, Type::Result(_, _));
             let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], &ty)?;
             if checked_capture_result {
                 if fact.function_ref().is_some() || fact.with_error_source() {
                     return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
+                }
+                verify_schemes::ensure_closed_type(&ty)?;
+            }
+            if checked_result_control_flow {
+                if fact.function_ref().is_some() || fact.with_error_source() {
+                    return Err(IrVerifyError::new("Result control-flow contract carries unrelated evidence"));
                 }
                 verify_schemes::ensure_closed_type(&ty)?;
             }
@@ -18469,6 +18486,7 @@ impl FullVerifier {
                 && !checked_unsigned_integer_literal
                 && !checked_prepared_constant
                 && !checked_capture_result
+                && !checked_result_control_flow
                 && !checked_result_constructor
             {
                 return Err(IrVerifyError::new(

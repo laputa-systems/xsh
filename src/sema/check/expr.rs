@@ -1124,8 +1124,7 @@ impl Checker {
                     );
                 }
                 self.require_effect(crate::syntax::node::Effect::Fs, expr.span, "`tempdir`");
-                // The path is written outside the scope: the directory name
-                // is not bound yet.
+                self.require_effect(crate::syntax::node::Effect::Error, expr.span, "`tempdir`");
                 if let Some(path) = path {
                     let ty = self.check_expr_arena(arena, source, *path, Some(&Type::Path));
                     self.expect_type(&Type::Path, &ty, arena.arena.expr(*path).span);
