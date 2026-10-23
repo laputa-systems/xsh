@@ -12,20 +12,35 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
-The latest combined source `f87c6d69a` passes the full Rust library boundary:
-2,205 pass, zero fail, and three remain ignored. Matching XSH and XSHT
-verification products build without warnings. The source tree is
-`19d8eda5efd1eeb42601354bd79194123df8d753`. The full-library log is
-`.work/wt/full-inference-integration/.work/tmp/repaired-full-library.log`;
+The latest full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
+zero fail, and three remain ignored. Matching XSH and XSHT verification products
+build without warnings. The source tree is
+`d39903e9fe794a7fd811da1fd3c8a26c83290e36`. The full-library log is
+`.work/wt/full-inference-integration/.work/tmp/parameter-context-full-library.log`;
 matching build and products are in
-`.work/wt/full-inference-repaired-qualification/.work/`.
+`.work/wt/full-inference-parameter-context-qualification/.work/`.
 
-The XSH product is 42,429,240 bytes with SHA-256
-`60ec49f6f0e97ea1fc5c93a2a8adcaece0cb2b48d17f384217489114a222f476`.
-The XSHT product is 50,784,152 bytes with SHA-256
-`54ffcce8d56cc5f5461f028ba67c2fa2b599d30280757e52d8c8d60641a2be65`.
-The system-report orchestration and joint corpus checks now use these frozen
-products. Native capability, corpus and final campaign qualification remain open.
+The XSH product is 42,430,688 bytes with SHA-256
+`2cdbaa455fa16693fded208c7e7185ecdbe698681a592255e601d45f73c8f9da`.
+The XSHT product is 50,785,576 bytes with SHA-256
+`ac69cff66fa4f12054f0ad831b873c26a5089aa08bd7ced2687e8b722252e713`.
+Normal and forced-frame capability runs each pass all 143 selectors with zero
+failures or skips; the preceding 140-selector boundary is retained. All six API
+catalog selectors pass. Their logs and detail directories are under that
+checkout's `.work/tmp/parameter-context-native-{normal,forced,api}`. These
+results establish this capability boundary, not corpus or final qualification.
+
+The original corpus now passes the require-target check, then its first
+system-report selector stops at a missing ground RecordUpdate proof. The
+historical 1,040-removal cohort alone also fails on the preceding `f87c6d69a`
+products with seven diagnostics: one list splice, one arithmetic generalization,
+two sort keys and three cold generic-argument builds. Additional Proc/effect
+erasures are not needed to reproduce those seven failures. Their raw log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-joint-f87c6d69-historical1843-utility9-diagnostic.log`.
+The list-splice fix `70ee168f6`, integrated as `efa83632e`, resolves the canonical
+inferred operand shape before enforcing List-only splicing. Six controls pass,
+including Result/Stream rejection; independent review is clear. Other causes
+are under investigation. This later repair needs broader combined qualification.
 
 The preceding frozen source `4fafeefbb` has 2,193 library passes, six failures
 and three ignores. Its matching system-report selector also fails before its
@@ -160,7 +175,8 @@ Parameter-context repair `d9d43aecd`, integrated as `3b9bac2ea`, retains the
 selected parameter's structural schema context, preserving actual nominal and
 rest-item schemas. All six controls pass, including Any/callable/unresolved
 target rejections and nominal-instance retention. Independent review is clear;
-the actual corpus failure needs a matching-product replay.
+the matching-product replay passes that typing boundary but stops at the
+separate RecordUpdate proof gap described above.
 
 A nine-utility diagnostic reaches the jointly reduced ten-XSH-root check and
 fails with 1,501 diagnostics. These are not independent causes. One source-backed
