@@ -194,3 +194,25 @@ show([1, 2, 3], {rows: [[4], [5]]})
   assert after.stdout == before.stdout
   assert after.stdout == "3 4 0\n"
 }
+
+test test_inferred_range_storage_preserves_guarded_last_element_reads { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""type Span = {first: Int, last: Int}
+proc ranges(spans: List[Span]) -> List[Span] {
+  var merged = []
+  assert merged.is_empty()
+  for span in spans |> sort-by .first {
+    if ! merged.is_empty() and span.first <= merged[-1].last {
+      let previous = merged[-1]
+      merged = [@merged[..merged.len() - 1], {first: previous.first, last: if span.last > previous.last { span.last } else { previous.last }}]
+    } else { merged += [span] }
+  }
+  merged
+}
+assert ranges([{first: 1, last: 2}, {first: 3, last: 4}]) == [{first: 1, last: 2}, {first: 3, last: 4}]
+assert ranges([{first: 2, last: 4}, {first: 1, last: 3}]) == [{first: 1, last: 4}]
+""",
+  )?
+  assert output.success, output.stderr
+}

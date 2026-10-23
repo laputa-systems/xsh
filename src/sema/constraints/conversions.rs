@@ -36,8 +36,9 @@ impl TypeConstraints {
                 Ok(())
             }
             Type::List(item) if matches!(conversion, ValueConversion::ArgvOrList | ValueConversion::ArgvList) => self.require_conversion_inner(&item, ValueConversion::Argv, origin, changes),
-            Type::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList) => {
-                for member in members { self.require_conversion_inner(&member, ValueConversion::Argv, origin, changes)?; }
+            Type::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList | ValueConversion::ProcessWord) => {
+                let member_conversion = if conversion == ValueConversion::ProcessWord { conversion } else { ValueConversion::Argv };
+                for member in members { self.require_conversion_inner(&member, member_conversion, origin, changes)?; }
                 Ok(())
             }
             Type::Validated(value) => self.require_conversion_inner(value.base(), conversion, origin, changes),
@@ -80,7 +81,7 @@ mod tests {
     #[test]
     fn conversion_requirements_keep_distinct_domains_and_original_union_cells() {
         for conversion in ValueConversion::ALL {
-            for actual in [Type::Str, Type::Int, Type::Float, Type::List(Box::new(Type::Str)), Type::List(Box::new(Type::Float)), Type::Any] {
+            for actual in [Type::Str, Type::Path, Type::Int, Type::Bool, Type::Float, Type::List(Box::new(Type::Str)), Type::List(Box::new(Type::Path)), Type::List(Box::new(Type::Float)), Type::Union(vec![Type::Str, Type::Path]), Type::Any] {
                 let mut constraints = TypeConstraints::default();
                 let value = constraints.fresh(span());
                 let alias = constraints.fresh(span());

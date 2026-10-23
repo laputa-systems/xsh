@@ -12,15 +12,54 @@ The owner's 2026-10-23 closeout order retains inference qualification, local
 `master` integration and cleanup before Pyramid closes. The subsequent request
 expands independent Pyramid implementation now, alongside inference, using five
 expert lanes initially. The repeated acceleration request now widens this to
-seven expert lanes plus the coordinator, retaining the shared two-build and
-single-native limits. Independent checker repairs proceed while lowering owns
+eight expert lanes plus the coordinator, retaining the shared two-build and
+single-native limits. Generic pipeline support has a separate expert so it
+does not wait behind pattern and record-constructor support. Independent checker repairs proceed while lowering owns
 their earlier prerequisites; ready reviews run alongside implementation.
 Approvals and next assignments use the follow-up operation that resumes idle
 lanes. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Provisional inference source `a1fa6bcb2` integrates scoped mutable argument
+Current provisional source `ae7128949` integrates the strict process-word,
+boxed Null-return and pure conditional Result-tail repairs. Focused checks
+pass, including both execution routes and cold producer mutations. The exact
+historical `dev/main` module now prepares and verifies. No additional annotation
+removals receive credit until the complete paired corpus boundary passes.
+
+Matching products for frozen `d8d1dc1cf` complete their build without warnings.
+Normal and forced-frame capability runs each pass 143 of 144 exact selectors.
+Both failures are the obsolete Null-return rejection and its exposed lowering
+defect, repaired in `cfdb67eca`. All six API selectors pass. The complete
+historical replay stops at the conditional Result-tail defect in `dev/main`,
+repaired in `ae7128949`. These failed runs remain failed qualification evidence.
+Logs and products remain in `.work/wt/full-inference-calendar-product-qualification/.work/`.
+
+Matching source `ae7128949`, tree `ebc36708681add9e4b751a75e26bbfd5da41efdf`,
+builds XSH, XSHT and XSHI without warnings. All 144 capability selectors pass
+in each normal and forced-frame mode. All six API selectors pass. The runner
+checks the exact listed and executed family roster in one container, then runs
+the eight legacy selectors individually. No required selector is removed.
+Products and native logs remain in `.work/wt/full-inference-return-wave-qualification/.work/`.
+
+Its historical paired replay passes all eleven roots in both views and all
+twenty-one original selectors. The reduced cut boundary then fails at
+`test_cut_keeps_adjacent_range_boundaries`: a negative list index fails inside
+a guarded condition. Interface qualification does not run. This runtime
+defect has a dedicated owner and blocks corpus credit. Its log is
+`.work/wt/full-inference-effect-corpus/.work/tmp/frozen-return-wave-replay-r2.log`.
+The remaining twenty reduced selectors pass a bounded diagnostic replay with
+matching source, products and input guards. That replay isolates the observed
+runtime failure. It supplies no full paired or interface qualification credit.
+
+Optional argument conversion, pattern-body support and pipeline-body support
+continue independently while the cut regression is repaired.
+Pyramid experts finish mixed execution, byte-safe input tracking and stale
+result reporting in separate worktrees. Product preparation overlaps source
+work, under the existing two-Cargo and single-native limits. Qualification
+still requires matching source, products and complete applicable checks.
+
+Earlier provisional inference source `a1fa6bcb2` integrates scoped mutable argument
 proofs, deferred sort-key checks, closed Null returns and pure-return validation.
 Focused controls pass. The actual historical system-report checker goes from
 two sort errors to zero. The mutable argument repair passes twelve controls
@@ -50,10 +89,10 @@ generic-body eligibility errors remain. Those identify missing nominal variant
 producer evidence and are not a module pass or new removal credit.
 
 Matching verification products for frozen `a1fa6bcb2`, tree
-`ec65b4deec4eadffc83d062e11bae93609c0ea20`, are building in
-`.work/wt/full-inference-historical-product-qualification/` for the next corpus
-replay. No result is accepted until that owned command terminates and its
-source/products are checked.
+`ec65b4deec4eadffc83d062e11bae93609c0ea20`, complete their build in
+`.work/wt/full-inference-historical-product-qualification/`.
+Its historical replay fails before qualification. Later repairs and the next
+matching replay supersede that failed attempt without erasing its evidence.
 
 Frozen source `f1a8e1a4c`, tree
 `faba8d431c89c211076b5e8155ff21b2ba280b91`, passes the complete library command:

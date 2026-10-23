@@ -219,8 +219,11 @@ owned requirement and actual producer contracts. A generic negative literal
 uses the existing invocation substitution to select list-from-end access or a
 negative map key before the receiver value is read. Binding-dependent sites and
 their ancestors use scheduled execution, preserving the active substitution on
-both evaluator routes. Computed negative indices retain ordinary evaluation;
-there is no runtime overload search or value-tag selection of literal meaning.
+both evaluator routes. At body closure, a registered source operation with a
+resolved List receiver publishes its owned negative-literal distance for ordinary
+lowering. A closed Map keeps its ordinary negative key. Computed
+negative indices retain ordinary evaluation; there is no runtime overload
+search or value-tag selection of literal meaning.
 
 Unsigned map keys use the canonical UInt validator and existing lexical
 propagation flow. At erased function returns, the authenticated substituted
@@ -244,6 +247,11 @@ on both evaluator routes:
 The last two rows are rejected because any `Int` key can fail UInt validation,
 and a Schema error cannot satisfy the declared `Str` error payload. A separately
 validated `UInt` key preserves a stored `Result[Int, Str]` error as data.
+
+Pending registered methods constrain their result cell when every viable
+candidate has the same closed concrete return type. Receiver selection remains
+pending, and no selected call evidence is published until a unique operation
+is established.
 
 Finite registered method families retain their receiver, source-ordered
 arguments, parameter slots and result in the checked scheme. Each physical
@@ -523,8 +531,11 @@ a reference to its actual caller-owned application requirement. Ground invocatio
 evidence still requires a selected layout. Physical verification must compare the
 substituted application relationship against that caller requirement independently
 of constructor range checks. Declaration-owned requirements remain distinct
-from nongeneralizing invocations. Nested committed transactions and speculative
-trials share the same journal, including fresh scope ownership and panic rollback.
+from nongeneralizing invocations. Strict `process.command_argv` word requirements
+use the same conversion requirements for inference, substitution, and cold body
+proof; argv retains an invariant list item binder. Nested committed transactions
+and speculative trials share the same journal, including fresh scope ownership
+and panic rollback.
 Direct source applications retain one declaration-and-expression identity across
 constraint probes. Instantiated requirements remain separate activations.
 A deferred Proc return envelope refers to an explicit application identity and

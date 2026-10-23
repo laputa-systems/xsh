@@ -31,15 +31,16 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList }
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord }
 
 impl ValueConversion {
-    pub(crate) const ALL: [Self; 4] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList];
+    pub(crate) const ALL: [Self; 5] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord];
 
     pub(crate) fn accepts(self, ty: &Type) -> bool {
         if ty.contains_recovery() || ty.contains_any() { return false; }
         match self {
             Self::Display => ty.can_display(),
+            Self::ProcessWord => ty.can_be_process_command_argv_item(),
             Self::Argv => ty.can_be_argv_item(),
             Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
             Self::ArgvList => matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
@@ -63,7 +64,7 @@ impl ValueConversionSet {
     pub(crate) fn accepts(self, ty: &Type) -> bool { ValueConversion::ALL.into_iter().all(|conversion| !self.contains(conversion) || conversion.accepts(ty)) }
     pub(crate) fn is_satisfiable(self, map_key: bool) -> bool {
         !self.contains(ValueConversion::ArgvList)
-            || !(map_key || self.contains(ValueConversion::Display) || self.contains(ValueConversion::Argv))
+            || !(map_key || self.contains(ValueConversion::Display) || self.contains(ValueConversion::Argv) || self.contains(ValueConversion::ProcessWord))
     }
 }
 
@@ -1352,7 +1353,7 @@ impl SchemeType {
             Self::Parameter(parameter) => parameters(*parameter).is_some_and(|required| required.contains(conversion)),
             Self::Validated(_, inner) => inner.satisfies_conversion(conversion, parameters),
             Self::List(item) if matches!(conversion, ValueConversion::ArgvList | ValueConversion::ArgvOrList) => item.satisfies_conversion(ValueConversion::Argv, parameters),
-            Self::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList) => members.iter().all(|member| member.satisfies_conversion(ValueConversion::Argv, parameters)),
+            Self::Union(members) if matches!(conversion, ValueConversion::Argv | ValueConversion::ArgvOrList | ValueConversion::ProcessWord) => members.iter().all(|member| member.satisfies_conversion(if conversion == ValueConversion::ProcessWord { conversion } else { ValueConversion::Argv }, parameters)),
             actual => actual.closed_ground_type().is_some_and(|actual| conversion.accepts(&actual)),
         }
     }

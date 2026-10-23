@@ -102,3 +102,31 @@ print "after explicit propagation"
   assert output.success, output.stderr
   assert output.stdout == "after discard\nafter mutable discard\nafter explicit propagation\n"
 }
+
+test test_full_inference_late_byte_receivers_preserve_optional_comparisons { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure bytes_length(raw: Bytes) -> Int { raw.len() }
+pure text_length(raw: Str) -> Int { raw.byte_len() }
+pure bytes_probe(raw) {
+  let equal = raw.byte_at(0) == 65
+  let missing = raw.byte_at(9) == null
+  let size = bytes_length(raw)
+  {equal, missing, size}
+}
+pure text_probe(raw) {
+  let equal = raw.byte_at(0) == 65
+  let missing = raw.byte_at(9) == null
+  let size = text_length(raw)
+  {equal, missing, size}
+}
+assert bytes_probe(b"A") == {equal: true, missing: true, size: 1}
+assert bytes_probe(b"B") == {equal: false, missing: true, size: 1}
+assert bytes_probe(b"") == {equal: false, missing: true, size: 0}
+assert text_probe("A") == {equal: true, missing: true, size: 1}
+assert text_probe("B") == {equal: false, missing: true, size: 1}
+assert text_probe("") == {equal: false, missing: true, size: 0}
+""",
+  )?
+  assert output.success, output.stderr
+}

@@ -2696,10 +2696,7 @@ impl Checker {
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
         if target_ty == Type::Any {
             self.reject_dynamic_use("a command target", None, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span));
-        } else if !matches!(
-            target_ty.unvalidated(),
-            Type::Str | Type::Path | Type::Unknown
-        ) {
+        } else if !self.require_value_conversion(&target_ty, crate::sema::schemes::ValueConversion::ProcessWord, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span)) {
             self.error(
                 slots[0]
                     .map(|k| call_arg_span_arena(arena, k))
@@ -2744,8 +2741,6 @@ impl Checker {
         if let Some(arg) = slots[14] {
             self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg));
         }
-        // The overloads differ only in parameter types, so either binds the
-        // entries lowering consumes by parameter name.
         if let Some(sig) = api_spec()
             .module("process")
             .and_then(|module| module.function_overloads("command_argv"))
@@ -2806,7 +2801,7 @@ impl Checker {
                 };
                 if item_ty == Type::Any {
                     self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
-                } else if !item_ty.can_be_process_command_argv_item() {
+                } else if !self.require_value_conversion(&item_ty, crate::sema::schemes::ValueConversion::ProcessWord, arena.arena.expr(item.value).span) {
                     self.error(
                         arena.arena.expr(item.value).span,
                         "process.command_argv argv items must be Str or Path",
@@ -2818,8 +2813,23 @@ impl Checker {
         }
 
         let actual = self.check_call_arg_arena(arena, source, arg, None);
+        let argument_span = call_arg_span_arena(arena, arg);
+        let actual = match self.type_constraints.resolve(&actual) {
+            Ok(Type::Inference(variable)) => {
+                let level = self.type_constraints.type_level(variable).expect("a resolved process argv belongs to its inference problem");
+                let item = self.type_constraints.fresh_at_level(argument_span, level);
+                let list = Type::List(Box::new(item));
+                self.expect_type(&list, &actual, argument_span);
+                list
+            }
+            Ok(actual) => actual,
+            Err(error) => {
+                self.error(argument_span, &format!("process argv type resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
         match actual.into_unvalidated() {
-            Type::List(item) if item.can_be_process_command_argv_item() => {}
+            Type::List(item) if self.require_value_conversion(&item, crate::sema::schemes::ValueConversion::ProcessWord, argument_span) => {}
             Type::Any => self.reject_dynamic_use("an argv list", None, call_arg_span_arena(arena, arg)),
             Type::List(item) if *item == Type::Any => self.reject_dynamic_use("an argv word", None, call_arg_span_arena(arena, arg)),
             Type::Unknown => {}
@@ -3375,5 +3385,47 @@ mod generic_alias_call_tests {
                 "generic call instantiation failed: type argument remains unresolved"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod process_argv_inference_tests {
+    fn accepts(definition: &str) {
+        let source = format!("type Spec = {{cwd: Path, environment: Record}}\n{definition}\nlet plan: Command = make({{cwd: p\".\", environment: {{}}}}, \"true\", [\"true\"])\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_process_arguments_preserve_the_required_record_fields() {
+        accepts("pure make(spec: Spec, target: Str, argv: List[Str]) -> Command { process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment) }");
+    }
+
+    #[test]
+    fn inferred_process_arguments_preserve_the_required_record_fields() {
+        accepts("pure make(spec, target, argv) { process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment) }");
+    }
+
+    #[test]
+    fn inferred_process_arguments_reject_nonwords_dynamic_lists_and_storage_widening() {
+        for body in [
+            "let plan = make(1, [\"word\"])", "let plan = make(true, [\"word\"])", "let plan = make(\"word\", [1])", "let plan = make(\"word\", [true])",
+            "let erased: List[Any] = [\"word\"]; let plan = make(\"word\", erased)",
+            "let erased: Any = \"word\"; let plan = make(erased, [\"word\"])",
+        ] {
+            let source = format!("pure make(target, argv) {{ process.command_argv(target, argv) }}\n{body}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        let source = "pure make(words) { process.command_argv(\"word\", words) }\npure keep(words: List[Str]) -> List[Union[Str, Path]] { let _ = make(words); words }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
     }
 }

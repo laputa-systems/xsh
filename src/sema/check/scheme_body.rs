@@ -530,6 +530,24 @@ pub(super) fn is_body_expression(
                 let Some(inner) = comprehension_bindings(program, bindings, available, qualifiers, |available, expression| is_body_expression(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression)) else { return false };
                 if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expr) { return false; }
             }
+            ArenaExprKind::StructuredPipeline { input, stages } => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(input);
+                for stage in program.arena.stream_stages(stages) {
+                    if stage.block.is_some() || !matches!(stage.kind,
+                        crate::syntax::node::StreamStageKind::Enumerate | crate::syntax::node::StreamStageKind::Drop
+                        | crate::syntax::node::StreamStageKind::Take | crate::syntax::node::StreamStageKind::Collect
+                        | crate::syntax::node::StreamStageKind::Count | crate::syntax::node::StreamStageKind::First
+                        | crate::syntax::node::StreamStageKind::Last)
+                    { return false; }
+                    for argument in program.arena.call_args(stage.args) {
+                        match argument.kind {
+                            ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }
+                            | ArenaCallArgKind::NamedSpread { value, .. } | ArenaCallArgKind::Splice { value, .. } => pending.push(value),
+                        }
+                    }
+                }
+            }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let Some(inner) = comprehension_bindings(program, bindings, available, qualifiers, |available, expression| is_body_expression(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression)) else { return false };
                 if ![key, value].into_iter().all(|expression| is_body_expression(program, owner_kind, prepared, command_sites, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, expression)) { return false; }
@@ -1822,6 +1840,23 @@ mod contextual_variant_body_tests {
             assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
             assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
             assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit)) || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "{:?}", result.result);
+        }
+    }
+}
+
+#[cfg(test)]
+mod structured_pipeline_body_tests {
+    #[test]
+    fn generic_structured_pipeline_preserves_item_binders() {
+        for source in [
+            "pure keep(value) { [value, value] |> drop(1) }\nlet number: List[Int] = keep(7)\nlet word: List[Str] = keep(\"kept\")\n",
+            "pure keep(value) { let rows = [1, 2] |> enumerate; {value, rows} }\nlet number = keep(7)\nlet word = keep(\"kept\")\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena(&parsed.arena, source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{source}\n{errors:?}");
         }
     }
 }

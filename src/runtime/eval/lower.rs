@@ -526,7 +526,7 @@ fn scheme_completion_result_parts(ty: &SchemeType) -> Option<(SchemeType, Scheme
 fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
     while let SchemeType::Validated(_, base) = ty { ty = base; }
     match ty {
-        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Optional(_))),
+        SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Null | Type::Optional(_))),
         SchemeType::Callable { kind, .. } => Some(LoweredType::Function(*kind)),
         SchemeType::SchemeCallable(_) => Some(LoweredType::SchemeCallable),
         SchemeType::List(_) => Some(LoweredType::List),
@@ -4744,6 +4744,37 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.lower_scheme_set_of_list(list, span)?
                 } else { list }
             }
+            ArenaExprKind::StructuredPipeline { input, stages } => {
+                let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
+                let mut lowered_stages = Vec::new();
+                for stage in self.program.arena.stream_stages(stages).to_vec() {
+                    if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
+                    let mut configuration = Vec::new();
+                    let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+                    let lowered = match stage.kind {
+                        StreamStageKind::Drop | StreamStageKind::Take => {
+                            if arguments.len() != 1 || self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() != [0] { return self.block_scheme_lowering_expr(expression); }
+                            let value = arguments[0].lowered?;
+                            let ty = lowered_types.get(&value)?.clone();
+                            configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                            let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+                            lowered_types.insert(value, ty);
+                            if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
+                        }
+                        StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
+                            StreamStageKind::Enumerate => LoweredPipelineStage::Enumerate,
+                            StreamStageKind::Collect => LoweredPipelineStage::Collect,
+                            StreamStageKind::Count => LoweredPipelineStage::Count,
+                            StreamStageKind::First => LoweredPipelineStage::First,
+                            StreamStageKind::Last => LoweredPipelineStage::Last,
+                            _ => unreachable!(),
+                        },
+                        _ => return self.block_scheme_lowering_expr(expression),
+                    };
+                    lowered_stages.push(lowered);
+                }
+                push_build_row!(self, expr, BuildExprRow::ListPipeline { input, stages: lowered_stages, span })
+            }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let saved = slots.enter();
                 let qualifiers = self.lower_scheme_comp_qualifiers(qualifiers, slots, current_function, facts, visited, lowered_types)?;
@@ -4994,7 +5025,29 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
                         ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
                     }
-                    if let (Some(receiver), Some(crate::modules::MethodReceiver::Path)) = (receiver, plan.receiver)
+                    if receiver.is_none() && plan.signature.op == RuntimeOp::ProcessCommandArgv {
+                        if ordered.len() > 16 { return self.block_scheme_lowering_expr(expression); }
+                        let command = LoweredProcessCommandArgv {
+                            target: ordered.first().copied().flatten()?,
+                            argv: ordered.get(1).copied().flatten()?,
+                            cwd: ordered.get(2).copied().flatten(),
+                            env: ordered.get(3).copied().flatten(),
+                            stdin: ordered.get(4).copied().flatten(),
+                            stdout: ordered.get(5).copied().flatten(),
+                            stderr: ordered.get(6).copied().flatten(),
+                            stdout_append: ordered.get(7).copied().flatten(),
+                            stderr_append: ordered.get(8).copied().flatten(),
+                            timeout: ordered.get(9).copied().flatten(),
+                            detach: ordered.get(10).copied().flatten(),
+                            new_session: ordered.get(11).copied().flatten(),
+                            ignore_hup: ordered.get(12).copied().flatten(),
+                            cpu_max: ordered.get(13).copied().flatten(),
+                            accept: ordered.get(14).copied().flatten(),
+                            same_group: ordered.get(15).copied().flatten(),
+                            span,
+                        };
+                        push_build_row!(self, expr, BuildExprRow::ProcessCommandArgv(Box::new(command)))
+                    } else if let (Some(receiver), Some(crate::modules::MethodReceiver::Path)) = (receiver, plan.receiver)
                         && !plan.signature.pure
                         && plan.signature.effects.contains(&crate::syntax::node::Effect::Fs)
                     {

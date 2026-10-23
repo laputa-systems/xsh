@@ -10583,12 +10583,12 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_index_result_type(&self, base: usize, index: Option<usize>) -> Result<Type, IrVerifyError> {
-        let Some(base_type) = self.expression_checked_type_id(base)? else {
-            return Err(IrVerifyError::new(
-                "callable index producer is missing its checked base type",
-            ));
+        let base_type = match self.expression_checked_type_id(base)? {
+            Some(base_type) => self.store.semantic.to_type(base_type)?,
+            None => self.derive_checked_expression_type(base)?.ok_or_else(|| {
+                IrVerifyError::new("callable index producer is missing its checked base type")
+            })?,
         };
-        let base_type = self.store.semantic.to_type(base_type)?;
         if base_type == Type::Any
             && let Some(prefix) = &self.producer_prefix
             && let Some(narrowed) = prefix.runtime_list_read_type(self, base)?
@@ -22693,6 +22693,185 @@ pure keep(value, state: State) {
             payload.store.blocks[block.index()].instructions = IrRange::new(start, 2);
             for step in &mut payload.store.driver_steps { step.instruction_start = end + 1; }
             assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic nullary tag producer has payload fields");
+        });
+    }
+
+    #[test]
+    fn ground_result_tails_authenticate_conditional_error_arms() {
+        run_with_large_stack(|| {
+            for annotation in ["", " -> Result[Selection, Usage]"] {
+                let source = format!(r#"
+enum Selection {{ First, Second }}
+enum OtherSelection {{ Foreign }}
+error Usage = Invalid(message: Str)
+error OtherUsage = Invalid(message: Str)
+pure usage(message: Str) {{ Usage.Invalid(message) }}
+pure other_usage(message: Str) {{ OtherUsage.Invalid(message) }}
+pure foreign() -> OtherSelection {{ Foreign }}
+pure select(value: Str){annotation} {{
+    match value {{
+        "first" => First
+        "second" => Second
+        else => Err(usage("invalid"))
+    }}
+}}
+pure stored(value: Str) -> Result[Selection, Usage] {{
+    var selected = First
+    if value == "second" {{ selected = Second }}
+    match value {{
+        "invalid" => Err(usage("invalid"))
+        else => selected
+    }}
+}}
+pure boxed(value: Str) -> Result[Result[Selection, Usage], Error] {{
+    if value == "first" {{ return Ok(select("invalid")) }}
+    Ok(select("first"))
+}}
+pure keep(value) {{ value }}
+assert keep(select("first")) == Ok(First)
+assert keep(select("second")) == Ok(Second)
+assert match keep(select("invalid")) {{ Err(_) => true; Ok(_) => false }}
+assert keep(stored("first")) == Ok(First)
+assert keep(stored("second")) == Ok(Second)
+assert match keep(stored("invalid")) {{ Err(_) => true; Ok(_) => false }}
+let opaque_error = keep(boxed("first"))
+let opaque_success = keep(boxed("second"))
+"#);
+                let program = Arc::new(fixture("ground-result-conditional-errors.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    }
+                    for (input, error_data) in [("first", true), ("second", false)] {
+                        let value = evaluator.call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&program, "boxed")), CallableKind::Pure,
+                            &[Value::Str(input.into())], Span::at(program.store.source_id, 0),
+                        ).unwrap().unwrap();
+                        let Value::Result(crate::runtime::value::ResultValue::Ok(inner)) = value else { panic!("outer success must retain the authored Result payload") };
+                        assert!(matches!(*inner, Value::Result(crate::runtime::value::ResultValue::Err(_))) == error_data);
+                        assert!(matches!(*inner, Value::Result(crate::runtime::value::ResultValue::Ok(_))) != error_data);
+                    }
+                }
+                let other = function_instruction_indices(&program, "foreign", FullTag::ExprTag)[0];
+                let other_words = program.store.data[other].range().bounds(program.store.extra.len()).unwrap();
+                for name in ["select", "stored"] {
+                    let tag = function_instruction_indices(&program, name, FullTag::ExprTag)[0];
+                    let words = program.store.data[tag].range().bounds(program.store.extra.len()).unwrap();
+                    let mut wrong_branch = (*program).clone();
+                    wrong_branch.store.in_place.take();
+                    wrong_branch.store.extra[words.start..words.start + 2].copy_from_slice(&program.store.extra[other_words.start..other_words.start + 2]);
+                    let failure = FullVerifier::verify(&wrong_branch).unwrap_err();
+                    assert!(failure.message.contains("producer") || failure.message.contains("contract"), "{failure:?}");
+                }
+                let error = function_instruction_indices(&program, "usage", FullTag::ExprError)[0];
+                let other_error = function_instruction_indices(&program, "other_usage", FullTag::ExprError)[0];
+                let words = program.store.data[error].range().bounds(program.store.extra.len()).unwrap();
+                let other_words = program.store.data[other_error].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[words.start], 1);
+                let mut wrong_error = (*program).clone();
+                wrong_error.store.in_place.take();
+                wrong_error.store.extra[words.start + 1..words.start + 4].copy_from_slice(&program.store.extra[other_words.start + 1..other_words.start + 4]);
+                let failure = FullVerifier::verify(&wrong_error).unwrap_err();
+                assert!(failure.message.contains("error") || failure.message.contains("producer") || failure.message.contains("contract"), "{failure:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn nested_index_writers_authenticate_derived_collection_bases() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("nested-index-writers.xsh", r#"
+pure first() -> Int {
+    let _ = "wrong"
+    var values: List[List[List[Int]]] = [[[7]]]
+    if values[0].is_empty() or values[0][0].len() >= 2 {
+        values[0] = [[9], @values[0]]
+    } else {
+        values[0][0] = [@values[0][0], 8]
+    }
+    identity(values[0][0][0]) + values[0][0].len()
+}
+pure identity(value) { value }
+pure triple(input: List[List[List[Int]]]) -> Int { input[0][0][0] }
+assert first() == 9
+assert triple([[[7]]]) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "first");
+            let decoder = function_view_decoder(&program.store, owner);
+            let text = function_instruction_indices(&program, "first", FullTag::ExprStr)[0];
+            let key = function_instruction_indices(&program, "first", FullTag::ExprIndex).into_iter().find_map(|instruction| {
+                let schema::ExprView::Index { index, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                index.ordinary().map(|key| key.raw() as usize)
+            }).unwrap();
+            let mut wrong_key = (*program).clone();
+            wrong_key.store.tags[key] = program.store.tags[text];
+            wrong_key.store.data[key] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_key).is_err());
+            let value = function_instruction_indices(&program, "first", FullTag::ExprInt).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Int(7))
+            }).unwrap();
+            let mut wrong_source = (*program).clone();
+            wrong_source.store.tags[value] = program.store.tags[text];
+            wrong_source.store.data[value] = program.store.data[text];
+            wrong_source.store.in_place.take();
+            FullVerifier::verify(&wrong_source).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::new(wrong_source.clone()));
+                let error = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "first")), CallableKind::Pure,
+                    &[], Span::at(program.store.source_id, 0),
+                ).unwrap().unwrap_err();
+                assert_eq!(error.kind, "type-error");
+            }
+            let checked = decoder.instruction_range.clone().find_map(|instruction| {
+                let Ok(schema::StmtView::Let { value, annotation: Some(_), .. }) = decoder.statement_view(instruction) else { return None };
+                let root = value.raw() as usize;
+                let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(_), span } = decoder.expression_view(root).unwrap() else { return None };
+                Some((root, value, span))
+            }).unwrap();
+            let mut leaf = checked.1.raw() as usize;
+            for _ in 0..3 {
+                let schema::ExprView::List(mut children) = decoder.expression_view(leaf).unwrap() else { panic!("initializer must retain its physical nested lists") };
+                leaf = children.next().unwrap().unwrap().raw() as usize;
+            }
+            assert_eq!(leaf, value);
+            let mut builder = FullBuilder::new(wrong_source.store.source_id);
+            builder.store = wrong_source.store;
+            let mut payload = Vec::new();
+            payload.push(checked.1.raw());
+            Option::<BuildExprId>::None.encode(&mut builder, &mut payload).unwrap();
+            Option::<BuildExprId>::None.encode(&mut builder, &mut payload).unwrap();
+            checked.2.encode(&mut builder, &mut payload).unwrap();
+            builder.store.tags[checked.0] = FullTag::ExprSlice;
+            builder.store.data[checked.0] = IrData::from_range(builder.push_extra(&payload).unwrap());
+            let mut unchecked_source = (*program).clone();
+            unchecked_source.store = builder.store;
+            unchecked_source.store.in_place.take();
+            let failure = FullVerifier::verify(&unchecked_source).unwrap_err();
+            assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
+            let mut wrong_storage = (*program).clone();
+            let stored = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            let slot = stored.clone().find(|&slot| TypeId::from_raw(program.store.slot_type_facts[slot]).is_some_and(|id| {
+                program.store.semantic.to_type(id).unwrap() == Type::List(Box::new(Type::List(Box::new(Type::List(Box::new(Type::Int))))))
+            })).unwrap();
+            let false_type = SemanticPoolBuilder::default().intern_type(&mut wrong_storage.store.semantic, &Type::List(Box::new(Type::List(Box::new(Type::List(Box::new(Type::Str))))))).unwrap();
+            wrong_storage.store.slot_type_facts[slot] = false_type.raw();
+            assert!(FullVerifier::verify(&wrong_storage).is_err());
         });
     }
 
@@ -54588,6 +54767,110 @@ proc local() [env, error] -> Int {
             lowered_type_from_type(&Type::Unknown),
             Ok(LoweredType::Any)
         );
+    }
+
+    #[test]
+    fn inferred_process_command_words_keep_strict_domains_and_physical_roles() {
+        let program = Arc::new(fixture("inferred-process-command-words.xsh", r#"
+pure make(spec, target, argv, other: List[Int], delay: Duration) {
+    let _ = other
+    process.command_argv(target, argv, cwd: spec.cwd, env: spec.environment, timeout: delay)
+}
+pure other(value) { value }
+let spec = {cwd: p".", environment: {}}
+let text = make(spec, "not-launched", ["not-launched", "--flag"], [1], 10ms)
+let path_plan = make(spec, p"/not-launched", [p"/not-launched", p"--flag"], [2], 20ms)
+let text_value: Any = text
+let path_value: Any = path_plan
+assert text_value is Command
+assert path_value is Command
+assert other(7) == 7
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+        let owner = scheme_fixture_root_function(&program, "make");
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprProcessCommandArgv).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let schema::ExprView::ProcessCommandArgv(command) = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        for argument in [command.target, command.argv, command.timeout.unwrap()] {
+            let argument = argument.raw() as usize;
+            let mut wrong = (*program).clone();
+            let payload = wrong.store.data[argument].range().bounds(wrong.store.extra.len()).unwrap();
+            assert_eq!(payload.len(), 1);
+            wrong.store.extra[payload.start] = 3;
+            FullVerifier::verify(&wrong).expect_err("physical command roles must retain the declared strict domains");
+        }
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == IrFunctionId::new(owner).unwrap() && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+        let mut foreign_owner = (*program).clone();
+        foreign_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(scheme_fixture_root_function(&program, "other")).unwrap();
+        assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+    }
+
+    #[test]
+    fn generic_constant_null_returns_reject_nonnull_physical_producers() {
+        let program = fixture("generic-constant-null-proof.xsh", r#"
+proc unknown_return(value) { return null }
+pure absent(value) { return null }
+pure nonnull(value) { true }
+let integer: Null = unknown_return(7)?
+let text: Null = unknown_return("kept")?
+assert integer == null
+assert text == null
+assert absent(7) == null
+assert absent("kept") == null
+assert nonnull(7)
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let boolean = function_instruction_indices(&program, "nonnull", FullTag::ExprBool)[0];
+        for name in ["unknown_return", "absent"] {
+            let instruction = function_instruction_indices(&program, name, FullTag::ExprNull)[0];
+            let mut wrong = program.clone();
+            wrong.store.tags[instruction] = FullTag::ExprBool;
+            wrong.store.data[instruction] = program.store.data[boolean];
+            FullVerifier::verify(&wrong).expect_err("a boxed Null return must still prove a physical Null producer");
+        }
+    }
+
+    #[test]
+    fn late_byte_at_receivers_preserve_optional_results_after_frontend_disposal() {
+        let program = Arc::new(fixture("late-byte-at-results.xsh", r#"
+pure bytes_length(raw: Bytes) -> Int { raw.len() }
+pure text_length(raw: Str) -> Int { raw.byte_len() }
+pure bytes_probe(raw) {
+    let equal = raw.byte_at(0) == 65
+    let missing = raw.byte_at(9) == null
+    let size = bytes_length(raw)
+    {equal, missing, size}
+}
+pure text_probe(raw) {
+    let equal = raw.byte_at(0) == 65
+    let missing = raw.byte_at(9) == null
+    let size = text_length(raw)
+    {equal, missing, size}
+}
+assert bytes_probe(b"A") == {equal: true, missing: true, size: 1}
+assert bytes_probe(b"B") == {equal: false, missing: true, size: 1}
+assert bytes_probe(b"") == {equal: false, missing: true, size: 0}
+assert text_probe("A") == {equal: true, missing: true, size: 1}
+assert text_probe("B") == {equal: false, missing: true, size: 1}
+assert text_probe("") == {equal: false, missing: true, size: 0}
+"#));
+        FullVerifier::verify(&program).unwrap();
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
     }
 }
 

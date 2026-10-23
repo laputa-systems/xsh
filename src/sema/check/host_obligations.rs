@@ -150,6 +150,14 @@ impl HostMethodCandidates {
             .map(|dependencies| dependencies.into_iter().flatten().collect())
     }
 
+    fn common_closed_result(&self) -> Option<&Type> {
+        let result = &self.candidates.first()?.signature.sig.return_ty;
+        if result.contains_any() || result.contains_recovery() || result.contains_inference()
+            || result.contains_builtin_parameter() || result.contains_scheme_callable()
+        { return None; }
+        self.candidates.iter().all(|candidate| candidate.signature.sig.return_ty == *result).then_some(result)
+    }
+
     fn method_family_requirement(&self, name: &str) -> Option<(xsh_registry::signature::MethodFamilyId, Vec<u32>, Type, &'static MethodSig)> {
         let first = *self.candidates.first()?;
         let family = api_spec().method_family_id(first.receiver, name, first.signature)?;
@@ -315,6 +323,9 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         }
         if self.collecting_local_constraints() {
+            if let Some(result) = obligation.common_closed_result() {
+                self.expect_type(&candidate_result, result, span);
+            }
             let family_result = continuation.owner.filter(|_| {
                 matches!(continuation.source, HostCallSource::Expression(_))
                     && !obligation.receiver.contains_any()
@@ -1268,5 +1279,60 @@ mod tests {
                 assert_eq!(checker.solve_host_obligations(&parsed.arena), Err(expected));
             }
         });
+    }
+
+    fn assert_late_byte_at_receiver(parameter: &str, domain: &str, argument: &str, expected_receiver: MethodReceiver) {
+        let length_method = if expected_receiver == MethodReceiver::Str { "byte_len" } else { "len" };
+        let source = format!(r#"pure receiver_length(raw: {domain}) -> Int {{ raw.{length_method}() }}
+pure probe({parameter}) {{
+    let equal = raw.byte_at(0) == 65
+    let missing = raw.byte_at(9) == null
+    let size = receiver_length(raw)
+    {{equal, missing, size}}
+}}
+let observed = probe({argument})
+"#);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let calls = checked.api_calls.iter().filter(|(span, _)| source[span.range()].contains(".byte_at(")).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|(_, call)| call.receiver == Some(expected_receiver)));
+    }
+
+    #[test]
+    fn typed_byte_at_comparisons_keep_optional_results() {
+        assert_late_byte_at_receiver("raw: Bytes", "Bytes", "b\"A\"", MethodReceiver::Bytes);
+    }
+
+    #[test]
+    fn late_bytes_receiver_keeps_the_common_optional_method_result() {
+        assert_late_byte_at_receiver("raw", "Bytes", "b\"A\"", MethodReceiver::Bytes);
+    }
+
+    #[test]
+    fn late_text_receiver_keeps_the_common_optional_method_result() {
+        assert_late_byte_at_receiver("raw", "Str", "\"A\"", MethodReceiver::Str);
+    }
+
+    #[test]
+    fn common_host_results_preserve_receiver_ambiguity_and_distinct_return_domains() {
+        for source in [
+            "pure ambiguous(raw) { raw.byte_at(0) == 65 }\n",
+            "pure ambiguous(raw) { raw.trim() }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)), "{source}\n{:?}", checked.diagnostics);
+            assert!(checked.api_calls.is_empty());
+        }
+        let source = "pure anchor(raw: Bytes) -> Bytes { raw }\npure narrowed(raw) { let trimmed = raw.trim(); let known = anchor(raw); trimmed }\nlet actual: Bytes = narrowed(b\" A \")\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.api_calls.values().next().unwrap().receiver, Some(MethodReceiver::Bytes));
     }
 }

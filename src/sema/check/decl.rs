@@ -761,6 +761,13 @@ impl Checker {
                 self.expr_types.remove(&program.arena.expr(base).span);
             }
         }
+        let generalized_pipeline_stages = generalized_body_types.keys().filter_map(|&expression| {
+            match program.arena.expr(expression).kind {
+                crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
+                _ => None,
+            }
+        }).flat_map(|stages| program.arena.stream_stages(stages).iter().map(|stage| program.arena.span(stage.span)))
+            .collect::<std::collections::BTreeSet<_>>();
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
@@ -769,6 +776,11 @@ impl Checker {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
         }
+        self.stream_stage_types.retain(|(namespace, span), stage| {
+            *namespace != self.current_namespace || !generalized_pipeline_stages.contains(span)
+                || !(self.type_constraints.resolve(&stage.input).is_ok_and(|ty| ty.contains_inference())
+                    || self.type_constraints.resolve(&stage.output).is_ok_and(|ty| ty.contains_inference()))
+        });
         for span in generalized_body_spans {
             self.expr_types.remove(&span);
             self.projections.remove(&span);

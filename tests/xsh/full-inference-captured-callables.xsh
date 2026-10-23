@@ -90,9 +90,12 @@ print $operation(42)
   test.expect(
     ctx,
     r"""proc unknown_return(value) { return null }
+let integer: Null = unknown_return(42)?
+let text: Null = unknown_return("demo")?
+assert integer == null
+assert text == null
 """,
-    status: 2,
-    stderr: ["[check.infer-return]"],
+    status: 0,
   )?
 }
 

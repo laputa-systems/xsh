@@ -364,6 +364,11 @@ impl Checker {
             assert_eq!(check.owner, self.stream_origin_owner);
             self.validate_stream_sort_key(&check.key, check.contribution);
         }
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        match self.type_constraints.source_list_from_end_indexes(owner) {
+            Ok(indexes) => self.from_end_indexes.extend(indexes),
+            Err(error) => self.error(body, &format!("literal index modes cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference),
+        }
         self.local_inference.collecting = enclosing.collecting;
     }
 

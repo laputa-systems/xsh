@@ -55,6 +55,43 @@ pub(super) fn operands<'a>(
     Ok(())
 }
 
+pub(super) fn process_command_argv(
+    arguments: &[Option<SchemeType>], scope: &super::SchemeScope,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Type, IrVerifyError> {
+    if arguments.len() != 16 { return Err(IrVerifyError::new("generic command has an invalid argument layout")); }
+    let target = arguments[0].as_ref().ok_or_else(|| IrVerifyError::new("generic command has no target"))?;
+    if !super::scheme_conversion(target, super::ValueConversion::ProcessWord, scope, budget)? {
+        return Err(IrVerifyError::new("generic command target disagrees with its strict word requirement"));
+    }
+    let mut argv = arguments[1].as_ref().ok_or_else(|| IrVerifyError::new("generic command has no argv"))?;
+    while let SchemeType::Validated(_, inner) = argv { budget.charge(1)?; argv = inner; }
+    let valid_argv = match argv {
+        SchemeType::List(item) => super::scheme_conversion(item, super::ValueConversion::ProcessWord, scope, budget)?,
+        SchemeType::Ground(ty) => matches!(ty.unvalidated(), Type::List(item) if super::ValueConversion::ProcessWord.accepts(item)),
+        _ => false,
+    };
+    if !valid_argv { return Err(IrVerifyError::new("generic command argv has no strict word list contract")); }
+    let mut selected = false;
+    for signature in crate::modules::signature::native_process_command_option_signatures() {
+        budget.charge(1 + signature.params.len())?;
+        if signature.params.len() != arguments.len() { continue; }
+        let mut fits = true;
+        for (parameter, actual) in signature.params[2..].iter().zip(&arguments[2..]) {
+            fits &= match actual {
+                Some(actual) => {
+                    budget.charge_scheme_clone(actual)?;
+                    actual.closed_ground_type().is_some_and(|actual| actual.matches_expected(&parameter.ty))
+                }
+                None => parameter.defaulted,
+            };
+        }
+        selected |= fits;
+    }
+    if !selected { return Err(IrVerifyError::new("generic command options disagree with their native contract")); }
+    Ok(Type::Command)
+}
+
 pub(super) fn native_call(
     decoder: &super::FullDecoder<'_>,
     op: crate::modules::RuntimeOp, arguments: &[Option<SchemeType>],

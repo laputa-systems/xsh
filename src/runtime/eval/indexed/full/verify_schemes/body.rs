@@ -939,6 +939,53 @@ pub(super) fn verify_body(
                         budget.charge(statements.len())?;
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: Some(claimed) });
                     }
+                    schema::ExprView::ListPipeline { input, mut stages, .. } => {
+                        if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let source = expression_type(types, input.raw() as usize, budget)?;
+                        if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
+                            return Err(IrVerifyError::new("generic pipeline source has no list or stream contract"));
+                        }
+                        let (mut item, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(input.raw() as usize), budget)?;
+                        let mut terminal = None;
+                        let mut stage_ids = Vec::new();
+                        while let Some(stage) = stages.next_with_id() {
+                            budget.charge(1)?;
+                            if terminal.is_some() { return Err(IrVerifyError::new("generic pipeline continues after a terminal stage")); }
+                            let stage = stage?;
+                            stage_ids.push(stage.id.raw());
+                            match stage.view {
+                                super::super::StageView::Enumerate => {
+                                    budget.charge(3)?;
+                                    item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                }
+                                super::super::StageView::Drop(value) | super::super::StageView::Take(value) => {
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
+                                        return Err(IrVerifyError::new("generic pipeline count is not Int"));
+                                    }
+                                    pending.push(Obligation::Expression(value.raw() as usize, scope));
+                                }
+                                super::super::StageView::Collect => {
+                                    budget.charge_scheme_clone(&item)?;
+                                    terminal = Some(SchemeType::List(Box::new(item.clone())));
+                                }
+                                super::super::StageView::Count => terminal = Some(SchemeType::Ground(Type::Int)),
+                                super::super::StageView::First | super::super::StageView::Last => {
+                                    budget.charge_scheme_clone(&item)?;
+                                    terminal = Some(SchemeType::Result(Box::new(item.clone()), Box::new(SchemeType::Ground(Type::Error))));
+                                }
+                                _ => return Err(IrVerifyError::new("generic pipeline contains an unsupported stage contract")),
+                            }
+                        }
+                        let expected = terminal.unwrap_or_else(|| SchemeType::List(Box::new(item)));
+                        if !body_type_matches(&expected, &claimed, budget)? { return Err(IrVerifyError::new("generic pipeline result disagrees with its stage contract")); }
+                        if let Some(stream) = stream {
+                            let mut cardinality = super::super::IndexedCardinalityQuery::new(decoder);
+                            let pulls = super::super::indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality)?;
+                            budget.charge(cardinality.memo.len() + stage_ids.len())?;
+                            if !pulls[0].never { stream_iterations.push((stream, propagation_boundary(&scope, &scopes).clone())); }
+                        }
+                        pending.push(Obligation::Expression(input.raw() as usize, scope));
+                    }
                     schema::ExprView::ListComp { value, qualifiers, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let item = BodyTypeRef::Scheme(&claimed).list_item().ok_or_else(|| IrVerifyError::new("generic comprehension has no list item contract"))?.materialize(budget)?;
@@ -4027,4 +4074,60 @@ mod tests {
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, format!("executable operation requires effect env outside its owner contract: executable operation requires effects outside its owner contract at callable {owner}, instruction {call} ExprCall"));
     }
 
+}
+
+#[cfg(test)]
+mod structured_pipeline_tests {
+    use super::*;
+    use super::super::super::{FullBuilder, FullVerifier};
+
+    fn prepare(source: &str) -> super::super::super::FullProgram {
+        let mut sources = crate::source::SourceMap::default();
+        let source_id = sources.add_file("generic-structured-pipeline.xsh", source.to_owned());
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
+        FullVerifier::verify(&program).unwrap();
+        program
+    }
+
+    #[test]
+    fn generic_structured_pipeline_authenticates_its_item_and_configuration() {
+        let program = prepare("pure keep(value) { [value, value] |> drop(1) |> enumerate }\npure closed(value) { let rows = [1, 2] |> enumerate; {value, rows} }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keep").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let input = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprList).unwrap();
+        let count = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprInt).unwrap();
+        let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut wrong_input = program.clone();
+        wrong_input.store.scheme_body_facts[fact(input)].value = program.store.scheme_body_facts[fact(count)].value;
+        assert!(FullVerifier::verify(&wrong_input).is_err());
+        let mut wrong_count = program.clone();
+        wrong_count.store.scheme_body_facts[fact(count)].value = program.store.scheme_body_facts[fact(input)].value;
+        assert!(FullVerifier::verify(&wrong_count).is_err());
+        let pipeline = range.clone().find(|instruction| program.store.tags[*instruction] == FullTag::ExprPipeline).unwrap();
+        let mut wrong_output = program.clone();
+        wrong_output.store.scheme_body_facts[fact(pipeline)].value = program.store.scheme_body_facts[fact(count)].value;
+        assert!(FullVerifier::verify(&wrong_output).is_err());
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_structured_pipeline_executes_after_disposal_on_both_routes() {
+        let source = "var configured_count = 0\nvar cleaned_count = 0\nstream values(value) { defer { cleaned_count += 1 }; yield value; yield value }\nproc consume(value) { values(value) |> take(1) }\nproc next_count() -> Int { configured_count += 1; 1 }\nproc bad_count() -> Result[Int, Str] { Err(\"bad count\") }\npure keep(value) { [value, value] |> drop(1) |> enumerate }\npure first_value(value) { [value] |> first }\npure last_value(value) { [value, value] |> last }\npure collect_values(value) { [value] |> collect }\npure count_values(value) { [value, value] |> count }\nproc attach(value) { let rows = [1, 2, 3] |> drop(1) |> take(1); {value, rows} }\nproc configured(value) { [value, value] |> drop(next_count()) }\nproc failing(value) { [value] |> drop(bad_count()?) }\ntest generic_pipeline { let integer = keep(7); assert integer[0].index == 0; assert integer[0].value == 7; let text = keep(\"kept\"); assert text[0].value == \"kept\"; let row = attach(7)?; assert row.value == 7; assert row.rows == [2]; assert first_value(7)? == 7; assert last_value(\"kept\")? == \"kept\"; assert collect_values(7) == [7]; assert count_values(\"kept\") == 2; assert configured(7)? == [7]; assert configured_count == 1; assert configured(\"kept\")? == [\"kept\"]; assert configured_count == 2; assert consume(7)? == [7]; assert cleaned_count == 1; assert consume(\"kept\")? == [\"kept\"]; assert cleaned_count == 2; match failing(7) { Err(error) => assert error == \"bad count\"; Ok(_) => assert false } }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-structured-pipeline.xsh", crate::loader::entry_source_from_text("generic-structured-pipeline.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_pipeline", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
+    }
 }
