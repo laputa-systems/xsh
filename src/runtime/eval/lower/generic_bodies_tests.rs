@@ -703,14 +703,25 @@ fn record_form_program(source: &str) -> (Arc<crate::runtime::eval::FullProgram>,
 fn selected_same_signature_stream_callback_runs_after_frontend_disposal() {
     let source = r#"
 type Pair = {left: Stream[Int], right: Stream[Int]}
+type Callback = pure(value: Pair) -> Stream[Int]
 pure left(value: Pair) -> Stream[Int] { value.left }
 pure right(value: Pair) -> Stream[Int] { value.right }
+let left_callback: Callback = left
+let right_callback: Callback = right
 pure select(first, second, value) { second(value) }
-pure relay(value: Pair) -> Stream[Int] { select(left, right, value) }
+pure relay_left(value: Pair) -> Stream[Int] { select(right, left, value) }
+pure relay_right(value: Pair) -> Stream[Int] { select(left, right, value) }
+pure relay_union(value: Pair, choose: Bool) -> Stream[Int] { select(left, if choose { left_callback } else { right_callback }, value) }
 stream left_values() [] -> Stream[Int] { yield 11 }
 stream right_values() [] -> Stream[Int] { yield 22 }
-let selected = relay({left: left_values(), right: right_values()})
-assert selected.collect() == [22]
+let selected_left = relay_left({left: left_values(), right: right_values()})
+assert selected_left.collect() == [11]
+let selected_right = relay_right({left: left_values(), right: right_values()})
+assert selected_right.collect() == [22]
+let selected_union_left = relay_union({left: left_values(), right: right_values()}, true)
+assert selected_union_left.collect() == [11]
+let selected_union_right = relay_union({left: left_values(), right: right_values()}, false)
+assert selected_union_right.collect() == [22]
 "#;
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {

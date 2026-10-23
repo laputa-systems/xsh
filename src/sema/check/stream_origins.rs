@@ -203,6 +203,24 @@ impl StreamOrigins {
         Ok(output)
     }
 
+    fn expand_selected_applications(&self, selected: &BTreeMap<crate::sema::constraints::CallableApplicationReference, Self>) -> Result<Self, StreamOriginBoundaryError> {
+        let mut output = Self::default();
+        for (path, origin) in &self.0 {
+            let StreamOrigin::OriginalApplication { reference, projection } = origin else {
+                output.0.insert((path.clone(), origin.clone()));
+                continue;
+            };
+            let Some(replacement) = selected.get(reference) else {
+                output.0.insert((path.clone(), origin.clone()));
+                continue;
+            };
+            let mut projected = replacement.project(&projection.0)?;
+            for step in path.0.iter().rev() { projected = projected.prefix(step.clone())?; }
+            output.join(&projected);
+        }
+        Ok(output)
+    }
+
     fn normalize_applications(&self, owner: EffectDeclarationId, constraints: &crate::sema::constraints::TypeConstraints, pending: Option<&super::PendingFunctionSig>) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
         for (path, origin) in &self.0 {
@@ -293,6 +311,21 @@ impl StreamOrigins {
             StreamOrigin::Callable(_) | StreamOrigin::Error | StreamOrigin::Opaque | StreamOrigin::Pending(_) | StreamOrigin::OriginalApplication { .. } | StreamOrigin::BinderApplication { .. } | StreamOrigin::DeferredApplication { .. }
                 | StreamOrigin::Formal { .. } | StreamOrigin::OpaqueFormal { .. } => None,
         })
+    }
+
+    fn selected_callable_targets(&self) -> Option<BTreeSet<EffectDeclarationId>> {
+        if self.0.is_empty() { return None; }
+        self.0.iter().try_fold(BTreeSet::new(), |mut targets, (path, origin)| {
+            if !path.0.is_empty() { return None; }
+            let StreamOrigin::Callable(target) = origin else { return None; };
+            targets.insert(*target);
+            Some(targets)
+        })
+    }
+
+    fn has_application_dependency(&self) -> bool {
+        self.0.iter().any(|(_, origin)| matches!(origin,
+            StreamOrigin::OriginalApplication { .. } | StreamOrigin::BinderApplication { .. } | StreamOrigin::DeferredApplication { .. }))
     }
 
     pub(super) fn error() -> Self {
@@ -682,31 +715,83 @@ mod tests {
         use crate::syntax::parser::Parser;
 
         let source = "type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            type Callback = pure(value: Pair) -> Stream[Int]\n\
             pure left(value: Pair) -> Stream[Int] { value.left }\n\
             pure right(value: Pair) -> Stream[Int] { value.right }\n\
+            let left_callback: Callback = left\n\
+            let right_callback: Callback = right\n\
             pure select(first, second, value) { second(value) }\n\
-            pure relay(value: Pair) -> Stream[Int] { select(left, right, value) }\n";
+            pure relay_left(value: Pair) -> Stream[Int] { select(right, left, value) }\n\
+            pure relay_right(value: Pair) -> Stream[Int] { select(left, right, value) }\n\
+            pure relay_union(value: Pair, choose: Bool) -> Stream[Int] { select(left, if choose { left_callback } else { right_callback }, value) }\n\
+            ";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let _symbols = parsed.arena.symbol_owner().enter();
-        let checked = Checker::check_arena(&parsed.arena, source);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-        let declaration = checked.checked_declarations.functions.values()
-            .find(|declaration| declaration.name.as_str().as_str() == "relay")
-            .expect("the forwarding declaration is checked");
-        let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
-        let right = crate::symbol::Name::intern("right");
+        for (relay, parameter, field) in [
+            ("relay_left", 0, "left"), ("relay_right", 0, "right"),
+        ] {
+            let declaration = checked.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str().as_str() == relay)
+                .expect("the forwarding declaration is checked");
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            let field = crate::symbol::Name::intern(field);
+            let summary = &checked.stream_origin_summaries.declarations[&owner];
+            let expected = [(
+                super::ProjectionPath::default(),
+                super::StreamOrigin::Formal {
+                    owner,
+                    parameter,
+                    projection: super::ProjectionPath(vec![StreamProjection::Field(field)]),
+                },
+            )].into_iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(summary.returned.0, expected, "{relay} selects only Pair.{field}");
+        }
+
+        let union = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "relay_union")
+            .expect("the finite callback union is checked");
+        let owner = super::EffectDeclarationId { namespace: None, body: union.body };
         let summary = &checked.stream_origin_summaries.declarations[&owner];
-        let expected = [(
+        let expected = ["left", "right"].into_iter().map(|field| (
             super::ProjectionPath::default(),
             super::StreamOrigin::Formal {
                 owner,
                 parameter: 0,
-                projection: super::ProjectionPath(vec![StreamProjection::Field(right)]),
+                projection: super::ProjectionPath(vec![StreamProjection::Field(crate::symbol::Name::intern(field))]),
             },
-        )].into_iter().collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(summary.returned.0, expected, "the second same-signature callback selects only Pair.right");
+        )).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(summary.returned.0, expected, "a finite callback union keeps both exact projections");
+
+        drop(_symbols);
+        let mixed_source = "type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            type Callback = pure(value: Pair) -> Stream[Int]\n\
+            pure right(value: Pair) -> Stream[Int] { value.right }\n\
+            let known: Callback = right\n\
+            pure select(first, second, value) { second(value) }\n\
+            pure relay(value: Pair, unknown: Callback, choose: Bool) -> Stream[Int] {\n\
+                select(known, if choose { known } else { unknown }, value)\n\
+            }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), mixed_source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena_with_options(&parsed.arena, mixed_source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declaration = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "relay")
+            .expect("the mixed callback forwarder is checked");
+        let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+        let summary = &checked.stream_origin_summaries.declarations[&owner];
+        assert!(summary.returned.0.iter().any(|(_, origin)| matches!(origin,
+            super::StreamOrigin::BinderApplication { owner: application_owner, .. } if *application_owner == owner
+        )), "the unknown callback remains a forwarded application: {summary:?}");
+        assert!(!summary.returned.0.iter().any(|(_, origin)| matches!(origin,
+            super::StreamOrigin::Formal { owner: source, parameter: 0, projection }
+                if *source == owner && projection.0 == [StreamProjection::Field(crate::symbol::Name::intern("right"))]
+        )), "the known branch cannot replace the mixed callback target: {summary:?}");
     }
 
     #[test]
@@ -1110,6 +1195,111 @@ impl Checker {
         Ok(output)
     }
 
+    fn stream_target_summary(&self, target: EffectDeclarationId) -> Option<&StreamReturnSummary> {
+        let current = (target.namespace == self.current_namespace)
+            .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
+            .flatten()
+            .and_then(super::PendingFunctionSig::generalized)
+            .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+        if current.is_none() && target.namespace == self.current_namespace {
+            self.provisional_stream_origins_read.set(true);
+        }
+        current.or_else(|| self.stream_origin_inputs.declarations.get(&target))
+    }
+
+    fn stream_formal_slots(callable: &crate::sema::schemes::CallableScheme) -> BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>> {
+        let mut slots = BTreeMap::new();
+        for (slot, formal) in callable.params().iter().enumerate() {
+            let crate::sema::schemes::SchemeType::Parameter(parameter) = formal.ty else { continue; };
+            match slots.get_mut(&parameter) {
+                Some(slot) => *slot = None,
+                None => { slots.insert(parameter, Some(slot)); }
+            }
+        }
+        slots
+    }
+
+    fn direct_stream_formal_slot(
+        slots: &BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>>,
+        ty: &crate::sema::schemes::SchemeType,
+    ) -> Option<usize> {
+        let crate::sema::schemes::SchemeType::Parameter(parameter) = ty else { return None; };
+        slots.get(parameter).copied().flatten()
+    }
+
+    fn selected_stream_application_origins(
+        &self,
+        arena: &ArenaProgram,
+        source: EffectDeclarationId,
+        returned: &StreamOrigins,
+        callable: &crate::sema::schemes::CallableScheme,
+        instance: &crate::sema::constraints::InstantiatedScheme,
+        actuals: &BTreeMap<usize, StreamOrigins>,
+    ) -> Result<BTreeMap<crate::sema::constraints::CallableApplicationReference, StreamOrigins>, StreamOriginBoundaryError> {
+        let requirements = &callable.requirements().applications;
+        if instance.applications.len() != requirements.len() { return Err(StreamOriginBoundaryError); }
+        let formal_slots = Self::stream_formal_slots(callable);
+        let mut ordinals = BTreeSet::new();
+        for (_, origin) in &returned.0 {
+            match origin {
+                StreamOrigin::OriginalApplication { reference, .. } => {
+                    let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(source))
+                        .ok_or(StreamOriginBoundaryError)?;
+                    let generalized = pending.generalized().ok_or(StreamOriginBoundaryError)?;
+                    let scope = pending.generalized_scope().ok_or(StreamOriginBoundaryError)?;
+                    let ordinal = self.type_constraints.generalized_application_ordinal(
+                        *reference, source, generalized, scope,
+                    ).map_err(|_| StreamOriginBoundaryError)?.ok_or(StreamOriginBoundaryError)?;
+                    ordinals.insert(ordinal);
+                }
+                StreamOrigin::BinderApplication { owner, ordinal, .. } if *owner == source => {
+                    ordinals.insert(*ordinal);
+                }
+                StreamOrigin::BinderApplication { .. } => return Err(StreamOriginBoundaryError),
+                _ => {}
+            }
+        }
+        let mut selected = BTreeMap::new();
+        for ordinal in ordinals {
+            let requirement = requirements.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
+            let id = *instance.applications.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
+            let Some(layout) = self.type_constraints.settled_callable_application_binding(id)
+                .map_err(|_| StreamOriginBoundaryError)? else { continue; };
+            if !layout.omitted_slots.is_empty() { continue; }
+            let Some(callee_slot) = Self::direct_stream_formal_slot(&formal_slots, &requirement.callee) else { continue; };
+            let Some(callee_origins) = actuals.get(&callee_slot) else { continue; };
+            let Some(targets) = callee_origins.selected_callable_targets() else { continue; };
+            if layout.argument_slots.len() != requirement.arguments.len() { continue; }
+            let mut expanded = StreamOrigins::default();
+            let mut complete = true;
+            for target in targets {
+                let Some(callback_summary) = self.stream_target_summary(target) else { complete = false; break; };
+                if callback_summary.returned.has_application_dependency() || callback_summary.returned.has_pending() { complete = false; break; }
+                let Some(target_definition) = self.stream_target_definitions.get(&target) else { complete = false; break; };
+                let definition = arena.arena.function_def(target_definition.definition);
+                let parameters = arena.arena.params(definition.params);
+                if callback_summary.parameters.len() != parameters.len()
+                    || layout.argument_slots.iter().any(|slot| *slot >= parameters.len())
+                    || parameters.iter().any(|parameter| parameter.rest)
+                { complete = false; break; }
+                let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
+                for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
+                    let Some(source_slot) = Self::direct_stream_formal_slot(&formal_slots, &argument.ty) else { complete = false; break; };
+                    let Some(origin) = actuals.get(&source_slot).cloned() else { complete = false; break; };
+                    callback_actuals.entry(slot).or_default().join(&origin);
+                }
+                if !complete { break; }
+                let Ok(returned) = callback_summary.returned.substitute(&callback_actuals) else { complete = false; break; };
+                expanded.join(&returned);
+            }
+            if complete {
+                let reference = self.type_constraints.callable_application_reference(id).map_err(|_| StreamOriginBoundaryError)?;
+                selected.insert(reference, expanded);
+            }
+        }
+        Ok(selected)
+    }
+
     pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
         if self.argument_projection_types.contains_key(&expression) { return; }
         let span = arena.arena.expr(expression).span;
@@ -1235,11 +1425,18 @@ impl Checker {
                             if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
                             if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
-                                let instances = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation()).map(|(_, instance)| instance.applications.as_slice());
+                                let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
+                                let instances = call_instance.map(|(_, instance)| instance.applications.as_slice());
                                 let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));
                                 let deferred_call = self.provisional_function_calls.get(&span).filter(|(owner, callee)| Some(*owner) == self.stream_origin_owner && callee.effect_declaration() == target).map(|(owner, _)| (*owner, span));
                                 let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints, pending, deferred_call)?;
-                                origin.join(&returned.substitute(&arguments)?);
+                                let returned = returned.substitute(&arguments)?;
+                                if let Some((callable, instance)) = call_instance {
+                                    let selected = self.selected_stream_application_origins(arena, target, &summary.returned, callable, instance, &arguments)?;
+                                    origin.join(&returned.expand_selected_applications(&selected)?);
+                                } else {
+                                    origin.join(&returned);
+                                }
                             } else { origin.join(&StreamOrigins::pending(target)); }
                         }
                         Some(origin)

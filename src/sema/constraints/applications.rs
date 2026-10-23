@@ -750,6 +750,14 @@ impl TypeConstraints {
         Ok(CallableApplicationReference { scope: application.owner, ordinal: application.ordinal })
     }
 
+    pub(crate) fn settled_callable_application_binding(&self, id: CallableApplicationId) -> Result<Option<StaticArgumentBinding>, CallableApplicationError> {
+        let application = self.applications.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+        Ok(match application.binding.as_ref() {
+            Some(CallableApplicationBinding::Settled(binding)) => Some(binding.clone()),
+            Some(CallableApplicationBinding::PendingArguments(_)) | None => None,
+        })
+    }
+
     pub(crate) fn referenced_callable_application(&self, reference: CallableApplicationReference) -> Result<CallableApplicationId, CallableApplicationError> {
         self.applications.scopes.get(&reference.scope).and_then(|scope| scope.get(reference.ordinal as usize)).copied()
             .ok_or_else(|| ConstraintResolutionError::ForeignVariable.into())
@@ -883,8 +891,8 @@ impl TypeConstraints {
 
     pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
         instance.applications.iter().map(|id| {
-            if let Some(CallableApplicationBinding::Settled(binding)) = self.applications.entries.get(id).and_then(|entry| entry.binding.as_ref()) {
-                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding.clone()));
+            if let Some(binding) = self.settled_callable_application_binding(*id).map_err(super::SchemeOperationError::Application)? {
+                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding));
             }
             generalization.and_then(|generalization| generalization.applications.get(id)).copied()
                 .map(crate::sema::schemes::CallableApplicationBinding::Forwarded)
