@@ -5944,6 +5944,19 @@ impl<'p> FullExecution<'p> {
         self.program.program()
     }
 
+    pub(in crate::runtime::eval) fn function_return_kind(
+        &self,
+    ) -> Result<Option<LoweredReturnKind>, IrVerifyError> {
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(self.owner)? else {
+            return Ok(None);
+        };
+        let view = self
+            .program()
+            .function_view_at(function.index())
+            .ok_or_else(|| IrVerifyError::new("execution function owner is out of bounds"))?;
+        Ok(Some(view.header()?.return_kind))
+    }
+
     fn store(&self) -> &FullStore {
         self.program.store()
     }
@@ -47197,6 +47210,291 @@ assert check_paths(p"relative")
             let fact = forged_result.store.checked_expr_types.iter_mut().find(|fact| fact.instruction as usize == dynamic_call && fact.is_contract()).unwrap();
             fact.type_id = concrete;
             FullVerifier::verify(&forged_result).expect_err("a passive dynamic result cannot acquire a concrete type");
+        });
+    }
+
+    #[test]
+    fn declared_dynamic_generic_returns_preserve_opaque_inputs() {
+        run_with_large_stack(|| {
+            let grounded = fixture(
+                "declared-dynamic-grounded-return.xsh",
+                "pure direct(value: Any) -> Any { value }\n",
+            );
+            FullVerifier::verify(&grounded).unwrap();
+
+            let generic = Arc::new(fixture(
+                "declared-dynamic-generic-return.xsh",
+                "pure direct(value: Any) -> Any { value }\npure retained(marker, value: Any) -> Any { let _ = marker; value }\npure invoked(value: Any) -> Any { retained(true, value) }\n",
+            ));
+            FullVerifier::verify(&generic).unwrap();
+            let _symbols = generic.symbol_owner().enter();
+            let opaque_values = [
+                Value::Int(7),
+                Value::Str(Arc::from("kept")),
+                Value::Null,
+                Value::Record(crate::runtime::value::RecordMap::from_name_values(vec![(
+                    Name::intern("answer"),
+                    Value::Int(42),
+                )])),
+                Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))),
+                Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str(
+                    Arc::from("kept error data"),
+                )))),
+            ];
+            for force_frames in [false, true] {
+                let mut grounded_evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*grounded.sources).clone(),
+                );
+                grounded_evaluator.indexed_program = Some(Arc::new(grounded.clone()));
+                grounded_evaluator.force_frames = force_frames;
+
+                for value in &opaque_values {
+                    let result = grounded_evaluator
+                        .call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&grounded, "direct")),
+                            CallableKind::Pure,
+                            &[value.clone()],
+                            Span::at(grounded.store.source_id, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(&result, value);
+                }
+
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*generic.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&generic));
+                evaluator.force_frames = force_frames;
+                for value in &opaque_values {
+                    let direct = evaluator
+                        .call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&generic, "direct")),
+                            CallableKind::Pure,
+                            &[value.clone()],
+                            Span::at(generic.store.source_id, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let invoked = evaluator
+                        .call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&generic, "invoked")),
+                            CallableKind::Pure,
+                            &[value.clone()],
+                            Span::at(generic.store.source_id, 0),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(&direct, value);
+                    assert_eq!(&invoked, value);
+                }
+            }
+
+            let owner = scheme_fixture_root_function(&generic, "retained");
+            let FullCallableContract::Scheme(scheme) = generic.store.functions[owner].contract else {
+                panic!("the generic return retains its scheme")
+            };
+            let return_type = generic.store.scheme(scheme).unwrap().return_type;
+            let return_node = generic.store.scheme_types[return_type.index()];
+            assert_eq!(return_node.tag, FullSchemeTypeTag::Ground);
+            assert_eq!(
+                generic
+                    .store
+                    .semantic
+                    .to_type(TypeId::from_raw(return_node.first).unwrap())
+                    .unwrap(),
+                Type::Any
+            );
+            let mut forged = (*generic).clone();
+            let concrete = SemanticPoolBuilder::default()
+                .intern_type(&mut forged.store.semantic, &Type::Int)
+                .unwrap();
+            forged.store.scheme_types[return_type.index()].first = concrete.raw();
+            FullVerifier::verify(&forged)
+                .expect_err("the explicit Any return must remain tied to its checked producer");
+
+            let source = "pure narrowed(value: Any) -> Int { value }\n";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                "dynamic-input-concrete-return.xsh",
+                crate::loader::entry_source_from_text(
+                    "dynamic-input-concrete-return.xsh",
+                    source.to_string(),
+                ),
+                Vec::new(),
+            );
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = SourceMap::files(&sources)
+                .first()
+                .map(crate::source::SourceFile::id)
+                .expect("the entry source is present");
+            let checked = Checker::check_arena_with_sources_and_options(
+                &parsed.arena,
+                &sources,
+                source_id,
+                CheckOptions {
+                    embedded_bodies: true,
+                    ..CheckOptions::default()
+                },
+            );
+            let declarations = Checker::compact_declarations(&parsed.arena, checked);
+            assert!(
+                declarations.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckDynamicBoundary)
+                }),
+                "{:?}",
+                declarations.diagnostics
+            );
+        });
+    }
+
+    #[test]
+    fn declared_dynamic_any_returns_keep_error_data_and_propagation_distinct() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "declared-dynamic-any-error-flow.xsh",
+                r#"
+var cleanups: Int = 0
+proc carry(value: Any, propagate: Bool) [error] -> Any {
+  defer { cleanups += 1 }
+  if propagate {
+    let failure: Result[Int, Error] = Err(error.failure("propagated"))
+    let _ = failure?
+  }
+  value
+}
+proc relay(value: Any, propagate: Bool) [error] -> Any {
+  carry(value, propagate)
+}
+let opaque: Result[Int, Error] = Err(error.failure("opaque"))
+let returned = carry(opaque, false)
+let captured = try { carry(7, true) }
+let forwarded_raw = try { relay(opaque, false) }
+let forwarded_failure = try { relay(7, true) }
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(step, Span::at(program.store.source_id, 0))
+                        .unwrap()
+                        .unwrap();
+                }
+                fn error_payload(value: &Value) -> Option<(&str, &str)> {
+                    let Value::Error(error) = value else { return None };
+                    Some((error.kind.as_str(), error.message.as_str()))
+                }
+                fn result_error_payload(value: &Value) -> Option<(&str, &str)> {
+                    let Value::Result(crate::runtime::value::ResultValue::Err(error)) = value else { return None };
+                    error_payload(error)
+                }
+                fn successful_result_error_payload(value: &Value) -> Option<(&str, &str)> {
+                    let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = value else { return None };
+                    result_error_payload(value)
+                }
+                let returned = evaluator.lookup(Name::intern("returned")).unwrap().value.clone();
+                let captured = evaluator.lookup(Name::intern("captured")).unwrap().value.clone();
+                let forwarded_raw = evaluator.lookup(Name::intern("forwarded_raw")).unwrap().value.clone();
+                let forwarded_failure = evaluator.lookup(Name::intern("forwarded_failure")).unwrap().value.clone();
+                let cleanups = evaluator.lookup(Name::intern("cleanups")).unwrap().value.clone();
+                let observed = (
+                    result_error_payload(&returned),
+                    result_error_payload(&captured),
+                    successful_result_error_payload(&forwarded_raw),
+                    result_error_payload(&forwarded_failure),
+                    cleanups,
+                );
+                assert_eq!(
+                    observed,
+                    (
+                        Some(("validation", "opaque")),
+                        Some(("validation", "propagated")),
+                        Some(("validation", "opaque")),
+                        Some(("validation", "propagated")),
+                        Value::Int(4),
+                    ),
+                    "returned={returned:?}; captured={captured:?}; forwarded_raw={forwarded_raw:?}; forwarded_failure={forwarded_failure:?}",
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn declared_dynamic_explicit_returns_classify_cleanup_errors() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "declared-dynamic-explicit-return-cleanup.xsh",
+                r#"
+var errdefers: Int = 0
+proc explicit(value: Any, fail_cleanup: Bool) [error] -> Any {
+  errdefer { errdefers += 1 }
+  defer {
+    if fail_cleanup {
+      let failure: Result[Unit, Error] = Err(error.failure("defer"))
+      let _ = failure?
+    }
+  }
+  return value
+}
+let opaque: Result[Int, Error] = Err(error.failure("opaque"))
+let preserved = try { explicit(opaque, false) }
+let cleanup_failed = try { explicit(opaque, true) }
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(step, Span::at(program.store.source_id, 0))
+                        .unwrap()
+                        .unwrap();
+                }
+                fn result_error_payload(value: &Value) -> Option<(&str, &str)> {
+                    let Value::Result(crate::runtime::value::ResultValue::Err(error)) = value else { return None };
+                    let Value::Error(error) = error.as_ref() else { return None };
+                    Some((error.kind.as_str(), error.message.as_str()))
+                }
+                fn successful_result_error_payload(value: &Value) -> Option<(&str, &str)> {
+                    let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = value else { return None };
+                    result_error_payload(value)
+                }
+                let preserved = evaluator.lookup(Name::intern("preserved")).unwrap().value.clone();
+                let cleanup_failed = evaluator
+                    .lookup(Name::intern("cleanup_failed"))
+                    .unwrap()
+                    .value
+                    .clone();
+                let errdefers = evaluator.lookup(Name::intern("errdefers")).unwrap().value.clone();
+                assert_eq!(
+                    (
+                        successful_result_error_payload(&preserved),
+                        result_error_payload(&cleanup_failed),
+                        errdefers,
+                    ),
+                    (
+                        Some(("validation", "opaque")),
+                        Some(("validation", "defer")),
+                        Value::Int(1),
+                    ),
+                    "preserved={preserved:?}; cleanup_failed={cleanup_failed:?}",
+                );
+            }
         });
     }
 

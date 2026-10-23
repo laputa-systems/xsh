@@ -993,10 +993,10 @@ pub(super) fn lowered_return_value(
         (LoweredReturnKind::Erased, value) => Ok(value),
         (LoweredReturnKind::OptionalResult, value) => Ok(value),
         (LoweredReturnKind::QuantifiedResult, value @ (LoweredValue::ResultOk(_) | LoweredValue::ResultErr(_))) => Ok(value),
-        (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
-            let mut error = super::runtime_error_from_value(*error, span);
-            error.propagated = true;
-            Err(error)
+        (LoweredReturnKind::Plain(kind), LoweredValue::ResultErr(error))
+            if kind != LoweredType::Any =>
+        {
+            Err(lowered_propagated_runtime_error(*error, span))
         }
         (LoweredReturnKind::Plain(kind), value) if lowered_value_matches(kind, &value) => Ok(value),
         // The error arm comes first because a `Result[Any]` slot matches every
@@ -1015,6 +1015,12 @@ pub(super) fn lowered_return_value(
         }
         _ => Err(RuntimeError::new("type-error", "lowered return type mismatch").with_span(span)),
     }
+}
+
+pub(super) fn lowered_propagated_runtime_error(value: Value, span: Span) -> RuntimeError {
+    let mut error = super::runtime_error_from_value(value, span);
+    error.propagated = true;
+    error
 }
 
 pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> bool {

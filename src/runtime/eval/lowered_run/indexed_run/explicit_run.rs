@@ -4292,6 +4292,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Some(cleanup)
     }
 
+    fn checked_flow_leaves_with_error(
+        &self,
+        index: usize,
+        flow: &StmtFlow,
+    ) -> Result<bool, RuntimeError> {
+        let call = &self.calls[index];
+        let return_kind = call
+            .execution
+            .function_return_kind()
+            .map_err(|error| indexed_error(error, call.call_span))?;
+        Ok(flow_leaves_with_error(flow, return_kind))
+    }
+
     fn schedule_cleanup_flow(
         &mut self,
         index: usize,
@@ -4324,10 +4337,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 _ => None,
             })
             .collect();
+        let leaves_with_error = self.checked_flow_leaves_with_error(index, &flow)?;
         self.schedule_discard(
             index,
             boundary + 1,
-            flow_leaves_with_error(&flow),
+            leaves_with_error,
             DiscardResume::CleanupFlow {
                 boundary,
                 flow,
@@ -10373,10 +10387,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // Lexical exits and checked failures retain resources from every
         // discarded block before cleanup runs in the registering scopes.
+        let leaves_with_error = self.checked_flow_leaves_with_error(index, &flow)?;
         self.schedule_discard(
             index,
             0,
-            flow_leaves_with_error(&flow),
+            leaves_with_error,
             DiscardResume::CompleteCall { flow, contexts },
         );
         Ok(())
@@ -10980,7 +10995,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         let defers = std::mem::take(&mut self.calls[index].defers);
-        let leaves_with_error = flow_leaves_with_error(&flow);
+        let leaves_with_error = self.checked_flow_leaves_with_error(index, &flow)?;
         let released = match &flow {
             StmtFlow::Propagate(value) => {
                 self.release_call_host_resources(index, Some(value))
@@ -11262,7 +11277,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
                         return Err(error);
                     }
-                    if flow_leaves_with_error(&flow) {
+                    if self.checked_flow_leaves_with_error(index, &flow)? {
                         self.report_cleanup_error_with_contexts(
                             &error,
                             group.call_span,
@@ -11531,6 +11546,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
         let value = match flow {
             StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
+            StmtFlow::Propagate(LoweredValue::ResultErr(error))
+                if header.return_kind == LoweredReturnKind::Plain(LoweredType::Any) =>
+            {
+                Err(crate::runtime::eval::lowered_ops::lowered_propagated_runtime_error(
+                    *error,
+                    return_span,
+                ))
+            }
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 super::super::checked_lowered_return_value(
                     &header,
@@ -11644,11 +11667,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map_err(|error| indexed_error(error, span))
     }
 
-    /// Hands a finished block's flow back to the recursive evaluator. Outgoing
-    /// values and checked failures keep their resources in the parent scope;
-    /// a cleanup failure after a checked failure is reported, not raised.
-    /// The frame is finished where it lies on the stack and dropped there.
     fn finish_block(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
+        let leaves_with_error = self.checked_flow_leaves_with_error(index, &flow)?;
         let call = &mut self.calls[index];
         self.evaluator.frame_scratch.recycle(call);
         if call.owns_scope() && let StmtFlow::Propagate(value) = &flow {
@@ -11662,7 +11682,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls.truncate(index);
         self.result = Some(match cleanup {
             Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
-            Err(error) if flow_leaves_with_error(&flow) => {
+            Err(error) if leaves_with_error => {
                 self.evaluator.report_cleanup_error(&error, call_span);
                 Ok(LoweredValue::Unit)
             }
@@ -13506,6 +13526,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator.pending_traceback = state.first_traceback.take();
                 return Err(error);
             }
+            let complete_call_leaves_with_error = match &state.resume {
+                DiscardResume::CompleteCall { flow, .. } => {
+                    self.checked_flow_leaves_with_error(index, flow)?
+                }
+                _ => false,
+            };
             match &state.resume {
                 DiscardResume::CapturedPropagation { .. }
                 | DiscardResume::CleanupFlow { .. }
@@ -13532,7 +13558,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         &report_contexts,
                     );
                 }
-                DiscardResume::CompleteCall { flow, .. } if flow_leaves_with_error(flow) => {
+                DiscardResume::CompleteCall { .. } if complete_call_leaves_with_error => {
                     self.report_cleanup_error_with_contexts(
                         &error,
                         report_span,
@@ -13751,14 +13777,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
 }
 
-/// Whether control that leaves a scope with `flow` leaves it with an error: a
-/// propagating failure, or a `return` whose value is an `Err`. A cleanup
-/// failure is then secondary, and `errdefer` actions run.
-fn flow_leaves_with_error(flow: &StmtFlow) -> bool {
-    matches!(
-        flow,
-        StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
-    )
+fn flow_leaves_with_error(
+    flow: &StmtFlow,
+    return_kind: Option<LoweredReturnKind>,
+) -> bool {
+    matches!(flow, StmtFlow::Propagate(_))
+        || (return_kind != Some(LoweredReturnKind::Plain(LoweredType::Any))
+            && matches!(flow, StmtFlow::Return(LoweredValue::ResultErr(_))))
 }
 
 fn cleanup_call_scopes(

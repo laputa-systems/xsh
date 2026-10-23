@@ -522,6 +522,7 @@ fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
 fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
     match ty {
         SchemeType::Ground(ty) => match ty.unvalidated() {
+            Type::Any => Some(LoweredReturnKind::Plain(LoweredType::Any)),
             Type::Result(ok, _) => {
                 lowered_scheme_physical_type(&SchemeType::Ground((**ok).clone()))
                     .map(LoweredReturnKind::Result)
