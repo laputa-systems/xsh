@@ -177,7 +177,7 @@ pub(super) fn supports_generalized_body(
                 if matches!(completion, BodyCompletion::Procedure)
                     && matches!(program.arena.expr(expression).kind, ArenaExprKind::Call { .. })
                     && types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type).is_some_and(|ty| ty.is_result_unit())
-                    && checked_operations.contains(&program.arena.expr(expression).span) => {}
+                    && (checked_operations.contains(&program.arena.expr(expression).span) || registered_calls.contains_key(&expression)) => {}
             ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) => return false,
             _ => {}
         }

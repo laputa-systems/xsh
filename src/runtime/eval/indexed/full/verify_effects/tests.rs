@@ -220,6 +220,101 @@ assert order == 132
     assert!(error.message.contains("requires effect error"), "{error:?}");
 }
 
+#[test]
+fn quantified_registered_result_unit_tail_retains_effect_proof() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+proc inferred_tail(token, file: Path) [fs] {
+    let _ = token
+    file.write("inferred")
+}
+proc discarded_write(token, file: Path) [fs, error] {
+    let _ = token
+    file.write("discarded")
+    let _ = 0
+}
+proc explicit_tail(token, file: Path) [fs, error] -> Result[Unit] {
+    let _ = token
+    file.write("explicit")
+}
+proc explicit_return(token, file: Path) [fs] -> Result[Unit] {
+    let _ = token
+    return file.write("returned")
+}
+proc ground_tail(file: Path) [fs, error] -> Result[Unit] {
+    file.write("ground")
+}
+tempdir directory {
+    let file = fp"{directory}/value"
+    inferred_tail(7, file)
+    assert file.read_text()? == "inferred"
+    inferred_tail("word", file)
+    assert file.read_text()? == "inferred"
+    let missing_parent = fp"{directory}/missing-parent/value"
+    assert inferred_tail(9, missing_parent) is Err(_)
+    discarded_write(11, file)
+    assert file.read_text()? == "discarded"
+    explicit_tail(true, file)
+    assert file.read_text()? == "explicit"
+    assert explicit_return(false, file) is Ok(_)
+    assert file.read_text()? == "returned"
+    ground_tail(file)
+    assert file.read_text()? == "ground"
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+
+        let inferred = function(&program, "inferred_tail");
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[inferred].contract else {
+            panic!("unannotated Proc has a quantified contract")
+        };
+        let scheme = &program.store.schemes[scheme_id.index()];
+        let direct = scheme.effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        let effects = &program.store.scheme_effects[direct.clone()];
+        assert!(effects.contains(&Effect::Fs), "{effects:?}");
+        assert!(!effects.contains(&Effect::Error), "a Result[Unit] tail is returned as data: {effects:?}");
+
+        let discarded = function(&program, "discarded_write");
+        let FullCallableContract::Scheme(discarded_scheme_id) = program.store.functions[discarded].contract else {
+            panic!("unannotated discarded-write Proc has a quantified contract")
+        };
+        let discarded_scheme = &program.store.schemes[discarded_scheme_id.index()];
+        let discarded_direct = discarded_scheme.effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        let discarded_effects = &program.store.scheme_effects[discarded_direct.clone()];
+        assert!(discarded_effects.contains(&Effect::Fs), "{discarded_effects:?}");
+        let error_offset = discarded_effects.iter().position(|effect| *effect == Effect::Error).unwrap();
+        let replacement = Effect::ALL.into_iter().find(|effect| !discarded_effects.contains(effect)).unwrap();
+        let mut missing_error_effect = program.clone();
+        missing_error_effect.store.scheme_effects[discarded_direct.start + error_offset] = replacement;
+        let effective_effects = super::function_effects(&missing_error_effect.store, discarded).unwrap().unwrap();
+        assert!(!effective_effects.contains(&Effect::Error), "{effective_effects:?}");
+        assert!(FullVerifier::verify(&missing_error_effect).unwrap_err().message.contains("effect error"));
+
+        let explicit_return = function(&program, "explicit_return");
+        let FullCallableContract::Scheme(explicit_scheme_id) = program.store.functions[explicit_return].contract else {
+            panic!("explicit Result return keeps its quantified contract")
+        };
+        let explicit_scheme = &program.store.schemes[explicit_scheme_id.index()];
+        let explicit_effects = explicit_scheme.effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        assert!(program.store.scheme_effects[explicit_effects.clone()].contains(&Effect::Fs));
+        assert!(!program.store.scheme_effects[explicit_effects].contains(&Effect::Error));
+        assert!(FullVerifier::verify(&program).is_ok());
+
+        let restricted = "proc restricted(file: Path) [fs] -> Result[Unit] {\n    file.write(\"rejected\")\n    return Ok()\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), restricted);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            restricted,
+            CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)
+        }), "{:?}", checked.diagnostics);
+    });
+}
+
 fn external_stdlib_fixture(source: &str) -> FullProgram {
     let name = "external-stdlib-effects.xsh";
     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(
