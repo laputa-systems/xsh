@@ -40,8 +40,17 @@ share the existing reader. Both execution routes preserve binary data,
 diagnostics, explicit file modes and receiver/argument evaluation order;
 operation, operand and injected-plan corruptions reject. Source review is
 clear. These focused results do not qualify every registered Path operation or
-the combined compiler. The TempDir lane consumes these repairs before its
-complete runtime check.
+the combined compiler.
+
+TempDir repair `5b214e7ed` and its controls, integrated through `5c650d1ab`,
+pass seven distinct focused selectors. Generic fresh and at-path scopes share
+ordinary lowering, reconstruct entry errors from their payloads, and retain
+owned expression and declaration facts. Both execution routes preserve entry
+ordering, body failure, early return, nested Results and cleanup. Six cold
+corruptions reject. Returned independent roots stay live until caller close in
+ordinary and generic scopes; no speculative transfer change was needed.
+Independent source review is clear. The source-level cleanup Error requirement
+and combined library/native qualification remain open.
 
 Source `d54631649` builds matching verification binaries and completes the
 138-selector native inference boundary in normal and forced-frame modes.
