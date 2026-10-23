@@ -2669,6 +2669,81 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   assert "\"exact\": true" in bundle.read_text(p"dmidecode-comparison.json")?
 }
 
+test test_system_report_fixture_command_caches_nested_test_results { |ctx|
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+  let tools = fs.tempdir()?
+  defer tools.close()
+  let selector = "dev/tests/test-system-report-check.xsh::test_system_report_dmidecode_cli_runs_only_on_explicit_captured_bundle"
+  let scenarios = ["fixture_cache_first", "fixture_cache_second"]
+  let required = {
+    ...assertion("fixture.runner", "mandatory"),
+    fixture_scenarios: scenarios,
+  }
+  let report_manifest = {
+    ...manifest([required]),
+    fixture_cases: [
+      {scenario: scenarios[0], tests: [selector]},
+      {scenario: scenarios[1], tests: [selector]},
+    ],
+    fixture_scenarios: scenarios,
+  }
+  scratch.write_atomic(p"manifest.json", json.encode(report_manifest)?)
+
+  let scratch_path = scratch.host_path()?.display()
+  let tools_path = tools.host_path()?.display()
+  let manifest_path = fp"{scratch_path}/manifest.json"
+  let call_log = fp"{scratch_path}/xsht-calls"
+  let real_xsht = fp"{ctx.xsh_bin.parent()}/xsht".display()
+  tools.write(
+    p"xsht-logging",
+    f"""#!/bin/sh
+printf '%s\n' "$*" >> "{call_log}"
+exec "{real_xsht}" "$@"
+""",
+  )
+  tools.chmod(p"xsht-logging", 0o700)
+
+  let output = test.temp_path(ctx, name: "system-report-fixture-cache.stdout")
+  let stderr = test.temp_path(ctx, name: "system-report-fixture-cache.stderr")
+  let logging_xsht = fp"{tools_path}/xsht-logging"
+  let passed_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --manifest $manifest_path --run-fixtures --xsh-bin ${ctx.xsh_bin} --xsht-bin $logging_xsht > $output 2> $stderr
+  let passed_output = output.read_text()?
+  assert passed_status.exited_with(0), stderr.read_text()?
+  assert f"fixture {scenarios[0]}: passed" in passed_output
+  assert f"fixture {scenarios[1]}: passed" in passed_output
+  assert "fixture execution: 2 passed, 0 failed" in passed_output
+  assert "fixture coverage: 2 passed, 0 failed, 0 declared scenarios not executed" in passed_output
+  let passed_calls = call_log.read_text()?.trim().lines() |> collect()
+  assert passed_calls == [f"test --exact --jobs 1 {selector}"]
+
+  let failed_call_log = fp"{scratch_path}/xsht-failed-calls"
+  tools.write(
+    p"xsht-failing",
+    f"""#!/bin/sh
+printf '%s\n' "$*" >> "{failed_call_log}"
+printf 'malformed nested test output\n'
+printf 'controlled xsht failure\n' >&2
+exit 23
+""",
+  )
+  tools.chmod(p"xsht-failing", 0o700)
+  let failing_xsht = fp"{tools_path}/xsht-failing"
+  let failed_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --manifest $manifest_path --run-fixtures --xsh-bin ${ctx.xsh_bin} --xsht-bin $failing_xsht > $output 2> $stderr
+  let failed_output = output.read_text()?
+  let failed_stderr = stderr.read_text()?
+  assert ! failed_status.exited_with(0)
+  assert f"fixture {scenarios[0]}: failed {selector} (controlled xsht failure)" in failed_output
+  assert f"fixture {scenarios[1]}: failed {selector} (controlled xsht failure)" in failed_output
+  assert "fixture execution: 0 passed, 2 failed" in failed_output
+  assert "fixture coverage: 0 passed, 2 failed, 0 declared scenarios not executed" in failed_output
+  assert "one or more mapped fixture scenarios failed" in failed_stderr
+  let failed_calls = failed_call_log.read_text()?.trim().lines() |> collect()
+  assert failed_calls == [f"test --exact --jobs 1 {selector}"]
+}
+
 test test_system_report_cpufreq_rooted_reference_reads_every_policy {
   let root = fs.tempdir()?
   defer root.close()
