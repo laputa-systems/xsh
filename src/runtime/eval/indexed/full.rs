@@ -22893,6 +22893,81 @@ assert read() == 7
     }
 
     #[test]
+    fn ground_checked_parameters_authenticate_mutable_record_sources() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("ground-checked-record-argument.xsh", r#"
+type ByteCount = {high: UInt, low: UInt, overflow: Bool}
+pure byte_count(size) {
+    {high: size / 1000000000, low: size % 1000000000, overflow: false}
+}
+pure add_bytes(left: ByteCount, right: ByteCount) {
+    let low = left.low + right.low
+    let high = left.high + right.high + low / 1000000000
+    {high: high, low: low % 1000000000, overflow: left.overflow or right.overflow}
+}
+pure width(size: Int, replacement: Str) -> Int {
+    let _ = replacement
+    var total = byte_count(0)
+    for item in [size] {
+        total = add_bytes(total, byte_count(item))
+    }
+    total.low
+}
+assert width(7, "wrong") == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+                let error = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "width")),
+                    CallableKind::Pure,
+                    &[Value::Int(-1), Value::Str("wrong".into())],
+                    Span::at(program.store.source_id, 0),
+                ).unwrap().unwrap_err();
+                assert_eq!(error.kind, "type-error");
+            }
+            let owner = scheme_fixture_root_function(&program, "add_bytes");
+            let params = program.store.functions[owner].params.bounds(program.store.params.len()).unwrap();
+            for parameter in params {
+                let cold = program.store.param_cold.binary_search_by_key(&(parameter as u32), |row| row.param).unwrap();
+                let mut missing_check = (*program).clone();
+                missing_check.store.param_cold[cold].validation = IR_NONE;
+                assert_eq!(FullVerifier::verify(&missing_check).unwrap_err().message, "unsigned parameter is missing its runtime validation");
+                let mut wrong_check = (*program).clone();
+                let integer = SemanticPoolBuilder::default().intern_type(&mut wrong_check.store.semantic, &Type::Int).unwrap();
+                let validation = wrong_check.store.param_cold[cold].validation;
+                wrong_check.store.validations[validation as usize].type_id = integer;
+                assert_eq!(FullVerifier::verify(&wrong_check).unwrap_err().message, "unsigned parameter validation disagrees with its signature");
+            }
+            let owner = scheme_fixture_root_function(&program, "width");
+            let decoder = function_view_decoder(&program.store, owner);
+            let replacement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
+            }).unwrap();
+            let declaration = function_instruction_indices(&program, "width", FullTag::StmtLet).into_iter().find(|&instruction| {
+                matches!(decoder.statement_view(instruction).unwrap(), schema::StmtView::Let { value, .. }
+                    if matches!(decoder.expression_view(value.raw() as usize).unwrap(), schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. }))
+            }).unwrap();
+            let words = program.store.data[declaration].range().bounds(program.store.extra.len()).unwrap();
+            let schema::StmtView::Let { slot, .. } = decoder.statement_view(declaration).unwrap() else { unreachable!() };
+            let stored = program.store.semantic.to_type(decoder.checked_slot_type(slot).unwrap().unwrap()).unwrap();
+            let Type::Record(fields) = stored else { unreachable!() };
+            program.symbols.with_current(|| {
+                assert_eq!(fields[&Name::intern("high")], Type::Int);
+                assert_eq!(fields[&Name::intern("low")], Type::Int);
+            });
+            let mut lying_writer = (*program).clone();
+            lying_writer.store.extra[words.start + 1] = u32::try_from(replacement).unwrap();
+            assert!(FullVerifier::verify(&lying_writer).is_err());
+        });
+    }
+
+    #[test]
     fn checked_record_lists_preserve_nominal_sources_during_optional_initialization() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-record-nominal-list.xsh", r#"

@@ -3977,12 +3977,12 @@ impl<'a> ProducerProof<'a> {
         let FullCallableContract::Ground(signature) = self.store.functions[function].contract else { return Ok(()) };
         let count = self.store.semantic.signature_param_count(signature)?;
         let store = self.store;
-        self.call_arguments_with(decoder, arguments, count,
+        self.call_arguments_with(decoder, arguments, count, Some(function),
             |position| store.semantic.signature_param(signature, position).map(|(_, _, flags)| flags),
             |proof, position| proof.contract_type(store.semantic.signature_param(signature, position)?.1))
     }
 
-    fn call_arguments_with(&mut self, decoder: &FullDecoder<'a>, arguments: &[ProducerArgument], count: usize,
+    fn call_arguments_with(&mut self, decoder: &FullDecoder<'a>, arguments: &[ProducerArgument], count: usize, known_callee: Option<usize>,
         flags_at: impl Fn(usize) -> Result<u32, IrVerifyError>,
         mut type_at: impl FnMut(&mut Self, usize) -> Result<Arc<Type>, IrVerifyError>) -> Result<(), IrVerifyError> {
         let mut position = 0;
@@ -3996,6 +3996,12 @@ impl<'a> ProducerProof<'a> {
                     if slot != position || flags & 1 == 0 || rest { return Err(IrVerifyError::new("ground producer default argument has no parameter default")); }
                 }
                 ProducerArgument::Single(instruction) => {
+                    if !rest && let Some(function) = known_callee
+                        && self.checked_unsigned_parameter_binding(decoder, instruction, function, position, &expected)?
+                    {
+                        position += 1;
+                        continue;
+                    }
                     let expected = if rest {
                         let Type::List(item) = expected.as_ref() else { return Err(IrVerifyError::new("ground rest parameter has no list contract")) };
                         Arc::new((**item).clone())
@@ -4016,6 +4022,21 @@ impl<'a> ProducerProof<'a> {
             if flags & 3 == 0 { return Err(IrVerifyError::new("ground producer call omits a required argument")); }
         }
         Ok(())
+    }
+
+    fn checked_unsigned_parameter_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize, function: usize, parameter: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !expected.has_unsigned_constraint() { return Ok(false); }
+        let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { return Ok(false) };
+        if !super::runtime_complete_value_check_type(expected, &mut self.budget, 0)? { return Ok(false); }
+        let params = bounded(self.store.functions[function].params, &self.store.params, "checked callee parameter range is invalid")?;
+        if parameter >= params.len() { return Err(IrVerifyError::new("checked callee parameter is out of bounds")); }
+        super::super::verify_unsigned_parameter_runtime_validation(self.store, self.store.functions[function].params.start as usize + parameter, expected)?;
+        let binding = self.binding(decoder.owner, instruction, slot)?;
+        let Some(actual) = self.slot_context_type_for_binding(decoder, instruction, slot, binding)? else { return Ok(false) };
+        super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
+        if !actual.matches_expected(expected) { return Ok(false); }
+        self.binding_slot(decoder.owner, binding, slot, actual)?;
+        Ok(true)
     }
 
     fn verify_stream_yields(&mut self, function: usize, decoder: &FullDecoder<'a>, result: Arc<Type>) -> Result<(), IrVerifyError> {
@@ -4487,7 +4508,7 @@ impl<'a> ProducerProof<'a> {
                 if !callable.sig.return_ty.matches_expected(&expected) { return Err(IrVerifyError::new("typed producer call return disagrees with its checked contract")); }
                 self.expression(owner, callee.raw() as usize, Arc::clone(&contract), false);
                 let arguments = call_values(&decoder, instruction)?;
-                self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(),
+                self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(), None,
                     |position| {
                         let parameter = &callable.sig.params[position];
                         Ok(u32::from(parameter.defaulted) | (u32::from(parameter.rest) << 1))
@@ -4633,7 +4654,7 @@ impl<'a> ProducerProof<'a> {
                     self.expression(owner, base, receiver, false);
                     self.producer_owner_contract(owner)?;
                     let arguments = call_values(&decoder, instruction)?;
-                    return self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(),
+                    return self.call_arguments_with(&decoder, &arguments, callable.sig.params.len(), None,
                         |position| {
                             let parameter = &callable.sig.params[position];
                             Ok(u32::from(parameter.defaulted) | (u32::from(parameter.rest) << 1))
@@ -7181,6 +7202,48 @@ fn function_owner(index: usize) -> Result<u32, IrVerifyError> {
 #[cfg(test)]
 mod declared_producer_fact_tests {
     use super::*;
+
+    #[test]
+    fn checked_unsigned_parameter_binding_charges_wide_cached_sources() {
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            let hidden = (0..64).map(|index| format!(", hidden{index}: Int")).collect::<String>();
+            let source = format!("type Narrow = {{count: UInt}}\ntype Wide = {{count: Int{hidden}}}\npure identity(value) {{ value }}\npure accept(value: Narrow) -> Int {{ value.count }}\npure invoke(value: Wide) -> Int {{ let _ = identity(1); accept(value) }}\n");
+            let path = "checked-parameter-wide-source.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, source.clone()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+            let program = super::super::super::FullBuilder::build_compact(&parsed.arena, &declarations, &source, Arc::new(sources), source_id).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let store = &program.store;
+            let mut index = GroundProducerIndex::new(store).unwrap();
+            for function in 0..store.functions.len() {
+                let mut decoder = decoder_for_function(store, function).unwrap();
+                decoder.instruction_proof = Some(RefCell::new(super::super::super::in_place::InstructionProof::new(decoder.instruction_range.clone())));
+                decoder.instruction_states = Some(RefCell::new(vec![0; decoder.instruction_range.len()]));
+                let body = [store.functions[function].body];
+                let mut cursor = super::super::super::FullCursor::new(&body);
+                <Vec<super::super::super::BuildStmtId> as super::super::super::FullCodec>::verify(&decoder, &mut cursor).unwrap();
+                cursor.finish().unwrap();
+                index.record(&decoder).unwrap();
+            }
+            let invoke = store.functions.iter().position(|function| store.string(function.name).unwrap() == "invoke").unwrap();
+            let accept = store.functions.iter().position(|function| store.string(function.name).unwrap() == "accept").unwrap();
+            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new());
+            let decoder = proof.owner(function_owner(invoke).unwrap()).unwrap();
+            let argument = decoder.instruction_range.clone().find(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+            }).unwrap();
+            let FullCallableContract::Ground(signature) = store.functions[accept].contract else { unreachable!() };
+            let expected = proof.contract_type(store.semantic.signature_param(signature, 0).unwrap().1).unwrap();
+            assert!(proof.checked_unsigned_parameter_binding(&decoder, argument, accept, 0, &expected).unwrap());
+            proof.budget.remaining = 8;
+            assert_eq!(proof.checked_unsigned_parameter_binding(&decoder, argument, accept, 0, &expected).unwrap_err().message,
+                "generic call type materialization exceeds its work bound");
+        }).unwrap().join().unwrap();
+    }
 
     #[test]
     fn readonly_argv_requires_declared_permission_and_closed_word_items() {
