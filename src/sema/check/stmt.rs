@@ -2805,6 +2805,12 @@ impl Checker {
         }
     }
 
+    fn resolve_compound_operand(&mut self, ty: &Type, span: Span) -> Result<Type, ()> {
+        self.type_constraints.resolve(ty).map_err(|error| {
+            self.error(span, &format!("compound assignment type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+        })
+    }
+
     pub(super) fn check_compound_assignment_op(
         &mut self,
         op: AssignOp,
@@ -2813,8 +2819,19 @@ impl Checker {
         op_span: Span,
         rhs_span: Span,
     ) -> Type {
-        // The operand is read as its base type; the target keeps its own.
+        let Ok(mut left) = self.resolve_compound_operand(left, op_span) else { return Type::Invalid };
+        let Ok(right) = self.resolve_compound_operand(right, rhs_span) else { return Type::Invalid };
         let right = right.unvalidated();
+        if op == AssignOp::Add && matches!(left, Type::Inference(_)) && matches!(right, Type::List(_)) {
+            let diagnostic_start = self.diagnostics.len();
+            self.expect_type(&left, right, rhs_span);
+            if self.diagnostics[diagnostic_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                return Type::Invalid;
+            }
+            let Ok(resolved) = self.resolve_compound_operand(&left, op_span) else { return Type::Invalid };
+            left = resolved;
+        }
+        let left = &left;
         if left == &Type::Duration {
             let valid = matches!(
                 (op, right),
@@ -2830,8 +2847,6 @@ impl Checker {
             }
             return Type::Duration;
         }
-        // Appending reads both operands as lists. The target keeps its type,
-        // so a validated target must be one that survives concatenation.
         if op == AssignOp::Add
             && matches!(left.unvalidated(), Type::List(_) | Type::Str)
             && left
@@ -2852,8 +2867,6 @@ impl Checker {
             return Type::Float;
         }
         if !matches!(left, Type::Int | Type::UInt | Type::Unknown) {
-            // The target keeps its type, so this one report is the whole
-            // mistake: neither the operand nor the result is reported again.
             let symbol = match op {
                 AssignOp::Add => "+=",
                 AssignOp::Sub => "-=",
@@ -8867,6 +8880,89 @@ shared = wrapper(failing(initial))
         }
     }
 
+
+}
+
+#[cfg(test)]
+mod compound_assignment_inference_tests {
+    use crate::diagnostic::Severity;
+    use crate::sema::check::{CheckOptions, Checker};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn accepts(source: &str) {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_list_append_accepts_its_declared_item_domain() {
+        accepts("pure append(items: List[Int], value: Int) -> List[Int] { var output = items; output += [value]; output }\nlet numbers: List[Int] = append([1], 2)\n");
+    }
+
+    #[test]
+    fn inferred_list_append_retains_independent_item_domains() {
+        accepts("pure append(items, value) { var output = items; output += [value]; output }\nlet numbers: List[Int] = append([1], 2)\nlet words: List[Str] = append([\"a\"], \"b\")\n");
+    }
+
+    #[test]
+    fn projected_list_append_retains_the_required_row_field() {
+        accepts("pure append(base, value) { var issues = base.issues; issues += [value]; issues }\nlet numbers: List[Int] = append({issues: [1]}, 2)\nlet words: List[Str] = append({issues: [\"a\"]}, \"b\")\n");
+    }
+
+    #[test]
+    fn list_append_rejects_incompatible_items_rows_and_writers() {
+        for source in [
+            "pure append(items, value) { var output = items; output += [value]; output }\nlet bad = append([1], \"wrong\")\n",
+            "pure append(base, value) { var output = base.issues; output += [value]; output }\nlet bad = append({other: [1]}, 2)\n",
+            "pure append(items, value) { var output = items; output += [value]; output = [1]; output }\nlet bad = append([\"a\"], \"b\")\n",
+            "pure append(items: List[UInt], values: List[Int]) -> List[UInt] { var output = items; output += values; output }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn list_append_preserves_validation_and_numeric_ambiguity() {
+        accepts("pure append_unsigned(items: List[UInt], value: Int) -> List[UInt] { var output = items; output += [value]; output }\npure append(items: NonEmpty[Int], value: Int) -> NonEmpty[Int] { var output = items; output += [value]; output }\npure scale(value: Duration) -> Duration { var output = value; output *= 2; output }\n");
+        let source = "pure scale(value) { var output = value; output *= 2; output }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckOperatorType)), "{:?}", checked.diagnostics);
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn inferred_list_append_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/inferred-compound-list-append.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "inferred-compound-list-append.xsh",
+            crate::loader::entry_source_from_text("inferred-compound-list-append.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("inferred_compound_append_preserves_item_and_row_relationships", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
 
 }
 
