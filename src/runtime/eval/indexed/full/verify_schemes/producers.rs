@@ -1043,6 +1043,18 @@ impl ProducerOwner {
     }
 }
 
+fn scheme_callee_error_flow(ty: &super::SchemeType) -> Option<crate::sema::types::CalleeErrorFlow> {
+    use crate::sema::types::CalleeErrorFlow;
+    match ty {
+        super::SchemeType::Ground(ty) => Some(ty.callee_error_flow(Some(&[crate::syntax::node::Effect::Error]))),
+        super::SchemeType::Result(_, _) => Some(CalleeErrorFlow::None),
+        super::SchemeType::Stream(_) => Some(CalleeErrorFlow::Latent),
+        super::SchemeType::Validated(_, inner) => scheme_callee_error_flow(inner),
+        super::SchemeType::Parameter(_) => None,
+        _ => Some(CalleeErrorFlow::Immediate),
+    }
+}
+
 fn has_condition_inputs(tag: FullTag) -> bool {
     matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtWhile | FullTag::StmtWhileBool
         | FullTag::StmtPatternIf | FullTag::StmtPatternWhile | FullTag::StmtMatch | FullTag::StmtAssert
@@ -2396,27 +2408,31 @@ impl<'a> ProducerProof<'a> {
         Ok(ty.closed_ground_type().map(Arc::new))
     }
 
-    fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<crate::sema::schemes::SchemeType>, IrVerifyError> {
+    fn scoped_expression_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
         if !self.index.scheme_owners.contains_key(&decoder.owner) { return Ok(None); }
+        let function = function_index(decoder.owner)?;
+        let FullCallableContract::Scheme(id) = self.store.functions[function].contract else {
+            return Err(IrVerifyError::new("scoped expression proof has no scheme owner"));
+        };
+        let scheme = self.store.scheme(id)?;
+        let facts = bounded(scheme.body_facts, &self.store.scheme_body_facts, "scoped expression fact range is invalid")?;
+        self.budget.charge(2 + 2 * facts.len().max(1).ilog2() as usize)?;
+        let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped expression instruction is invalid"))?;
+        let key = (instruction, super::FullSchemeBodyFactKind::Expression as u8);
+        let position = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8))
+            .map_err(|_| IrVerifyError::new("scoped expression has no mandatory expression fact"))?;
+        let fact = facts[position];
+        if fact.function.raw() != decoder.owner { return Err(IrVerifyError::new("scoped expression fact belongs to another owner")); }
+        let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped expression fact has no semantic type"))?;
+        let scope = self.index.scheme_scopes(self.store)?.get(id)?;
+        super::decode_scheme_type(self.store, scope, ty, &mut self.budget, 0).map(Some)
+    }
+
+    fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) {
             return Err(IrVerifyError::new("scoped field proof has another physical expression"));
         }
-        let function = function_index(decoder.owner)?;
-        let FullCallableContract::Scheme(id) = self.store.functions[function].contract else {
-            return Err(IrVerifyError::new("scoped field proof has no scheme owner"));
-        };
-        let scheme = self.store.scheme(id)?;
-        let facts = bounded(scheme.body_facts, &self.store.scheme_body_facts, "scoped field fact range is invalid")?;
-        self.budget.charge(2 + 2 * facts.len().max(1).ilog2() as usize)?;
-        let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped field instruction is invalid"))?;
-        let key = (instruction, super::FullSchemeBodyFactKind::Expression as u8);
-        let position = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8))
-            .map_err(|_| IrVerifyError::new("scoped field has no mandatory expression fact"))?;
-        let fact = facts[position];
-        if fact.function.raw() != decoder.owner { return Err(IrVerifyError::new("scoped field fact belongs to another owner")); }
-        let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped field fact has no semantic type"))?;
-        let scope = self.index.scheme_scopes(self.store)?.get(id)?;
-        super::decode_scheme_type(self.store, scope, ty, &mut self.budget, 0).map(Some)
+        self.scoped_expression_type(decoder, instruction)
     }
 
     fn slot(&mut self, owner: u32, at: usize, slot: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
@@ -5007,12 +5023,26 @@ impl<'a> ProducerProof<'a> {
             }
             _ => return Ok(crate::sema::types::CalleeErrorFlow::None),
         };
+        if let Some(flow) = self.scoped_call_error_flow(decoder, instruction, may_error)? { return Ok(flow); }
         self.budget.charge(1)?;
         let ty = self.need_context(decoder, instruction)?.ok_or_else(|| IrVerifyError::new("captured callee has no executable return contract"))?;
         let effects = if may_error { &[crate::syntax::node::Effect::Error][..] } else { &[] };
         let flow = ty.callee_error_flow(Some(effects));
         self.expression(decoder.owner, instruction, ty, false);
         Ok(flow)
+    }
+
+    fn scoped_call_error_flow(&mut self, decoder: &FullDecoder<'a>, instruction: usize, may_error: bool) -> Result<Option<crate::sema::types::CalleeErrorFlow>, IrVerifyError> {
+        if !self.index.scheme_owners.contains_key(&decoder.owner) { return Ok(None); }
+        let target = match decoder.expression_view(instruction)? {
+            schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => function.id.index(),
+            schema::ExprView::SelfCall { .. } => function_index(decoder.owner)?,
+            _ => return Ok(None),
+        };
+        if !matches!(self.store.functions.get(target).map(|function| function.contract), Some(FullCallableContract::Scheme(_))) { return Ok(None); }
+        if !may_error { return Ok(Some(crate::sema::types::CalleeErrorFlow::None)); }
+        let ty = self.scoped_expression_type(decoder, instruction)?.ok_or_else(|| IrVerifyError::new("generic call has no scoped expression type"))?;
+        Ok(scheme_callee_error_flow(&ty))
     }
 
     fn direct_callee_may_error(&mut self, decoder: &FullDecoder<'a>, instruction: usize, target: usize) -> Result<bool, IrVerifyError> {

@@ -1238,18 +1238,6 @@ pub(super) fn verify_body(
                         }
                         expressions.push(value.raw() as usize);
                     }
-                    schema::StmtView::Assert { value, message, .. } => {
-                        let value = value.raw() as usize;
-                        condition(types, value, crate::sema::types::ConditionRole::Boolean, budget)?;
-                        expressions.push(value);
-                        if let Some(message) = message {
-                            let message = message.raw() as usize;
-                            if !body_type_matches_ground(&expression_type(types, message, budget)?, &Type::Str) {
-                                return Err(IrVerifyError::new("generic assertion message is not Str"));
-                            }
-                            expressions.push(message);
-                        }
-                    }
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
                         if stream_item.is_some() {
@@ -1633,12 +1621,12 @@ mod tests {
 
         let mut duplicate = program.clone();
         append_scheme_body_fact(&mut duplicate, scheme_id, source_fact);
-        assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("completion source has invalid or duplicated ownership"));
+        assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("generic body fact is duplicated"));
     }
 
     #[test]
     fn proc_completion_sources_cannot_claim_an_application_return() {
-        let program = prepare("type TextRow = {name: Str}\nproc projected(value) [error] { value?.name }\nproc relay(value) { projected(value) }\nproc relay_explicit(first, second, value, flag: Bool) [error] { let _ = value?.name; if flag { return first(value) }; second(value) }\nproc authored(row, selected: Bool) [error] { let _ = row?.name; if selected { return Ok(\"done\") }; return Err(\"failed\") }\nproc construct(value) { Ok({name: value}) }\nproc selected_forward(value) { projected(construct(value)) }\nproc mixed(value) [error] { let _ = value?.name; projected(value) }\nproc mixed_sources(left, right) [error] { let _ = left?.name; projected(right) }\nproc mixed_reverse(left, right) [error] { let _ = right?.name; projected(left) }\nproc mixed_explicit_result(left, right) [error] { let _ = left?.name; return right }");
+        let program = prepare("type TextRow = {name: Str}\nproc projected(value) [error] { value?.name }\nproc relay(value) { projected(value) }\nproc relay_explicit(first, second, value, flag: Bool) [error] { let _ = value?.name; if flag { return first(value) }; second(value) }\nproc authored(row, selected: Bool) [error] { let _ = row?.name; if selected { return Ok(\"done\") }; return Err(\"failed\") }\nproc construct(value) { Ok({name: value}) }\nproc selected_forward(marker, value) [error] { let _ = marker?.name; projected(construct(value)) }\nproc mixed(value) [error] { let _ = value?.name; projected(value) }\nproc mixed_sources(left, right) [error] { let _ = left?.name; projected(right) }\nproc mixed_reverse(left, right) [error] { let _ = right?.name; projected(left) }\nproc mixed_explicit_result(left, right) [error] { let _ = left?.name; return right }");
         assert_eq!(std::mem::size_of::<super::super::super::schemes::FullWrapperContribution>(), 8);
         let owner = program.store.functions.iter().enumerate().find(|(_, function)| program.store.string(function.name).unwrap() == "relay_explicit").map(|(owner, _)| owner).unwrap();
         let sites = program.store.scheme_application_returns.iter().filter(|site| site.function.index() == owner).copied().collect::<Vec<_>>();
@@ -1678,7 +1666,7 @@ mod tests {
         let projected_group = projected_wrappers.iter().position(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::ProcCompletion { .. })).unwrap();
         let mixed_range = program.store.function_instruction_range(mixed_owner).unwrap();
         let instantiation = program.store.call_instantiations.iter().find(|instantiation| mixed_range.contains(&(instantiation.instruction as usize))).unwrap();
-        let forwarded = bounded(instantiation.wrapper_bindings, &program.store.call_wrapper_bindings, "mixed call wrapper binding range is invalid").unwrap();
+        let forwarded = bounded(instantiation.arguments.wrapper_bindings, &program.store.call_wrapper_bindings, "mixed call wrapper binding range is invalid").unwrap();
         let super::super::super::schemes::FullWrapperBinding::Forwarded(imported_group) = forwarded[projected_group] else { panic!("projected completion group is forwarded") };
         assert_ne!(local_group, imported_group);
         assert!(completion_ordinals.contains(&local_group));
@@ -1697,10 +1685,10 @@ mod tests {
         let selected_range = program.store.function_instruction_range(selected_owner).unwrap();
         let selected_call = program.store.call_instantiations.iter().find(|call| {
             selected_range.contains(&(call.instruction as usize))
-                && call.wrapper_bindings.len != 0
+                && call.arguments.wrapper_bindings.len != 0
                 && program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == projected_owner)
         }).unwrap();
-        let selected_bindings = bounded(selected_call.wrapper_bindings, &program.store.call_wrapper_bindings, "selected_forward call wrapper range is invalid").unwrap();
+        let selected_bindings = bounded(selected_call.arguments.wrapper_bindings, &program.store.call_wrapper_bindings, "selected_forward call wrapper range is invalid").unwrap();
         let super::super::super::schemes::FullWrapperBinding::Forwarded(selected_group) = selected_bindings[projected_group] else { panic!("selected retained completion group is forwarded") };
         let super::super::super::schemes::FullWrapperBinding::Forwarded(selected_field_ordinal) = selected_bindings[projected_field] else { panic!("selected field relationship is forwarded") };
         let selected_wrappers = bounded(program.store.scheme(selected_scheme_id).unwrap().wrappers, &program.store.scheme_wrappers, "selected_forward wrapper range is invalid").unwrap();
@@ -1710,12 +1698,12 @@ mod tests {
         assert_ne!(selected_group as usize, projected_group);
 
         let mut missing_selected_group = program.clone();
-        let group_binding = selected_call.wrapper_bindings.start as usize + projected_group;
+        let group_binding = selected_call.arguments.wrapper_bindings.start as usize + projected_group;
         missing_selected_group.store.call_wrapper_bindings[group_binding] = super::super::super::schemes::FullWrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::ProcCompletion);
-        assert!(FullVerifier::verify(&missing_selected_group).unwrap_err().message.contains("forwarded wrapper"));
+        assert_eq!(FullVerifier::verify(&missing_selected_group).unwrap_err().message, "selected wrapper retains a symbolic type");
 
         let mut wrong_group = program.clone();
-        let binding = instantiation.wrapper_bindings.start as usize + projected_group;
+        let binding = instantiation.arguments.wrapper_bindings.start as usize + projected_group;
         wrong_group.store.call_wrapper_bindings[binding] = super::super::super::schemes::FullWrapperBinding::Forwarded(local_group);
         assert!(FullVerifier::verify(&wrong_group).unwrap_err().message.contains("forwarded wrapper"));
 
@@ -1773,36 +1761,55 @@ mod tests {
         wrong_initializer_type.store.scheme_body_facts[authored_initializer_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(other_type);
         assert!(FullVerifier::verify(&wrong_initializer_type).is_err());
 
-        let local_group_wrapper = mixed_wrappers[local_group as usize];
-        let super::super::super::schemes::FullWrapper::ProcCompletion { detail: local_detail, .. } = local_group_wrapper else { panic!("local completion ordinal owns a completion group") };
-        let local_completion = program.store.wrapper_completions[local_detail as usize];
-        let local_contributions = local_completion.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
-        let application_contribution = local_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
-            super::super::super::schemes::FullWrapperContribution::ApplicationSource(ty) => Some((index, ty)),
+        let relay_wrappers = bounded(program.store.scheme(scheme_id).unwrap().wrappers, &program.store.scheme_wrappers, "relay_explicit wrapper range is invalid").unwrap();
+        let relay_group = program.store.scheme_body_facts.iter().filter(|fact| fact.function.index() == owner).find_map(|fact| {
+            let super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(ordinal) = fact.value else { return None; };
+            match relay_wrappers.get(ordinal as usize)? {
+                super::super::super::schemes::FullWrapper::Field { detail, .. } => match program.store.wrapper_fields.get(*detail as usize)?.boundary {
+                    super::super::super::schemes::FullWrapperBoundary::ProcCompletion { group, .. } => Some(group),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }).unwrap();
+        let super::super::super::schemes::FullWrapper::ProcCompletion { detail: relay_detail, .. } = relay_wrappers[relay_group as usize] else { panic!("relay field owns its proc completion group") };
+        let relay_completion = program.store.wrapper_completions[relay_detail as usize];
+        let relay_contributions = relay_completion.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        let application = bounded(program.store.scheme(scheme_id).unwrap().applications, &program.store.scheme_applications, "relay_explicit application range is invalid").unwrap().get(site.application as usize).unwrap();
+        let scopes = verify_function_schemes(&program.store, &mut effects::EffectCoverage::new(&program.store)).unwrap();
+        let relay_scope = scopes[scheme_id.index()].as_ref().unwrap();
+        let mut budget = SchemeInstantiationBudget::new(&program.store);
+        let application_result = decode_scheme_type(&program.store, relay_scope, application.result, &mut budget, 0).unwrap();
+        let application_contribution = relay_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
+            super::super::super::schemes::FullWrapperContribution::ApplicationSource(ty) => {
+                let contribution = decode_scheme_type(&program.store, relay_scope, ty, &mut budget, 0).unwrap();
+                body_types_equal(&contribution, &application_result).then_some((index, ty))
+            }
             _ => None,
         }).unwrap();
-        let field_source_type = local_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
+        let relay_field_source_type = relay_contributions.clone().find_map(|index| match program.store.wrapper_contributions[index] {
             super::super::super::schemes::FullWrapperContribution::FieldSource(ty) => Some(ty),
             _ => None,
         }).unwrap();
-        assert_ne!(application_contribution.1, field_source_type);
+        let relay_field_type = decode_scheme_type(&program.store, relay_scope, relay_field_source_type, &mut budget, 0).unwrap();
+        assert!(body_types_equal(&decode_scheme_type(&program.store, relay_scope, application_contribution.1, &mut budget, 0).unwrap(), &application_result));
+        assert!(!body_types_equal(&application_result, &relay_field_type));
 
         let mut changed_contribution = program.clone();
-        changed_contribution.store.wrapper_contributions[application_contribution.0] = super::super::super::schemes::FullWrapperContribution::ApplicationSource(field_source_type);
-        assert!(FullVerifier::verify(&changed_contribution).unwrap_err().message.contains("completion contributions differ"));
+        changed_contribution.store.wrapper_contributions[application_contribution.0] = super::super::super::schemes::FullWrapperContribution::FieldSource(application_contribution.1);
+        assert!(FullVerifier::verify(&changed_contribution).is_err(), "application source role mutation was accepted");
 
         let mut missing_application_contribution = program.clone();
         missing_application_contribution.store.wrapper_contributions[application_contribution.0] = super::super::super::schemes::FullWrapperContribution::PropagatedError(application_contribution.1);
         assert!(FullVerifier::verify(&missing_application_contribution).is_err());
 
         let mut extra_contribution = program.clone();
-        let insert_at = local_completion.contributions.start as usize + local_completion.contributions.len as usize;
+        let insert_at = relay_completion.contributions.start as usize + relay_completion.contributions.len as usize;
         let duplicate = extra_contribution.store.wrapper_contributions[application_contribution.0];
         extra_contribution.store.wrapper_contributions.insert(insert_at, duplicate);
-        for completion in &mut extra_contribution.store.wrapper_completions {
+        for (index, completion) in extra_contribution.store.wrapper_completions.iter_mut().enumerate() {
             let start = completion.contributions.start as usize;
-            let end = start + completion.contributions.len as usize;
-            if start < insert_at && end == insert_at {
+            if index == relay_detail as usize {
                 completion.contributions.len += 1;
             } else if start >= insert_at {
                 completion.contributions.start += 1;
@@ -1810,16 +1817,27 @@ mod tests {
         }
         assert!(FullVerifier::verify(&extra_contribution).unwrap_err().message.contains("completion contributions differ"));
 
-        let mixed_decoder = super::super::decoder_for_function(&program.store, mixed_owner).unwrap();
-        let mixed_site = program.store.scheme_application_returns.iter().find(|site| site.function.index() == mixed_owner).copied().unwrap();
-        let schema::StmtView::Return { value: mixed_value } = mixed_decoder.statement_view(mixed_site.instruction as usize).unwrap() else { unreachable!() };
-        let mixed_source_type_fact = program.store.scheme_body_facts.iter().position(|fact| {
-            fact.function.index() == mixed_owner && fact.instruction as usize == mixed_value.raw() as usize && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
+        let relay_source_type_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            fact.function.index() == owner && fact.instruction as usize == value.raw() as usize && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Expression(_))
         }).unwrap();
+        let relay_field_source_fact = program.store.scheme_body_facts.iter().position(|fact| {
+            if fact.function.index() != owner || !matches!(decoder.expression_view(fact.instruction as usize), Ok(schema::ExprView::Param(_))) { return false; }
+            let super::super::super::schemes::FullSchemeBodyFactValue::Expression(ty) = fact.value else { return false; };
+            body_types_equal(&decode_scheme_type(&program.store, relay_scope, ty, &mut budget, 0).unwrap(), &relay_field_type)
+        }).unwrap();
+        let super::super::super::schemes::FullSchemeBodyFactValue::Expression(application_source_type) = program.store.scheme_body_facts[relay_source_type_fact].value else { unreachable!() };
+        let super::super::super::schemes::FullSchemeBodyFactValue::Expression(field_source_operand_type) = program.store.scheme_body_facts[relay_field_source_fact].value else { unreachable!() };
+        assert!(body_types_equal(&decode_scheme_type(&program.store, relay_scope, application_source_type, &mut budget, 0).unwrap(), &application_result));
+        assert!(body_types_equal(&decode_scheme_type(&program.store, relay_scope, field_source_operand_type, &mut budget, 0).unwrap(), &relay_field_type));
+        assert_ne!(application_source_type, field_source_operand_type);
         let mut wrong_application_result = program.clone();
-        wrong_application_result.store.scheme_body_facts[mixed_source_type_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(field_source_type);
-        assert!(FullVerifier::verify(&wrong_application_result).is_err());
+        wrong_application_result.store.scheme_body_facts[relay_source_type_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(field_source_operand_type);
+        wrong_application_result.store.scheme_body_facts[relay_field_source_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Expression(application_source_type);
+        let wrong_application_error = FullVerifier::verify(&wrong_application_result).unwrap_err();
+        assert!(!wrong_application_error.message.contains("unowned"), "coordinated application source type mutation orphaned a scheme row: {}", wrong_application_error.message);
+        assert!(wrong_application_error.message.contains("declaration disagrees with its initializer"), "coordinated application source type mutation failed for an unrelated reason: {}", wrong_application_error.message);
 
+        let mixed_decoder = super::super::decoder_for_function(&program.store, mixed_owner).unwrap();
         let local_field_fact = program.store.scheme_body_facts.iter().position(|fact| {
             fact.function.index() == mixed_owner
                 && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(_))

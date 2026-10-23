@@ -43624,9 +43624,13 @@ proc mixed_tail_result(left, right: Result[IntRow, Int]) [error] { let _ = left?
 proc mixed_explicit_result_source(left, right: Result[IntRow, Int]) [error] { let _ = left?.name; return right }
 proc wider(value) [error, fs] { projected(value) }
 proc captured(value) [] { try { projected(value)? } }
+pure captured_optional(value: TextRow?) { try { value?.name } }
+pure captured_result(value: Result[TextRow, Str]) { try { value?.name } }
 let text_success: Result[TextRow, Str] = Ok({name: "text"})
 let text_failure: Result[TextRow, Str] = Err("text failure")
 let other_text_failure: Result[TextRow, Str] = Err("other text failure")
+let optional_source: TextRow? = {name: "optional"}
+let optional_missing: TextRow? = null
 let int_success: Result[IntRow, Int] = Ok({name: 9})
 let int_failure: Result[IntRow, Int] = Err(7)
 let same_source: Result[Str, Str] = mixed(text_failure)
@@ -43646,6 +43650,14 @@ let wider_success: Result[Str, Str] = wider(text_success)
 let wider_failure: Result[Str, Str] = wider(text_failure)
 let expected_wider_success: Result[Str, Str] = Ok("text")
 let expected_wider_failure: Result[Str, Str] = Err("text failure")
+let optional_capture_present = captured_optional(optional_source)
+let expected_optional_capture_present: Result[Str?] = Ok("optional")
+let optional_capture_missing = captured_optional(optional_missing)
+let expected_optional_capture_missing: Result[Str?] = Ok(null)
+let result_capture_success = captured_result(text_success)
+let expected_result_capture_success: Result[Str, Str] = Ok("text")
+let result_capture_failure = captured_result(text_failure)
+let expected_result_capture_failure: Result[Str, Str] = Err("text failure")
 let captured_success = captured(text_success)
 let captured_failure = captured(text_failure)
 let selected_int: Result[Int, Error] = selected_forward(11)
@@ -43664,6 +43676,10 @@ assert match explicit_result_errors { Err(error) => error.message == "7"; Ok(_) 
 assert different_success == expected_success
 assert wider_success == expected_wider_success
 assert wider_failure == expected_wider_failure
+assert optional_capture_present == expected_optional_capture_present
+assert optional_capture_missing == expected_optional_capture_missing
+assert result_capture_success == expected_result_capture_success
+assert result_capture_failure == expected_result_capture_failure
 assert match captured_success { Ok(value) => value == "text"; Err(_) => false }
 assert match captured_failure { Err(_) => true; Ok(_) => false }
 assert selected_int == expected_int
@@ -43683,7 +43699,15 @@ assert selected_text == expected_text
             let mut replaced = false;
             for predicate in predicates {
                 let schemes::FullEffectPredicate::Covered(subject, permission) = program.store.scheme_effect_predicates[predicate] else { continue; };
-                if subject != field_effects { continue; }
+                let Some(subject_direct) = subject.direct.bounds(program.store.scheme_effects.len()) else { continue; };
+                let Some(subject_terms) = subject.terms.bounds(program.store.scheme_effect_terms.len()) else { continue; };
+                let Some(field_direct) = field_effects.direct.bounds(program.store.scheme_effects.len()) else { continue; };
+                let Some(field_terms) = field_effects.terms.bounds(program.store.scheme_effect_terms.len()) else { continue; };
+                if subject.known != field_effects.known
+                    || subject.reserved != field_effects.reserved
+                    || program.store.scheme_effects[subject_direct] != program.store.scheme_effects[field_direct]
+                    || program.store.scheme_effect_terms[subject_terms] != program.store.scheme_effect_terms[field_terms]
+                { continue; }
                 let direct = permission.direct.bounds(program.store.scheme_effects.len()).unwrap();
                 let terms = permission.terms.bounds(program.store.scheme_effect_terms.len()).unwrap();
                 if direct.len() == 1 && terms.is_empty() && program.store.scheme_effects[direct.start] == Effect::Error {
@@ -43694,6 +43718,42 @@ assert selected_text == expected_text
             }
             assert!(replaced, "projected retains its finite guarded-field error ceiling");
             assert!(FullVerifier::verify(&forged_effect).is_err(), "a forged filesystem ceiling cannot authorize a guarded Result projection");
+            let captured_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "captured").unwrap();
+            let projected_owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "projected").unwrap();
+            let mut captured_range = program.store.function_instruction_range(captured_owner).unwrap();
+            let projected_call = program.store.checked_call_targets.iter().find(|target| {
+                captured_range.contains(&(target.instruction as usize)) && target.function.index() == projected_owner
+            }).unwrap().instruction as usize;
+            let try_instruction = captured_range.find(|&instruction| program.store.tags[instruction] == FullTag::ExprTry).unwrap();
+            let call_fact = program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function.index() == captured_owner
+                    && fact.instruction as usize == projected_call
+                    && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let try_fact = program.store.scheme_body_facts.iter().find(|fact| {
+                fact.function.index() == captured_owner
+                    && fact.instruction as usize == try_instruction
+                    && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let schemes::FullSchemeBodyFactValue::Expression(try_type) = try_fact.value else { panic!("captured try retains its checked body type") };
+            assert_ne!(program.store.scheme_body_facts[call_fact].ty(), Some(try_type));
+
+            let mut missing_call_type = program.as_ref().clone();
+            missing_call_type.store.scheme_body_facts.remove(call_fact);
+            for scheme in &mut missing_call_type.store.schemes {
+                let start = scheme.body_facts.start as usize;
+                let end = start + scheme.body_facts.len as usize;
+                if start > call_fact {
+                    scheme.body_facts.start -= 1;
+                } else if start <= call_fact && call_fact < end {
+                    scheme.body_facts.len -= 1;
+                }
+            }
+            assert!(FullVerifier::verify(&missing_call_type).is_err(), "captured generic calls require their owner-scoped result fact");
+
+            let mut wrong_call_type = program.as_ref().clone();
+            wrong_call_type.store.scheme_body_facts[call_fact].value = schemes::FullSchemeBodyFactValue::Expression(try_type);
+            assert!(FullVerifier::verify(&wrong_call_type).is_err(), "a sibling try result cannot replace the scoped call result fact");
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.force_frames = force_frames;
