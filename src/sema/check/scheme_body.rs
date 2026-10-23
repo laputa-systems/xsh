@@ -3,7 +3,7 @@ use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum CapturedBindingAccess { ReadOnly, ReadOnlyLiteral, Writable }
+pub(super) enum CapturedBindingAccess { ReadOnly, ReadOnlyLiteral, StaticCallableNamespace, Writable }
 
 pub(super) type CapturedBindings = std::collections::BTreeMap<BindingId, CapturedBindingAccess>;
 
@@ -478,6 +478,13 @@ pub(super) fn is_body_expression(
             ArenaExprKind::Field { .. }
                 if checked_operations.contains(&program.arena.expr(expression).span)
                     && matches!(types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::Tag(_))) => {}
+            ArenaExprKind::Field { base, name }
+                if bindings.expressions.get(&base).is_some_and(|binding| captures.get(binding) == Some(&CapturedBindingAccess::StaticCallableNamespace)) =>
+            {
+                let Some(crate::sema::types::Type::Module(module)) = types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { return false; };
+                let Some(actual) = module.get(&name).and_then(crate::sema::types::ModuleExportType::static_callable_value_type) else { return false; };
+                if !module.exact || types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(actual) { return false; }
+            }
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
             ArenaExprKind::Convert { value, .. } | ArenaExprKind::Require { value, .. } => {
                 if !checked_operations.contains(&program.arena.expr(expression).span) || !types.contains_key(&expression) { return false; }

@@ -627,11 +627,15 @@ impl Checker {
             }));
             let captures = read_bindings.iter().filter_map(|&id| {
                     let declaration = self.resolved_bindings.declarations.get(&id)?;
-                    if declaration.kind != super::BindingKind::Runtime { return None; }
+                    if !matches!(declaration.kind, super::BindingKind::Runtime | super::BindingKind::Module(_)) { return None; }
                     self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
                         .and_then(|binding| {
                             if binding.ty.contains_inference() { return None; }
-                            let access = if !binding.ty.may_hold_resource() {
+                            let access = if matches!(declaration.kind, super::BindingKind::Module(_)) && binding.static_namespace && !binding.mutable
+                                && matches!(&binding.ty, Type::Module(module) if module.exact)
+                            {
+                                super::scheme_body::CapturedBindingAccess::StaticCallableNamespace
+                            } else if !binding.ty.may_hold_resource() {
                                 if binding.mutable { super::scheme_body::CapturedBindingAccess::Writable } else { super::scheme_body::CapturedBindingAccess::ReadOnly }
                             } else if matches!(&binding.ty, Type::Record(_)) && self.has_literal_capture_payload(program, binding) {
                                 super::scheme_body::CapturedBindingAccess::ReadOnlyLiteral

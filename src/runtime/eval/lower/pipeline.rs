@@ -107,7 +107,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let value = if self.declarations.static_callable_aliases.contains_key(&span)
                 || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
             {
-                self.lower_scheme_stage_value_call(callee, CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }, slots, current_function, lowered_types)?
+                self.lower_scheme_stage_value_call(callee, CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }, slots, current_function, facts, visited, lowered_types)?
             } else if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
                 let function = self.function_index().checked_target_key(target)?;
                 let arguments = [CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }];
@@ -146,6 +146,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         })();
         slots.exit(saved);
         callback
+    }
+
+    pub(super) fn lower_scheme_static_callable_projection(
+        &mut self, expression: ExprId, slots: &SlotScope, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        let ArenaExprKind::Field { base, name } = self.program.arena.expr(expression).kind else { return None; };
+        let binding = self.expression_binding(base)?;
+        let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
+        if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
+        let source = slots.types.get(&binding)?.clone();
+        let Some(Type::Module(module)) = source.closed_ground_type() else { return None; };
+        if !module.exact { return None; }
+        let result = module.get(&name)?.static_callable_value_type()?;
+        let ArenaExprKind::Ident(namespace) = self.program.arena.expr(base).kind else { return None; };
+        if facts.expression_types().contains_key(&base) && !visited.insert(base) { return None; }
+        let base = self.lower_bare_ident(base, namespace, slots)?;
+        lowered_types.insert(base, source);
+        let value = push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span: self.program.arena.expr(expression).span });
+        lowered_types.insert(value, SchemeType::Ground(result));
+        Some(value)
     }
 
     pub(super) fn lower_scheme_pipeline_fold(

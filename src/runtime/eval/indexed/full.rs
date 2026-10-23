@@ -7230,7 +7230,7 @@ impl<'a> FullDecoder<'a> {
                     .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
                     as usize;
                 let expected = self.store.semantic.to_type(signature)?;
-                self.local_function_ref_matches_type(slot, &expected)?;
+                self.immutable_local_callable_matches_type(slot, &expected)?;
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -9910,7 +9910,7 @@ impl<'a> FullDecoder<'a> {
                     )
                 })
             {
-                return self.local_function_ref_matches_type(slot, expected);
+                return self.immutable_local_callable_matches_type(slot, expected);
             }
             return Err(IrVerifyError::new(
                 "checked callable expression slot disagrees with its expected type",
@@ -9962,7 +9962,7 @@ impl<'a> FullDecoder<'a> {
                         )
                     })
                 {
-                    self.local_function_ref_matches_type(slot, expected)
+                    self.immutable_local_callable_matches_type(slot, expected)
                 } else {
                     Err(IrVerifyError::new(
                         "checked callable expression slot disagrees with its expected type",
@@ -10012,7 +10012,9 @@ impl<'a> FullDecoder<'a> {
                         "checked callable expression child has no structural producer proof",
                     ));
                 };
-                if self.store.semantic.callable_type_fits(&actual, expected) {
+                if self.store.semantic.callable_type_fits(&actual, expected)
+                    || self.checked_imported_callable_relationship(instruction, &Type::Function(actual.kind), &Type::Callable(Arc::clone(expected)))?
+                {
                     Ok(())
                 } else {
                     Err(IrVerifyError::new(
@@ -10373,19 +10375,26 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn local_function_ref_matches_type(
+    fn immutable_local_callable_matches_type(
         &self,
         slot: usize,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let initializer = self
-            .local_function_ref_initializer(slot)?
-            .ok_or_else(|| {
-                IrVerifyError::new(
-                    "checked callable slot has no immutable function reference initializer",
-                )
-            })?;
-        self.function_reference_matches_callable(initializer, expected)
+        let mut slot = slot;
+        let mut visited = BTreeSet::new();
+        loop {
+            if !visited.insert(slot) {
+                return Err(IrVerifyError::new("immutable callable initializer contains a cycle"));
+            }
+            let (_, initializer) = self.local_immutable_let_initializer(slot)?;
+            let initializer = initializer.ok_or_else(|| IrVerifyError::new("checked callable slot has no immutable callable initializer"))?;
+            match self.expression_view(initializer)? {
+                schema::ExprView::FunctionRef { .. } => return self.function_reference_matches_callable(initializer, expected),
+                schema::ExprView::Field { .. } => return self.checked_expression_matches_type(initializer, expected),
+                schema::ExprView::Param(next) => slot = next,
+                _ => return Err(IrVerifyError::new("checked callable slot has no immutable callable initializer")),
+            }
+        }
     }
 
 
@@ -11019,10 +11028,16 @@ impl<'a> FullDecoder<'a> {
         if registered_error != checked_error { return Ok(false); }
         let schema::ExprView::Method { name: "get", args, .. } = self.expression_view(instruction)? else { return Ok(false); };
         if args.len() != 1 { return Ok(false); }
-        self.checked_imported_scheme_callable(instruction, registered_success, checked_success)
+        self.checked_imported_callable_relationship(instruction, registered_success, checked_success)
     }
 
-    fn checked_imported_scheme_callable(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
+    fn checked_imported_callable_relationship(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
+        if let (Type::Function(kind), Type::Callable(callable)) = (registered, checked) {
+            let schema::ExprView::Field { base, name, .. } = self.expression_view(instruction)? else { return Ok(false); };
+            let Some(Type::Module(module)) = self.derive_checked_expression_type(base.raw() as usize)?.map(Type::into_unvalidated) else { return Ok(false); };
+            return Ok(module.exact && *kind == callable.kind
+                && module.exports.get(&Name::intern(name)).and_then(ModuleExportType::static_callable_value_type).as_ref() == Some(checked));
+        }
         let (Type::Function(kind), Type::SchemeCallable(id)) = (registered, checked) else { return Ok(false); };
         let Some(prefix) = &self.producer_prefix else { return Ok(false); };
         let Some(ImmutableCallableSource::ImportedFunction(function)) = prefix.immutable_function_reference_source(self, instruction)? else { return Ok(false); };
@@ -11946,13 +11961,13 @@ impl<'a> FullDecoder<'a> {
                 }
                 let actual = match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => actual,
-                    Ok(None) => return self.local_function_ref_matches_type(slot, &ty),
+                    Ok(None) => return self.immutable_local_callable_matches_type(slot, &ty),
                     Err(error)
                         if error
                             .message
                             .starts_with("typed callee slot has no checked type fact:") =>
                     {
-                        return self.local_function_ref_matches_type(slot, &ty);
+                        return self.immutable_local_callable_matches_type(slot, &ty);
                     }
                     Err(error) => return Err(error),
                 };
@@ -11964,7 +11979,7 @@ impl<'a> FullDecoder<'a> {
                         &actual_type,
                         &ty,
                     )?
-                    || self.checked_imported_scheme_callable(instruction, &actual_type, &ty)?
+                    || self.checked_imported_callable_relationship(instruction, &actual_type, &ty)?
                 {
                     return Ok(());
                 } else if let Type::Optional(payload) = &actual_type
@@ -11986,7 +12001,7 @@ impl<'a> FullDecoder<'a> {
                         (Type::Function(crate::sema::types::CallableKind::Pure), true) | (Type::Function(crate::sema::types::CallableKind::Proc), false)
                     )
                 {
-                    return self.local_function_ref_matches_type(slot, &ty);
+                    return self.immutable_local_callable_matches_type(slot, &ty);
                 } else {
                     return Err(IrVerifyError::new(
                         "checked expression fact disagrees with its structural producer",
@@ -12001,12 +12016,12 @@ impl<'a> FullDecoder<'a> {
                             binding,
                             &declared,
                             &ty,
-                        )? || self.checked_imported_scheme_callable(instruction, &declared, &ty)?,
-                        None => self.checked_imported_scheme_callable(instruction, &self.derive_checked_field_type(instruction)?, &ty)?,
+                        )? || self.checked_imported_callable_relationship(instruction, &declared, &ty)?,
+                        None => self.checked_imported_callable_relationship(instruction, &self.derive_checked_field_type(instruction)?, &ty)?,
                     }
                 } else {
                     let declared = self.derive_checked_field_type(instruction)?;
-                    declared == ty || self.checked_imported_scheme_callable(instruction, &declared, &ty)?
+                    declared == ty || self.checked_imported_callable_relationship(instruction, &declared, &ty)?
                 };
                 if !matches {
                     return Err(IrVerifyError::new(
@@ -12279,7 +12294,7 @@ impl<'a> FullDecoder<'a> {
             }
             schema::ExprView::Index { base, index, .. } => {
                 let actual = self.checked_index_result_type(base.raw() as usize, index.ordinary().map(|index| index.raw() as usize))?;
-                if actual != ty && !self.checked_imported_scheme_callable(instruction, &actual, &ty)? {
+                if actual != ty && !self.checked_imported_callable_relationship(instruction, &actual, &ty)? {
                     return Err(IrVerifyError::new(
                         "checked index fact disagrees with its collection producer",
                     ));
@@ -22630,7 +22645,7 @@ run true
         assert!(constructed.blocker_events > 0, "{constructed:?}");
     }
 
-    fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
+    pub(super) fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(f)

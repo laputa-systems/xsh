@@ -1302,13 +1302,16 @@ fn verify_scheme_body_facts(
         }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
-            slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false });
+            slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false, access: body::BindingAccess::Value });
         }
         for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
             let slot = (capture.slot_and_flags & !(1 << 31)) as usize;
             let ty = store.semantic.to_type_with_budget(capture.type_id, &mut budget.semantic_types)?;
             ensure_closed_type(&ty)?;
-            if ty.may_hold_resource() && !(capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Record(_))) { return Err(IrVerifyError::new("generic body captures resource state")); }
+            let namespace = capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Module(_))
+                && producer_index.static_namespace_capture(store, capture.binding_identity, &ty, &mut budget)?;
+            if ty.may_hold_resource() && !namespace && !(capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Record(_))) { return Err(IrVerifyError::new("generic body captures resource state")); }
+            if namespace && producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("generic callable namespace has no mandatory storage proof")); }
             if matches!(&ty, Type::Record(_)) && producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("generic record capture has no mandatory literal payload proof")); }
             if capture.slot_and_flags & (1 << 31) != 0 {
                 if producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("mutable generic capture has no mandatory storage proof")); }
@@ -1316,7 +1319,7 @@ fn verify_scheme_body_facts(
                 let actual = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("generic capture has no authenticated lexical writer type"))?;
                 if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
             }
-            if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0 }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
+            if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0, access: if namespace { body::BindingAccess::StaticCallableNamespace } else { body::BindingAccess::Value } }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
         }
         let body_id = IrBlockId::from_raw(function.body).ok_or_else(|| IrVerifyError::new("generic body block is invalid"))?;
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
@@ -1325,7 +1328,7 @@ fn verify_scheme_body_facts(
         let completion_group = wrappers::verify_completion_groups(store, scheme, scope, &wrapper_sites, &expected_return, &mut budget)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions, callable_projections } = body::verify_body(store, &decoder, &types, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -1356,6 +1359,7 @@ fn verify_scheme_body_facts(
         requests.streams.extend(stream_sources.into_iter().map(|(source, boundary)| producers::StreamIteration { owner: decoder.owner, source, boundary }));
         requests.captures.extend(captures);
         requests.checked_accumulators.extend(checked_accumulators.into_iter().map(|instruction| (decoder.owner, instruction)));
+        requests.callable_projections.extend(callable_projections.into_iter().map(|(instruction, ty)| (decoder.owner, instruction, ty)));
         requests.applications.extend(applications.into_iter().map(|instruction| (decoder.owner, instruction)));
         match completion_group {
             Some(group) => requests.completions.push(producers::CompletionContributionsRequest { owner: decoder.owner, group, actual: completion_contributions }),

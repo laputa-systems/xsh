@@ -21,7 +21,7 @@ pub(super) struct CheckedRecordConstruction {
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_scheme_stage_value_call(
         &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
-        current_function: Name, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
+        current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(callee).span;
         let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();
@@ -38,8 +38,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let source_type = self.expression_binding(source).and_then(|binding| slots.types.get(&binding)).cloned()
             .or_else(|| relationship.map(|relationship| super::SchemeType::Ground(Type::SchemeCallable(relationship))))
             .or_else(|| signature.clone().map(super::SchemeType::Ground))?;
-        let value = self.lower_expr_untyped(source, slots, Some(current_function), None)?;
-        lowered_types.insert(value, source_type);
+        let namespace = matches!(self.program.arena.expr(source).kind, ArenaExprKind::Field { base, .. }
+            if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Module(_))));
+        let value = if namespace {
+            let value = self.lower_scheme_static_callable_projection(source, slots, facts, visited, lowered_types)?;
+            if lowered_types.get(&value).and_then(super::SchemeType::closed_ground_type) != source_type.closed_ground_type() { return None; }
+            value
+        } else {
+            let value = self.lower_expr_untyped(source, slots, Some(current_function), None)?;
+            lowered_types.insert(value, source_type);
+            value
+        };
         let arguments = if let Some(relationship) = relationship {
             let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
             let parameters = contract.canonical().scheme().params();

@@ -829,6 +829,17 @@ reserved bits, foreign owners, and missing signatures. Runtime module contracts
 use retained executable signatures or checked load-time signatures. A callable
 kind alone does not establish a Stream signature.
 
+A generic body may borrow a root-owned immutable static import namespace to
+read an exact nonoptional ground callable-valued export, such as
+`export let format = render`. The namespace keeps its
+original root import lifetime and cannot escape as a value. Cold body
+verification checks the physical field read and capture binding. Producer
+verification follows the import's actual export storage and executable target.
+The selected target cannot capture mutable or resource state. Resource-valued
+module exports remain rejected. Unselected callable exports retain their
+existing root resources and shared state. Calls preserve the real callable
+environment, defaults, kind, and canonical invocation effects.
+
 The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
 Its opaque `CallableValue` carries the canonical `CallableKind`; named values
 require an explicit kind, and prepared values derive it from the authenticated

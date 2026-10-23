@@ -652,10 +652,11 @@ pub(super) struct SchemeProducerRequests {
     pub(super) applications: BTreeSet<(u32, usize)>,
     pub(super) methods: BTreeSet<(u32, usize)>,
     pub(super) completions: Vec<CompletionContributionsRequest>,
+    pub(super) callable_projections: Vec<(u32, usize, Type)>,
 }
 
 impl SchemeProducerRequests {
-    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.checked_accumulators.is_empty() && self.methods.is_empty() && self.completions.is_empty() }
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.checked_accumulators.is_empty() && self.methods.is_empty() && self.completions.is_empty() && self.callable_projections.is_empty() }
 }
 
 pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
@@ -1098,6 +1099,22 @@ fn record_condition_inputs(decoder: &FullDecoder<'_>, instruction: usize, output
 }
 
 impl GroundProducerIndex {
+    pub(super) fn static_namespace_capture(&self, store: &FullStore, binding: u32, expected: &Type, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+        budget.charge(1)?;
+        let Some((_, step, _)) = self.binding_writers.get(binding as usize).and_then(|writer| *writer) else { return Ok(false); };
+        let driver = store.driver_steps.get(step).ok_or_else(|| IrVerifyError::new("namespace capture writer is out of bounds"))?;
+        if driver.tag != super::super::FullDriverTag::Use { return Ok(false); }
+        let Some(ty) = TypeId::from_raw(driver.registered_module_type) else { return Ok(false); };
+        let actual = store.semantic.to_type_with_budget(ty, &mut budget.semantic_types)?;
+        let Type::Module(module) = &actual else { return Ok(false); };
+        if !module.exact || actual != *expected { return Ok(false); }
+        budget.charge(module.len())?;
+        if module.values().any(|export| matches!(export, ModuleExportType::Value { ty, .. } if ty.may_hold_resource())) {
+            return Err(IrVerifyError::new("generic callable namespace contains a resource export"));
+        }
+        let owner = driver_owner(step).map_err(|_| IrVerifyError::new("namespace capture writer owner is invalid"))?;
+        Ok(self.module_exports.contains_key(&owner))
+    }
     pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
         let mut checked_producers = Vec::new();
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
@@ -1956,6 +1973,9 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
     }
     proof.budget.charge(requests.applications.len())?;
     proof.scheme_applications.extend(requests.applications);
+    for (owner, instruction, expected) in requests.callable_projections {
+        proof.verify_static_callable_projection(owner, instruction, expected)?;
+    }
     let mut scheme_methods = requests.methods;
     let completion_requests = requests.completions;
     let mut completion_contributions = BTreeMap::new();
@@ -2518,6 +2538,30 @@ impl<'a> ProducerProof<'a> {
         if previous.iter().any(|ty| **ty == *expected) { return Ok(()); }
         previous.push(Arc::clone(&expected));
         self.pending.push(Obligation::Slot(owner, binding, slot, expected));
+        Ok(())
+    }
+
+    fn verify_static_callable_projection(&mut self, owner: u32, instruction: usize, expected: Type) -> Result<(), IrVerifyError> {
+        self.budget.charge(1)?;
+        let decoder = self.owner(owner)?;
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) || !matches!(expected, Type::Callable(_)) {
+            return Err(IrVerifyError::new("generic callable projection has no physical export read"));
+        }
+        let targets = self.function_targets(owner, instruction)?;
+        if targets.is_empty() { return Err(IrVerifyError::new("generic callable projection has no actual exported target")); }
+        for target in targets {
+            let function = self.store.functions.get(target).ok_or_else(|| IrVerifyError::new("generic callable projection target is out of bounds"))?;
+            let captures = bounded(function.captures, &self.store.captures, "projected callable captures are invalid")?;
+            self.budget.charge(captures.len())?;
+            for capture in captures {
+                let ty = self.store.semantic.to_type_with_budget(capture.type_id, &mut self.budget.semantic_types)?;
+                if capture.slot_and_flags & (1 << 31) != 0 || ty.may_hold_resource() {
+                    return Err(IrVerifyError::new("generic projected callable captures mutable or resource state"));
+                }
+            }
+            if matches!(function.contract, FullCallableContract::Ground(_)) { self.ground_function(target)?; }
+        }
+        self.expression(owner, instruction, Arc::new(expected), false);
         Ok(())
     }
 

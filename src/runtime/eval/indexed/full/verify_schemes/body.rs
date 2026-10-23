@@ -10,12 +10,17 @@ pub(super) struct LexicalScope {
 pub(super) struct InitialBinding {
     pub(super) ty: SchemeType,
     pub(super) mutable: bool,
+    pub(super) access: BindingAccess,
 }
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum BindingAccess { Value, StaticCallableNamespace }
 
 struct LocalBinding {
     ty: SchemeType,
     mutable: bool,
     initializer: Option<(usize, LexicalScope)>,
+    access: BindingAccess,
 }
 
 struct LexicalFrame {
@@ -61,7 +66,9 @@ impl LexicalScope {
     }
 
     pub(super) fn slot_type<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a SchemeType>, IrVerifyError> {
-        Ok(self.binding(scopes, slot, budget)?.map(|binding| &binding.ty))
+        let binding = self.binding(scopes, slot, budget)?;
+        if binding.is_some_and(|binding| binding.access == BindingAccess::StaticCallableNamespace) { return Err(IrVerifyError::new("generic namespace capture escapes its callable projection")); }
+        Ok(binding.map(|binding| &binding.ty))
     }
 
     pub(super) fn immutable_initializer(
@@ -363,7 +370,7 @@ fn record_capture_transfers(
 fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     if scope.binding(scopes, slot, budget)?.is_some() { return Err(IrVerifyError::new("generic declaration rewrites a visible slot")); }
     budget.charge(1)?;
-    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable, initializer });
+    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable, initializer, access: BindingAccess::Value });
     Ok(())
 }
 
@@ -845,6 +852,7 @@ pub(super) struct BodyProof {
     pub(super) applications: BTreeSet<usize>,
     pub(super) checked_accumulators: Vec<usize>,
     pub(super) completion_contributions: Vec<crate::sema::wrapper_operation::WrapperCompletionContribution<SchemeType>>,
+    pub(super) callable_projections: Vec<(usize, Type)>,
 }
 
 fn with_error_types(decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<BTreeMap<usize, SchemeType>, IrVerifyError> {
@@ -904,7 +912,8 @@ pub(super) fn verify_body(
     for binding in slots.values() { budget.charge_scheme_clone(&binding.ty)?; }
     let mut writers = slots.iter().map(|(&slot, binding)| (slot, binding.ty.clone())).collect::<BTreeMap<_, _>>();
     let function_boundary = PropagationBoundary::for_scheme_function(store, decoder.owner, expected_return, scheme_scope, completion_group, budget)?;
-    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, binding)| (slot, LocalBinding { ty: binding.ty, mutable: binding.mutable, initializer: None })).collect() }], error_boundaries: Vec::new(), function_boundary };
+    let namespace_slots = slots.iter().filter_map(|(&slot, binding)| (binding.access == BindingAccess::StaticCallableNamespace).then_some(slot)).collect::<BTreeSet<_>>();
+    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, binding)| (slot, LocalBinding { ty: binding.ty, mutable: binding.mutable, initializer: None, access: binding.access })).collect() }], error_boundaries: Vec::new(), function_boundary };
     let scope = LexicalScope { frame: 0, loop_depth: 0, error_boundary: None };
     let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic body has no function owner"))?;
     let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("generic default has no function owner"))?;
@@ -920,7 +929,7 @@ pub(super) fn verify_body(
     for (&slot, binding) in &scopes.frames[0].bindings {
         if slot >= parameter_count {
             budget.charge_scheme_clone(&binding.ty)?;
-            default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: binding.mutable, initializer: None });
+            default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: binding.mutable, initializer: None, access: binding.access });
         }
     }
     let default_scope = LexicalScope { frame: scopes.frames.len(), loop_depth: 0, error_boundary: None };
@@ -931,6 +940,8 @@ pub(super) fn verify_body(
     let mut stream_iterations = Vec::new();
     let mut batch_argv_checks = Vec::new();
     let mut captures = Vec::new();
+    let mut callable_projections = Vec::new();
+    let mut projected_namespaces = BTreeSet::new();
     let mut applications = BTreeSet::new();
     let mut application_returns = BTreeSet::new();
     let mut completion_contributions = Vec::new();
@@ -954,6 +965,23 @@ pub(super) fn verify_body(
                 expression_scopes.insert(instruction, scope);
                 let claimed = expression_type(types, instruction, budget)?;
                 match decoder.expression_view(instruction)? {
+                    schema::ExprView::Field { base, name, .. }
+                        if types.get(&(base.raw() as usize)).and_then(SchemeType::closed_ground_type).is_some_and(|ty| matches!(ty, Type::Module(_))) =>
+                    {
+                        let base = base.raw() as usize;
+                        let schema::ExprView::Param(slot) = decoder.expression_view(base)? else { return Err(IrVerifyError::new("generic callable projection has no captured namespace read")); };
+                        let binding = scope.binding(&scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic callable projection has no namespace binding"))?;
+                        if binding.mutable || binding.access != BindingAccess::StaticCallableNamespace { return Err(IrVerifyError::new("generic callable projection has no static namespace authority")); }
+                        if !body_types_equal(&expression_type(types, base, budget)?, &binding.ty) { return Err(IrVerifyError::new("generic callable projection changes its actual namespace type")); }
+                        let Some(Type::Module(module)) = binding.ty.closed_ground_type() else { return Err(IrVerifyError::new("generic callable projection has no exact module contract")); };
+                        let actual = module.get(&Name::intern(name)).and_then(crate::sema::types::ModuleExportType::static_callable_value_type)
+                            .filter(|_| module.exact).ok_or_else(|| IrVerifyError::new("generic namespace projection is not an exact callable export"))?;
+                        if claimed.closed_ground_type() != Some(actual.clone()) { return Err(IrVerifyError::new("generic callable projection disagrees with its actual export signature")); }
+                        if !visited.insert(instruction) || !visited.insert(base) { return Err(IrVerifyError::new("generic callable projection is shared or cyclic")); }
+                        expression_scopes.insert(base, scope);
+                        projected_namespaces.insert(slot);
+                        callable_projections.push((instruction, actual));
+                    }
                     schema::ExprView::DynamicCall { .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let children = if store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
@@ -1800,7 +1828,8 @@ pub(super) fn verify_body(
     if !completion_sources.is_empty() {
         return Err(IrVerifyError::new("generic Proc completion source is not consumed by its owner return"));
     }
-    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications, checked_accumulators, completion_contributions })
+    if namespace_slots != projected_namespaces { return Err(IrVerifyError::new("generic namespace capture has no actual callable projection")); }
+    Ok(BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_iterations, captures, applications, checked_accumulators, completion_contributions, callable_projections })
 }
 
 #[cfg(test)]
@@ -2091,6 +2120,154 @@ pure other(payload) { payload }
     }
 
 
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_imported_aliases_retain_captures_and_defaults_after_disposal() {
+        let work = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).unwrap();
+        let modules = tempfile::tempdir_in(work).unwrap();
+        std::fs::write(modules.path().join("helpers.xsh"), "##! Callable stage fixture.\nlet prefix = \"module:\"\n## Render an item with its captured prefix and default suffix.\nexport pure render(value: Str, suffix: Str = \"!\") -> Str { prefix + value + suffix }\n## Preserve the callable value.\nexport let format = render\n").unwrap();
+        std::fs::write(modules.path().join("foreign.xsh"), "##! Foreign callable namespace.\n## Preserve an integer.\nexport pure keep(value: Int) -> Int { value }\n## Retain the foreign callable.\nexport let format = keep\n").unwrap();
+        let source = "use helpers\nuse foreign\npure local(payload) { let action = helpers.format; let again = action; {payload, rows: [\"local\"] |> map(again)} }\npure exported(payload) { {payload, rows: [\"exported\"] |> map(helpers.format)} }\ntest imported_aliases { assert local(7) == {payload: 7, rows: [\"module:local!\"]}; assert local(\"kept\").payload == \"kept\"; assert exported(7).rows == [\"module:exported!\"] }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("imported-pipeline-alias.xsh", crate::loader::entry_source_from_text("imported-pipeline-alias.xsh", source.to_string()), vec![modules.path().to_path_buf()]);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources.clone()), source_id).unwrap();
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "local").unwrap();
+        let target = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "render").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let field = range.clone().find(|instruction| program.store.tags[*instruction] == super::super::super::FullTag::ExprField).unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::Field { base, name: "format", .. } = decoder.expression_view(field).unwrap() else { panic!("actual exported alias projection") };
+        let field_words = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+        let mut wrong_export = program.clone();
+        let wrong_name = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "prefix").unwrap().0 as u32 + 1;
+        wrong_export.store.extra[field_words.start + 1] = wrong_name;
+        assert!(FullVerifier::verify(&wrong_export).is_err());
+        let base_words = program.store.data[base.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+        let mut wrong_binding = program.clone();
+        wrong_binding.store.extra[base_words.start] = 0;
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
+        let capture = program.store.functions[owner].captures.bounds(program.store.captures.len()).unwrap().next().unwrap();
+        let foreign_binding = program.store.binding_identities.iter().position(|binding| program.store.string(binding.name).unwrap() == "foreign").unwrap() as u32;
+        let mut foreign_namespace = program.clone();
+        foreign_namespace.store.captures[capture].binding_identity = foreign_binding;
+        assert!(FullVerifier::verify(&foreign_namespace).is_err());
+        let mut missing_capture = program.clone();
+        missing_capture.store.captures[capture].binding_identity = u32::MAX;
+        assert!(FullVerifier::verify(&missing_capture).is_err());
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.function_metadata[target].callable_kind = crate::sema::types::CallableKind::Proc;
+        assert!(FullVerifier::verify(&wrong_kind).is_err());
+        let target_capture = program.store.functions[target].captures.bounds(program.store.captures.len()).unwrap().next().unwrap();
+        let mut mutable_capture = program.clone();
+        mutable_capture.store.captures[target_capture].slot_and_flags |= 1 << 31;
+        assert!(FullVerifier::verify(&mutable_capture).is_err());
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("imported_aliases", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn imported_callable_namespace_borrow_preserves_shared_root_state() {
+        super::super::super::tests::run_with_large_stack(|| {
+            let work = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+            std::fs::create_dir_all(&work).unwrap();
+            let modules = tempfile::tempdir_in(work).unwrap();
+            let marker = modules.path().join("initialized");
+            let state = modules.path().join("state");
+            let module = r#"##! Root namespace state fixture.
+let prefix = "module:"
+## Render through an immutable environment.
+export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+## Retain the callable value.
+export let format = render
+let state = {
+  let marker = p"INIT_MARKER"
+  marker.write(marker.read_text()? + "I")?
+  let state_file = p"STATE_PATH"
+  state_file.write("init;")?
+  state_file
+}
+## Observe the original shared state.
+export proc probe(label: Str) [fs, io, error] -> Result[Str, Error] {
+  print f"probe:{label}"
+  let previous = state.read_text()?
+  state.write(previous + label + ";")?
+  previous
+}
+"#.replace("INIT_MARKER", marker.to_str().unwrap()).replace("STATE_PATH", state.to_str().unwrap());
+            let source = r#"use borrowed
+pure typed(payload: Int) { let action = borrowed.format; {payload, rows: ["kept"] |> map(action)} }
+pure generic(payload) { let action = borrowed.format; {payload, rows: ["kept"] |> map(action)} }
+test namespace_borrow {
+  assert borrowed.probe("before")? == "init;"
+  assert typed(7) == {payload: 7, rows: ["module:kept!"]}
+  assert borrowed.probe("typed")? == "init;before;"
+  assert generic(7) == typed(7)
+  assert borrowed.probe("integer")? == "init;before;typed;"
+  assert generic("kept") == {payload: "kept", rows: ["module:kept!"]}
+  assert borrowed.probe("string")? == "init;before;typed;integer;"
+}
+"#;
+            for force_frames in [false, true] {
+                std::fs::write(&marker, "").unwrap();
+                std::fs::write(modules.path().join("borrowed.xsh"), &module).unwrap();
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("borrowed-pipeline-namespace.xsh", crate::loader::entry_source_from_text("borrowed-pipeline-namespace.xsh", source.to_string()), vec![modules.path().to_path_buf()]);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let source_id = parsed.arena.source_text_source_id().unwrap();
+                let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+                let result = prepared.eval_test("namespace_borrow", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+                assert_eq!(result.output.stdout, b"probe:before\nprobe:typed\nprobe:integer\nprobe:string\n", "force_frames={force_frames}");
+                assert_eq!(std::fs::read_to_string(&marker).unwrap(), "I", "force_frames={force_frames}");
+                assert_eq!(std::fs::read_to_string(&state).unwrap(), "init;before;typed;integer;string;", "force_frames={force_frames}");
+            }
+        });
+    }
+
+    #[test]
+    fn imported_callable_projections_reject_resource_and_value_capture() {
+        let work = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).unwrap();
+        let modules = tempfile::tempdir_in(work).unwrap();
+        let module = "##! Scoped callable fixture.\nlet prefix = \"module:\"\n## Render one value.\nexport pure render(value: Str) -> Str { prefix + value }\n## Retain the callable value.\nexport let format = render\n";
+        for (module, source) in [
+            (module.to_owned(), "pure observed(payload) { {payload, leaked: helpers} }"),
+            (format!("{module}export let number = 7\n"), "pure observed(payload) { {payload, leaked: helpers.number} }"),
+            (format!("{module}export let resource: FsRoot? = null\n"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
+            (module.replace("let prefix", "var prefix"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
+            (module.replace("let prefix", "let root = fs.tempdir()?\nlet prefix"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
+            (module.replace("pure render", "proc render").replace("(value: Str) -> Str { prefix + value }", "(value: Str) [env] -> Str { let _ = env.get(\"HOME\"); prefix + value }"), "pure observed(payload) { let action = helpers.format; {payload, rows: [\"kept\"] |> map(action)} }"),
+            (module.to_owned(), "let copied = helpers\npure observed(payload) { let action = copied.format; {payload, rows: [\"kept\"] |> map(action)} }"),
+            (module.to_owned(), "pure observed(action: Any, payload) { [payload] |> map(action) }"),
+            (module.to_owned(), "pure identity(value) { value }\nvar action = identity\nlet number: Int = action(7)\nlet word: Str = action(\"kept\")"),
+        ] {
+            std::fs::write(modules.path().join("helpers.xsh"), module).unwrap();
+            let source = format!("use helpers\n{source}\n");
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("rejected-imported-pipeline-alias.xsh", crate::loader::entry_source_from_text("rejected-imported-pipeline-alias.xsh", source.clone()), vec![modules.path().to_path_buf()]);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) { continue; }
+            assert!(FullBuilder::build_compact(&parsed.arena, &checked, &source, Arc::new(sources), source_id).is_err(), "{source}");
+        }
+    }
 
     #[test]
     fn generic_display_operations_authenticate_owner_conversion_requirements() {
