@@ -498,6 +498,16 @@ pub struct SchemaExpectation {
 }
 
 impl SchemaExpectation {
+    pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
+        let mut pending = vec![self];
+        while let Some(schema) = pending.pop() {
+            for instance in &mut schema.instances {
+                for argument in &mut instance.arguments { map(argument); }
+            }
+            pending.extend(Arc::make_mut(&mut schema.children).values_mut());
+        }
+    }
+
     pub fn merge(&mut self, concrete: &Self) {
         let mut instances = concrete.instances.clone();
         instances.extend(
@@ -546,6 +556,18 @@ pub struct RecordConstructors {
 }
 
 impl RecordConstructors {
+    pub(crate) fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
+        let mut instances = self.instances.lock().expect("record constructor cache lock poisoned").clone();
+        for (_, arguments, result) in &mut instances {
+            for argument in arguments { map(argument); }
+            map(result);
+        }
+        let mut mapped = self.clone();
+        mapped.instances = Arc::new(Mutex::new(instances));
+        for ty in mapped.error_types.values_mut() { map(ty); }
+        mapped
+    }
+
     #[cfg(test)]
     pub(crate) fn instance_facts_for_test(&self) -> Vec<(TypeDefId, Vec<Type>, Type)> {
         self.instances

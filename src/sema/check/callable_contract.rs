@@ -47,6 +47,11 @@ pub(crate) struct SchemeBinderCorrespondence {
 }
 
 impl SchemeBinderCorrespondence {
+    pub(crate) fn retained_heap_bytes(&self) -> usize {
+        self.types.len() * std::mem::size_of::<(SchemeTypeParameterId, SchemeTypeParameterId)>()
+            + self.rows.len() * std::mem::size_of::<(SchemeRowParameterId, SchemeRowParameterId)>()
+            + self.effects.len() * std::mem::size_of::<(SchemeEffectParameterId, SchemeEffectParameterId)>()
+    }
     pub(crate) fn types(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId> { &self.types }
     pub(crate) fn rows(&self) -> &BTreeMap<SchemeRowParameterId, SchemeRowParameterId> { &self.rows }
     pub(crate) fn effects(&self) -> &BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId> { &self.effects }
@@ -147,6 +152,20 @@ pub(super) fn same_bound_operand(
 }
 
 impl CheckedCallableContract {
+    pub(crate) fn with_rebased_scheme(&self, scheme: Arc<TypeScheme>) -> Self {
+        Self { scheme, symbol_owner: self.symbol_owner.clone(), schema_identities: Arc::clone(&self.schema_identities) }
+    }
+
+    pub(crate) fn retained_heap_bytes(&self, schemes: &mut BTreeSet<usize>, schemas: &mut BTreeSet<usize>) -> usize {
+        let scheme = if schemes.insert(Arc::as_ptr(&self.scheme) as usize) { self.scheme.retained_bytes() } else { 0 };
+        let identities = if schemas.insert(Arc::as_ptr(&self.schema_identities) as usize) {
+            std::mem::size_of::<BTreeMap<TypeDefId, SchemaIdentity>>()
+                + self.schema_identities.len() * std::mem::size_of::<(TypeDefId, SchemaIdentity)>()
+                + self.schema_identities.values().filter_map(|identity| identity.module.as_ref()).map(|module| module.len()).sum::<usize>()
+        } else { 0 };
+        scheme.saturating_add(identities)
+    }
+
     pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
 
     pub(crate) fn binder_correspondence(&self, other: &Self) -> Option<SchemeBinderCorrespondence> {

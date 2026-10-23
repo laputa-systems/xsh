@@ -1,3 +1,5 @@
+pub(super) mod rebase;
+
 use super::{CallableAlias, Checker, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::scheme_callable::{SchemeCallableError, SchemeCallableRelationship};

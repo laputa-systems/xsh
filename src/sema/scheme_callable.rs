@@ -37,7 +37,7 @@ impl SchemeCallableId {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SchemeCallableError { ForeignOwner, UnknownRelationship, EmptyTargets, DuplicateTarget, IncompatibleContract, ExhaustedRelationships, TypeDepth }
+pub(crate) enum SchemeCallableError { ForeignOwner, UnknownRelationship, EmptyTargets, DuplicateTarget, IncompatibleContract, ExhaustedRelationships, TypeDepth, RecursiveRelationship, MissingSourceTable }
 
 pub(crate) fn map_type_ids(
     ty: &super::types::Type,
@@ -128,6 +128,14 @@ impl SchemeCallableRelationship {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct SchemeCallableRetainedAllocations {
+    tables: std::collections::BTreeSet<usize>,
+    relationships: std::collections::BTreeSet<usize>,
+    schemes: std::collections::BTreeSet<usize>,
+    schemas: std::collections::BTreeSet<usize>,
+}
+
 #[derive(Debug)]
 pub(crate) struct SchemeCallableTable {
     owner: SchemeCallableOwner,
@@ -140,6 +148,27 @@ impl Default for SchemeCallableTable {
 }
 
 impl SchemeCallableTable {
+    pub(crate) fn retained_bytes(&self, allocations: &mut SchemeCallableRetainedAllocations, counted_schemes: &std::collections::BTreeSet<usize>) -> usize {
+        use std::mem::size_of;
+        allocations.schemes.extend(counted_schemes);
+        if !allocations.tables.insert(self as *const Self as usize) { return 0; }
+        let mut bytes = size_of::<Self>()
+            + self.relationships.capacity() * size_of::<Arc<SchemeCallableRelationship>>()
+            + self.targets.len() * size_of::<(Vec<(Option<crate::symbol::Name>, crate::symbol::Name, usize)>, u32)>()
+            + self.targets.keys().map(|key| key.capacity() * size_of::<(Option<crate::symbol::Name>, crate::symbol::Name, usize)>()).sum::<usize>();
+        for relationship in &self.relationships {
+            if !allocations.relationships.insert(Arc::as_ptr(relationship) as usize) { continue; }
+            bytes += size_of::<SchemeCallableRelationship>()
+                + relationship.targets.capacity() * size_of::<SchemeCallableTarget>()
+                + relationship.canonical.retained_heap_bytes(&mut allocations.schemes, &mut allocations.schemas);
+            for target in &relationship.targets {
+                bytes += target.correspondence.retained_heap_bytes()
+                    + target.contract.retained_heap_bytes(&mut allocations.schemes, &mut allocations.schemas);
+            }
+        }
+        bytes
+    }
+
     pub(crate) fn owner(&self) -> SchemeCallableOwner { self.owner }
 
     pub(crate) fn get(&self, id: SchemeCallableId) -> Result<&SchemeCallableRelationship, SchemeCallableError> {
@@ -167,6 +196,83 @@ impl SchemeCallableTable {
     }
 
     pub(crate) fn snapshot(&self) -> Self { Self { owner: self.owner, relationships: self.relationships.clone(), targets: self.targets.clone() } }
+}
+
+pub(crate) struct SchemeCallableRebaser {
+    destination: Arc<std::sync::Mutex<SchemeCallableTable>>,
+    relationships: BTreeMap<SchemeCallableId, SchemeCallableId>,
+    active: std::collections::BTreeSet<SchemeCallableId>,
+    schemes: BTreeMap<(SchemeCallableOwner, usize), (Arc<super::schemes::TypeScheme>, Arc<super::schemes::TypeScheme>)>,
+}
+
+impl SchemeCallableRebaser {
+    pub(crate) fn new(destination: Arc<std::sync::Mutex<SchemeCallableTable>>) -> Self {
+        Self { destination, relationships: BTreeMap::new(), active: Default::default(), schemes: BTreeMap::new() }
+    }
+
+    pub(crate) fn snapshot(&self) -> Arc<SchemeCallableTable> {
+        Arc::new(self.destination.lock().expect("checked scheme callable table is poisoned").snapshot())
+    }
+
+    pub(crate) fn import_table(&mut self, source: &SchemeCallableTable) -> Result<(), SchemeCallableError> {
+        for index in 0..source.relationships.len() {
+            self.relationship(source.owner.id(u32::try_from(index).map_err(|_| SchemeCallableError::ExhaustedRelationships)?), source, 0)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ty(&mut self, ty: &super::types::Type, source: &SchemeCallableTable) -> Result<super::types::Type, SchemeCallableError> {
+        self.ty_at_depth(ty, source, 0)
+    }
+
+    fn ty_at_depth(&mut self, ty: &super::types::Type, source: &SchemeCallableTable, depth: usize) -> Result<super::types::Type, SchemeCallableError> {
+        if depth > super::constraints::MAX_TYPE_DEPTH { return Err(SchemeCallableError::TypeDepth); }
+        map_type_ids(ty, &mut |id| self.relationship(id, source, depth + 1))
+    }
+
+    pub(crate) fn scheme(&mut self, scheme: &Arc<super::schemes::TypeScheme>, source: &SchemeCallableTable) -> Result<Arc<super::schemes::TypeScheme>, SchemeCallableError> {
+        self.scheme_at_depth(scheme, source, 0)
+    }
+
+    fn scheme_at_depth(&mut self, scheme: &Arc<super::schemes::TypeScheme>, source: &SchemeCallableTable, depth: usize) -> Result<Arc<super::schemes::TypeScheme>, SchemeCallableError> {
+        if depth > super::constraints::MAX_TYPE_DEPTH { return Err(SchemeCallableError::TypeDepth); }
+        let key = (source.owner, Arc::as_ptr(scheme) as usize);
+        if let Some((original, mapped)) = self.schemes.get(&key) {
+            assert!(Arc::ptr_eq(original, scheme), "rebasing retains the exact source allocation");
+            return Ok(Arc::clone(mapped));
+        }
+        let mut failure = None;
+        let mapped = scheme.map_ground_types(|ty| match self.ty_at_depth(ty, source, depth + 1) {
+            Ok(mapped) => *ty = mapped,
+            Err(error) => failure = Some(error),
+        });
+        if let Some(error) = failure { return Err(error); }
+        let mapped = Arc::new(mapped);
+        self.schemes.insert(key, (Arc::clone(scheme), Arc::clone(&mapped)));
+        Ok(mapped)
+    }
+
+    pub(crate) fn relationship(&mut self, id: SchemeCallableId, source: &SchemeCallableTable, depth: usize) -> Result<SchemeCallableId, SchemeCallableError> {
+        if depth > super::constraints::MAX_TYPE_DEPTH { return Err(SchemeCallableError::TypeDepth); }
+        if let Some(&mapped) = self.relationships.get(&id) { return Ok(mapped); }
+        let relationship = source.relationship(id)?;
+        if !self.active.insert(id) { return Err(SchemeCallableError::RecursiveRelationship); }
+        let mapped = (|| {
+            let mut targets = Vec::with_capacity(relationship.targets.len());
+            for target in &relationship.targets {
+                let scheme = self.scheme_at_depth(target.contract.scheme(), source, depth + 1)?;
+                targets.push((target.target, target.contract.with_rebased_scheme(scheme)));
+            }
+            let prepared = Arc::new(SchemeCallableRelationship::new(targets)?);
+            let (id, actual) = self.destination.lock().expect("checked scheme callable table is poisoned").intern_prepared(Arc::clone(&prepared))?;
+            if !actual.agrees_with(&prepared) { return Err(SchemeCallableError::IncompatibleContract); }
+            Ok(id)
+        })();
+        self.active.remove(&id);
+        let mapped = mapped?;
+        self.relationships.insert(id, mapped);
+        Ok(mapped)
+    }
 }
 
 #[cfg(test)]

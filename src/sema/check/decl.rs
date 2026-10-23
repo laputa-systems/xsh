@@ -1971,7 +1971,7 @@ impl Checker {
         path: &[Name],
         span: Span,
     ) {
-        let Some(module) = self.user_modules.get(key).cloned() else {
+        let Some(mut module) = self.user_modules.get(key).cloned() else {
             self.error(
                 span,
                 "unknown user module",
@@ -1987,6 +1987,11 @@ impl Checker {
             );
             return;
         };
+        let mut relationships = crate::sema::scheme_callable::SchemeCallableRebaser::new(Arc::clone(&self.scheme_callables));
+        if let Err(error) = super::scheme_values::rebase::module_signature(&mut module, &mut relationships) {
+            self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
+            return;
+        }
         let module = qualify_imported_error_types(module, namespace);
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);

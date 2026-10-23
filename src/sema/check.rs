@@ -724,6 +724,7 @@ impl CheckOutput {
             .append(&mut module.selected_function_value_references);
         self.call_instantiations
             .append(&mut module.call_instantiations);
+        self.scheme_callable_calls.append(&mut module.scheme_callable_calls);
         self.local_binding_types
             .append(&mut module.local_binding_types);
         self.function_body_check_entries = self
@@ -1668,6 +1669,7 @@ impl ItemFrame {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct UserModuleSig {
+    scheme_callables: Option<Arc<super::scheme_callable::SchemeCallableTable>>,
     values: BTreeMap<Name, Type>,
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,

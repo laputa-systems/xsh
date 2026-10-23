@@ -786,14 +786,13 @@ impl CallableMonotype {
         let mut params = self.params.to_vec();
         for parameter in &mut params {
             parameter.ty.map_ground_types(map);
+            if let Some(schema) = &mut parameter.schema_expectation { schema.map_ground_types(map); }
         }
         let mut return_type = self.return_type.clone();
         return_type.map_ground_types(map);
-        Self {
-            params: params.into(),
-            return_type,
-            return_schema: self.return_schema.clone(),
-        }
+        let mut return_schema = self.return_schema.clone();
+        if let Some(schema) = &mut return_schema { schema.map_ground_types(map); }
+        Self { params: params.into(), return_type, return_schema }
     }
 }
 
@@ -963,6 +962,15 @@ impl CallInstantiation {
         })
     }
 
+    pub(crate) fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
+        let mut mapped = self.clone();
+        for ty in mapped.type_arguments.values_mut() { ty.map_ground_types(map); }
+        for row in mapped.row_arguments.values_mut() {
+            for ty in row.fields.values_mut() { ty.map_ground_types(map); }
+        }
+        mapped
+    }
+
     pub(crate) fn effect_arguments(&self) -> &BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>> {
         &self.effect_arguments
     }
@@ -1099,6 +1107,18 @@ impl SchemeBodyFacts {
         }
         self.proc_return_sites = sites;
         Ok(self)
+    }
+
+    pub(crate) fn map_ground_types(&self, scheme: Arc<TypeScheme>, map: &mut impl FnMut(&mut Type)) -> Self {
+        let mut mapped = self.clone();
+        mapped.scheme = scheme;
+        for ty in mapped.expression_types.values_mut().chain(mapped.tail_types.values_mut()) { ty.map_ground_types(map); }
+        for plan in mapped.registered_calls.values_mut() {
+            for check in Arc::make_mut(&mut Arc::make_mut(plan).argument_checks).iter_mut().flatten() {
+                if let RegisteredArgumentCheck::Unsigned(ty) = check { map(ty); }
+            }
+        }
+        mapped
     }
 
     pub(crate) fn proc_return_site(&self, span: Span) -> Option<SchemeProcReturnSite> { self.proc_return_sites.get(&span).copied() }
@@ -1418,7 +1438,7 @@ impl SchemeType {
         false
     }
 
-    fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
+    pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
         match self {
             Self::Ground(ty) => map(ty),
             Self::SchemeCallable(id) => {

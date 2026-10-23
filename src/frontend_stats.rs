@@ -141,7 +141,12 @@ fn measure_expr_types(types: &BTreeMap<Span, Type>) -> (usize, usize) {
     (types.len(), bytes)
 }
 
+#[cfg(test)]
 fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) {
+    measure_check_output_with_allocations(checked, &mut Default::default())
+}
+
+fn measure_check_output_with_allocations(checked: Option<&CheckOutput>, allocations: &mut crate::sema::scheme_callable::SchemeCallableRetainedAllocations) -> (usize, usize, usize) {
     let Some(checked) = checked else {
         return (0, 0, 0);
     };
@@ -178,6 +183,9 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) 
                     .saturating_sub(size_of::<crate::sema::schemes::CallInstantiation>())
             })
             .sum::<usize>();
+    let counted_schemes = checked.checked_declarations.functions.values().filter_map(|declaration| declaration.scheme.as_ref())
+        .map(|scheme| std::sync::Arc::as_ptr(scheme) as usize).collect::<BTreeSet<_>>();
+    let callable_table_bytes = checked.scheme_callables.retained_bytes(allocations, &counted_schemes);
     (
         type_count + declaration_type_count + resolved_type_count,
         size_of::<CheckOutput>()
@@ -187,6 +195,7 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) 
             + annotation_bytes
             + callable_bytes
             + call_instantiation_bytes
+            + callable_table_bytes
             + checked.resource_transfers.capacity()
                 * size_of::<(crate::sema::check::ResourceTransferSite, bool)>()
             + measure_effect_facts(&checked.function_effect_facts),
@@ -440,7 +449,12 @@ fn measure_function_sig(sig: &CompactFunctionSig) -> (usize, usize) {
     (type_count, bytes)
 }
 
+#[cfg(test)]
 fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usize) {
+    measure_compact_declarations_with_allocations(declarations, &mut Default::default())
+}
+
+fn measure_compact_declarations_with_allocations(declarations: &CompactDeclOutput, allocations: &mut crate::sema::scheme_callable::SchemeCallableRetainedAllocations) -> (usize, usize) {
     let (constructor_type_count, constructor_bytes) =
         declarations.record_constructors.retained_type_facts();
     let mut type_count = constructor_type_count;
@@ -552,6 +566,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
         type_count += facts.expression_types().len() + facts.tail_types().len();
     }
 
+    bytes += declarations.scheme_callables.retained_bytes(allocations, &counted_schemes);
     (type_count, bytes)
 }
 
@@ -1057,7 +1072,8 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         CheckOptions::for_execution(),
     );
     let _ = checked.parsed.cst.get();
-    let check_output_metrics = measure_check_output(checked.checked.as_ref());
+    let mut callable_allocations = crate::sema::scheme_callable::SchemeCallableRetainedAllocations::default();
+    let check_output_metrics = measure_check_output_with_allocations(checked.checked.as_ref(), &mut callable_allocations);
     let had_check_output = checked.checked.is_some();
     let mut checked_diagnostics = diagnostic_count(&checked);
     let fallback_output = if had_check_output {
@@ -1088,7 +1104,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         ),
     };
     let (declaration_type_count, declaration_retained_bytes) =
-        measure_compact_declarations(&declarations);
+        measure_compact_declarations_with_allocations(&declarations, &mut callable_allocations);
     let (body_type_count, body_retained_bytes) =
         measure_compact_body_types(&declarations.bodies);
     let output_type_nodes = u64::try_from(measure_output_type_nodes(&declarations))
@@ -1767,6 +1783,32 @@ mod tests {
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
     const INDEXED_EXECUTION: &str =
         include_str!("../tests/fixtures/frontend-indexed/indexed-execution.xsh");
+
+    #[test]
+    fn scheme_callable_retained_tables_count_distinct_targets_and_interned_aliases() {
+        let measure = |count: usize, distinct: bool| {
+            let mut source = String::new();
+            for index in 0..if distinct { count } else { 1 } { source.push_str(&format!("pure copy{index}(value) {{ value }}\n")); }
+            for index in 0..count { source.push_str(&format!("let operation{index} = copy{}\n", if distinct { index } else { 0 })); }
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let mut isolated = CheckOutput::default();
+            isolated.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let checked_bytes = measure_check_output(Some(&isolated)).1;
+            let mut compact = CompactDeclOutput::default();
+            compact.scheme_callables = std::sync::Arc::clone(&checked.scheme_callables);
+            let compact_bytes = measure_compact_declarations(&compact).1;
+            (checked_bytes, compact_bytes)
+        };
+        let one = measure(1, true);
+        let repeated = measure(16, false);
+        let distinct = measure(16, true);
+        assert_eq!(one, repeated, "repeated aliases retain one interned relationship");
+        assert!(distinct.0 > one.0, "checked output must retain the complete target table");
+        assert!(distinct.1 > one.1, "compact output must retain the complete target table");
+    }
 
     #[test]
     fn source_measurements_are_deterministic_without_allocator_tracking() {

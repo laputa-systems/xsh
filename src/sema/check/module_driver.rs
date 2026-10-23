@@ -241,13 +241,22 @@ impl Checker {
             output.embedded_bodies_checked = options.embedded_bodies;
             let root_diagnostic_count = output.diagnostics.len();
             // Whole-program checks publish imported-body facts before entry-body facts.
+            let mut module_diagnostics = Vec::new();
+            let destination = Arc::new(Mutex::new(crate::sema::scheme_callable::SchemeCallableTable::default()));
+            let mut relationships = crate::sema::scheme_callable::SchemeCallableRebaser::new(destination);
+            if let Err(error) = super::scheme_values::rebase::output(&mut output, &mut relationships) {
+                return CheckOutput { diagnostics: vec![crate::diagnostic::Diagnostic::error(format!("checked callable relationship cannot be published: {error:?}")).with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)], ..CheckOutput::default() };
+            }
             let root_annotation_facts = std::mem::take(&mut output.annotation_facts);
             let root_reveal_types = std::mem::take(&mut output.reveal_types);
-            let mut module_diagnostics = Vec::new();
             for mut module_output in module_outputs {
                 module_diagnostics.append(&mut module_output.diagnostics);
+                if let Err(error) = super::scheme_values::rebase::output(&mut module_output, &mut relationships) {
+                    return CheckOutput { diagnostics: vec![crate::diagnostic::Diagnostic::error(format!("checked module callable relationship cannot be published: {error:?}")).with_code(crate::diagnostic::DiagnosticCode::CheckLocalInference)], ..CheckOutput::default() };
+                }
                 output.merge_module_facts(module_output);
             }
+            output.scheme_callables = relationships.snapshot();
             output.resource_transfers.extend(suppressed_resource_transfers);
             // Keep declaration identities for suppressed embedded modules without
             // exposing their body-derived effect facts.
@@ -453,6 +462,7 @@ impl Checker {
         checker.publish_command_binding_sites();
         checker.record_constructors = record.prepared_facts().record_constructors.clone();
         let output = checker.into_output();
+        signature.scheme_callables = Some(Arc::clone(&output.scheme_callables));
         CheckedModuleFacts {
             signature: Some(signature),
             output,

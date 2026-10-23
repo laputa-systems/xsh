@@ -42031,6 +42031,45 @@ assert stored_name(failed) == name(failed)
     }
 
     #[test]
+    fn scheme_callable_module_record_exports_rebase_into_the_importer_on_both_routes() {
+        run_with_large_stack(|| {
+            let entry = "use lib\nassert lib.actions.apply(7) == 7\nassert lib.actions.apply(\"demo\") == \"demo\"\n";
+            let library = "##! Callable exports.\n## Copy a value.\nexport pure identity(value) { value }\n## Retain the copying operation.\nexport let actions = {apply: identity}\n";
+            let mut sources = crate::source::SourceMap::new();
+            let entry_source = sources.add_file("scheme-callable-importer.xsh", entry);
+            let library_source = sources.add_file("lib.xsh", library);
+            let mut builder = crate::syntax::arena::ArenaProgramBuilder::with_token_capacity(128);
+            let root = Parser::parse_source_into_arena_builder(entry_source, entry, &mut builder);
+            let module = Parser::parse_source_into_arena_builder(library_source, library, &mut builder);
+            assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+            assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+            let library_name = builder.symbol_owner().intern("lib");
+            builder.push_arena_module("lib".to_string(), library_name, module.statements);
+            for statement in builder.statement_ids(root.statements) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from("lib"));
+                }
+            }
+            let program = builder.finish_with_statements(root.statements);
+            let sources = Arc::new(sources);
+            let checked = Checker::check_arena_with_sources_and_options(&program, &sources, entry_source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let declarations = Checker::compact_declarations(&program, checked);
+            let executable = Arc::new(FullBuilder::build_compact(&program, &declarations, entry, Arc::clone(&sources), entry_source).unwrap());
+            drop(declarations);
+            drop(program);
+            drop(sources);
+            FullVerifier::verify(&executable).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executable.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&executable));
+                for step in 0..executable.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(executable.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
     fn scheme_callable_values_instantiate_once_at_monomorphic_boundaries_on_both_routes() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("scheme-callable-monomorphic-boundaries.xsh", r#"
