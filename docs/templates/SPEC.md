@@ -4524,6 +4524,12 @@ text-split or globbed.
 {{.spec.pipelines.source}}
 ```
 
+A collection source is a `List`, `Set`, or `Stream`, optionally inside one
+outer `Result`. The source view removes only that outer layer; an additional
+`Result` layer is a `check.stream-input` error. Use `?` explicitly to remove
+another layer when the enclosing error boundary allows it. `Result` values
+inside the source's item type remain ordinary item data.
+
 The result of a pipeline depends on its last stage:
 
 - a transformation stage yields `List[T]`, collected at the pipeline boundary;

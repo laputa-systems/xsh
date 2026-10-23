@@ -1262,12 +1262,14 @@ impl Checker {
 }
 
 fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
-    match ty.into_unvalidated() {
-        ty @ Type::Stream(_) => Ok(ty),
-        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
-        Type::Result(ok, _) => stream_type_from_input(*ok),
+    let ty = ty.into_unvalidated();
+    let source = match &ty { Type::Result(ok, _) => ok.unvalidated(), source => source };
+    match source {
         Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
-        other => Err(other),
+        Type::Any => Err(Type::Any),
+        Type::List(_) | Type::Set(_) | Type::Stream(_) => ty.iteration_item_type()
+            .map(|item| Type::Stream(Box::new(item))).ok_or(ty),
+        _ => Err(ty),
     }
 }
 
@@ -1503,6 +1505,32 @@ mod pipeline_input_inference_tests {
     #[test]
     fn inferred_pipeline_input_preserves_result_error_payload_domains() {
         accepts_collect("pure collect_values(values) { values |> collect }\npure source_values() -> Result[List[Int], Str] { Ok([1, 2]) }", "source_values()");
+    }
+
+    #[test]
+    fn typed_pipeline_input_rejects_nested_result_source_views() {
+        for payload in ["List[Int]", "Stream[Int]"] {
+            let source = format!(r#"pure collect_values(values: Result[Result[{payload}]]) -> List[Int] {{ values |> collect }}
+"#);
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckStreamInput)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn typed_pipeline_input_keeps_result_items_opaque_after_one_source_view() {
+        let source = r#"pure collect_values(values: Result[List[Result[Int, Str]]]) -> List[Result[Int, Str]] { values |> collect }
+let values: Result[List[Result[Int, Str]]] = Ok([Err("data")])
+let observed: List[Result[Int, Str]] = collect_values(values)
+assert match observed[0] { Ok(_) => false, Err(message) => message == "data" }
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
     }
 
     #[test]

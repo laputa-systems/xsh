@@ -27,3 +27,35 @@ test test_full_inference_pipeline_inputs_reject_other_iteration_domains { |ctx|
     assert output.stderr.contains("error[check.")
   }
 }
+
+test test_full_inference_pipeline_source_views_reject_nested_result_layers { |ctx|
+  for payload in ["List[Int]", "Stream[Int]"] {
+    let output = test.run_xsh(
+      ctx,
+      f"pure collect_values(values: Result[Result[{payload}]]) -> List[Int] {{ values |> collect }}\n",
+    )?
+    assert output.status == 2
+    assert output.stderr.contains("error[check.stream-input]")
+  }
+}
+
+test test_full_inference_pipeline_source_views_preserve_explicit_peeling_and_items { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure collect_values(values: Result[List[Result[Int, Str]]]) -> List[Result[Int, Str]] { values |> collect }
+pure collect_nested(values: Result[Result[List[Int]]]) -> Result[List[Int]] { values? |> collect }
+stream source_values() [] -> Stream[Int] { yield 1; yield 2 }
+proc collect_nested_stream(values: Result[Result[Stream[Int]]]) [error] -> Result[List[Int]] { values? |> collect }
+let values: Result[List[Result[Int, Str]]] = Ok([Err("opaque")])
+let observed = collect_values(values)
+assert match observed[0] { Ok(_) => false, Err(message) => message == "opaque" }
+let nested: Result[Result[List[Int]]] = Ok(Ok([1, 2]))
+assert collect_nested(nested)? == [1, 2]
+let nested_stream: Result[Result[Stream[Int]]] = Ok(Ok(source_values()))
+assert collect_nested_stream(nested_stream)? == [1, 2]
+print "views preserved"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "views preserved\n"
+}
