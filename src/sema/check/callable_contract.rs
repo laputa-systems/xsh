@@ -186,7 +186,7 @@ fn project_structural_schema<T: Clone>(schema: &SchemaExpectation<T>, ty: &Type,
     SchemaExpectation { instances, children: Arc::new(children) }
 }
 
-pub(super) fn structural_schema_is_redundant(schema: &SchemaExpectation, ty: &Type,
+pub(super) fn structural_schema_is_redundant<T: Clone>(schema: &SchemaExpectation<T>, ty: &Type,
     identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
     schema_has_obligations(schema)
