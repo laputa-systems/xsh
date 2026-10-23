@@ -4524,11 +4524,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     && self.expression_binding(expression).is_none()
                 {
                     let target = *self.bodies.selected_function_calls.get(&expression)?;
-                    let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression))?.clone();
+                    let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression)).cloned();
                     let key = self.function_index().checked_target_key(target)?;
-                    let value = self.lower_selected_function_ref(target, name, &Type::Function(*kind), None)?;
+                    let checked = if instantiation.is_some() { Type::Function(*kind) } else { ty.closed_ground_type()? };
+                    let value = self.lower_selected_function_ref(target, name, &checked, None)?;
                     let mut scratch = self.scratch.borrow_mut();
-                    if !scratch.record_checked_call_target(value, key) || !scratch.record_call_instantiation(value, instantiation) { return None; }
+                    if !scratch.record_checked_call_target(value, key)
+                        || instantiation.is_some_and(|instantiation| !scratch.record_call_instantiation(value, instantiation)) { return None; }
+                    value
+                } else if let Some(checked @ Type::Callable(_)) = ty.closed_ground_type()
+                    && self.expression_binding(expression).is_none()
+                {
+                    let target = *self.bodies.selected_function_calls.get(&expression)?;
+                    let value = self.lower_selected_function_ref(target, name, &checked, None)?;
+                    let key = self.function_index().checked_target_key(target)?;
+                    if !self.scratch.borrow_mut().record_checked_call_target(value, key) { return None; }
                     value
                 } else if let Some(Type::SchemeCallable(relationship)) = ty.closed_ground_type()
                     && self.expression_binding(expression).is_none()

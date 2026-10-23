@@ -662,9 +662,13 @@ operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
 Named callable values materialized inside generic bodies retain their actual
-target, owned value instantiation and symbolic expression type. Their physical
-function reference does not fabricate a ground callable signature. Cold
-verification authenticates the selected target and complete substituted contract.
+target and expression type. Quantified targets require their owned fresh value
+instantiation and complete substituted contract. A ground target instead proves
+its exact kind and signature against its selected declaration; it has no invented
+instantiation. Inferred immutable local aliases use the same materialization
+authority. Pipeline descriptors retain the actual callable value and environment,
+using a scheme value call or a checked ground signature as appropriate. Their
+synthetic invocation evidence remains separate from the source value selection.
 Ground and driver Capture/Retry instructions retain required checked Result
 contracts, including explicit Any payloads. Scheme instructions use their owned
 body facts and prepared substitution. Cold verification joins the actual error

@@ -5251,6 +5251,13 @@ impl Checker {
         } else {
             None
         };
+        let actual = if self.stream_origin_owner.is_some() && !mutable && ty.is_none()
+            && matches!(actual, Type::Function(_))
+            && callable_alias.as_ref().is_some_and(|alias| !alias.signature.scheme().callable().is_quantified())
+            && let ArenaExprOrRun::Expr(expression) = initializer
+        {
+            self.materialize_callable_value(arena, expression, actual)
+        } else { actual };
         if ty.is_none() {
             self.record_inert_local_discard(arena, target, initializer);
         }
