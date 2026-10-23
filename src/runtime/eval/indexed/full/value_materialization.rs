@@ -108,7 +108,7 @@ impl super::FullBuilder {
     pub(super) fn attach_value_materialization(&mut self, instruction: usize) -> Result<(), super::IrBuildError> {
         if self.store.tags.get(instruction) != Some(&super::FullTag::ExprCheckedValue) { return Ok(()); }
         let payload = self.store.payload(self.store.data[instruction].range()).map_err(|_| materialization_build_error())?;
-        if payload.get(1) != Some(&1) { return Ok(()); }
+        if payload.get(1) != Some(&(super::decode::ValueCheckTag::Materialization as u32)) { return Ok(()); }
         let id = *payload.get(2).ok_or_else(materialization_build_error)?;
         let plan = self.store.value_materializations.get_mut(id as usize).ok_or_else(materialization_build_error)?;
         if plan.instruction != super::IR_NONE { return Err(materialization_build_error()); }

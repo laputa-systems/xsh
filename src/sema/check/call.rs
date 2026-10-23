@@ -1453,11 +1453,11 @@ impl Checker {
             let params = callable
                 .params()
                 .iter()
-                .zip(instantiated.params)
+                .zip(instantiated.params.iter().cloned())
                 .map(|(parameter, ty)| super::FunctionParamSig {
                     name: parameter.name,
                     ty,
-                    schema_expectation: parameter.schema_expectation.clone(),
+                    schema_expectation: parameter.schema_expectation.as_ref().map(|schema| self.type_constraints.instantiate_schema(schema, &instantiated, span).expect("a checked schema retains its callable instance")),
                     defaulted: parameter.defaulted,
                     rest: parameter.rest,
                 })
@@ -1522,11 +1522,11 @@ impl Checker {
         let params = scheme
             .params()
             .iter()
-            .zip(instantiated.params)
+            .zip(instantiated.params.iter().cloned())
             .map(|(parameter, ty)| super::FunctionParamSig {
                 name: parameter.name,
                 ty,
-                schema_expectation: parameter.schema_expectation.clone(),
+                schema_expectation: parameter.schema_expectation.as_ref().map(|schema| self.type_constraints.instantiate_schema(schema, &instantiated, span).expect("a checked schema retains its callable instance")),
                 defaulted: parameter.defaulted,
                 rest: parameter.rest,
             })
@@ -1556,6 +1556,7 @@ impl Checker {
             callee,
             self.current_namespace,
             span,
+            self.callable_solver_level(),
             expected_context,
             self.boundary.expected_schema.as_ref(),
             &mut self.type_constraints,
@@ -1586,7 +1587,7 @@ impl Checker {
         // Nested occurrences can share variables with their surrounding field
         // expectations. Publish only after every supplied field contributed.
         let pending = std::mem::take(&mut self.pending_record_constructors);
-        for (call_span, instance, _) in pending {
+        for (call_span, instance, actual) in pending {
             match self.record_constructors.finish_constructor_inference(
                 &arena.arena,
                 &instance,
@@ -1596,11 +1597,28 @@ impl Checker {
                     self.record_expr_type(call_span, fact.ty.clone());
                     self.record_constructor_instances.insert(call_span, fact);
                 }
-                Err(error) => self.error(call_span, &error.message, error.code),
+                Err(error) => {
+                    let owner = self.stream_origin_owner.and_then(|owner| {
+                        let declaration = super::FunctionDeclarationId::new(owner);
+                        let pending = self.declaration_inference.pending(declaration)?;
+                        let formals = pending.provisional()?.params().iter().map(|parameter| parameter.signature.ty.clone()).collect::<Vec<_>>();
+                        self.type_constraints.unresolved_local_holes_are_input_bound(owner, &std::collections::BTreeSet::from([owner]), &instance.arguments, &formals)
+                            .ok().filter(|bound| *bound).map(|_| declaration)
+                    });
+                    if let Some(owner) = owner {
+                        self.record_expr_type(call_span, actual.clone());
+                        self.declaration_inference.pending_mut(owner).expect("a deferred constructor retains its callable owner")
+                            .constructor_instances.insert(call_span, crate::sema::constants::CheckedRecordConstructor { instance, ty: actual });
+                    } else {
+                        self.error(call_span, &error.message, error.code);
+                    }
+                }
             }
         }
         self.record_constructor_instances
             .get(&span)
+            .or_else(|| self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                .and_then(|pending| pending.constructor_instances.get(&span)))
             .map_or(Type::Invalid, |fact| fact.ty.clone())
     }
 

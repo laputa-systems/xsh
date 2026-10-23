@@ -11,8 +11,8 @@ use super::{
     lowered_module_call_args, lowered_str_byte_op, script_argument_slots,
 };
 
-pub(super) struct CheckedRecordConstruction {
-    pub(super) schema: Type,
+pub(super) struct CheckedRecordConstruction<T = Type> {
+    pub(super) schema: T,
     pub(super) defaults: std::collections::BTreeMap<Name, crate::sema::constants::LiteralConstant>,
     pub(super) positional_fields: Vec<Name>,
     pub(super) name: Arc<str>,
@@ -80,6 +80,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             &self.program.arena, definition, &instance.instance.arguments,
         ).ok()?;
         if self.bodies.expr_types.get(&id) != Some(&schema) || !matches!(schema.unvalidated(), Type::Record(_)) { return None; }
+        self.record_construction_parts(id, definition, schema)
+    }
+
+    pub(super) fn checked_scheme_record_construction(&self, id: ExprId, facts: &crate::sema::schemes::SchemeBodyFacts) -> Option<CheckedRecordConstruction<crate::sema::schemes::SchemeType>> {
+        let constructor = facts.constructor_instances().get(&id)?;
+        if facts.expression_types().get(&id) != Some(&constructor.ty) { return None; }
+        if self.program.arena.names(self.program.arena.type_def(constructor.instance.definition).type_parameters).count() != constructor.instance.arguments.len() { return None; }
+        self.record_construction_parts(id, constructor.instance.definition, constructor.ty.clone())
+    }
+
+    fn record_construction_parts<T>(&self, id: ExprId, definition: crate::syntax::arena::TypeDefId, schema: T) -> Option<CheckedRecordConstruction<T>> {
+        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr(id).kind else { return None; };
+        if self.declarations.record_constructors.constructor_definition(&self.program.arena, callee, self.current_namespace) != Some(definition) { return None; }
         let schema_definition = match self.program.arena.type_def(definition).body {
             crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
             crate::syntax::arena::ArenaTypeDefBody::Alias(ty) => self.declarations.record_constructors.resolve_annotation(
@@ -88,7 +101,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
             | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
         };
-        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr(id).kind else { return None; };
         let name = match self.program.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => name.to_string(),
             ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind {

@@ -5,7 +5,7 @@ use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bo
 use crate::modules::signature::{MethodReceiver, ModuleFnSig};
 use crate::modules::ManagedResource;
 use crate::sema::builtin_templates::registered_argument_check;
-use crate::sema::constants::CheckedRecordConstructor;
+use crate::sema::constants::{CheckedRecordConstructor, SchemaInstance};
 use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan, SchemeType, TypeScheme};
 use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
@@ -57,7 +57,7 @@ pub(crate) struct CanonicalBodyContractSite(SitePath);
 
 impl CanonicalBodyContractSite {
     pub(crate) fn implicit_interface_schema<'a>(&self, scheme: &'a TypeScheme)
-        -> Option<(&'a SchemeType, Option<&'a crate::sema::constants::SchemaExpectation>)>
+        -> Option<(&'a SchemeType, Option<&'a crate::sema::constants::SchemaExpectation<SchemeType>>)>
     {
         match self.0 {
             SitePath::Parameter(ordinal) => scheme.params().get(ordinal)
@@ -349,7 +349,7 @@ struct NodeSelection {
     local_storage: Option<LocalStorage>,
     binary: Option<OperatorElaboration>,
     requirement: Option<RequirementTarget>,
-    constructor: Option<CheckedRecordConstructor>,
+    constructor: Option<CheckedRecordConstructor<OperandType>>,
     constructor_fields: Option<Vec<Name>>,
     conversion: Option<(Conversion, Type)>,
     projection: Option<CheckedProjection>,
@@ -414,7 +414,10 @@ impl SemanticBodyContract {
         };
         let same_constructor = match (&left.constructor, &right.constructor) {
             (None, None) => true,
-            (Some(left), Some(right)) => left.ty == right.ty && left.instance.arguments == right.instance.arguments
+            (Some(left), Some(right)) => left.ty.preserved_by(&right.ty, instance, &self.schemas, &candidate.schemas)
+                && left.instance.arguments.len() == right.instance.arguments.len()
+                && left.instance.arguments.iter().zip(&right.instance.arguments).all(|(left, right)|
+                    left.preserved_by(right, instance, &self.schemas, &candidate.schemas))
                 && self.schemas.get(&left.instance.definition).is_some_and(|identity| Some(identity) == candidate.schemas.get(&right.instance.definition)),
             _ => false,
         };
@@ -494,6 +497,7 @@ struct Capture<'a> {
     seen_stages: BTreeSet<(Option<Name>, Span)>,
     user_sources: BTreeSet<SourceId>,
     transfers: BTreeMap<Span, Vec<ResourceTransfer>>,
+    constructors: BTreeMap<Span, CheckedRecordConstructor<OperandType>>,
     operand_expressions: BTreeMap<ExprId, OperandType>,
     operand_tails: BTreeMap<StmtId, OperandType>,
     module_sources: BTreeMap<SourceId, Arc<str>>,
@@ -518,7 +522,23 @@ impl PendingBodyContracts {
             definitions.extend(context.instances.iter().map(|instance| instance.definition));
             contexts.extend(context.children.values());
         }
-        definitions.extend(checked.record_constructor_instances.values().map(|constructor| constructor.instance.definition));
+        let mut constructors = checked.record_constructor_instances.iter().map(|(&span, constructor)| (span,
+            CheckedRecordConstructor { instance: SchemaInstance { definition: constructor.instance.definition,
+                arguments: constructor.instance.arguments.iter().cloned().map(OperandType::Ground).collect() },
+                ty: OperandType::Ground(constructor.ty.clone()) })).collect::<BTreeMap<_, _>>();
+        for declaration in checked.checked_declarations.functions.values() {
+            if let Some(facts) = &declaration.scheme_body_facts {
+                for (&expression, constructor) in facts.constructor_instances() {
+                    let span = program.arena.expr(expression).span;
+                    let scoped = |ty: &SchemeType| OperandType::Scheme { ty: ty.clone(), owner: Arc::clone(facts.scheme()) };
+                    let constructor = CheckedRecordConstructor { instance: SchemaInstance {
+                        definition: constructor.instance.definition,
+                        arguments: constructor.instance.arguments.iter().map(scoped).collect() }, ty: scoped(&constructor.ty) };
+                    if constructors.insert(span, constructor).is_some() { return Err(BodyContractError::UnmappedFact(span)); }
+                }
+            }
+        }
+        definitions.extend(constructors.values().map(|constructor| constructor.instance.definition));
         let schemas = schema_identities(program, &checked.checked_declarations.record_constructors,
             &checked.checked_declarations.wire_enums, definitions);
         let mut capture = Capture { checked, program, sources, bodies: BTreeMap::new(), schemas,
@@ -526,7 +546,7 @@ impl PendingBodyContracts {
             seen_commands: BTreeSet::new(), seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
             user_sources: BTreeSet::new(), transfers: BTreeMap::new(), seen_stages: BTreeSet::new(), module_sources: BTreeMap::new(),
             sites: BTreeMap::new(), value_boundaries: BTreeSet::new(),
-            operand_expressions: BTreeMap::new(), operand_tails: BTreeMap::new() };
+            constructors, operand_expressions: BTreeMap::new(), operand_tails: BTreeMap::new() };
         for module in &program.modules {
             let source = program.module_statements(module).next().map(|statement| program.arena.stmt(statement).span.source_id)
                 .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id));
@@ -1008,7 +1028,7 @@ impl Capture<'_> {
             local_storage: None,
             binary: None,
             requirement: checked.requirement_targets.get(&span).cloned(),
-            constructor: checked.record_constructor_instances.get(&span).cloned(),
+            constructor: self.constructors.get(&span).cloned(),
             constructor_fields: checked.record_constructor_fields.get(&span).cloned(), conversion,
             projection: checked.projections.get(&span).cloned(), typed_call: checked.typed_callable_calls.get(&span).cloned(), user_call, alias,
             arguments: checked.argument_bindings.get(&span).map(|binding| (binding.callable_entry, binding.argument_slots.clone())),
@@ -1027,7 +1047,6 @@ impl Capture<'_> {
             text_pattern: checked.text_patterns.get(&span).cloned(),
         };
         let mut types = selection.requirement.iter().map(|target| &target.ty)
-            .chain(selection.constructor.iter().map(|constructor| &constructor.ty))
             .chain(selection.conversion.iter().map(|(_, ty)| ty))
             .chain(selection.projection.iter().map(|projection| &projection.value_type))
             .chain(selection.handler_input.iter()).collect::<Vec<_>>();
@@ -1036,7 +1055,9 @@ impl Capture<'_> {
             for instance in &context.instances { types.extend(&instance.arguments); }
             contexts.extend(context.children.values());
         }
-        if let Some(constructor) = &selection.constructor { types.extend(&constructor.instance.arguments); }
+        let constructor_types = selection.constructor.iter().flat_map(|constructor|
+            std::iter::once(&constructor.ty).chain(&constructor.instance.arguments)).filter_map(OperandType::ground).collect::<Vec<_>>();
+        types.extend(&constructor_types);
         if let Some(call) = &selection.typed_call {
             types.extend(call.sig.params.iter().map(|parameter| &parameter.ty));
             types.push(&call.sig.return_ty);
@@ -1078,7 +1099,7 @@ impl Capture<'_> {
             if !self.seen_stages.contains(stage) { return Err(BodyContractError::UnmappedFact(stage.1)); }
         }
         let checked = self.checked;
-        let spans = checked.requirement_targets.keys().chain(checked.record_constructor_instances.keys())
+        let spans = checked.requirement_targets.keys().chain(self.constructors.keys())
             .chain(checked.record_constructor_fields.keys()).chain(checked.conversions.keys()).chain(checked.projections.keys())
             .chain(checked.typed_callable_calls.keys()).chain(checked.selected_function_calls.keys()).chain(checked.static_callable_aliases.keys())
             .chain(checked.argument_bindings.keys()).chain(checked.inferred_variants.keys()).chain(checked.inferred_variant_patterns.keys())
@@ -1517,6 +1538,22 @@ mod tests {
         let shifted = declaration("type Unrelated = Int\ntype Entry = {label: Str}\npure make(value: Str) -> Entry { Entry(label: value) }\n");
         assert!(first.selections.values().any(|selection| selection.constructor.is_some()));
         assert!(first.preserved_by(&shifted));
+    }
+
+    #[test]
+    fn generic_schema_constructor_contract_preserves_canonical_scoped_selections() {
+        let source = "type Box[T] = {value: T}\npure boxed(value) { Box(value:) }\n";
+        let old = declaration(source);
+        let new = declaration(&format!("type Unrelated = Str\n{source}"));
+        assert!(new.selections.values().any(|selection| selection.constructor.is_some()));
+        assert!(old.preserved_by(&new));
+        let mut wrong = new.clone();
+        wrong.selections.values_mut().find_map(|selection| selection.constructor.as_mut()).unwrap()
+            .instance.arguments[0] = OperandType::Ground(Type::Path);
+        assert!(!old.preserved_by(&wrong));
+        let mut missing = new.clone();
+        missing.selections.values_mut().find(|selection| selection.constructor.is_some()).unwrap().constructor = None;
+        assert!(!old.preserved_by(&missing));
     }
 
     #[test]

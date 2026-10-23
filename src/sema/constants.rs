@@ -455,9 +455,9 @@ impl SchemaTypeError {
 /// Checked application identity is retained separately from the structural
 /// record type. Parameters absent from fields still constrain construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SchemaInstance {
+pub struct SchemaInstance<T = Type> {
     pub definition: TypeDefId,
-    pub arguments: Vec<Type>,
+    pub arguments: Vec<T>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -472,9 +472,9 @@ pub enum SchemaComponent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CheckedRecordConstructor {
-    pub instance: SchemaInstance,
-    pub ty: Type,
+pub struct CheckedRecordConstructor<T = Type> {
+    pub instance: SchemaInstance<T>,
+    pub ty: T,
 }
 
 #[derive(Clone, Debug)]
@@ -491,10 +491,14 @@ pub struct RecordConstructorInference {
 /// signature through the checker's scope snapshots and are cloned far more
 /// often than they change, so a clone copies the root and a change copies one
 /// level (`Arc::make_mut`).
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SchemaExpectation {
-    pub instances: Vec<SchemaInstance>,
-    pub children: Arc<BTreeMap<SchemaComponent, SchemaExpectation>>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaExpectation<T = Type> {
+    pub instances: Vec<SchemaInstance<T>>,
+    pub children: Arc<BTreeMap<SchemaComponent, SchemaExpectation<T>>>,
+}
+
+impl<T> Default for SchemaExpectation<T> {
+    fn default() -> Self { Self { instances: Vec::new(), children: Arc::new(BTreeMap::new()) } }
 }
 
 impl SchemaExpectation {
@@ -506,6 +510,25 @@ impl SchemaExpectation {
             }
             pending.extend(Arc::make_mut(&mut schema.children).values_mut());
         }
+    }
+
+}
+
+impl<T: Clone> SchemaExpectation<T> {
+    pub(crate) fn map<U>(&self, map: &mut impl FnMut(&T) -> U) -> SchemaExpectation<U> {
+        match self.try_map(&mut |ty| Ok::<_, std::convert::Infallible>(map(ty))) {
+            Ok(schema) => schema,
+            Err(never) => match never {},
+        }
+    }
+
+    pub(crate) fn try_map<U, E>(&self, map: &mut impl FnMut(&T) -> Result<U, E>) -> Result<SchemaExpectation<U>, E> {
+        let instances = self.instances.iter().map(|instance| Ok(SchemaInstance {
+            definition: instance.definition,
+            arguments: instance.arguments.iter().map(&mut *map).collect::<Result<_, E>>()?,
+        })).collect::<Result<_, E>>()?;
+        let children = self.children.iter().map(|(&component, child)| Ok((component, child.try_map(map)?))).collect::<Result<_, E>>()?;
+        Ok(SchemaExpectation { instances, children: Arc::new(children) })
     }
 
     pub fn merge(&mut self, concrete: &Self) {
@@ -554,6 +577,13 @@ pub struct RecordConstructors {
     nominal_names: FxHashMap<TypeDefId, Name>,
     defaults: FxHashMap<TypeDefId, BTreeMap<Name, LiteralConstant>>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecordConstructorTemplate {
+    pub(crate) definition: TypeDefId,
+    pub(crate) callable: Arc<crate::sema::schemes::CallableScheme>,
+}
+
 
 impl RecordConstructors {
     pub(crate) fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
@@ -1272,6 +1302,29 @@ impl RecordConstructors {
         }
     }
 
+    pub(crate) fn constructor_template(&self, arena: &AstArena, definition: TypeDefId)
+        -> Option<RecordConstructorTemplate>
+    {
+        use crate::sema::schemes::{CallableScheme, SchemeParameter};
+        let names = arena.names(arena.type_def(definition).type_parameters).collect::<Vec<_>>();
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let origin = crate::source::Span::at(crate::source::SourceId::new(0), 0);
+        let arguments = names.iter().map(|_| constraints.fresh_at_level(origin, 1)).collect::<Vec<_>>();
+        let result = self.instantiate_checked(arena, definition, &arguments).ok()?;
+        let context = self.instance_expectation(arena, definition, &arguments).ok()?;
+        let (generalized, normalized) = constraints.generalize_constructor_template(&CheckedRecordConstructor {
+            instance: SchemaInstance { definition, arguments }, ty: result,
+        }).ok()?;
+        let result = normalized.ty;
+        let params = names.into_iter().zip(normalized.instance.arguments).map(|(name, ty)| SchemeParameter {
+            name, ty, schema_expectation: None, defaulted: false, rest: false,
+        }).collect();
+        let context = constraints.generalize_scoped_schema(&context, &generalized).ok()?;
+        let callable = CallableScheme::new(generalized.type_parameters, generalized.row_parameters,
+            params, result, Some(context), true, generalized.requirements).ok()?;
+        Some(RecordConstructorTemplate { definition, callable: Arc::new(callable) })
+    }
+
     pub fn instantiate_checked(
         &self,
         arena: &AstArena,
@@ -1303,6 +1356,7 @@ impl RecordConstructors {
         callee: ExprId,
         namespace: Option<Name>,
         span: crate::source::Span,
+        level: u32,
         expected: Option<&Type>,
         context: Option<&SchemaExpectation>,
         constraints: &mut crate::sema::constraints::TypeConstraints,
@@ -1317,7 +1371,7 @@ impl RecordConstructors {
             })?;
         let arguments = arena
             .names(arena.type_def(definition).type_parameters)
-            .map(|_| constraints.fresh(span))
+            .map(|_| constraints.fresh_at_level(span, level))
             .collect::<Vec<_>>();
         let ty = self.instantiate_checked(arena, definition, &arguments)?;
         if !matches!(ty.unvalidated(), Type::Record(_))
@@ -3664,6 +3718,7 @@ impl ConstantPreparation<'_> {
                         callee,
                         namespace,
                         expr.span,
+                        0,
                         expected,
                         self.expected_schema.as_ref(),
                         &mut self.type_constraints,

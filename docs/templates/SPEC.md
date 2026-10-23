@@ -878,6 +878,21 @@ not decide them, and conflicting evidence is an error, never a guessed `Any`
 substitution. Functions, enums, error families, and module contracts are not
 generic, and there is no expression-level type-argument syntax.
 
+Within an inferred callable, a constructor parameter can remain tied to an
+inferred input type:
+
+```xsh
+type Box[T] = {value: T}
+pure boxed(value) { Box(value:) }
+let number = boxed(7)
+let word = boxed("kept")
+```
+
+The constructor's declaration identity and type relationship remain part of the
+callable's checked contract. An unused schema parameter still needs evidence
+from a field or an explicit schema context. Runtime validation requires a
+closed, reifiable static target.
+
 A schema is structural: any record with its fields fits it. `nominal type`
 declares a schema whose name is also an identity, for a value whose fields
 alone do not say what it is:

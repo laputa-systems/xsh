@@ -571,8 +571,9 @@ fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
         SchemeType::Set(_) => Some(LoweredReturnKind::Plain(LoweredType::Set)),
         SchemeType::Optional(_) if ty.closed_ground_type().is_none() => Some(LoweredReturnKind::Erased),
         SchemeType::Optional(_) => Some(LoweredReturnKind::Plain(LoweredType::Any)),
-        SchemeType::Union(_)
-        | SchemeType::Validated(_, _) => None,
+        SchemeType::Validated(_, _) => ty.closed_ground_type()
+            .and_then(|ty| lowered_scheme_return_kind(&SchemeType::Ground(ty))),
+        SchemeType::Union(_) => None,
     }
 }
 
@@ -4104,17 +4105,61 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    fn lower_scheme_constructor_default(
+        &mut self, literal: &crate::sema::constants::LiteralConstant, expected: &SchemeType,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<BuildExprId> {
+        use crate::sema::constants::LiteralConstant;
+        if let Some(expected) = expected.closed_ground_type() {
+            let literal = literal.clone().in_type(&expected);
+            if !literal.matches_data_type(&expected) { return None; }
+            let constant = lower_prepared_literal(&literal, Some(&self.declarations.wire_enums))?;
+            let value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
+            lowered_types.insert(value, SchemeType::Ground(expected));
+            return Some(value);
+        }
+        let (value, actual) = match (literal, expected) {
+            (LiteralConstant::List(items), SchemeType::List(item)) => {
+                let items = items.iter().map(|value| self.lower_scheme_constructor_default(value, item, lowered_types)).collect::<Option<Vec<_>>>()?;
+                (push_build_row!(self, expr, BuildExprRow::List(items)), expected.clone())
+            }
+            (LiteralConstant::EmptyMap, SchemeType::Map(_, _)) => (push_build_row!(self, expr, BuildExprRow::EmptyMap), expected.clone()),
+            (LiteralConstant::Null, SchemeType::Optional(_)) => (push_build_row!(self, expr, BuildExprRow::Null), SchemeType::Ground(Type::Null)),
+            (LiteralConstant::Record(fields), SchemeType::Record { fields: expected_fields, tail: crate::sema::schemes::SchemeRowTail::Closed }) => {
+                let mut entries = Vec::new();
+                let mut actual = BTreeMap::new();
+                for (&name, value) in fields.iter() {
+                    let value = self.lower_scheme_constructor_default(value, expected_fields.get(&name)?, lowered_types)?;
+                    actual.insert(name, lowered_types.get(&value)?.clone());
+                    entries.push(LoweredRecordEntry::Field(name, value));
+                }
+                (push_build_row!(self, expr, BuildExprRow::Record(entries)), SchemeType::Record { fields: actual, tail: crate::sema::schemes::SchemeRowTail::Closed })
+            }
+            _ => return None,
+        };
+        lowered_types.insert(value, actual);
+        Some(value)
+    }
+
     fn lower_scheme_record_constructor(
         &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
-        construction: calls::CheckedRecordConstruction, slots: &mut SlotScope,
+        construction: calls::CheckedRecordConstruction<SchemeType>, slots: &mut SlotScope,
         current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(expression).span;
-        if facts.expression_types().get(&expression)?.closed_ground_type().as_ref() != Some(&construction.schema) {
+        let expected_type = facts.expression_types().get(&expression)?;
+        let ground_schema = construction.schema.closed_ground_type();
+        if expected_type != &construction.schema && (ground_schema.is_none() || expected_type.closed_ground_type() != ground_schema) {
             return self.block_scheme_lowering_expr(expression);
         }
-        let Type::Record(expected_fields) = construction.schema.unvalidated() else { return self.block_scheme_lowering_expr(expression); };
+        let expected_fields = match &construction.schema {
+            SchemeType::Record { fields, tail: crate::sema::schemes::SchemeRowTail::Closed } => fields.clone(),
+            _ => {
+                let Type::Record(fields) = ground_schema.as_ref()?.unvalidated() else { return self.block_scheme_lowering_expr(expression); };
+                fields.iter().map(|(&name, ty)| (name, SchemeType::Ground(ty.clone()))).collect()
+            }
+        };
         let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
         let mut supplied = FxHashSet::default();
         let mut fields = Vec::new();
@@ -4125,19 +4170,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let expected = expected_fields.get(&name)?;
             if !supplied.insert(name) { return self.block_scheme_lowering_expr(expression); }
             let mut value = argument.lowered?;
-            if let crate::sema::arguments::ArgumentValueSource::Expression(source) = argument.source
+            if let Some(expected) = expected.closed_ground_type()
+                && let crate::sema::arguments::ArgumentValueSource::Expression(source) = argument.source
                 && let Some(literal) = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, source, &FxHashMap::default())
             {
-                let contextual = literal.clone().in_type(expected);
+                let contextual = literal.clone().in_type(&expected);
                 if contextual != literal {
                     let constant = lower_prepared_literal(&contextual, Some(&self.declarations.wire_enums))?;
                     value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
                     lowered_types.insert(value, SchemeType::Ground(expected.clone()));
                 }
             }
-            if expected.has_unsigned_constraint() {
-                value = self.checked_unsigned_value(value, expected, argument.span);
-                self.record_scheme_storage_elaboration(value, &SchemeType::Ground(expected.clone()), lowered_types);
+            if let Some(expected) = expected.closed_ground_type().filter(Type::has_unsigned_constraint) {
+                value = self.checked_unsigned_value(value, &expected, argument.span);
+                self.record_scheme_storage_elaboration(value, &SchemeType::Ground(expected), lowered_types);
             }
             actual_fields.insert(name, lowered_types.get(&value)?.clone());
             fields.push(LoweredRecordEntry::Field(name, value));
@@ -4145,24 +4191,39 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (name, value) in &construction.defaults {
             if supplied.contains(name) { continue; }
             let expected = expected_fields.get(name)?;
-            let value = value.clone().in_type(expected);
-            if !value.matches_data_type(expected) { return self.block_scheme_lowering_expr(expression); }
-            let constant = lower_prepared_literal(&value, Some(&self.declarations.wire_enums))?;
-            let value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
-            let ty = SchemeType::Ground(expected.clone());
-            lowered_types.insert(value, ty.clone());
+            let value = self.lower_scheme_constructor_default(value, expected, lowered_types)?;
+            let ty = lowered_types.get(&value)?.clone();
             actual_fields.insert(*name, ty);
             fields.push(LoweredRecordEntry::Field(*name, value));
         }
         if actual_fields.len() != expected_fields.len() { return self.block_scheme_lowering_expr(expression); }
         let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
         lowered_types.insert(value, SchemeType::Record { fields: actual_fields, tail: crate::sema::schemes::SchemeRowTail::Closed });
-        let check = LoweredTypeCheck {
-            schema: Some(self.prepared_schema(construction.schema.clone())),
-            ty: construction.schema,
-            name: construction.name,
+        let value = if let Some(schema) = ground_schema {
+            let check = LoweredTypeCheck { schema: Some(self.prepared_schema(schema.clone())), ty: schema, name: construction.name };
+            let ty = SchemeType::Ground(check.ty.clone());
+            let value = push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span });
+            lowered_types.insert(value, ty);
+            value
+        } else {
+            value
         };
-        Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }))
+        if let Some(constructor) = facts.constructor_instances().get(&expression) {
+            let schema = crate::sema::constants::SchemaExpectation { instances: vec![constructor.instance.clone()], ..Default::default() };
+            let schema_template = Arc::new(self.declarations.record_constructors.constructor_template(&self.program.arena, constructor.instance.definition)?);
+            let canonical_defaults = construction.defaults.iter().map(|(&name, literal)| {
+                let literal = match expected_fields.get(&name)?.closed_ground_type() {
+                    Some(ty) => literal.clone().in_type(&ty), None => literal.clone(),
+                };
+                Some((name, lower_literal_constant(&literal, Some(&self.declarations.wire_enums))?))
+            }).collect::<Option<BTreeMap<_, _>>>()?;
+            let template = Arc::new(super::LoweredRecordConstructorTemplate { schema: schema_template, defaults: canonical_defaults });
+            let defaults = construction.defaults.keys().filter(|name| !supplied.contains(name)).copied().collect::<Vec<_>>().into();
+            let constructor = super::LoweredRecordConstructor { schema, template, defaults };
+            Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::RecordConstructor(Arc::new(constructor)), span }))
+        } else {
+            Some(value)
+        }
     }
 
     fn lower_scheme_call_arguments(
@@ -5163,8 +5224,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if !recorded { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
-                if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) {
-                    let Some(construction) = self.checked_record_construction(expression) else { return self.block_scheme_lowering_expr(expression); };
+                if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) || facts.constructor_instances().contains_key(&expression) {
+                    let construction = if facts.constructor_instances().contains_key(&expression) {
+                        self.checked_scheme_record_construction(expression, facts)?
+                    } else {
+                        let construction = self.checked_record_construction(expression)?;
+                        calls::CheckedRecordConstruction { schema: SchemeType::Ground(construction.schema), defaults: construction.defaults, positional_fields: construction.positional_fields, name: construction.name }
+                    };
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
                     let value = self.lower_scheme_record_constructor(expression, args, construction, slots, current_function, facts, visited, lowered_types, body)?;
                     return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
@@ -7709,6 +7775,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
                     LoweredValueCheck::Ground(check) => Some(check.ty.clone()),
                     LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type(),
+                    LoweredValueCheck::RecordConstructor(_) => None,
                 },
                 _ => {}
             }
@@ -10006,6 +10073,41 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
     }
 
     #[test]
+    fn generic_schema_constructors_require_canonical_owned_facts() {
+        let source = "type Box[T] = {value: T}\ntype Other[T] = {value: T}\npure boxed(value) { Box(value:) }\npure other(value) { Other(value:) }\n";
+        let checked = CheckedSource::new("generic-schema-constructor-facts.xsh", source, Vec::new());
+        let result = checked.build(&checked.declarations);
+        assert!(result.is_ok(), "{result:?}");
+        let constructor = checked.expression_containing("Box(value:)");
+        let other = checked.expression_containing("Other(value:)");
+        let (&owner, facts) = checked.declarations.scheme_bodies.iter().find(|(_, facts)| facts.constructor_instances().contains_key(&constructor)).unwrap();
+        let other_definition = checked.declarations.scheme_bodies.values().find_map(|facts| facts.constructor_instances().get(&other)).unwrap().instance.definition;
+        let mut missing = checked.declarations.clone();
+        missing.scheme_bodies.insert(owner, facts.clone().with_constructor_instances(std::collections::BTreeMap::new()).unwrap());
+        assert!(checked.build(&missing).is_err());
+        let mut instances = facts.constructor_instances().clone();
+        instances.get_mut(&constructor).unwrap().instance.definition = other_definition;
+        let mut foreign = checked.declarations.clone();
+        foreign.scheme_bodies.insert(owner, facts.clone().with_constructor_instances(instances).unwrap());
+        assert!(checked.build(&foreign).is_err());
+        let mut instances = facts.constructor_instances().clone();
+        let arguments = &mut instances.get_mut(&constructor).unwrap().instance.arguments;
+        arguments.push(arguments[0].clone());
+        let mut wrong_arity = checked.declarations.clone();
+        wrong_arity.scheme_bodies.insert(owner, facts.clone().with_constructor_instances(instances).unwrap());
+        assert!(checked.build(&wrong_arity).is_err());
+        for rejected in [
+            "type Phantom[T] = {value: Int}\npure make(value: Int) { Phantom(value:) }\n",
+            "type Box[T] = {value: T}\npure decode(value: Any) { value.require(Box) }\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), rejected);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = crate::sema::check::Checker::check_arena(&parsed.arena, rejected);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{rejected}: {:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
     fn generic_record_constructor_formals_constrain_open_field_producers() {
         let source = "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet first = sample({value: 7, extra: \"kept\"})\nlet second = sample({value: 9, extra: false})\nassert first.value == 7\nassert second.value == 9\n";
         let checked = CheckedSource::new("generic-record-constructor-field-context.xsh", source, Vec::new());
@@ -10028,8 +10130,8 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
         let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
         std::fs::create_dir_all(&work).unwrap();
         let modules = tempfile::tempdir_in(&work).unwrap();
-        std::fs::write(modules.path().join("rows.xsh"), "##! Constructor ownership.\n## An integer row.\nexport type Row = {value: Int, extra: Int = 9}\n## A distinct branded row.\nexport nominal type Brand = {value: Int}\n").unwrap();
-        let source = "use rows\npure make(payload, count: Int) { let row = rows.Row(value: count); let brand = rows.Brand(value: count); {payload, row, brand} }\nlet result = make(7, 3)\nassert result.row.extra == 9\n";
+        std::fs::write(modules.path().join("rows.xsh"), "##! Constructor ownership.\n## An integer row.\nexport type Row = {value: Int, extra: Int = 9}\n## A distinct branded row.\nexport nominal type Brand = {value: Int}\n## A generic value row.\nexport type Box[T] = {value: T}\n## A generic alias.\nexport type Alias[T] = Box[T]\n").unwrap();
+        let source = "use rows\npure make(payload, count: Int) { let row = rows.Row(value: count); let brand = rows.Brand(value: count); {payload, row, brand} }\npure boxed(value) { rows.Alias(value:) }\nlet result = make(7, 3)\nassert result.row.extra == 9\nassert boxed(7).value == 7\nassert boxed(\"kept\").value == \"kept\"\n";
         let checked = CheckedSource::new("generic-imported-record-constructor.xsh", source, vec![modules.path().to_path_buf()]);
         for fragment in ["rows.Row(value: count)", "rows.Brand(value: count)"] {
             let call = checked.expression_containing(fragment);

@@ -783,7 +783,8 @@ struct FullStore {
     call_effect_arguments: Vec<schemes::FullEffectArgument>,
     scheme_schema_expectations: Vec<schemes::FullSchemeSchemaExpectation>,
     scheme_schema_instances: Vec<schemes::FullSchemeSchemaInstance>,
-    scheme_schema_arguments: Vec<TypeId>,
+    scheme_schema_definitions: Vec<schemes::FullSchemeSchemaDefinition>,
+    scheme_schema_arguments: Vec<SchemeTypeId>,
     scheme_schema_children: Vec<schemes::FullSchemeSchemaChild>,
     call_instantiations: Vec<schemes::FullCallInstantiation>,
     call_type_arguments: Vec<schemes::FullTypeArgument>,
@@ -897,6 +898,7 @@ impl Default for FullStore {
             call_effect_arguments: Vec::new(),
             scheme_schema_expectations: Vec::new(),
             scheme_schema_instances: Vec::new(),
+            scheme_schema_definitions: Vec::new(),
             scheme_schema_arguments: Vec::new(),
             scheme_schema_children: Vec::new(),
             call_instantiations: Vec::new(),
@@ -1156,7 +1158,10 @@ impl FullStore {
                 * size_of::<schemes::FullSchemeSchemaExpectation>()
             + self.scheme_schema_instances.capacity()
                 * size_of::<schemes::FullSchemeSchemaInstance>()
-            + self.scheme_schema_arguments.capacity() * size_of::<TypeId>()
+            + self.scheme_schema_definitions.capacity() * size_of::<schemes::FullSchemeSchemaDefinition>()
+            + self.scheme_schema_definitions.iter().map(|template| template.parameters.len() * size_of::<schemes::FullSchemeTypeParameter>() + template.defaults.len() * size_of::<(Name, u32)>()).sum::<usize>()
+            + self.scheme_schema_expectations.iter().map(|schema| schema.constructor_defaults.len() * size_of::<Name>()).sum::<usize>()
+            + self.scheme_schema_arguments.capacity() * size_of::<SchemeTypeId>()
             + self.scheme_schema_children.capacity()
                 * size_of::<schemes::FullSchemeSchemaChild>()
             + self.call_instantiations.capacity() * size_of::<schemes::FullCallInstantiation>()
@@ -1286,6 +1291,7 @@ impl FullStore {
         self.call_effect_arguments.shrink_to_fit();
         self.scheme_schema_expectations.shrink_to_fit();
         self.scheme_schema_instances.shrink_to_fit();
+        self.scheme_schema_definitions.shrink_to_fit();
         self.scheme_schema_arguments.shrink_to_fit();
         self.scheme_schema_children.shrink_to_fit();
         self.call_instantiations.shrink_to_fit();
@@ -1917,6 +1923,7 @@ impl FullProgram {
                             let (source, destination) = verify_schemes::materialization_contract(&self.store, scopes, id, instruction, &mut budget)?;
                             Contract::Materialization { source, destination }
                         }
+                        ValueCheckView::RecordConstructor(_) => continue,
                     };
                     Some(Record { site: Site::ValueBoundary(span), contract })
                 }
@@ -7044,7 +7051,7 @@ impl<'a> FullDecoder<'a> {
             let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
                 match check {
-                    ValueCheckView::Materialization(_) => true,
+                    ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => true,
                     ValueCheckView::Ground(_) => self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok(),
                 }
             } else { false };
@@ -7301,7 +7308,7 @@ impl<'a> FullDecoder<'a> {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(current)? else { unreachable!() };
                 match check {
                     ValueCheckView::Ground(check) => check.ty.id,
-                    ValueCheckView::Materialization(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
+                    ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
                 }
             } else {
                 self.checked_expression_type_id(current)?
@@ -10047,6 +10054,7 @@ impl<'a> FullDecoder<'a> {
                 if destination != *expected { return Err(IrVerifyError::new("materialized value disagrees with its checked result")); }
                 self.checked_expression_matches_type(value.raw() as usize, &source)
             }
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => self.checked_expression_matches_type(value.raw() as usize, expected),
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
                 if checked != *expected {
@@ -11327,6 +11335,7 @@ impl<'a> FullDecoder<'a> {
                 verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget).map(|(_, destination)| Some(destination))
             }
             schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Ok(Some(check.ty.materialize()?)),
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => self.derive_checked_expression_type(value.raw() as usize),
             schema::ExprView::ValueBlock { mut body, .. } => {
                 match self.checked_value_block_result(&mut body)? {
                     CheckedValueBlockResult::Tail(value) => {
@@ -11862,6 +11871,10 @@ impl<'a> FullDecoder<'a> {
                 let (source, destination) = verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget)?;
                 if destination != ty { return Err(IrVerifyError::new("materialization fact disagrees with its destination")); }
                 require_child(value.raw() as usize, &source)?;
+            }
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => {
+                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("record constructor fact carries unrelated authority")); }
+                require_child(value.raw() as usize, &ty)?;
             }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
@@ -21191,6 +21204,7 @@ macro_rules! impl_build_id_codec {
                 )?;
                 if let Some(instruction) = instruction {
                     builder.attach_value_materialization(instruction)?;
+                    builder.attach_record_constructor(instruction)?;
                     if $checked_expr_type && builder.active_scheme.is_some() {
                         let instruction = u32::try_from(instruction)
                             .map_err(|_| IrBuildError::format("completion_source_producer", None, 0, instruction))?;
@@ -39626,6 +39640,180 @@ assert open_bool.extra == 9
                 }
             }
         });
+    }
+
+    #[test]
+    fn generic_schema_constructors_preserve_scoped_arguments_and_defaults() {
+        run_with_large_stack(|| {
+            let types = "type Box[T] = {value: T, extra: Int = 9, items: List[T] = [], maybe: T? = null}\ntype Envelope[T] = {item: Box[T], stamp: UInt = 0}\n";
+            for (name, functions, assertions) in [
+                ("local-and-returned", "pure boxed(value) { let _ = Box(value:); let local = Box(value:); local }\n",
+                    "let number = boxed(7)\nlet word = boxed(\"kept\")\nassert number.value == 7\nassert word.value == \"kept\"\nassert number.extra == 9\nassert word.items.len() == 0\nassert word.maybe == null\n"),
+                ("nested-direct", "pure nested(value) { Envelope(item: Box(value:)) }\n",
+                    "assert nested(7).item.value == 7\nassert nested(\"kept\").item.value == \"kept\"\nassert nested(7).stamp == 0\n"),
+                ("nested-call", "pure boxed(value) { Box(value:) }\npure wrapped(value) { Envelope(item: boxed(value)) }\n",
+                    "assert wrapped(7).item.value == 7\nassert wrapped(\"kept\").item.value == \"kept\"\n"),
+                ("nominal-alias", "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure branded(payload) { Branded(payload:, tag: Tagged(value: 7)) }\npure brand_value(value: Brand) -> Int { value.value }\n",
+                    "assert brand_value(branded(7).tag) == 7\nassert brand_value(branded(\"kept\").tag) == 7\n"),
+                ("nominal-context-provenance", "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure branded(payload) { Branded(payload:, tag: Tagged(value: 7)) }\npure tag_of(payload) { branded(payload).tag }\npure from_call(payload) { Branded(payload:, tag: tag_of(payload)) }\npure from_parameter(payload, tag: Brand) { Branded(payload:, tag:) }\npure from_brand(payload) { Branded(payload:, tag: Brand(value: 7)) }\npure from_alias(payload) { let original = branded(payload); let tag = original.tag; Branded(payload:, tag:) }\n",
+                    "assert from_call(7).tag.value == 7\nassert from_call(\"kept\").tag.value == 7\nassert from_parameter(7, Brand(value: 11)).tag.value == 11\nassert from_parameter(\"kept\", Brand(value: 13)).tag.value == 13\nassert from_brand(7).tag.value == 7\nassert from_alias(\"kept\").tag.value == 7\n"),
+                ("structural-field-covariance", "type CovBox[T] = {value: T}\ntype CovEnvelope[P] = {payload: P, item: CovBox[Int]}\npure generic(value) { CovBox(value:) }\npure narrow(marker) -> CovBox[UInt] { let _ = marker; CovBox(value: 0) }\npure retained(payload) { CovEnvelope(payload:, item: narrow(payload)) }\n",
+                    "assert retained(7).item.value == 0\nassert retained(\"kept\").payload == \"kept\"\n"),
+            ] {
+                let source = format!("{types}{functions}{assertions}");
+                let program = Arc::new(fixture_result(name, &source).unwrap_or_else(|error| panic!("{name}: {error:?}")));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    }
+                    assert!(evaluator.stdout.is_empty());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_schema_constructor_metadata_rejects_foreign_and_unbound_binders() {
+        let program = fixture("generic-schema-constructor-proof.xsh", "type Box[T] = {value: T}\npure boxed(value, wrong: Str) { let local = Box(value:); let discarded = Box(value:); local }\npure other(value) { Box(value:) }\npure from_row(row) { let held = row; Box(value: held.value) }\n");
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "boxed");
+        let other = scheme_fixture_root_function(&program, "other");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("boxed is generic") };
+        let FullCallableContract::Scheme(other_scheme) = program.store.functions[other].contract else { panic!("other is generic") };
+        let schema = program.store.schemes[scheme.index()].return_schema.unwrap();
+        let instance = program.store.scheme_schema_expectations[schema.index()].instances.start as usize;
+        let argument = program.store.scheme_schema_instances[instance].arguments.start as usize;
+        let ty = program.store.scheme_schema_arguments[argument];
+        let mut unbound = program.clone();
+        unbound.store.in_place.take();
+        assert_eq!(unbound.store.scheme_types[ty.index()].tag, FullSchemeTypeTag::Parameter);
+        unbound.store.scheme_types[ty.index()].first = IR_NONE - 1;
+        assert_eq!(FullVerifier::verify(&unbound).unwrap_err().message, "scheme type parameter is out of scope");
+        let mut foreign = program.clone();
+        foreign.store.in_place.take();
+        let other_parameter = program.store.schemes[other_scheme.index()].params.start as usize;
+        foreign.store.scheme_schema_arguments[argument] = program.store.scheme_params[other_parameter].ty;
+        assert_eq!(FullVerifier::verify(&foreign).unwrap_err().message, "scheme type node escaped its binder scope");
+        let decoder = function_view_decoder(&program.store, owner);
+        let constructors = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::RecordConstructor(schema), .. }) => Some((instruction, schema)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(constructors.len(), 2);
+        let (instruction, root) = constructors[0];
+        assert_ne!(root, constructors[1].1);
+        let encoded = [decode::ValueCheckTag::RecordConstructor as u32, root.raw()];
+        let mut encoded = FullCursor::new(&encoded);
+        assert_eq!(LoweredValueCheck::decode(&decoder, &mut encoded).unwrap_err().message, "scoped constructor contracts cannot be decoded from executable IR");
+        for foreign_root in [constructors[1].1, schema] {
+            let mut stolen = program.clone();
+            stolen.store.in_place.take();
+            let words = stolen.store.data[instruction].range().bounds(stolen.store.extra.len()).unwrap();
+            stolen.store.extra[words.start + 2] = foreign_root.raw();
+            assert_eq!(FullVerifier::verify(&stolen).unwrap_err().message, "record constructor schema belongs to another instruction");
+        }
+        let source = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+        let mut wrong_field = program.clone();
+        wrong_field.store.in_place.take();
+        let words = wrong_field.store.data[source].range().bounds(wrong_field.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_field.store.extra[words.start] = 1;
+        FullVerifier::verify(&wrong_field).expect_err("the actual generic constructor field producer must match its parameter");
+        let row_owner = scheme_fixture_root_function(&program, "from_row");
+        let decoder = function_view_decoder(&program.store, row_owner);
+        let (marker, record) = program.store.function_instruction_range(row_owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. }) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let (discard, read) = program.store.function_instruction_range(row_owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { value, .. }) if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(0))) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let mut borrowed = program.clone();
+        borrowed.store.in_place.take();
+        let marker_words = borrowed.store.data[marker].range().bounds(borrowed.store.extra.len()).unwrap();
+        let discard_words = borrowed.store.data[discard].range().bounds(borrowed.store.extra.len()).unwrap();
+        borrowed.store.extra[marker_words.start] = read as u32;
+        borrowed.store.extra[discard_words.start + 1] = record as u32;
+        FullVerifier::verify(&borrowed).expect_err("a borrowed constructor source cannot replace its fresh record producer");
+    }
+
+    #[test]
+    fn generic_schema_constructor_templates_reject_definition_argument_and_default_forgery() {
+        let program = fixture("constructor-template-proof.xsh", "type Box[T] = {value: T, extra: Int = 9}\ntype Other[T] = {value: T}\npure make(value, other) { let unused = other; Box(value:) }\npure foreign(value) { Other(value:) }\n");
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "make");
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("generic make") };
+        let decoder = function_view_decoder(&program.store, owner);
+        let root = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::RecordConstructor(root), .. }) => Some(root),
+            _ => None,
+        }).unwrap();
+        let instance = program.store.scheme_schema_expectations[root.index()].instances.start as usize;
+        let argument = program.store.scheme_schema_instances[instance].arguments.start as usize;
+        let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+        let mut unknown = cold();
+        unknown.store.scheme_schema_instances[instance].definition = IR_NONE - 1;
+        assert_eq!(FullVerifier::verify(&unknown).unwrap_err().message, "record constructor identity or arity disagrees with its canonical template");
+        let foreign = program.store.scheme_schema_definitions.iter().find(|template| template.definition != program.store.scheme_schema_instances[instance].definition).unwrap();
+        let mut wrong_definition = cold();
+        wrong_definition.store.scheme_schema_instances[instance].definition = foreign.definition;
+        assert_eq!(FullVerifier::verify(&wrong_definition).unwrap_err().message, "record constructor identity or arity disagrees with its canonical template");
+        let mut wrong_binder = cold();
+        let second = program.store.schemes[scheme.index()].params.start as usize + 1;
+        let binder = program.store.scheme_types[program.store.scheme_params[second].ty.index()].first;
+        wrong_binder.store.scheme_types[program.store.scheme_schema_arguments[argument].index()].first = binder;
+        assert_eq!(FullVerifier::verify(&wrong_binder).unwrap_err().message, "record constructor arguments disagree with its canonical field template");
+        let mut wrong_default = cold();
+        let default = wrong_default.store.prepared_constants.iter_mut().find(|constant| constant.0 == LoweredValue::Int(9)).unwrap();
+        default.0 = LoweredValue::Int(10);
+        assert_eq!(FullVerifier::verify(&wrong_default).unwrap_err().message, "record constructor default disagrees with its canonical literal");
+        let mut borrowed_default = cold();
+        let actual = program.store.prepared_constants.iter().position(|constant| constant.0 == LoweredValue::Int(9)).unwrap() as u32;
+        let template = borrowed_default.store.scheme_schema_expectations[root.index()].constructor_template as usize;
+        let extra = *borrowed_default.store.scheme_schema_definitions[template].defaults.keys().find(|name| name.as_str().as_str() == "extra").unwrap();
+        *borrowed_default.store.scheme_schema_definitions[template].defaults.get_mut(&extra).unwrap() = actual;
+        assert_eq!(FullVerifier::verify(&borrowed_default).unwrap_err().message, "record constructor default contract is used as an executable constant");
+        let mut wrong_handle = cold();
+        wrong_handle.store.scheme_schema_expectations[root.index()].constructor_template = IR_NONE - 1;
+        assert_eq!(FullVerifier::verify(&wrong_handle).unwrap_err().message, "record constructor template is out of bounds");
+    }
+
+    #[test]
+    fn generic_schema_constructor_phantom_arguments_require_canonical_context() {
+        let program = fixture("phantom-constructor-context.xsh", "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure branded(payload, other) { let _ = other; Branded(payload:, tag: Tagged(value: 7)) }\n");
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "branded");
+        let decoder = function_view_decoder(&program.store, owner);
+        let root = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(root), .. })
+                if matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(_), .. })) => Some(root),
+            _ => None,
+        }).unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("generic branded") };
+        let second = program.store.schemes[scheme.index()].params.start as usize + 1;
+        let binder = program.store.scheme_types[program.store.scheme_params[second].ty.index()].first;
+        let instance = program.store.scheme_schema_expectations[root.index()].instances.start as usize;
+        let argument = program.store.scheme_schema_instances[instance].arguments.start as usize;
+        let node = program.store.scheme_schema_arguments[argument];
+        assert_eq!(program.store.scheme_types[node.index()].tag, FullSchemeTypeTag::Parameter);
+        assert_ne!(program.store.scheme_types[node.index()].first, binder);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[node.index()].first = binder;
+        FullVerifier::verify(&forged).expect_err("a phantom constructor argument must retain its canonical containing field context");
+    }
+
+    #[test]
+    fn generic_schema_constructor_context_rejects_calls_without_retained_provenance() {
+        let source = "nominal type Brand = {value: Int}\ntype Tagged[T] = Brand\ntype Branded[T] = {payload: T, tag: Tagged[T]}\npure closed_tag() -> Tagged[Int] { Tagged(value: 7) }\npure from_call(payload) { Branded(payload:, tag: closed_tag()) }\n";
+        let error = fixture_result("unretained-call-context.xsh", source).unwrap_err();
+        assert_eq!(error.construct, "full_ir_verification");
+        assert!(error.detail.as_deref().is_some_and(|detail| detail.contains("no independent scoped schema provenance")), "{error:?}");
     }
 
     #[test]

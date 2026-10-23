@@ -189,6 +189,7 @@ struct VerifiedInvocationEffects {
 pub(super) struct VerifiedSchemeScopes {
     scopes: Vec<Option<SchemeScope>>,
     invocations: Vec<Option<VerifiedInvocationEffects>>,
+    constructor_parameters: BTreeMap<u32, Vec<bool>>,
 }
 
 impl VerifiedSchemeScopes {
@@ -209,6 +210,8 @@ impl VerifiedSchemeScopes {
                     + scope.row_lacks.iter().map(|lacks| lacks.len() * size_of::<Name>()).sum::<usize>()
                     + scope.effects.parameters.capacity() * size_of::<super::schemes::FullEffectParameter>()
             }).sum::<usize>()
+            + self.constructor_parameters.len() * size_of::<(u32, Vec<bool>)>()
+            + self.constructor_parameters.values().map(|parameters| parameters.capacity() * size_of::<bool>()).sum::<usize>()
             + self.invocations.capacity() * size_of::<Option<VerifiedInvocationEffects>>()
             + self.invocations.iter().flatten().map(|invocation| {
                 invocation.contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())
@@ -222,7 +225,7 @@ impl VerifiedSchemeScopes {
 pub(super) fn prepare_tables(store: &FullStore) -> Result<VerifiedSchemeScopes, IrVerifyError> {
     let mut effects = effects::EffectCoverage::new(store);
     let scopes = verify_function_schemes(store, &mut effects)?;
-    verify_scheme_tables(store, &scopes, &mut effects)?;
+    let constructor_parameters = verify_scheme_tables(store, &scopes, &mut effects)?;
     effects.finish(&scopes)?;
     let mut budget = SchemeInstantiationBudget::new(store);
     budget.charge(scopes.len())?;
@@ -240,7 +243,7 @@ pub(super) fn prepare_tables(store: &FullStore) -> Result<VerifiedSchemeScopes, 
         } else { None };
         invocations.push(invocation);
     }
-    Ok(VerifiedSchemeScopes { scopes, invocations })
+    Ok(VerifiedSchemeScopes { scopes, invocations, constructor_parameters })
 }
 
 pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, contexts: producers::ProducerContexts<'_>, function_signatures: &Arc<super::FunctionSignatureIndex>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
@@ -493,7 +496,7 @@ fn verify_scheme_tables(
     store: &FullStore,
     scopes: &[Option<SchemeScope>],
     effects: &mut effects::EffectCoverage,
-) -> Result<(), IrVerifyError> {
+) -> Result<BTreeMap<u32, Vec<bool>>, IrVerifyError> {
     let mut type_owners = vec![None; store.scheme_types.len()];
     let mut type_states = vec![0u8; store.scheme_types.len()];
     let mut field_coverage = vec![false; store.scheme_fields.len()];
@@ -505,6 +508,33 @@ fn verify_scheme_tables(
         arguments: vec![false; store.scheme_schema_arguments.len()],
         children: vec![false; store.scheme_schema_children.len()],
     };
+    let constructor_roots = record_constructor_roots(store, scopes)?;
+    let used_templates = store.scheme_schema_expectations.iter().filter(|root| root.constructor_instruction != IR_NONE)
+        .map(|root| root.constructor_template as usize).collect::<BTreeSet<_>>();
+    if used_templates.iter().any(|index| *index >= store.scheme_schema_definitions.len()) {
+        return Err(IrVerifyError::new("record constructor template is out of bounds"));
+    }
+    let mut definitions = BTreeSet::new();
+    if used_templates.len() != store.scheme_schema_definitions.len()
+        || store.scheme_schema_definitions.iter().enumerate().any(|(index, template)|
+            !used_templates.contains(&index) || !definitions.insert(template.definition))
+    { return Err(IrVerifyError::new("record constructor template inventory is incomplete or repeated")); }
+    let mut default_constants = BTreeSet::new();
+    for template in &store.scheme_schema_definitions {
+        for index in template.defaults.values() {
+            if store.prepared_constants.get(*index as usize).is_none() || !default_constants.insert(*index) {
+                return Err(IrVerifyError::new("record constructor default constant has no unique template owner"));
+            }
+        }
+    }
+    for (instruction, tag) in store.tags.iter().enumerate() {
+        if *tag != FullTag::ExprPreparedConstant { continue; }
+        let payload = store.payload(store.data[instruction].range())?;
+        if payload.first().is_some_and(|index| default_constants.contains(index)) {
+            return Err(IrVerifyError::new("record constructor default contract is used as an executable constant"));
+        }
+    }
+
     let mut type_binder_uses = scopes
         .iter()
         .map(|scope| scope.as_ref().map_or(Vec::new(), |scope| vec![false; scope.type_parameters.len()]))
@@ -513,6 +543,10 @@ fn verify_scheme_tables(
         .iter()
         .map(|scope| scope.as_ref().map_or(Vec::new(), |scope| vec![false; scope.row_parameters.len()]))
         .collect::<Vec<_>>();
+    for template in &store.scheme_schema_definitions {
+        type_binder_uses.push(vec![false; template.parameters.len()]);
+        row_binder_uses.push(Vec::new());
+    }
     let mut validation_references = vec![false; store.scheme_validations.len()];
     let mut application_budget = SchemeInstantiationBudget::new(store);
     let mut application_coverage = vec![false; store.scheme_applications.len()];
@@ -602,6 +636,13 @@ fn verify_scheme_tables(
         )? {
             roots.extend(fact.ty());
         }
+        for schema in params.iter().filter_map(|parameter| parameter.schema).chain(scheme.return_schema) {
+            roots.extend(schema_argument_types(store, schema, 0)?);
+        }
+        for &(instruction, schema) in constructor_roots.get(&scheme_index).into_iter().flatten() {
+            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), Some(instruction), 0)?;
+            roots.extend(schema_argument_types(store, schema, 0)?);
+        }
         for root in roots {
             visit_scheme_type(
                 store,
@@ -640,6 +681,7 @@ fn verify_scheme_tables(
                     schema,
                     &mut schema_coverage,
                     &mut BTreeSet::new(),
+                    None,
                     0,
                 )?;
             }
@@ -651,9 +693,31 @@ fn verify_scheme_tables(
                 schema,
                 &mut schema_coverage,
                 &mut BTreeSet::new(),
+                None,
                 0,
             )?;
         }
+    }
+    let mut constructor_parameters = BTreeMap::new();
+    for (index, template) in store.scheme_schema_definitions.iter().enumerate() {
+        let scope = constructor_template_scope(store, template)?;
+        visit_scheme_type(store, scopes.len() + index, template.result, &scope, &mut type_owners, &mut type_states,
+            &mut field_coverage, &mut child_coverage, &mut validation_coverage, &mut validation_references,
+            &mut type_binder_uses, &mut row_binder_uses, effects, 0)?;
+        if constructor_parameters.insert(template.definition, type_binder_uses[scopes.len() + index].clone()).is_some() {
+            return Err(IrVerifyError::new("record constructor parameter roles repeat a canonical definition"));
+        }
+        verify_schema_expectation(store, template.context, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
+        let roots = schema_argument_types(store, template.context, 0)?;
+        for root in roots {
+            visit_scheme_type(store, scopes.len() + index, root, &scope, &mut type_owners, &mut type_states,
+                &mut field_coverage, &mut child_coverage, &mut validation_coverage, &mut validation_references,
+                &mut type_binder_uses, &mut row_binder_uses, effects, 0)?;
+        }
+        let context = decode_scheme_schema(store, &scope, template.context, &mut application_budget, 0)?;
+        if context.instances.first().is_none_or(|instance| instance.definition.index() != template.definition as usize
+            || instance.arguments != scope.type_parameters.iter().map(|parameter| SchemeType::Parameter(SchemeTypeParameterId(parameter.id))).collect::<Vec<_>>())
+        { return Err(IrVerifyError::new("record constructor template context disagrees with its canonical parameters")); }
     }
     let empty_scope = SchemeScope {
         operations: IrRange::default(),
@@ -668,7 +732,7 @@ fn verify_scheme_tables(
     };
     for plan in &store.value_materializations {
         let caller = caller_scheme_for_instruction(store, plan.instruction as usize, scopes)?;
-        let (owner, scope) = caller.map_or((scopes.len(), &empty_scope), |(id, scope)| (id.index(), scope));
+        let (owner, scope) = caller.map_or((scopes.len() + store.scheme_schema_definitions.len(), &empty_scope), |(id, scope)| (id.index(), scope));
         for endpoint in [plan.source, plan.destination] {
             visit_scheme_type(store, owner, endpoint, scope, &mut type_owners, &mut type_states,
                 &mut field_coverage, &mut child_coverage, &mut validation_coverage, &mut validation_references,
@@ -682,7 +746,7 @@ fn verify_scheme_tables(
             instruction as usize,
             scopes,
         )?;
-        let (owner, scope) = caller.map_or((scopes.len(), &empty_scope), |(id, scope)| {
+        let (owner, scope) = caller.map_or((scopes.len() + store.scheme_schema_definitions.len(), &empty_scope), |(id, scope)| {
             (id.index(), scope)
         });
         effects.arguments(store, owner, scope, arguments.effect_arguments)?;
@@ -810,11 +874,11 @@ fn verify_scheme_tables(
     for callable in &store.scheme_callable_monotypes {
         for parameter in bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")? {
             if let Some(schema) = parameter.schema {
-                verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), 0)?;
+                verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
             }
         }
         if let Some(schema) = callable.return_schema {
-            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), 0)?;
+            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), None, 0)?;
         }
     }
     if type_owners.iter().any(Option::is_none)
@@ -838,7 +902,7 @@ fn verify_scheme_tables(
     {
         return Err(IrVerifyError::new("scheme type tables contain unowned rows"));
     }
-    Ok(())
+    Ok(constructor_parameters)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -890,7 +954,11 @@ fn visit_scheme_type(
             let callable = store.scheme_callable_monotype(node.first)?;
             let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
             effects.contract(store, scheme_index, scope, callable.effects)?;
-            for child in parameters.iter().map(|parameter| parameter.ty).chain(std::iter::once(callable.return_type)) {
+            let mut children = parameters.iter().map(|parameter| parameter.ty).chain(std::iter::once(callable.return_type)).collect::<Vec<_>>();
+            for schema in parameters.iter().filter_map(|parameter| parameter.schema).chain(callable.return_schema) {
+                children.extend(schema_argument_types(store, schema, depth + 1)?);
+            }
+            for child in children {
                 visit_scheme_type(store, scheme_index, child, scope, type_owners, type_states, field_coverage, child_coverage,
                     validation_coverage, validation_references, type_binder_uses, row_binder_uses, effects, depth + 1)?;
             }
@@ -1118,11 +1186,230 @@ fn verify_validation_row(
     }
 }
 
+fn schema_argument_types(store: &FullStore, id: super::schemes::FullSchemeSchemaExpectationId, depth: usize) -> Result<Vec<SchemeTypeId>, IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("scheme schema expectation nesting is too deep")); }
+    let schema = store.scheme_schema_expectations.get(id.index()).ok_or_else(|| IrVerifyError::new("scheme schema expectation id is out of bounds"))?;
+    let mut types = Vec::new();
+    for instance in bounded(schema.instances, &store.scheme_schema_instances, "scheme schema instance range is invalid")? {
+        types.extend_from_slice(bounded(instance.arguments, &store.scheme_schema_arguments, "scheme schema argument range is invalid")?);
+    }
+    for child in bounded(schema.children, &store.scheme_schema_children, "scheme schema child range is invalid")? {
+        types.extend(schema_argument_types(store, child.expectation, depth + 1)?);
+    }
+    Ok(types)
+}
+
+fn constructor_template_scope(store: &FullStore, template: &super::schemes::FullSchemeSchemaDefinition) -> Result<SchemeScope, IrVerifyError> {
+    if template.definition == IR_NONE || template.parameters.iter().enumerate().any(|(index, parameter)|
+        parameter.id as usize != index || parameter.binder as usize != index)
+    { return Err(IrVerifyError::new("record constructor template binder order is invalid")); }
+    make_scope(store, template.parameters.to_vec(), Vec::new(), effects::EffectScope::default())
+}
+
+fn constructor_default_matches(decoder: &FullDecoder<'_>, instruction: usize, literal: &super::super::super::LoweredValue,
+    budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<bool, IrVerifyError>
+{
+    if depth > 128 { return Err(IrVerifyError::new("record constructor default is too deep")); }
+    budget.charge(1)?;
+    use super::super::super::LoweredValue;
+    Ok(match (decoder.expression_view(instruction)?, literal) {
+        (schema::ExprView::PreparedConstant(actual), expected) => {
+            &actual.0 == expected
+        }
+        (schema::ExprView::Null, LoweredValue::Null) => true,
+        (schema::ExprView::EmptyMap, LoweredValue::Map(expected)) => expected.is_empty(),
+        (schema::ExprView::List(values), expected) => {
+            let expected = match expected { LoweredValue::List(items) => items.as_slice(), LoweredValue::SharedList(items) => items.as_slice(), _ => return Ok(false) };
+            if values.len() != expected.len() { return Ok(false); }
+            let mut matches = true;
+            for (actual, expected) in values.zip(expected.iter()) {
+                matches &= constructor_default_matches(decoder, actual?.raw() as usize, expected, budget, depth + 1)?;
+            }
+            matches
+        }
+        (schema::ExprView::Record(entries), LoweredValue::Record(expected)) if entries.len() == expected.len() => {
+            let mut fields = BTreeSet::new();
+            let mut matches = true;
+            for entry in entries {
+                let super::decode::RecordEntryView::Field(name, value) = entry? else { return Ok(false); };
+                let Some(expected) = expected.get(name.as_str().as_str()) else { return Ok(false); };
+                matches &= fields.insert(name) && constructor_default_matches(decoder, value.raw() as usize, expected, budget, depth + 1)?;
+            }
+            matches
+        }
+        _ => false,
+    })
+}
+
+fn verify_constructor_defaults(store: &FullStore, decoder: &FullDecoder<'_>, record: usize,
+    root: &super::schemes::FullSchemeSchemaExpectation, template: &super::schemes::FullSchemeSchemaDefinition,
+    budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError>
+{
+    let schema::ExprView::Record(entries) = decoder.expression_view(record)? else {
+        return Err(IrVerifyError::new("record constructor defaults have no fresh record producer"));
+    };
+    let mut remaining = root.constructor_defaults.iter().copied().collect::<BTreeSet<_>>();
+    for entry in entries {
+        let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("record constructor defaults contain a spread")); };
+        if remaining.remove(&name) {
+            let literal = template.defaults.get(&name).and_then(|index| store.prepared_constants.get(*index as usize))
+                .ok_or_else(|| IrVerifyError::new("record constructor default is not declared"))?;
+            if !constructor_default_matches(decoder, value.raw() as usize, &literal.0, budget, 0)? {
+                return Err(IrVerifyError::new("record constructor default disagrees with its canonical literal"));
+            }
+        }
+    }
+    if !remaining.is_empty() { return Err(IrVerifyError::new("record constructor default field is missing")); }
+    Ok(())
+}
+
+fn actual_constructor_context(
+    store: &FullStore, decoder: &FullDecoder<'_>, mut instruction: usize, scheme_scope: &SchemeScope,
+    mut slots: body::LexicalScope, scopes: &body::LexicalScopes, effect_scopes: &VerifiedSchemeScopes,
+    budget: &mut SchemeInstantiationBudget, depth: usize,
+) -> Result<Option<crate::sema::constants::SchemaExpectation<SchemeType>>, IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("record constructor provenance is too deep")); }
+    let mut seen = BTreeSet::new();
+    loop {
+        budget.charge(1)?;
+        if seen.len() > 128 || !seen.insert(instruction) { return Err(IrVerifyError::new("record constructor initializer is cyclic or too deep")); }
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                if let Some((initializer, scope)) = slots.immutable_initializer_context(scopes, slot, budget)? {
+                    instruction = initializer;
+                    slots = scope;
+                    continue;
+                }
+                if slots.immutable_slot_type(scopes, slot, budget)?.is_none() { return Ok(None); }
+                let Some((owner, owner_scope)) = caller_scheme_for_instruction(store, instruction, &effect_scopes.scopes)? else { return Ok(None); };
+                let parameter = bounded(store.scheme(owner)?.params, &store.scheme_params, "record constructor parameter range is invalid")?.get(slot);
+                return parameter.and_then(|parameter| parameter.schema).map(|schema| decode_scheme_schema(store, owner_scope, schema, budget, 0)).transpose();
+            }
+            schema::ExprView::CheckedValue { check: ValueCheckView::RecordConstructor(root), .. } => {
+                let root_row = store.scheme_schema_expectations.get(root.index()).ok_or_else(|| IrVerifyError::new("record constructor schema is out of bounds"))?;
+                if root_row.constructor_instruction as usize != instruction { return Err(IrVerifyError::new("record constructor schema belongs to another instruction")); }
+                let application = decode_scheme_schema(store, scheme_scope, root, budget, 0)?;
+                let template = store.scheme_schema_definitions.get(root_row.constructor_template as usize).ok_or_else(|| IrVerifyError::new("record constructor template is out of bounds"))?;
+                let [instance] = application.instances.as_slice() else { return Err(IrVerifyError::new("record constructor has no canonical schema application")); };
+                if instance.definition.index() != template.definition as usize || instance.arguments.len() != template.parameters.len() {
+                    return Err(IrVerifyError::new("record constructor identity or arity disagrees with its canonical template"));
+                }
+                let scope = constructor_template_scope(store, template)?;
+                let substitution = SymbolicCallSubstitution { types: instance.arguments.clone(), rows: Vec::new(), effects: Vec::new() };
+                return applications::ApplicationSubstitution::Symbolic(&substitution).schema(store, &scope, template.context, budget).map(Some);
+            }
+            schema::ExprView::Field { base, name, .. } => {
+                let context = actual_constructor_context(store, decoder, base.raw() as usize, scheme_scope, slots, scopes, effect_scopes, budget, depth + 1)?;
+                return Ok(context.and_then(|context| context.value_context().children.get(&crate::sema::constants::SchemaComponent::Field(Name::intern(name))).cloned()));
+            }
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
+                if check.schema.is_some() { return Ok(Some(Default::default())); }
+                instruction = value.raw() as usize;
+            }
+            schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => {
+                let callee = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("record constructor call target is invalid"))?;
+                let FullCallableContract::Scheme(callee) = callee.contract else { return Ok(None); };
+                let callee_scope = effect_scopes.scopes.get(callee.index()).and_then(Option::as_ref)
+                    .ok_or_else(|| IrVerifyError::new("record constructor call has no callee binder scope"))?;
+                let index = store.call_instantiations.binary_search_by_key(&(instruction as u32), |site| site.instruction)
+                    .map_err(|_| IrVerifyError::new("record constructor call has no checked instantiation"))?;
+                let arguments = store.call_instantiations[index].arguments;
+                let substitution = build_symbolic_substitution(store, callee_scope, scheme_scope,
+                    bounded(arguments.type_arguments, &store.call_type_arguments, "record constructor call type arguments are invalid")?,
+                    bounded(arguments.row_arguments, &store.call_row_arguments, "record constructor call row arguments are invalid")?,
+                    bounded(arguments.effect_arguments, &store.call_effect_arguments, "record constructor call effect arguments are invalid")?, None, budget)?;
+                return store.scheme(callee)?.return_schema.map(|schema|
+                    applications::ApplicationSubstitution::Symbolic(&substitution).schema(store, callee_scope, schema, budget)).transpose();
+            }
+            _ => return Ok(None),
+        }
+    }
+}
+
+fn constructor_context_matches(
+    effect_scopes: &VerifiedSchemeScopes, actual: &crate::sema::constants::SchemaExpectation<SchemeType>, expected: &crate::sema::constants::SchemaExpectation<SchemeType>,
+    budget: &mut SchemeInstantiationBudget, depth: usize,
+) -> Result<bool, IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("record constructor context is too deep")); }
+    budget.charge(1)?;
+    for actual in &actual.instances {
+        budget.charge(1)?;
+        if let Some(expected) = expected.instances.iter().find(|expected| expected.definition == actual.definition) {
+            if actual.arguments.len() != expected.arguments.len() { return Ok(false); }
+            if actual.arguments == expected.arguments { continue; }
+            let definition = u32::try_from(actual.definition.index()).map_err(|_| IrVerifyError::new("record constructor definition is out of bounds"))?;
+            budget.charge(actual.arguments.len().saturating_add(1))?;
+            match effect_scopes.constructor_parameters.get(&definition) {
+                Some(parameters) => {
+                    if parameters.len() != actual.arguments.len() { return Err(IrVerifyError::new("record constructor has no verified parameter roles")); }
+                    if actual.arguments.iter().zip(&expected.arguments).zip(parameters).any(|((actual, expected), used)| !used && actual != expected) { return Ok(false); }
+                }
+                None if actual.arguments.iter().chain(&expected.arguments).any(|argument| argument.closed_ground_type().is_none()) =>
+                    return Err(IrVerifyError::new("record constructor field has no independent scoped parameter provenance")),
+                None => {}
+            }
+        }
+    }
+    for (component, actual) in actual.children.iter() {
+        if let Some(expected) = expected.children.get(component)
+            && !constructor_context_matches(effect_scopes, actual, expected, budget, depth + 1)? { return Ok(false); }
+    }
+    Ok(true)
+}
+
+fn schema_context_has_scoped_arguments(context: &crate::sema::constants::SchemaExpectation<SchemeType>, budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<bool, IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("record constructor context is too deep")); }
+    budget.charge(1)?;
+    for instance in &context.instances {
+        budget.charge(instance.arguments.len())?;
+        if instance.arguments.iter().any(|argument| argument.closed_ground_type().is_none()) { return Ok(true); }
+    }
+    for child in context.children.values() {
+        if schema_context_has_scoped_arguments(child, budget, depth + 1)? { return Ok(true); }
+    }
+    Ok(false)
+}
+
+fn verify_constructor_field_contexts(
+    store: &FullStore, decoder: &FullDecoder<'_>, record: usize, context: &crate::sema::constants::SchemaExpectation<SchemeType>,
+    scheme_scope: &SchemeScope, slots: &body::LexicalScope, scopes: &body::LexicalScopes,
+    effect_scopes: &VerifiedSchemeScopes, budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let schema::ExprView::Record(entries) = decoder.expression_view(record)? else { return Err(IrVerifyError::new("record constructor field context has no fresh producer")); };
+    for entry in entries {
+        let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("record constructor field context contains a spread")); };
+        let Some(expected) = context.value_context().children.get(&crate::sema::constants::SchemaComponent::Field(name)) else { continue; };
+        if !schema_context_has_scoped_arguments(expected, budget, 0)? { continue; }
+        match actual_constructor_context(store, decoder, value.raw() as usize, scheme_scope, *slots, scopes, effect_scopes, budget, 0)? {
+            Some(actual) if !constructor_context_matches(effect_scopes, actual.value_context(), expected.value_context(), budget, 0)? =>
+                return Err(IrVerifyError::new("record constructor argument disagrees with its canonical containing field context")),
+            None if schema_context_has_scoped_arguments(expected, budget, 0)? =>
+                return Err(IrVerifyError::new("record constructor field has no independent scoped schema provenance")),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn record_constructor_roots(store: &FullStore, scopes: &[Option<SchemeScope>]) -> Result<BTreeMap<usize, Vec<(u32, super::schemes::FullSchemeSchemaExpectationId)>>, IrVerifyError> {
+    let mut roots = BTreeMap::<_, Vec<_>>::new();
+    for (instruction, tag) in store.tags.iter().enumerate() {
+        if *tag != FullTag::ExprCheckedValue { continue; }
+        let payload = store.payload(store.data[instruction].range())?;
+        if payload.get(1) != Some(&(super::decode::ValueCheckTag::RecordConstructor as u32)) { continue; }
+        let schema = super::schemes::FullSchemeSchemaExpectationId::from_raw(*payload.get(2).ok_or_else(|| IrVerifyError::new("record constructor schema is absent"))?)?;
+        let (owner, _) = caller_scheme_for_instruction(store, instruction, scopes)?.ok_or_else(|| IrVerifyError::new("record constructor has no generic owner"))?;
+        roots.entry(owner.index()).or_default().push((u32::try_from(instruction).map_err(|_| IrVerifyError::new("record constructor instruction is out of bounds"))?, schema));
+    }
+    Ok(roots)
+}
+
 fn verify_schema_expectation(
     store: &FullStore,
     id: super::schemes::FullSchemeSchemaExpectationId,
     coverage: &mut SchemaCoverage,
     active: &mut BTreeSet<usize>,
+    constructor: Option<u32>,
     depth: usize,
 ) -> Result<(), IrVerifyError> {
     if depth > 128 || !active.insert(id.index()) {
@@ -1139,6 +1426,22 @@ fn verify_schema_expectation(
         .scheme_schema_expectations
         .get(id.index())
         .ok_or_else(|| IrVerifyError::new("scheme schema expectation id is out of bounds"))?;
+    if expectation.constructor_instruction != constructor.unwrap_or(IR_NONE) { return Err(IrVerifyError::new("record constructor schema belongs to another instruction")); }
+    match constructor {
+        Some(_) => {
+            let template = store.scheme_schema_definitions.get(expectation.constructor_template as usize)
+                .ok_or_else(|| IrVerifyError::new("record constructor template is out of bounds"))?;
+            constructor_template_scope(store, template)?;
+            if expectation.constructor_defaults.windows(2).any(|pair| pair[0] >= pair[1])
+                || template.defaults.values().any(|index| store.prepared_constants.get(*index as usize).is_none())
+                || expectation.constructor_defaults.iter().any(|field| !template.defaults.contains_key(field))
+            { return Err(IrVerifyError::new("record constructor template contract is invalid")); }
+        }
+        None if expectation.constructor_template != IR_NONE || !expectation.constructor_defaults.is_empty() =>
+            return Err(IrVerifyError::new("header schema contains constructor application evidence")),
+        None => {}
+    }
+
     let instances = mark_range(
         expectation.instances,
         &store.scheme_schema_instances,
@@ -1156,7 +1459,7 @@ fn verify_schema_expectation(
             "scheme schema argument range is invalid",
         )?;
         for &argument in arguments {
-            ensure_closed_type(&store.semantic.to_type(argument)?)?;
+            store.scheme_type(argument)?;
         }
     }
     let children = mark_range(
@@ -1189,7 +1492,7 @@ fn verify_schema_expectation(
             return Err(IrVerifyError::new("scheme schema children are duplicated or unsorted"));
         }
         previous = Some(component);
-        verify_schema_expectation(store, child.expectation, coverage, active, depth + 1)?;
+        verify_schema_expectation(store, child.expectation, coverage, active, None, depth + 1)?;
     }
     active.remove(&id.index());
     Ok(())
@@ -2190,6 +2493,53 @@ fn verify_body_expression(
                 }
             }
         }
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(schema), .. } => {
+            let root = store.scheme_schema_expectations.get(schema.index()).ok_or_else(|| IrVerifyError::new("record constructor schema is out of bounds"))?;
+            if root.constructor_instruction as usize != instruction { return Err(IrVerifyError::new("record constructor schema belongs to another instruction")); }
+            let schema = decode_scheme_schema(store, scheme_scope, schema, budget, 0)?;
+            if schema.instances.len() != 1 || !schema.children.is_empty()
+                || !schema.instances[0].arguments.iter().any(|argument| argument.closed_ground_type().is_none())
+            { return Err(IrVerifyError::new("record constructor has no scoped schema application")); }
+            let template = store.scheme_schema_definitions.get(root.constructor_template as usize)
+                .ok_or_else(|| IrVerifyError::new("record constructor template is out of bounds"))?;
+            let instance = &schema.instances[0];
+            if instance.definition.index() != template.definition as usize || instance.arguments.len() != template.parameters.len() {
+                return Err(IrVerifyError::new("record constructor identity or arity disagrees with its canonical template"));
+            }
+            let scope = constructor_template_scope(store, template)?;
+            let substitution = SymbolicCallSubstitution { types: instance.arguments.clone(), rows: Vec::new(), effects: Vec::new() };
+            let result = decode_scheme_type(store, &scope, template.result, budget, 0)?;
+            let instantiated = substitute_scheme_type(&result, &scope, &substitution, budget, 0)?;
+            if !body_types_equal(&instantiated, ty) { return Err(IrVerifyError::new("record constructor arguments disagree with its canonical field template")); }
+            let actual = child(value, budget)?;
+            let record = if let Some(expected) = ty.closed_ground_type() {
+                let schema::ExprView::CheckedValue { value: record, check: ValueCheckView::Ground(check), .. } = decoder.expression_view(value.raw() as usize)? else {
+                    return Err(IrVerifyError::new("ground constructor storage has no ordinary schema check"));
+                };
+                if check.schema.is_none() || check.ty.materialize()? != expected
+                    || !body_type_matches_ground(&actual, &expected)
+                    || !matches!(decoder.expression_view(record.raw() as usize)?, schema::ExprView::Record(_))
+                { return Err(IrVerifyError::new("ground constructor storage disagrees with its actual producer")); }
+                record
+            } else {
+                let SchemeType::Record { fields, tail: SchemeRowTail::Closed } = ty else { return Err(IrVerifyError::new("scoped constructor has no closed record contract")); };
+                let SchemeType::Record { fields: actual, tail: SchemeRowTail::Closed } = actual else { return Err(IrVerifyError::new("scoped constructor has no fresh record producer")); };
+                if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Record(_)) || actual.len() != fields.len() {
+                    return Err(IrVerifyError::new("scoped constructor field inventory disagrees with its fresh record"));
+                }
+                for (name, expected) in fields {
+                    budget.charge(1)?;
+                    if !actual.get(name).map(|actual| body_type_matches(actual, expected, budget)).transpose()?.unwrap_or(false) {
+                        return Err(IrVerifyError::new("scoped constructor disagrees with its actual field producers"));
+                    }
+                }
+                value
+            };
+            let context = applications::ApplicationSubstitution::Symbolic(&substitution).schema(store, &scope, template.context, budget)?;
+            verify_constructor_field_contexts(store, decoder, record.raw() as usize, &context, scheme_scope, slots, scopes, effect_scopes, budget)?;
+            verify_constructor_defaults(store, &decoder, record.raw() as usize, root, template, budget)?;
+            ty.clone()
+        }
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
             let actual = child(value, budget)?;
             let (source, destination) = materializations::endpoints(store, id, instruction, Some(scheme_scope), budget)?;
@@ -3117,13 +3467,13 @@ fn decode_scheme_type(
                     Ok(SchemeParameter {
                         name: Name::intern(store.string(parameter.name)?),
                         ty: nested(parameter.ty, budget)?,
-                        schema_expectation: parameter.schema.map(|schema| decode_scheme_schema(store, schema, budget, depth + 1)).transpose()?,
+                        schema_expectation: parameter.schema.map(|schema| decode_scheme_schema(store, scope, schema, budget, depth + 1)).transpose()?,
                         defaulted: parameter.flags & 2 != 0,
                         rest: parameter.flags & 1 != 0,
                     })
                 }).collect::<Result<Vec<_>, IrVerifyError>>()?;
             let return_type = nested(callable.return_type, budget)?;
-            let return_schema = callable.return_schema.map(|schema| decode_scheme_schema(store, schema, budget, depth + 1)).transpose()?;
+            let return_schema = callable.return_schema.map(|schema| decode_scheme_schema(store, scope, schema, budget, depth + 1)).transpose()?;
             let effects = effects::decode_contract(store, scope, callable.effects, budget)?;
             SchemeType::Callable {
                 kind: callable.kind,
@@ -3228,10 +3578,21 @@ fn decode_scheme_type(
 
 fn decode_scheme_schema(
     store: &FullStore,
+    scope: &SchemeScope,
     id: super::schemes::FullSchemeSchemaExpectationId,
     budget: &mut SchemeInstantiationBudget,
     depth: usize,
-) -> Result<crate::sema::constants::SchemaExpectation, IrVerifyError> {
+) -> Result<crate::sema::constants::SchemaExpectation<SchemeType>, IrVerifyError> {
+    decode_schema_with(store, id, budget, depth, &mut |argument, budget| decode_scheme_type(store, scope, argument, budget, depth + 1))
+}
+
+fn decode_schema_with(
+    store: &FullStore,
+    id: super::schemes::FullSchemeSchemaExpectationId,
+    budget: &mut SchemeInstantiationBudget,
+    depth: usize,
+    argument: &mut impl FnMut(SchemeTypeId, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError>,
+) -> Result<crate::sema::constants::SchemaExpectation<SchemeType>, IrVerifyError> {
     use crate::sema::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
     use super::schema::FullSchemeSchemaComponentTag;
     if depth > 128 { return Err(IrVerifyError::new("scheme callable schema nesting is too deep")); }
@@ -3242,7 +3603,7 @@ fn decode_scheme_schema(
         .iter().map(|instance| {
             budget.charge(1)?;
             let arguments = bounded(instance.arguments, &store.scheme_schema_arguments, "scheme callable schema argument range is invalid")?
-                .iter().map(|argument| store.semantic.to_type_with_budget(*argument, &mut budget.semantic_types))
+                .iter().map(|ty| argument(*ty, budget))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(SchemaInstance { definition: crate::syntax::arena::TypeDefId::from_index(instance.definition as usize), arguments })
         }).collect::<Result<Vec<_>, IrVerifyError>>()?;
@@ -3257,7 +3618,7 @@ fn decode_scheme_schema(
             FullSchemeSchemaComponentTag::Success => SchemaComponent::Success,
             FullSchemeSchemaComponentTag::Error => SchemaComponent::Error,
         };
-        let value = decode_scheme_schema(store, child.expectation, budget, depth + 1)?;
+        let value = decode_schema_with(store, child.expectation, budget, depth + 1, argument)?;
         if children.insert(component, value).is_some() { return Err(IrVerifyError::new("scheme callable schema repeats a child")); }
     }
     Ok(SchemaExpectation { instances, children: Arc::new(children) })
@@ -3363,14 +3724,14 @@ fn substitute_scheme_type(
                 Ok(SchemeParameter {
                     name: parameter.name,
                     ty: nested(&parameter.ty, budget)?,
-                    schema_expectation: parameter.schema_expectation.clone(),
+                    schema_expectation: parameter.schema_expectation.as_ref().map(|schema| schema.try_map(&mut |ty| substitute_scheme_type(ty, callee_scope, substitution, budget, depth + 1))).transpose()?,
                     defaulted: parameter.defaulted,
                     rest: parameter.rest,
                 })
             }).collect::<Result<Vec<_>, IrVerifyError>>()?;
             SchemeType::Callable {
                 kind: *kind,
-                monotype: Arc::new(CallableMonotype::new(params, nested(monotype.return_type(), budget)?, monotype.return_schema().cloned())),
+                monotype: Arc::new(CallableMonotype::new(params, nested(monotype.return_type(), budget)?, monotype.return_schema().map(|schema| schema.try_map(&mut |ty| substitute_scheme_type(ty, callee_scope, substitution, budget, depth + 1))).transpose()?)),
                 effects: effects::substitute_contract(effects, callee_scope, &substitution.effects, budget)?,
             }
         }

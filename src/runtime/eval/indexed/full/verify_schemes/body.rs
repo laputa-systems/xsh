@@ -77,9 +77,21 @@ impl LexicalScope {
         slot: usize,
         budget: &mut SchemeInstantiationBudget,
     ) -> Result<Option<usize>, IrVerifyError> {
+        Ok(self.immutable_initializer_context(scopes, slot, budget)?.map(|(instruction, _)| instruction))
+    }
+
+    pub(super) fn immutable_slot_type<'a>(
+        &self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget,
+    ) -> Result<Option<&'a SchemeType>, IrVerifyError> {
+        Ok(self.binding(scopes, slot, budget)?.filter(|binding| !binding.mutable).map(|binding| &binding.ty))
+    }
+
+    pub(super) fn immutable_initializer_context(
+        &self, scopes: &LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget,
+    ) -> Result<Option<(usize, LexicalScope)>, IrVerifyError> {
         let Some(binding) = self.binding(scopes, slot, budget)? else { return Ok(None) };
         if binding.mutable { return Ok(None); }
-        Ok(binding.initializer.map(|(instruction, _)| instruction))
+        Ok(binding.initializer)
     }
 }
 

@@ -92,7 +92,7 @@ impl Checker {
         };
         let source = match ty.unvalidated() { Type::Result(ok, _) => ok.unvalidated(), source => source };
         if !matches!(source, Type::Inference(_)) { return stream_type_from_input(ty); }
-        let item = self.type_constraints.fresh_at_level(span, self.wrapper_solver_level());
+        let item = self.type_constraints.fresh_at_level(span, self.callable_solver_level());
         let required = crate::sema::schemes::IterationRequirement {
             item: item.clone(),
             policy: crate::sema::schemes::IterationPolicy::PipelineTransport,

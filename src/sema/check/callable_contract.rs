@@ -165,8 +165,8 @@ fn structural_storage_type(ty: &Type, wire_enums: &PreparedWireEnums) -> bool {
     }
 }
 
-fn project_structural_schema(schema: &SchemaExpectation, ty: &Type,
-    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> SchemaExpectation
+fn project_structural_schema<T: Clone>(schema: &SchemaExpectation<T>, ty: &Type,
+    identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> SchemaExpectation<T>
 {
     let instances = schema.instances.iter().filter(|instance| {
         !instance.arguments.is_empty() || !identities.get(&instance.definition).is_some_and(|identity| {
@@ -196,7 +196,9 @@ pub(super) fn structural_schema_is_redundant(schema: &SchemaExpectation, ty: &Ty
 pub(super) fn same_schema(left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>,
     left_schemas: &BTreeMap<TypeDefId, SchemaIdentity>, right_schemas: &BTreeMap<TypeDefId, SchemaIdentity>) -> bool
 {
-    BoundEquivalence::new(left_schemas, right_schemas, None, None).schema(left, right)
+    let left = left.map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone())));
+    let right = right.map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone())));
+    BoundEquivalence::new(left_schemas, right_schemas, None, None).schema(left.as_ref(), right.as_ref())
 }
 
 pub(super) fn same_bound_effects(
@@ -245,7 +247,7 @@ impl CheckedCallableContract {
 
     pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
 
-    pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation>, checked: &Type) -> bool {
+    pub(crate) fn structural_interface_schema(&self, ty: &SchemeType, schema: Option<&SchemaExpectation<SchemeType>>, checked: &Type) -> bool {
         let Some(schema) = schema else { return false; };
         let Some(ground) = ty.closed_ground_type() else { return false; };
         ground == *checked && structural_schema_is_redundant(schema, &ground, &self.schema_identities)
@@ -328,16 +330,14 @@ impl CheckedCallableContract {
         {
             return Ok(None);
         }
-        let schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
+        let mut schemas = BoundEquivalence::new(&self.schema_identities, &generalized.schema_identities,
             self.scheme_callables.as_deref(), generalized.scheme_callables.as_deref());
         if !schemas.interface_schema(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())
             || !self.scheme.params().iter().zip(generalized.scheme.params()).all(|(old, new)| {
                 old.name == new.name && old.defaulted == new.defaulted && old.rest == new.rest
                     && schemas.interface_schema(old.schema_expectation.as_ref(), new.schema_expectation.as_ref(), &old.ty, &new.ty)
             })
-        {
-            return Ok(None);
-        }
+        { return Ok(None); }
         let ground = self.scheme.params().iter().map(|parameter| &parameter.ty)
             .chain(std::iter::once(self.scheme.return_type()))
             .map(SchemeType::closed_ground_type).collect::<Option<Vec<_>>>()
@@ -480,7 +480,7 @@ impl CheckOutput {
     }
 }
 
-fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
+fn schema_has_obligations<T>(schema: &SchemaExpectation<T>) -> bool {
     let mut pending = vec![schema];
     while let Some(schema) = pending.pop() {
         if !schema.instances.is_empty() { return true; }
@@ -628,7 +628,7 @@ impl BoundEquivalence<'_> {
             })
     }
 
-    fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
+    fn schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>) -> bool {
         let left = left.filter(|schema| schema_has_obligations(schema));
         let right = right.filter(|schema| schema_has_obligations(schema));
         match (left, right) {
@@ -636,7 +636,8 @@ impl BoundEquivalence<'_> {
             (Some(left), Some(right)) => left.instances.len() == right.instances.len()
                 && left.instances.iter().zip(&right.instances).all(|(left, right)| {
                     self.left_schemas.get(&left.definition).is_some_and(|identity| Some(identity) == self.right_schemas.get(&right.definition))
-                        && left.arguments == right.arguments
+                        && left.arguments.len() == right.arguments.len()
+                        && left.arguments.iter().zip(&right.arguments).all(|(left, right)| self.ty(left, right))
                 })
                 && left.children.values().filter(|child| schema_has_obligations(child)).count()
                     == right.children.values().filter(|child| schema_has_obligations(child)).count()
@@ -646,7 +647,7 @@ impl BoundEquivalence<'_> {
         }
     }
 
-    fn interface_schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>, left_type: &SchemeType, right_type: &SchemeType) -> bool {
+    fn interface_schema(&mut self, left: Option<&SchemaExpectation<SchemeType>>, right: Option<&SchemaExpectation<SchemeType>>, left_type: &SchemeType, right_type: &SchemeType) -> bool {
         match (left_type.closed_ground_type(), right_type.closed_ground_type()) {
             (Some(left_type), Some(right_type)) if left_type == right_type => {
                 let left = left.map(|schema| project_structural_schema(schema, &left_type, self.left_schemas));

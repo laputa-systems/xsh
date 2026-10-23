@@ -12,6 +12,8 @@ use crate::sema::schemes::{
 use crate::sema::types::Type;
 use crate::sema::validated::Validation;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use crate::symbol::Name;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -394,9 +396,16 @@ pub(super) struct FullSchemeValidation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(transparent)]
-pub(super) struct FullSchemeSchemaExpectationId(u32);
+pub(in crate::runtime::eval) struct FullSchemeSchemaExpectationId(u32);
 
 impl FullSchemeSchemaExpectationId {
+    pub(super) fn from_raw(raw: u32) -> Result<Self, super::IrVerifyError> {
+        if raw == IR_NONE { return Err(super::IrVerifyError::new("scheme schema expectation id is invalid")); }
+        Ok(Self(raw))
+    }
+
+    pub(super) fn raw(self) -> u32 { self.0 }
+
     fn new(index: usize) -> Result<Self, IrBuildError> {
         let raw = u32::try_from(index)
             .ok()
@@ -410,11 +419,22 @@ impl FullSchemeSchemaExpectationId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(C)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct FullSchemeSchemaExpectation {
     pub(super) instances: IrRange,
     pub(super) children: IrRange,
+    pub(super) constructor_instruction: u32,
+    pub(super) constructor_template: u32,
+    pub(super) constructor_defaults: Arc<[Name]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct FullSchemeSchemaDefinition {
+    pub(super) definition: u32,
+    pub(super) parameters: Arc<[FullSchemeTypeParameter]>,
+    pub(super) result: SchemeTypeId,
+    pub(super) context: FullSchemeSchemaExpectationId,
+    pub(super) defaults: BTreeMap<Name, u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -853,7 +873,7 @@ impl FullBuilder {
             let schema = parameter
                 .schema_expectation
                 .as_ref()
-                .map(|expectation| self.intern_scheme_schema(expectation))
+                .map(|expectation| self.intern_scheme_schema(expectation, &type_parameters, &row_parameters, &effect_parameters))
                 .transpose()?;
             self.store
                 .scheme_params
@@ -869,7 +889,7 @@ impl FullBuilder {
         )?;
         let return_schema = scheme
             .return_schema()
-            .map(|expectation| self.intern_scheme_schema(expectation))
+            .map(|expectation| self.intern_scheme_schema(expectation, &type_parameters, &row_parameters, &effect_parameters))
             .transpose()?;
         let effects = self.intern_effect_contract(scheme.effects().contract(), &effect_parameters)?;
         let effect_predicates_start = self.store.scheme_effect_predicates.len();
@@ -1355,7 +1375,7 @@ impl FullBuilder {
                     parameters.push(FullSchemeCallableParameter {
                         name: self.intern_string(parameter.name.as_str().as_str())?.raw(),
                         ty: self.intern_scheme_type(&parameter.ty, type_parameters, row_parameters, effect_parameters)?,
-                        schema: parameter.schema_expectation.as_ref().map(|schema| self.intern_scheme_schema(schema)).transpose()?,
+                        schema: parameter.schema_expectation.as_ref().map(|schema| self.intern_scheme_schema(schema, type_parameters, row_parameters, effect_parameters)).transpose()?,
                         flags: u8::from(parameter.rest) | u8::from(parameter.defaulted) << 1,
                         reserved: [0; 3],
                     });
@@ -1364,7 +1384,7 @@ impl FullBuilder {
                 self.store.scheme_callable_parameters.extend(parameters);
                 let params = super::table_range(params_start, self.store.scheme_callable_parameters.len())?;
                 let return_type = self.intern_scheme_type(monotype.return_type(), type_parameters, row_parameters, effect_parameters)?;
-                let return_schema = monotype.return_schema().map(|schema| self.intern_scheme_schema(schema)).transpose()?;
+                let return_schema = monotype.return_schema().map(|schema| self.intern_scheme_schema(schema, type_parameters, row_parameters, effect_parameters)).transpose()?;
                 let effects = self.intern_effect_contract(effects, effect_parameters)?;
                 let index = u32::try_from(self.store.scheme_callable_monotypes.len()).ok().filter(|index| *index != IR_NONE)
                     .ok_or_else(|| IrBuildError::format("scheme_callable_monotype_overflow", None, 0, 0))?;
@@ -1602,7 +1622,10 @@ impl FullBuilder {
 
     fn intern_scheme_schema(
         &mut self,
-        expectation: &SchemaExpectation,
+        expectation: &SchemaExpectation<SchemeType>,
+        type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
+        row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
+        effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
     ) -> Result<FullSchemeSchemaExpectationId, IrBuildError> {
         let id = FullSchemeSchemaExpectationId::new(
             self.store.scheme_schema_expectations.len(),
@@ -1612,15 +1635,16 @@ impl FullBuilder {
             .push(FullSchemeSchemaExpectation {
                 instances: IrRange::default(),
                 children: IrRange::default(),
+                constructor_instruction: IR_NONE,
+                constructor_template: IR_NONE,
+                constructor_defaults: Arc::from([]),
             });
-        let instances_start = self.store.scheme_schema_instances.len();
+        let mut instances = Vec::with_capacity(expectation.instances.len());
         for instance in &expectation.instances {
+            let arguments = instance.arguments.iter().map(|ty| self.intern_scheme_type(ty, type_parameters, row_parameters, effect_parameters)).collect::<Result<Vec<_>, _>>()?;
             let arguments_start = self.store.scheme_schema_arguments.len();
-            for ty in &instance.arguments {
-                let ty = self.intern_scheme_ground_type(ty)?;
-                self.store.scheme_schema_arguments.push(ty);
-            }
-            self.store.scheme_schema_instances.push(FullSchemeSchemaInstance {
+            self.store.scheme_schema_arguments.extend(arguments);
+            instances.push(FullSchemeSchemaInstance {
                 definition: u32::try_from(instance.definition.index()).map_err(|_| {
                     IrBuildError::format("scheme_schema_definition", None, 0, 0)
                 })?,
@@ -1630,6 +1654,8 @@ impl FullBuilder {
                 )?,
             });
         }
+        let instances_start = self.store.scheme_schema_instances.len();
+        self.store.scheme_schema_instances.extend(instances);
         let instances = super::table_range(
             instances_start,
             self.store.scheme_schema_instances.len(),
@@ -1652,19 +1678,87 @@ impl FullBuilder {
                 component,
                 reserved: [0; 3],
                 name,
-                expectation: self.intern_scheme_schema(child)?,
+                expectation: self.intern_scheme_schema(child, type_parameters, row_parameters, effect_parameters)?,
             });
         }
         let children_start = self.store.scheme_schema_children.len();
         self.store.scheme_schema_children.extend(children);
         self.store.scheme_schema_expectations[id.index()] = FullSchemeSchemaExpectation {
             instances,
+            constructor_instruction: IR_NONE,
+                constructor_template: IR_NONE,
+                constructor_defaults: Arc::from([]),
             children: super::table_range(
                 children_start,
                 self.store.scheme_schema_children.len(),
             )?,
         };
         Ok(id)
+    }
+
+    pub(super) fn encode_record_constructor(&mut self, constructor: &super::super::super::LoweredRecordConstructor) -> Result<FullSchemeSchemaExpectationId, IrBuildError> {
+        let owner = self.active_scheme.ok_or_else(|| IrBuildError::format("record_constructor_scope", None, 0, 0))?;
+        let types = self.scheme_type_parameter_map(owner)?;
+        let rows = self.scheme_row_parameter_map(owner)?;
+        let effects = self.scheme_effect_parameter_map(owner)?;
+        let template = match self.store.scheme_schema_definitions.iter().position(|template| template.definition as usize == constructor.template.schema.definition.index()) {
+            Some(index) => {
+                let existing = &self.store.scheme_schema_definitions[index];
+                if existing.parameters.len() != constructor.template.schema.callable.params().len() || existing.defaults.len() != constructor.template.defaults.len()
+                    || constructor.template.defaults.iter().any(|(name, value)| existing.defaults.get(name)
+                        .and_then(|index| self.store.prepared_constants.get(*index as usize)).is_none_or(|constant| &constant.0 != value))
+                { return Err(IrBuildError::format("record_constructor_definition", None, 0, 0)); }
+                index
+            }
+            None => {
+                let mut defaults = BTreeMap::new();
+                for (&name, value) in &constructor.template.defaults {
+                    let index = u32::try_from(self.store.prepared_constants.len()).ok().filter(|index| *index != IR_NONE)
+                        .ok_or_else(|| IrBuildError::format("record_constructor_default", None, 0, 0))?;
+                    self.store.prepared_constants.push(super::super::super::PreparedConstantValue(value.clone(), None));
+                    defaults.insert(name, index);
+                }
+                let index = self.store.scheme_schema_definitions.len();
+                let callable = &constructor.template.schema.callable;
+                if !callable.row_parameters().is_empty() || !callable.requirements().effect_parameters.is_empty() {
+                    return Err(IrBuildError::format("record_constructor_template_scope", None, 0, 0));
+                }
+                let types = callable.type_parameters().iter().enumerate().map(|(index, parameter)|
+                    u32::try_from(index).map(|index| (*parameter, index)))
+                    .collect::<Result<BTreeMap<_, _>, _>>().map_err(|_| IrBuildError::format("record_constructor_template_scope", None, 0, 0))?;
+                let parameters = callable.type_parameters().iter().map(|parameter| FullSchemeTypeParameter {
+                    id: parameter.0, binder: types[parameter], iteration_item: IR_NONE, iteration_error: IR_NONE,
+                    iteration_source_kind: crate::sema::schemes::IterationSourceKind::Direct,
+                    iteration_policy: FullIterationPolicy::IterableInfallible as u8,
+                    map_key: callable.requirements().map_key_parameters.contains(parameter),
+                    conversions: callable.requirements().conversion_parameters.get(parameter).copied().unwrap_or_default().bits(),
+                }).collect::<Vec<_>>().into();
+                let result = self.intern_scheme_type(callable.return_type(), &types, &BTreeMap::new(), &BTreeMap::new())?;
+                let definition = u32::try_from(constructor.template.schema.definition.index()).ok().filter(|id| *id != IR_NONE)
+                    .ok_or_else(|| IrBuildError::format("record_constructor_definition", None, 0, 0))?;
+                let context = callable.return_schema().ok_or_else(|| IrBuildError::format("record_constructor_template_context", None, 0, 0))?;
+                let context = self.intern_scheme_schema(context, &types, &BTreeMap::new(), &BTreeMap::new())?;
+                self.store.scheme_schema_definitions.push(FullSchemeSchemaDefinition { definition, parameters, result, context, defaults });
+                index
+            }
+        };
+        let root = self.intern_scheme_schema(&constructor.schema, &types, &rows, &effects)?;
+        let row = &mut self.store.scheme_schema_expectations[root.index()];
+        row.constructor_template = u32::try_from(template).ok().filter(|id| *id != IR_NONE).ok_or_else(|| IrBuildError::format("record_constructor_definition", None, 0, 0))?;
+        row.constructor_defaults = Arc::clone(&constructor.defaults);
+        Ok(root)
+    }
+
+    pub(super) fn attach_record_constructor(&mut self, instruction: usize) -> Result<(), IrBuildError> {
+        if self.store.tags.get(instruction) != Some(&super::FullTag::ExprCheckedValue) { return Ok(()); }
+        let failure = || IrBuildError::format("record_constructor_owner", None, 0, instruction);
+        let payload = self.store.payload(self.store.data[instruction].range()).map_err(|_| failure())?;
+        if payload.get(1) != Some(&(super::decode::ValueCheckTag::RecordConstructor as u32)) { return Ok(()); }
+        let id = *payload.get(2).ok_or_else(failure)?;
+        let root = self.store.scheme_schema_expectations.get_mut(id as usize).ok_or_else(failure)?;
+        if root.constructor_instruction != IR_NONE { return Err(failure()); }
+        root.constructor_instruction = u32::try_from(instruction).ok().filter(|id| *id != IR_NONE).ok_or_else(failure)?;
+        Ok(())
     }
 
     pub(super) fn scheme_type_parameter_map(

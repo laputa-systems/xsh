@@ -128,6 +128,30 @@ arguments and independent module-value reads retain ordinary capture rules.
 Constructor instance completion closes schema arguments; surrounding callable
 generalization and final fact resolution own the supplied expressions. A closed
 constructor field does not close the open row from which its value was projected.
+Generic schema applications retain canonical declaration identity and scoped
+scheme arguments alongside their actual field contracts. The callable's existing
+generalization mapping owns these arguments; phantom arguments without input
+evidence remain unresolved errors. Indexed schema metadata uses the same binder
+and owner checks as other scheme types. Runtime prepared schemas and validation
+targets require closed, reifiable types.
+Parametric construction uses the checked-value record-constructor case. Its
+fresh scheme-schema root belongs to that exact instruction, including for local
+and discarded results. A validated template handle selects one normalized
+canonical declaration template per used definition. Existing scheme substitution
+links the actual type arguments to that template's field and nominal contracts;
+omitted fields retain their canonical literal defaults. The declaration's
+canonical nested schema context also retains phantom alias arguments erased by
+field-type expansion. Field provenance follows authenticated immutable
+initializers and projections, declared parameter schemas, and generic call
+return schemas under their actual substitution. A scoped field context without
+independent producer provenance blocks lowering. The existing indexed binder-use
+census identifies phantom positions before context arguments are visited; only
+those positions require exact context equality. Actual field proofs continue to
+own ordinary structural compatibility. Cold verification checks
+those relationships and the fresh record's actual field producers before
+accepting its declared constructor contract. Ground storage and
+nominal construction retain their ordinary schema checks. The constructor case
+passes through only in verified indexed execution and rejects owned decoding.
 
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed

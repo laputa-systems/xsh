@@ -179,6 +179,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) scope: crate::sema::constraints::CallableGeneralizationScope,
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
+    constructor_instances: BTreeMap<ExprId, crate::sema::constants::CheckedRecordConstructor<crate::sema::schemes::SchemeType>>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
     pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation>,
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
@@ -249,7 +250,8 @@ impl Checker {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
             let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) },
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span)
+                    || self.declaration_inference.pending(FunctionDeclarationId::new(self.effect_declaration_id(program, def.body))).is_some_and(|pending| pending.constructor_instances.contains_key(&span)) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
             captures.extend(reads);
@@ -314,7 +316,7 @@ impl Checker {
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) },
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
@@ -443,6 +445,28 @@ impl Checker {
                     }
                 }
                 self.error(body_span, &format!("callable generalization failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return None;
+            }
+        };
+        let constructor_instances = body_types.iter().filter_map(|(&expression, ty)| {
+            let span = program.arena.expr(expression).span;
+            pending.constructor_instances.get(&span).map(|constructor| (expression, ty, constructor))
+        }).map(|(expression, ty, constructor)| {
+            let canonical = self.record_constructors.instantiate_checked(&program.arena, constructor.instance.definition, &constructor.instance.arguments)
+                .map_err(|_| crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema))?;
+            if &canonical != ty || canonical != constructor.ty {
+                return Err(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema));
+            }
+            let constructor = self.type_constraints.generalize_scoped_constructor(constructor, &generalized)?;
+            if generalized_body_types.get(&expression) != Some(&constructor.ty) {
+                return Err(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSchema));
+            }
+            Ok((expression, constructor))
+        }).collect::<Result<BTreeMap<_, _>, _>>();
+        let constructor_instances = match constructor_instances {
+            Ok(instances) if instances.len() == pending.constructor_instances.len() => instances,
+            result => {
+                self.error(body_span, &format!("constructor instances are outside their callable body: {result:?}"), DiagnosticCode::CheckConstructorInference);
                 return None;
             }
         };
@@ -594,6 +618,7 @@ impl Checker {
                 ).map(|_| span)
             }));
             checked_operations.extend(self.builtin_calls.keys().filter(|span| expression_spans.contains(span)).copied());
+            checked_operations.extend(constructor_instances.keys().map(|&expression| program.arena.expr(expression).span));
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
                 if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }
                 let span = program.arena.expr(expression).span;
@@ -681,6 +706,20 @@ impl Checker {
                 return None;
             }
         }
+        let schema_contracts = (|| {
+            let parameters = shape.params().iter().map(|parameter| parameter.signature.schema_expectation.as_ref()
+                .map(|schema| self.type_constraints.generalize_scoped_schema(schema, &generalized)).transpose())
+                .collect::<Result<Vec<_>, _>>()?;
+            let result = shape.return_schema.as_ref().map(|schema| self.type_constraints.generalize_scoped_schema(schema, &generalized)).transpose()?;
+            Ok::<_, crate::sema::constraints::SchemeOperationError>((parameters, result))
+        })();
+        let (parameter_schemas, return_schema) = match schema_contracts {
+            Ok(schemas) => schemas,
+            Err(error) => {
+                self.error(body_span, &format!("constructor schema is outside its callable scope: {error:?}"), DiagnosticCode::CheckConstructorInference);
+                return None;
+            }
+        };
         let mut generalized_types = generalized.types;
         let return_type = generalized_types.pop()?;
         if pending.return_authority != TypeAuthority::Inferred
@@ -692,12 +731,13 @@ impl Checker {
             .params()
             .iter()
             .zip(generalized_types)
-            .map(|(parameter, ty)| {
+            .zip(parameter_schemas)
+            .map(|((parameter, ty), schema_expectation)| {
                 (parameter.authority == TypeAuthority::Inferred || !ty.contains_parameter())
                     .then(|| SchemeParameter {
                         name: parameter.signature.name,
                         ty,
-                        schema_expectation: parameter.signature.schema_expectation.clone(),
+                        schema_expectation,
                         defaulted: parameter.signature.defaulted,
                         rest: parameter.signature.rest,
                     })
@@ -709,7 +749,7 @@ impl Checker {
                 generalized.row_parameters,
                 params,
                 return_type,
-                shape.return_schema.clone(),
+                return_schema,
                 shape.explicit_return,
                 generalized.requirements,
             )
@@ -721,6 +761,7 @@ impl Checker {
             scope: generalized.generalization_scope,
             body_types: generalized_body_types,
             constructor_producers,
+            constructor_instances,
             tail_types: generalized_tail_types,
             calls: generalized_calls,
             registered_calls,
@@ -737,7 +778,7 @@ impl Checker {
     ) {
         let PreparedFunctionGeneralization {
             definition, callable, scope, body_types: generalized_body_types,
-            constructor_producers,
+            constructor_producers, constructor_instances,
             tail_types: generalized_tail_types, calls: generalized_calls,
             registered_calls, read_bindings, local_statements, expression_spans: _,
         } = prepared;
@@ -805,7 +846,7 @@ impl Checker {
         self.declaration_inference
             .pending_mut(declaration)
             .expect("a prepared function retains its provisional declaration")
-            .generalize(callable, scope, generalized_body_types, constructor_producers, generalized_tail_types, registered_calls, read_bindings);
+            .generalize(callable, scope, generalized_body_types, constructor_producers, constructor_instances, generalized_tail_types, registered_calls, read_bindings);
         for (span, instantiation) in generalized_calls {
             let previous = self.call_instantiations.insert(span, instantiation);
             assert!(previous.is_none(), "a call instantiation is published once");
@@ -840,13 +881,13 @@ impl Checker {
         declaration: FunctionDeclarationId,
     ) -> Option<super::super::constants::SchemaExpectation> {
         if let Some(signature) = self.declaration_inference.checked(declaration) {
-            return signature.scheme().return_schema().cloned();
+            return signature.scheme().return_schema().and_then(crate::sema::constants::SchemaExpectation::closed_ground);
         }
         let pending = self.declaration_inference.pending(declaration)?;
         if let Some(shape) = pending.provisional() {
             return shape.return_schema.clone();
         }
-        pending.generalized()?.return_schema().cloned()
+        pending.generalized()?.return_schema().and_then(crate::sema::constants::SchemaExpectation::closed_ground)
     }
 
     pub(super) fn local_function_signature(
@@ -1049,11 +1090,12 @@ impl Checker {
         {
             None
         } else {
+            let constructor_instances = pending.generalized_constructor_instances()?.clone();
             match super::super::schemes::SchemeBodyFacts::new(
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
+            ).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";
@@ -1960,6 +2002,7 @@ impl Checker {
                 name: def.name,
             }),
             solver_level: 1,
+            constructor_instances: BTreeMap::new(),
             return_authority: if def.return_ty_defaulted {
                 TypeAuthority::Inferred
             } else {
