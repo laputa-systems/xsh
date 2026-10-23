@@ -541,8 +541,10 @@ checker-local derived source index shares immutable maps across probes and is
 invalidated when resolved bindings change. Mixed or unsupported origins retain
 their unresolved relationship. Settled rest layouts prefix individual item
 origins once and retain the element projection of spliced lists. Bare splice
-arguments use their exact AST operand binding. Omitted/defaulted callback
-layouts remain unresolved.
+arguments use their exact AST operand binding. Omitted arguments use the exact
+selected target's checked default origins; missing or unresolved default
+relationships leave the application unresolved. Default evaluation stays in its
+existing runtime position.
 
 Checked declaration effects use `CheckedEffects` and `CheckedEffectScope`.
 `FunctionEffectFact.effective`, `FunctionEffectFact.required`, and the callable

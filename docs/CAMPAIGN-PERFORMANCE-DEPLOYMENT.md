@@ -129,23 +129,56 @@ controls, including a new frontend-disposed runtime case for both rest forms
 and both left/right targets on both execution routes. Its log is
 `.work/wt/full-inference-integration/.work/tmp/combined-rest-runtime3.log`.
 These later repairs still need broader combined qualification.
-Omitted defaults remain unresolved. An empty origin for a freshly created
-global stream is not itself evidence of a defect.
+From-end follow-up `44ce19b10`, integrated as `0fe66fc5d`, uses the same
+existing proof for `rows[-1].field`. Six controls pass, including distinct
+first/last values on both routes. Default-origin repair `58374d818`, integrated
+as `22f34e420`, uses only the exact selected target's checked defaults for
+omitted slots. Eight controls pass, including direct-call parity and both-route
+execution after frontend disposal. Both repairs have clear independent reviews.
+The combined default/rest/from-end group passes all five controls in
+`.work/wt/full-inference-integration/.work/tmp/combined-callback-default-rest5.log`.
 The pristine system-report fixture exposed a separate record-field proof
 failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
 the existing structural initializer proof beneath an actual complete storage
 check and proves each conditional record branch. Both new regressions and
 seven existing controls pass; independent review is clear. The original test
-module passes static preparation. Its new orchestration test still needs
-runtime qualification with matching repaired products.
+module passes static preparation. Matching-product runtime evidence follows.
 The orchestration test is included as test-only integration `f6642254c`. Its
 exact selector passes with the frozen `f87c6d69a` products: one selected, one
 pass, zero skips. All six API catalog selectors also pass with those products.
-The first two joint-corpus attempts stop at reconstructed-view digest checking
-before paired compiler execution; their failure has no corpus parity credit.
-The accepted prepared original view still matches its frozen digest. The
-reconstruction discrepancy is under investigation; digest enforcement remains
-unchanged.
+Corpus extraction repair `fbe597d4a`, integrated as `3a21d10e0`, reproduces
+both accepted view digests inside Docker. Root tar extraction had restored
+0664/0775 modes; explicit umask 022 and `--no-same-permissions` retain the
+accepted modes, including inherited setgid directories. The existing adapter
+regression fails under umask 077 before the fix and passes afterward. No digest
+guard changed.
+
+The full 21-selector replay reaches original-root checks and the first nine
+utility selectors, then fails while loading the first system-report test
+module at `fallback.target.require()`. It has no reduced-view or parity credit.
+Parameter-context repair `d9d43aecd`, integrated as `3b9bac2ea`, retains the
+selected parameter's structural schema context, preserving actual nominal and
+rest-item schemas. All six controls pass, including Any/callable/unresolved
+target rejections and nominal-instance retention. Independent review is clear;
+the actual corpus failure needs a matching-product replay.
+
+A nine-utility diagnostic reaches the jointly reduced ten-XSH-root check and
+fails with 1,501 diagnostics. These are not independent causes. One source-backed
+class is deliberate Proc return semantics: 39 of the 758 candidate Proc sites
+are written plain returns. Charter section 7 gives their erased value bodies a
+Result envelope. Site 2061's plain `collectors.SourceRead` return and site 111's
+`Input` return demonstrate that the annotations preserve meaning. A new
+scratch-only diagnostic retains these 39 original rows and still erases 719
+Proc annotations and all 202 effects jointly: 922 retained rows and 921
+additional candidate erasures. Its tables and source views validate, but no
+new removal or parity credit is accepted. Source resolution confirms that all
+39 selected return types have plain outer shapes, including the misleadingly
+named `InputResult` record. The class probe removes the site-2061 caller field
+failures, but the reduced ten-root check still fails with 765 diagnostics.
+Leading examples include `date_parse.multiply` generalization and wrapper
+fallback relationships. The historical 1,040-only cohort must be checked on
+the same compiler to distinguish regressions from additional-erasure causes;
+diagnostic totals are not independent failure counts.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
