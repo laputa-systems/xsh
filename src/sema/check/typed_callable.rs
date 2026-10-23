@@ -785,12 +785,22 @@ proc call_rest(raw: Any) [error] -> Int {
             !checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error),
             "{source}\n{:?}", checked.diagnostics
         );
-        let invocations = checked.selected_function_calls.iter()
-            .filter(|(span, _)| !checked.selected_function_value_references.contains(span))
-            .collect::<Vec<_>>();
-        assert_eq!(invocations.len(), 1);
-        assert_eq!(&source[invocations[0].0.range()], "create(42)");
-        assert_eq!(invocations[0].1.name, crate::symbol::Name::intern("values"));
+        let (span, callable) = checked.typed_callable_calls.iter().find(|(span, _)| &source[span.range()] == "create(42)")
+            .expect("the alias call retains its actual typed callable contract");
+        assert_eq!(callable.kind, crate::sema::types::CallableKind::Stream);
+        assert_eq!(callable.sig.params.len(), 1);
+        assert_eq!(callable.sig.params[0].name.as_str(), "value");
+        assert_eq!(callable.sig.params[0].ty, crate::sema::types::Type::Int);
+        assert!(!callable.sig.params[0].defaulted);
+        assert!(!callable.sig.params[0].rest);
+        let result = crate::sema::types::Type::Stream(Box::new(crate::sema::types::Type::Int));
+        assert_eq!(callable.sig.return_ty.as_ref(), &result);
+        assert_eq!(checked.expr_types.get(span), Some(&result));
+        let reference = checked.selected_function_calls.iter().find(|(span, target)|
+            checked.selected_function_value_references.contains(span)
+                && &source[span.range()] == "values"
+                && target.name.as_str() == "values");
+        assert!(reference.is_some(), "the typed alias retains its actual producer value selection");
     }
 
     #[test]

@@ -4237,6 +4237,38 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_fsroot_calls_authenticate_native_target_receiver_effects_and_owner() {
+        use crate::modules::RuntimeOp;
+        let program = prepare("proc listed(marker, root: FsRoot, wrong: Str) [fs, error] { let _ = marker; let _ = wrong; root.children(p\".\")? }\npure foreign(value: Str) -> Str { value }\n");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (call, receiver) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ModuleCall { op: RuntimeOp::FsRootChildren, mut args, .. }) => Some((instruction, args.next().unwrap().unwrap().unwrap().raw() as usize)),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(receiver).unwrap(), schema::ExprView::Param(_)));
+        let mut wrong_receiver = program.clone();
+        let words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
+        wrong_receiver.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&wrong_receiver).is_err());
+        let mut wrong_target = program.clone();
+        let words = wrong_target.store.data[call].range().bounds(wrong_target.store.extra.len()).unwrap();
+        let operation = wrong_target.store.extra[words.start] as usize;
+        wrong_target.store.runtime_ops[operation] = RuntimeOp::FsRootReadText;
+        assert!(FullVerifier::verify(&wrong_target).is_err());
+        let direct = program.store.schemes[scheme.index()].effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+        let error = direct.clone().find(|index| program.store.scheme_effects[*index] == crate::syntax::node::Effect::Error).unwrap();
+        let mut missing_effect = program.clone();
+        missing_effect.store.schemes[scheme.index()].effects.direct = super::super::super::IrRange { start: error as u32, len: 1 };
+        assert!(FullVerifier::verify(&missing_effect).is_err());
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let mut wrong_owner = program.clone();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == receiver).unwrap();
+        fact.function = IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
     fn generic_collect_accumulators_authenticate_items_writers_and_owners() {
         let program = prepare("pure gather(value, other) { collect { yield value } }\npure foreign(value) { value }\n");
         let (owner, _) = generic_owner(&program);
@@ -4884,6 +4916,41 @@ mod structured_pipeline_tests {
         let mut mutated_item = program.clone();
         mutated_item.store.extra[program.store.data[assignment].range().start as usize] = item_slot as u32;
         assert!(FullVerifier::verify(&mutated_item).is_err());
+    }
+
+    #[test]
+    fn generic_pipeline_nullable_callbacks_retain_their_actual_item_proof() {
+        let source = "pure optional_callback(value: Int?) -> Bool { value != null }\npure routed(value, other) { let action = optional_callback; let _ = other; [value] |> map(action) }\n";
+        let program = prepare(source);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "routed").unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("nullable owner is quantified"); };
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let item_slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                super::super::super::StageView::Map { slot, .. } => Some(slot),
+                _ => None,
+            },
+            _ => None,
+        }).unwrap();
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == item_slot)).unwrap();
+        let mut wrong_binding = program.clone();
+        wrong_binding.store.extra[program.store.data[read].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
+        let list = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::List(_)))).unwrap();
+        let schema::ExprView::List(mut values) = decoder.expression_view(list).unwrap() else { unreachable!() };
+        let value = values.next().unwrap().unwrap().raw() as usize;
+        let mut wrong_source = program.clone();
+        wrong_source.store.extra[program.store.data[value].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let mut missing_relation = program.clone();
+        missing_relation.store.schemes[scheme.index()].applications.len = 0;
+        assert!(FullVerifier::verify(&missing_relation).is_err());
+        let source = format!("{source}let rejected = routed(\"wrong\", 1)\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
     }
 
     #[cfg(feature = "native-tests")]

@@ -27,7 +27,7 @@ focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional integration is `d3830c8e4`. Reviewed follow-ons now include
+Current provisional integration is `b8e136e76`. Reviewed follow-ons now include
 canonical enum and Result comparison, nullable targets, generic Collect, five
 pipeline shape stages, imported callable-value borrowing, scoped constructor
 proofs, shared lexical-binding memoization and generated With lifecycle proofs.
@@ -37,6 +37,24 @@ pass. Binding memoization keeps the existing work bound and passes six controls;
 older matching products reproduce the original budget failure. The With repair
 passes two new controls and eleven affected existing controls. These are focused
 claims; the next immutable combined library/product boundary remains pending.
+
+Combined library source `8a417a9e3` compiles, then reports 2,402 passes,
+four failures and three ignored tests. The preceding `f43200425` attempt failed
+to compile because two newly combined callers retained old helper types; both
+are repaired before this run. The four runtime-boundary failures cover ground
+imported streams, TempDir result evidence, the shared callback companion and
+stream-alias call metadata. Their owners must distinguish real regressions from
+obsolete assertions and retain all meaningful negatives. The product build did
+not run after this failed boundary. Both failed sources and logs remain in
+`.work/wt/full-inference-scoped-wave-{qualification,r2}/`.
+
+FsRoot repair `892ad2b9b`, integrated as `b8e136e76`, passes eleven focused
+controls with independent review. The exact source verifies receiver identity,
+optional argument slots, order, effects, close/error behavior and frontend
+disposal on both routes. Matching-product CLI qualification remains pending.
+Remaining stage work is split into observers, numeric/selecting aggregates and
+four text/byte/JSON adapters. Review and preparation continue while regression
+owners repair the failed combined boundary; no broader gate credit transfers.
 
 The previous `50f4552aa` product boundary passes six API selectors. Each native
 route runs 161 cases: 159 pass and two fixture defects fail. The corrected

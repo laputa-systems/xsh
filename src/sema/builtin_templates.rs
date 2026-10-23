@@ -412,10 +412,10 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
     if slots.len() != plan.argument_slots.len()
         || slots.iter().any(|slot| *slot >= signature.params.len())
         || signature.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !slots.contains(&slot))
-        || plan.receiver.is_some() && slots.iter().copied().ne(0..slots.len())
+        || plan.receiver.is_some_and(|receiver| receiver != MethodReceiver::FsRoot) && slots.iter().copied().ne(0..slots.len())
     { return false; }
     match plan.receiver {
-        Some(domain) => matches!(domain, MethodReceiver::Result | MethodReceiver::Path | MethodReceiver::Int | MethodReceiver::Float | MethodReceiver::List | MethodReceiver::Map | MethodReceiver::Record | MethodReceiver::Str | MethodReceiver::Bytes | MethodReceiver::Status | MethodReceiver::Digest | MethodReceiver::Regex | MethodReceiver::NonEmpty | MethodReceiver::RelPath | MethodReceiver::Set)
+        Some(domain) => matches!(domain, MethodReceiver::Result | MethodReceiver::Path | MethodReceiver::Int | MethodReceiver::Float | MethodReceiver::List | MethodReceiver::Map | MethodReceiver::Record | MethodReceiver::Str | MethodReceiver::Bytes | MethodReceiver::Status | MethodReceiver::Digest | MethodReceiver::Regex | MethodReceiver::NonEmpty | MethodReceiver::RelPath | MethodReceiver::Set | MethodReceiver::FsRoot)
             && crate::modules::api_spec().method_overloads(domain, &plan.name).is_some_and(|methods| methods.iter().any(|method| std::ptr::eq(&method.sig, signature))),
         None => crate::modules::api_spec().module_entries().any(|(_, module)| module.functions.iter().any(|function| function.name == plan.name.as_ref() && function.overloads.iter().any(|candidate| std::ptr::eq(candidate, signature)))),
     }
@@ -587,6 +587,33 @@ mod tests {
     }
 
     #[test]
+    fn registered_fsroot_plans_authenticate_receiver_signature_and_optional_slots() {
+        use crate::sema::schemes::{RegisteredCallPlan, SchemeType};
+        let method = &api_spec().method_overloads(MethodReceiver::FsRoot, "children").unwrap()[0];
+        let plan = RegisteredCallPlan {
+            receiver: Some(MethodReceiver::FsRoot), name: "children".into(), signature: &method.sig,
+            argument_slots: std::sync::Arc::from([2, 0]), argument_checks: std::sync::Arc::from([None, None, None]),
+        };
+        let receiver = SchemeType::Ground(Type::FsRoot);
+        let path = SchemeType::Ground(Type::Path);
+        let ordered = SchemeType::Ground(Type::Bool);
+        let arguments = [Some(&path), None, Some(&ordered)];
+        let result = registered_call_result(&plan, Some(&receiver), &arguments).unwrap();
+        assert!(verify_registered_call(&plan, Some(&receiver), &arguments, &result));
+        assert!(!verify_registered_call(&plan, Some(&SchemeType::Ground(Type::Str)), &arguments, &result));
+        assert!(!verify_registered_call(&plan, Some(&receiver), &[None, None, Some(&ordered)], &result));
+        let mut duplicate = plan.clone();
+        duplicate.argument_slots = std::sync::Arc::from([0, 0]);
+        assert!(!registered_call_is_executable(&duplicate));
+        let mut wrong_signature = plan.clone();
+        wrong_signature.signature = &api_spec().method_overloads(MethodReceiver::FsRoot, "read_text").unwrap()[0].sig;
+        assert!(!registered_call_is_executable(&wrong_signature));
+        let mut foreign_receiver = plan;
+        foreign_receiver.receiver = Some(MethodReceiver::Path);
+        assert!(!registered_call_is_executable(&foreign_receiver));
+    }
+
+    #[test]
     fn symbolic_registered_unsigned_checks_require_converted_argument_evidence() {
         use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan, SchemeType};
         let method = &api_spec().method_overloads(MethodReceiver::Map, "get").unwrap()[0];
@@ -651,7 +678,7 @@ mod tests {
                 }
             }
         }
-        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set];
+        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set, MethodReceiver::FsRoot];
         assert_eq!(domains.len(), expected.len());
         assert!(expected.iter().all(|domain| domains.contains(domain)));
     }
