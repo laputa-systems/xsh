@@ -8,9 +8,28 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
-The owner's 2026-10-23 closeout order is: complete full inference, merge all
-qualified work to local `master`, clean `.work/`, then finish the pyramid
-campaign. Pyramid execution waits for inference qualification and cleanup.
+The owner's 2026-10-23 closeout order retains inference qualification, local
+`master` integration and cleanup before Pyramid closes. The subsequent request
+expands independent Pyramid implementation now, alongside inference, using five
+expert lanes and one shared two-build limit. Pyramid qualification still waits
+for the accepted inference source. Its isolated integration branch is
+`campaign/pyramid-integration`; no pushes are authorized.
+
+Provisional inference source `06caaaf6e` integrates scoped mutable argument
+proofs, deferred sort-key checks, closed Null returns and pure-return validation.
+Focused controls pass. The actual historical system-report checker goes from
+two sort errors to zero. The mutable argument repair passes twelve controls
+plus strengthened writer positives; whole historical `wc` remains open on its
+separate signed-to-unsigned record boundary. Pure Str/Error joins now fail
+during checking, while typed Str results and nominal errors remain valid.
+These changes await the combined library and corpus boundary.
+
+Frozen source `a6178b9f5` has matching warning-free verification products.
+Its new Null-return native selector passes once in each normal and forced-frame
+mode, with zero skips. Logs and products are under
+`.work/wt/full-inference-null-pattern-qualification/.work/`.
+This earlier source excludes the later sort, mutable-writer and pure-return
+repairs and supplies no qualification credit for them.
 
 The latest full-library checkpoint is frozen source `654fe6e99`: 2,214 pass,
 zero fail, and three remain ignored. Matching XSH and XSHT verification products
