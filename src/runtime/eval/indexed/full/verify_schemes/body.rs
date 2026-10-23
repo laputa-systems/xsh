@@ -986,9 +986,19 @@ pub(super) fn verify_body(
                         if binding.mutable || binding.access != BindingAccess::StaticCallableNamespace { return Err(IrVerifyError::new("generic callable projection has no static namespace authority")); }
                         if !body_types_equal(&expression_type(types, base, budget)?, &binding.ty) { return Err(IrVerifyError::new("generic callable projection changes its actual namespace type")); }
                         let Some(Type::Module(module)) = binding.ty.closed_ground_type() else { return Err(IrVerifyError::new("generic callable projection has no exact module contract")); };
-                        let actual = module.get(&Name::intern(name)).and_then(crate::sema::types::ModuleExportType::static_callable_value_type)
-                            .filter(|_| module.exact).ok_or_else(|| IrVerifyError::new("generic namespace projection is not an exact callable export"))?;
-                        if claimed.closed_ground_type() != Some(actual.clone()) { return Err(IrVerifyError::new("generic callable projection disagrees with its actual export signature")); }
+                        if !module.exact { return Err(IrVerifyError::new("generic namespace projection has no exact module contract")); }
+                        let actual = claimed.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic callable projection has no closed callable contract"))?;
+                        match (module.get(&Name::intern(name)), &actual) {
+                            (Some(crate::sema::types::ModuleExportType::GenericCallable { kind, optional: false }), Type::SchemeCallable(id)) => {
+                                let relationship = store.semantic.scheme_callable_index(*id)?;
+                                let relationship = store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("generic namespace relationship is out of bounds"))?;
+                                if store.function_metadata.get(relationship.canonical.index()).is_none_or(|target| target.callable_kind != *kind) {
+                                    return Err(IrVerifyError::new("generic namespace projection changes its export kind"));
+                                }
+                            }
+                            (Some(export), actual) if export.static_callable_value_type().as_ref() == Some(actual) => {}
+                            _ => return Err(IrVerifyError::new("generic callable projection disagrees with its actual export signature")),
+                        }
                         if !visited.insert(instruction) || !visited.insert(base) { return Err(IrVerifyError::new("generic callable projection is shared or cyclic")); }
                         expression_scopes.insert(base, scope);
                         projected_namespaces.insert(slot);
@@ -2208,6 +2218,107 @@ pure other(payload) { payload }
 
     #[cfg(feature = "native-tests")]
     #[test]
+    fn imported_pipeline_declarations_preserve_ground_and_generic_environments() {
+        super::super::super::tests::run_with_large_stack(|| {
+            let work = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+            std::fs::create_dir_all(&work).unwrap();
+            let modules = tempfile::tempdir_in(work).unwrap();
+            std::fs::write(modules.path().join("operations.xsh"), r#"##! Imported declaration fixture.
+let prefix = "module:"
+## Render through the original environment and default.
+export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+## Preserve each caller's item domain.
+export pure identity(value) { value }
+## Require the actual two-argument signature.
+export pure pair(value, other) { [value, other] }
+"#).unwrap();
+            std::fs::write(modules.path().join("foreign.xsh"), r#"##! Foreign declaration fixture.
+let prefix = "foreign:"
+## Render through a different environment.
+export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+## Require a different generic arity.
+export pure identity(value, other) { let _ = other; value }
+## Preserve the two-argument signature.
+export pure pair(value, other) { [value, other] }
+"#).unwrap();
+            let source = r#"use operations
+use foreign
+pure declared(payload) { {payload, rows: ["kept"] |> map(operations.render)} }
+pure imported(value) { [value] |> map(operations.identity) }
+pure projected(value) { let action = operations.identity; let again = action; [value] |> map(again) }
+pure dormant(value) { var counter = 0; counter = 1; let action = operations.identity; [value] |> map(action) }
+test imported_declarations {
+  assert declared(7) == {payload: 7, rows: ["module:kept!"]}
+  assert declared("retained").payload == "retained"
+  assert imported(7) == [7]
+  assert imported("kept") == ["kept"]
+  assert projected(7) == [7]
+  assert projected("kept") == ["kept"]
+  let data: Result[Int, Str] = Err("data")
+  assert imported(data) == [data]
+  assert projected(data) == [data]
+}
+"#;
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("imported-pipeline-declarations.xsh", crate::loader::entry_source_from_text("imported-pipeline-declarations.xsh", source.to_string()), vec![modules.path().to_path_buf()]);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources.clone()), source_id).unwrap();
+            FullVerifier::verify(&program).unwrap();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "dormant").unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let field = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Field { name: "identity", .. }))).unwrap();
+            let schema::ExprView::Field { base, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+            let field_words = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_export = program.clone();
+            let pair = (1..=program.store.strings.len() as u32).find(|id| program.store.string(*id).unwrap() == "pair").unwrap();
+            wrong_export.store.extra[field_words.start + 1] = pair;
+            assert!(FullVerifier::verify(&wrong_export).is_err());
+            let base_words = program.store.data[base.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_receiver = program.clone();
+            wrong_receiver.store.extra[base_words.start] = 0;
+            assert!(FullVerifier::verify(&wrong_receiver).is_err());
+            let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == field && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+            let mut missing_fact = program.clone();
+            remove_scheme_body_fact(&mut missing_fact, fact);
+            assert!(FullVerifier::verify(&missing_fact).is_err());
+            let call = program.store.scheme_callable_calls.iter().find(|call| range.contains(&(call.instruction as usize))).unwrap().instruction;
+            let mut missing_relationship = program.clone();
+            missing_relationship.store.scheme_callable_calls.retain(|site| site.instruction != call);
+            assert!(FullVerifier::verify(&missing_relationship).is_err());
+            let mut missing_instance = program.clone();
+            missing_instance.store.call_instantiations.retain(|instance| instance.instruction != call);
+            assert!(FullVerifier::verify(&missing_instance).is_err());
+            let alias_slot = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == field => Some(slot),
+                _ => None,
+            }).unwrap();
+            let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }) | Ok(schema::StmtView::AssignInt { .. }))).unwrap();
+            let mut forged_writer = program.clone();
+            forged_writer.store.extra[program.store.data[assignment].range().start as usize] = alias_slot as u32;
+            assert!(FullVerifier::verify(&forged_writer).is_err());
+            let captures = program.store.functions[owner].captures.bounds(program.store.captures.len()).unwrap();
+            let capture = captures.into_iter().find(|index| program.store.string(program.store.captures[*index].name).unwrap() == "operations").unwrap();
+            let foreign = program.store.binding_identities.iter().position(|binding| program.store.string(binding.name).unwrap() == "foreign").unwrap();
+            let mut foreign_namespace = program.clone();
+            foreign_namespace.store.captures[capture].binding_identity = foreign as u32;
+            foreign_namespace.store.captures[capture].name = program.store.binding_identities[foreign].name;
+            assert!(FullVerifier::verify(&foreign_namespace).is_err());
+            let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+            for force_frames in [false, true] {
+                let result = prepared.eval_test("imported_declarations", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+                assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+                assert!(matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+            }
+        });
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
     fn imported_callable_namespace_borrow_preserves_shared_root_state() {
         super::super::super::tests::run_with_large_stack(|| {
             let work = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
@@ -2219,6 +2330,8 @@ pure other(payload) { payload }
 let prefix = "module:"
 ## Render through an immutable environment.
 export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+## Preserve the caller's item type.
+export pure identity(value) { value }
 ## Retain the callable value.
 export let format = render
 let state = {
@@ -2239,13 +2352,22 @@ export proc probe(label: Str) [fs, io, error] -> Result[Str, Error] {
             let source = r#"use borrowed
 pure typed(payload: Int) { let action = borrowed.format; {payload, rows: ["kept"] |> map(action)} }
 pure generic(payload) { let action = borrowed.format; {payload, rows: ["kept"] |> map(action)} }
+pure declared(payload) { {payload, rows: ["kept"] |> map(borrowed.render)} }
+pure forwarded(value) { [value] |> map(borrowed.identity) }
+pure projected(value) { let action = borrowed.identity; [value] |> map(action) }
 test namespace_borrow {
   assert borrowed.probe("before")? == "init;"
   assert typed(7) == {payload: 7, rows: ["module:kept!"]}
   assert borrowed.probe("typed")? == "init;before;"
   assert generic(7) == typed(7)
+  assert declared(7) == typed(7)
+  assert forwarded(7) == [7]
+  assert projected(7) == [7]
   assert borrowed.probe("integer")? == "init;before;typed;"
   assert generic("kept") == {payload: "kept", rows: ["module:kept!"]}
+  assert declared("kept").payload == "kept"
+  assert forwarded("kept") == ["kept"]
+  assert projected("kept") == ["kept"]
   assert borrowed.probe("string")? == "init;before;typed;integer;"
 }
 "#;

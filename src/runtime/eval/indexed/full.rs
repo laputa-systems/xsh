@@ -12808,6 +12808,33 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
+    fn needs_scoped_callable_projection_proof(&self, slot: usize, value: usize, ty: &Type) -> Result<bool, IrVerifyError> {
+        let Type::SchemeCallable(id) = ty else { return Ok(false); };
+        if self.producer_demand != crate::runtime::eval::ProducerDemand::Needed || driver_owner_index(self.owner).is_some() { return Ok(false); }
+        let function = IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("callable projection writer has no function owner"))?;
+        if !matches!(self.store.functions[function.index()].contract, FullCallableContract::Scheme(_)) { return Ok(false); }
+        if self.local_immutable_let_initializer(slot)?.1 != Some(value) { return Ok(false); }
+        let mut source = value;
+        let mut visited = BTreeSet::new();
+        let (base, name) = loop {
+            if !visited.insert(source) { return Err(IrVerifyError::new("scoped callable projection writer is cyclic")); }
+            match self.expression_view(source)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(initializer) = self.local_immutable_let_initializer(slot)?.1 else { return Ok(false); };
+                    source = initializer;
+                }
+                schema::ExprView::Field { base, name, .. } => break (base, name),
+                _ => return Ok(false),
+            }
+        };
+        let Some(Type::Module(module)) = self.derive_checked_expression_type(base.raw() as usize)?.map(Type::into_unvalidated) else { return Ok(false); };
+        let Some(ModuleExportType::GenericCallable { kind, optional: false }) = module.get(&Name::intern(name)) else { return Ok(false); };
+        if !module.exact { return Ok(false); }
+        let relationship = self.store.semantic.scheme_callable_index(*id)?;
+        let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("callable projection writer relationship is invalid"))?;
+        Ok(self.store.function_metadata.get(relationship.canonical.index()).is_some_and(|target| target.callable_kind == *kind))
+    }
+
     fn verify_callable_slot_initializer(
         &self,
         slot: usize,
@@ -12836,6 +12863,10 @@ impl<'a> FullDecoder<'a> {
         };
         let fact_type = self.store.semantic.to_type(fact)?;
         if !fact_type.contains_typed_callable() {
+            return Ok(());
+        }
+        if self.needs_scoped_callable_projection_proof(slot, value, &fact_type)? {
+            self.proven_callable_writers.borrow_mut().insert(slot);
             return Ok(());
         }
         if let Some(initializer) = self.checked_expression_type_id(value)?

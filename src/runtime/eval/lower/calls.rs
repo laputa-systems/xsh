@@ -26,7 +26,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let span = self.program.arena.expr(callee).span;
         let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();
         let alias = self.declarations.static_callable_aliases.get(&span).cloned();
-        let signature = alias.as_ref().map(|alias| {
+        let alias_signature = alias.as_ref().map(|alias| {
             let mut sig = alias.signature.clone();
             sig.effects = crate::sema::types::CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(alias.kind));
             Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig }))
@@ -35,6 +35,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Field { base, .. } if alias.as_ref().is_some_and(|alias| alias.method_call) => base,
             _ => callee,
         };
+        let signature = alias_signature.or_else(|| {
+            let ArenaExprKind::Field { base, name } = self.program.arena.expr(source).kind else { return None; };
+            let binding = self.expression_binding(base)?;
+            let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
+            if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
+            let Some(Type::Module(module)) = slots.types.get(&binding)?.closed_ground_type() else { return None; };
+            module.exact.then(|| module.get(&name)?.static_callable_value_type())?
+        });
         let source_type = self.expression_binding(source).and_then(|binding| slots.types.get(&binding)).cloned()
             .or_else(|| relationship.map(|relationship| super::SchemeType::Ground(Type::SchemeCallable(relationship))))
             .or_else(|| signature.clone().map(super::SchemeType::Ground))?;
@@ -55,8 +63,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let arguments = self.lower_optional_function_call_arguments(callee, vec![argument], parameters, slots, Some(current_function), None, super::SchemeType::closed_ground_type)?;
             self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
         } else {
-            let alias = alias.as_ref()?;
-            self.lower_function_call_args(&[argument], Some(CheckedCallParameters::Ground(&alias.signature.params)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
+            let Type::Callable(callable) = signature.as_ref()? else { return None; };
+            self.lower_function_call_args(&[argument], Some(CheckedCallParameters::Ground(&callable.sig.params)), self.call_argument_slots(callee), None, slots, Some(current_function), None)?
         };
         self.record_scheme_call_argument_checks(&arguments, lowered_types);
         let call = if let Some(relationship) = relationship {
@@ -66,9 +74,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if !scratch.record_call_instantiation(call, instantiation) || scratch.scheme_callable_calls.insert(call.index(), relationship).is_some() { return None; }
             call
         } else {
-            let alias = alias?;
-            let signature = self.canonicalize_checked_type(signature?);
-            push_build_row!(self, expr, BuildExprRow::TypedCall { callee: value, kind: alias.kind, signature, args: arguments, span })
+            let signature = signature?;
+            let Type::Callable(callable) = &signature else { return None; };
+            let kind = callable.kind;
+            let signature = self.canonicalize_checked_type(signature);
+            push_build_row!(self, expr, BuildExprRow::TypedCall { callee: value, kind, signature, args: arguments, span })
         };
         Some(call)
     }

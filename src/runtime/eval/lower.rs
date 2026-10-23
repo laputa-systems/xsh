@@ -4656,7 +4656,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Field { base, name }
                 if self.expression_binding(base).and_then(|binding| slots.types.get(&binding)).and_then(SchemeType::closed_ground_type)
-                    .is_some_and(|source| matches!(source, Type::Module(module) if module.exact && module.get(&name).and_then(crate::sema::types::ModuleExportType::static_callable_value_type).is_some())) =>
+                    .is_some_and(|source| matches!(source, Type::Module(module) if module.exact && module.get(&name).is_some_and(|export| export.static_callable_value_type().is_some() || matches!(export, crate::sema::types::ModuleExportType::GenericCallable { optional: false, .. })))) =>
             {
                 self.lower_scheme_static_callable_projection(expression, slots, facts, visited, lowered_types)?
             }

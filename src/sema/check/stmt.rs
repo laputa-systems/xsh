@@ -5220,7 +5220,12 @@ impl Checker {
             None
         };
         let actual = if let Some(alias) = &generic_module_alias {
-            Type::Function(alias.kind)
+            if self.stream_origin_owner.is_some() && !self.current_exported
+                && alias.signature.scheme().callable().is_quantified()
+                && let ArenaExprOrRun::Expr(expression) = initializer
+            {
+                self.retain_named_scheme_callable(arena, alias, expression).expect("a quantified module callable retains its relationship")
+            } else { Type::Function(alias.kind) }
         } else {
             self.check_expr_with_schema_arena(
                 arena,

@@ -482,8 +482,14 @@ pub(super) fn is_body_expression(
                 if bindings.expressions.get(&base).is_some_and(|binding| captures.get(binding) == Some(&CapturedBindingAccess::StaticCallableNamespace)) =>
             {
                 let Some(crate::sema::types::Type::Module(module)) = types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type) else { return false; };
-                let Some(actual) = module.get(&name).and_then(crate::sema::types::ModuleExportType::static_callable_value_type) else { return false; };
-                if !module.exact || types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(actual) { return false; }
+                if !module.exact { return false; }
+                let claimed = types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type);
+                match module.get(&name) {
+                    Some(crate::sema::types::ModuleExportType::GenericCallable { optional: false, .. })
+                        if matches!(claimed, Some(crate::sema::types::Type::SchemeCallable(_))) => {}
+                    Some(export) if export.static_callable_value_type().is_some_and(|actual| claimed == Some(actual)) => {}
+                    _ => return false,
+                }
             }
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => pending.push(base),
             ArenaExprKind::Convert { value, .. } | ArenaExprKind::Require { value, .. } => {

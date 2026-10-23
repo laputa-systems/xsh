@@ -105,7 +105,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
             lowered_types.insert(item, item_type.clone());
             let result = facts.expression_types().get(&callee)?.clone();
-            let value = if self.declarations.static_callable_aliases.contains_key(&span)
+            let namespace = matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
+                if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| declaration.global && matches!(declaration.kind, super::BindingKind::Module(_))));
+            let value = if namespace || self.declarations.static_callable_aliases.contains_key(&span)
                 || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
             {
                 self.lower_scheme_stage_value_call(callee, CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }, slots, current_function, facts, visited, lowered_types)?
@@ -159,7 +161,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let source = slots.types.get(&binding)?.clone();
         let Some(Type::Module(module)) = source.closed_ground_type() else { return None; };
         if !module.exact { return None; }
-        let result = module.get(&name)?.static_callable_value_type()?;
+        let result = match module.get(&name)? {
+            super::ModuleExportType::GenericCallable { kind, optional: false } => {
+                let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(expression)).copied()
+                    .or_else(|| match facts.expression_types().get(&expression)?.closed_ground_type()? { Type::SchemeCallable(id) => Some(id), _ => None })?;
+                let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+                let target = self.bodies.selected_function_calls.get(&expression)?;
+                if contract.canonical().scheme().kind() != *kind || contract.targets().len() != 1 || contract.targets()[0].target() != *target { return None; }
+                Type::SchemeCallable(relationship)
+            }
+            export => export.static_callable_value_type()?,
+        };
         let ArenaExprKind::Ident(namespace) = self.program.arena.expr(base).kind else { return None; };
         if facts.expression_types().contains_key(&base) && !visited.insert(base) { return None; }
         let base = self.lower_bare_ident(base, namespace, slots)?;

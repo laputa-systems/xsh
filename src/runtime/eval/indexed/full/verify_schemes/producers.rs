@@ -2549,7 +2549,7 @@ impl<'a> ProducerProof<'a> {
     fn verify_static_callable_projection(&mut self, owner: u32, instruction: usize, expected: Type) -> Result<(), IrVerifyError> {
         self.budget.charge(1)?;
         let decoder = self.owner(owner)?;
-        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) || !matches!(expected, Type::Callable(_)) {
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) || !matches!(expected, Type::Callable(_) | Type::SchemeCallable(_)) {
             return Err(IrVerifyError::new("generic callable projection has no physical export read"));
         }
         let targets = self.function_targets(owner, instruction)?;

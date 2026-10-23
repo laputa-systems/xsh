@@ -311,6 +311,19 @@ impl Checker {
             self.check_expr_arena(arena, source, callee, None);
             return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument);
         }
+        if matches!(&call_source, super::method::HostCallSource::Callback { .. })
+            && let ArenaExprKind::Field { base, name } = callee_kind
+            && let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, base)
+            && binding.static_namespace
+            && let Type::Module(module) = &binding.ty
+            && let Some(export) = module.get(&name)
+            && let Some(alias) = self.resolve_generic_module_callable_alias(arena, base, name, export)
+        {
+            self.check_expr_arena(arena, source, base, None);
+            if let Some(Type::SchemeCallable(relationship)) = self.retain_named_scheme_callable(arena, &alias, callee) {
+                return self.check_scheme_callable_application(arena, source, callee, relationship, args, span, checked_argument);
+            }
+        }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
             return self.check_typed_callable_call_with_checked_argument(
                 arena,
