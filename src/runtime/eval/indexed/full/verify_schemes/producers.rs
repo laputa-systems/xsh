@@ -146,8 +146,21 @@ impl ProducerPrefixContext<'_> {
             }
             let slot = match source.expression_view(instruction)? {
                 schema::ExprView::FunctionRef { .. } => return Ok(Some(super::super::ImmutableCallableSource::Instruction(instruction))),
-                schema::ExprView::Field { base, name, .. } => {
-                    let field = Name::intern(name);
+                schema::ExprView::Field { .. } | schema::ExprView::Method { .. } | schema::ExprView::Index { .. } => {
+                    self.evidence.work.borrow_mut().charge(1)?;
+                    let (base, field) = match source.expression_view(instruction)? {
+                        schema::ExprView::Field { base, name, .. } => (base, Name::intern(name)),
+                        schema::ExprView::Index { base, index, .. } => {
+                            let Some(field) = source.checked_literal_string(index.raw() as usize)? else { return Ok(None); };
+                            (base, Name::intern(&field))
+                        }
+                        schema::ExprView::Method { receiver, name: "get", mut args, .. } if args.len() == 1 => {
+                            let key = args.next().transpose()?.ok_or_else(|| IrVerifyError::new("callable module get key is missing"))?;
+                            let Some(field) = source.checked_literal_string(key.raw() as usize)? else { return Ok(None); };
+                            (receiver, Name::intern(&field))
+                        }
+                        _ => return Ok(None),
+                    };
                     let mut field_instruction = base.raw() as usize;
                     let schema::ExprView::Param(mut slot) = source.expression_view(field_instruction)? else { return Ok(None); };
                     let mut binding = evidence.binding(decoder.store, owner, field_instruction, slot)?;
@@ -5979,7 +5992,9 @@ impl<'a> ProducerProof<'a> {
         self.require_callable_effects(decoder, instruction, Some(signature.effects), signature.pure)?;
         let result = decoder.checked_method_return_type(receiver_type.as_ref(), name, arguments)?
             .ok_or_else(|| IrVerifyError::new("ground method has no resolved return contract"))?;
-        if !result.matches_expected(expected) {
+        if !result.matches_expected(expected)
+            && !decoder.checked_module_get_relationship(instruction, &result, expected)?
+        {
             return Err(IrVerifyError::new("ground method result disagrees with its selected contract"));
         }
         for (&argument, parameter) in arguments.iter().zip(&signature.params[first_parameter..]) {

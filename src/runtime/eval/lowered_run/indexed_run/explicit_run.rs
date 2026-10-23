@@ -1998,6 +1998,11 @@ fn process_command_builder_entry<'e>(
 }
 
 enum FrameContinuation {
+    SchemeCallable {
+        instruction: u32,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     StreamContract {
         contract: Arc<crate::runtime::eval::PreparedStreamContract>,
         span: Span,
@@ -2528,6 +2533,7 @@ impl FrameContinuation {
             | C::Try { next, .. }
             | C::CheckedValue { next, .. }
             | C::StreamContract { next, .. }
+            | C::SchemeCallable { next, .. }
             | C::Require { next, .. }
             | C::MethodReceiver { next, .. }
             | C::FmtValue { next, .. }
@@ -2658,6 +2664,7 @@ fn with_initializer_handler(
             | FrameContinuation::Require { next, .. }
             | FrameContinuation::CheckedValue { next, .. }
             | FrameContinuation::StreamContract { next, .. }
+            | FrameContinuation::SchemeCallable { next, .. }
             | FrameContinuation::MethodReceiver { next, .. }
             | FrameContinuation::MethodArg { next, .. }
             | FrameContinuation::FmtValue { next, .. }
@@ -6547,6 +6554,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             Some(contract) => FrameContinuation::StreamContract { contract, span, next: Box::new(next) },
             None => next,
         };
+        let next = if self.calls[index].execution.program().has_scheme_callable_values()
+            && self.calls[index].execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))?.is_some()
+        {
+            FrameContinuation::SchemeCallable { instruction, span, next: Box::new(next) }
+        } else { next };
         let execution = self.calls[index].execution.thread_local();
         let in_place = !self.evaluator.force_frames
             && execution.is_in_place(instruction);
@@ -9677,6 +9689,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             self.push_value(index, FrameValue::Break(value), *next);
                         }
                     }
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::SchemeCallable { instruction, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let execution = self.calls[index].execution.thread_local();
+                    let value = super::retain_indexed_scheme_callable(self.evaluator, &execution, instruction, value, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },

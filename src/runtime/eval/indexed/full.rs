@@ -4246,9 +4246,21 @@ impl FullBuilder {
                     self.intern_return_type(body.return_kind)?
                 };
                 let signature = if let Some(checked) = &body.checked_function_signature {
-                    self.semantic.intern_signature(
-                        &mut self.store.semantic,
-                        &executable_callable_type(checked),
+                    let checked = executable_callable_type(checked);
+                    let return_type = self.intern_checked_type(&checked.return_ty)?;
+                    let mut params = Vec::with_capacity(checked.params.len());
+                    for parameter in &checked.params {
+                        params.push(SignatureParamParts {
+                            name: parameter.name,
+                            ty: self.intern_checked_type(&parameter.ty)?,
+                            defaulted: parameter.defaulted,
+                            rest: parameter.rest,
+                        });
+                    }
+                    let effects = checked.effects.concrete()
+                        .map_err(|_| IrBuildError::format("unresolved_effects", None, 0, 0))?;
+                    self.semantic.intern_signature_parts(
+                        &mut self.store.semantic, &params, return_type, effects.as_deref(),
                     )?
                 } else {
                     self.semantic.intern_signature_parts(
@@ -10801,6 +10813,26 @@ impl<'a> FullDecoder<'a> {
         }))
     }
 
+    fn checked_module_get_relationship(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
+        let (Type::Result(registered_success, registered_error), Type::Result(checked_success, checked_error)) = (registered, checked) else { return Ok(false); };
+        if registered_error != checked_error { return Ok(false); }
+        let schema::ExprView::Method { name: "get", args, .. } = self.expression_view(instruction)? else { return Ok(false); };
+        if args.len() != 1 { return Ok(false); }
+        self.checked_imported_scheme_callable(instruction, registered_success, checked_success)
+    }
+
+    fn checked_imported_scheme_callable(&self, instruction: usize, registered: &Type, checked: &Type) -> Result<bool, IrVerifyError> {
+        let (Type::Function(kind), Type::SchemeCallable(id)) = (registered, checked) else { return Ok(false); };
+        let Some(prefix) = &self.producer_prefix else { return Ok(false); };
+        let Some(ImmutableCallableSource::ImportedFunction(function)) = prefix.immutable_function_reference_source(self, instruction)? else { return Ok(false); };
+        let (target, contract, actual_kind) = self.function_reference_contract(function)?;
+        let relationship = self.store.semantic.scheme_callable_index(*id)?;
+        let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("module get callable relationship is out of bounds"))?;
+        let targets = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("module get callable target range is invalid"))?;
+        Ok(actual_kind == *kind && matches!(contract, FullCallableContract::Scheme(_))
+            && targets.len() == 1 && self.store.scheme_callable_targets[targets.start].function == target)
+    }
+
     fn checked_literal_string(
         &self,
         instruction: usize,
@@ -11750,20 +11782,18 @@ impl<'a> FullDecoder<'a> {
             }
             schema::ExprView::Field { .. } => {
                 let matches = if let Some(binding) = self.checked_binding_path(instruction, &mut |_| Ok(()))? {
-                    let Some(declared) = self.checked_binding_path_type(instruction, &binding, &mut |_| Ok(()))?
-                    else {
-                        return Err(IrVerifyError::new(
-                            "checked field fact disagrees with its structural receiver",
-                        ));
-                    };
-                    self.checked_declared_type_matches_narrowed_fact(
-                        instruction,
-                        binding,
-                        &declared,
-                        &ty,
-                    )?
+                    match self.checked_binding_path_type(instruction, &binding, &mut |_| Ok(()))? {
+                        Some(declared) => self.checked_declared_type_matches_narrowed_fact(
+                            instruction,
+                            binding,
+                            &declared,
+                            &ty,
+                        )? || self.checked_imported_scheme_callable(instruction, &declared, &ty)?,
+                        None => self.checked_imported_scheme_callable(instruction, &self.derive_checked_field_type(instruction)?, &ty)?,
+                    }
                 } else {
-                    self.derive_checked_field_type(instruction)? == ty
+                    let declared = self.derive_checked_field_type(instruction)?;
+                    declared == ty || self.checked_imported_scheme_callable(instruction, &declared, &ty)?
                 };
                 if !matches {
                     return Err(IrVerifyError::new(
@@ -11865,7 +11895,7 @@ impl<'a> FullDecoder<'a> {
                     ));
                 };
                 self.verify_method_callable_arguments(&receiver_type, name, &args)?;
-                if ty != expected {
+                if ty != expected && !self.checked_module_get_relationship(instruction, &expected, &ty)? {
                     return Err(IrVerifyError::new(
                         "checked method result disagrees with its receiver's registry signature",
                     ));
@@ -12036,7 +12066,7 @@ impl<'a> FullDecoder<'a> {
             }
             schema::ExprView::Index { base, index, .. } => {
                 let actual = self.checked_index_result_type(base.raw() as usize, Some(index.raw() as usize))?;
-                if actual != ty {
+                if actual != ty && !self.checked_imported_scheme_callable(instruction, &actual, &ty)? {
                     return Err(IrVerifyError::new(
                         "checked index fact disagrees with its collection producer",
                     ));
@@ -42420,6 +42450,232 @@ assert stored_name(failed) == name(failed)
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&executable));
                 for step in 0..executable.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(executable.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_ground_factory_signatures_rebase_owned_nested_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-ground-factory.xsh", r#"
+pure identity(value) { value }
+pure get_identity() { let action = identity; action }
+pure get_operations() { {copy: identity} }
+let returned = get_identity()
+let operations = get_operations()
+assert returned(42) == 42
+assert returned("demo") == "demo"
+assert !returned(false)
+assert operations.copy(7) == 7
+assert operations.copy("nested") == "nested"
+assert operations.copy(true) == true
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_module_get_preserves_owned_result_operand_contracts() {
+        run_with_large_stack(|| {
+            let entry = r#"use lib
+const identity_name = "identity"
+let by_field = lib.identity
+let by_get = lib.get(identity_name)?
+let same = by_get
+let by_index = lib[identity_name]
+let nested = {apply: lib.identity}
+let spare = lib.other
+let chosen = lib.choose(true)
+assert chosen(16) == 16
+assert nested.apply(12) == 12
+assert nested.apply("nested") == "nested"
+assert nested.apply(true) == true
+assert spare(13) == 13
+assert by_field(value: 42) == 42
+assert by_field("field") == "field"
+assert by_field(true) == true
+assert by_get(7) == 7
+assert same(15) == 15
+assert by_get("get") == "get"
+assert !by_get(false)
+assert by_index(9) == 9
+assert by_index("index") == "index"
+assert by_index(true) == true
+"#;
+            let library = "##! Generic callable exports.\n## Return the input.\nexport pure identity(value) { value }\n## Return another input.\nexport pure other(value) { value }\n## Select a copying operation.\nexport pure choose(flag: Bool) { if flag { let candidate = identity; candidate } else { let candidate = other; candidate } }\n";
+            let mut sources = crate::source::SourceMap::new();
+            let entry_source = sources.add_file("scheme-callable-get.xsh", entry);
+            let library_source = sources.add_file("lib.xsh", library);
+            let mut builder = crate::syntax::arena::ArenaProgramBuilder::with_token_capacity(128);
+            let root = Parser::parse_source_into_arena_builder(entry_source, entry, &mut builder);
+            let module = Parser::parse_source_into_arena_builder(library_source, library, &mut builder);
+            assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+            assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+            let library_name = builder.symbol_owner().intern("lib");
+            builder.push_arena_module("lib".to_string(), library_name, module.statements);
+            for statement in builder.statement_ids(root.statements) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) { builder.set_use_resolved(use_id, Arc::from("lib")); }
+            }
+            let program = builder.finish_with_statements(root.statements);
+            let sources = Arc::new(sources);
+            let checked = Checker::check_arena_with_sources_and_options(&program, &sources, entry_source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let mut declarations = Checker::compact_declarations(&program, checked);
+            let executable = Arc::new(FullBuilder::build_compact(&program, &declarations, entry, Arc::clone(&sources), entry_source).unwrap());
+            FullVerifier::verify(&executable).unwrap();
+            let source_relationships = Arc::clone(&declarations.scheme_callables);
+            let original = source_relationships.owner().id(0);
+            let mut foreign = crate::sema::scheme_callable::SchemeCallableTable::default();
+            let (foreign_id, _) = foreign.intern_prepared(source_relationships.relationship(original).unwrap()).unwrap();
+            assert_ne!(original, foreign_id);
+            assert_eq!(foreign.get(original).unwrap_err(), crate::sema::scheme_callable::SchemeCallableError::ForeignOwner);
+            declarations.scheme_callables = Arc::new(foreign);
+            let mut encoder = FullBuilder::new(entry_source);
+            encoder.source_scheme_callables = Some(Arc::clone(&declarations.scheme_callables));
+            let failure = encoder.intern_checked_type(&Type::SchemeCallable(original)).unwrap_err();
+            assert_eq!(failure.construct, "scheme_callable_relationship");
+            let failure = FullBuilder::build_compact(&program, &declarations, entry, Arc::clone(&sources), entry_source).unwrap_err();
+            assert_eq!(failure.construct, "full_ir_function_blocker");
+            assert_eq!(failure.span.unwrap().source_id, library_source);
+            drop(encoder);
+            drop(source_relationships);
+            drop(declarations);
+            drop(program);
+            drop(sources);
+            FullVerifier::verify(&executable).unwrap();
+            let (method, key) = (0..executable.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&executable.store, step).unwrap();
+                decoder.instruction_range.clone().find_map(|instruction| match decoder.expression_view(instruction).unwrap() {
+                    schema::ExprView::Method { name: "get", mut args, .. } if args.len() == 1 => Some((instruction, args.next().unwrap().unwrap().raw() as usize)),
+                    _ => None,
+                })
+            }).unwrap();
+            let method_fact = executable.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == method).unwrap();
+            let Type::Result(success, error) = executable.store.semantic.to_type(executable.store.checked_expr_types[method_fact].type_id).unwrap() else { panic!("get retains its actual Result operand contract") };
+            assert!(matches!(success.as_ref(), Type::SchemeCallable(_)));
+            assert_eq!(error.as_ref(), &Type::Error);
+            let mut wrong_error = (*executable).clone();
+            let wrong = SemanticPoolBuilder::default().intern_type(&mut wrong_error.store.semantic, &Type::Result(success.clone(), Box::new(Type::Str))).unwrap();
+            wrong_error.store.checked_expr_types[method_fact].type_id = wrong;
+            let failure = FullVerifier::verify(&wrong_error).unwrap_err();
+            assert!(failure.message.contains("checked method result disagrees"), "{failure:?}");
+            let other = executable.store.functions.iter().position(|function| executable.store.string(function.name).unwrap() == "other").unwrap();
+            let Type::SchemeCallable(relationship) = success.as_ref() else { unreachable!() };
+            let relationship = executable.store.semantic.scheme_callable_index(*relationship).unwrap() as usize;
+            let targets = executable.store.scheme_callable_values[relationship].targets.bounds(executable.store.scheme_callable_targets.len()).unwrap();
+            assert_eq!(targets.len(), 1);
+            assert_ne!(executable.store.scheme_callable_targets[targets.start].function.index(), other);
+            let mut wrong_target = (*executable).clone();
+            let other = IrFunctionId::new(other).unwrap();
+            wrong_target.store.scheme_callable_values[relationship].canonical = other;
+            wrong_target.store.scheme_callable_targets[targets.start].function = other;
+            let failure = FullVerifier::verify(&wrong_target).unwrap_err();
+            assert!(failure.message.contains("checked field fact disagrees") || failure.message.contains("checked method result disagrees") || failure.message.contains("checked scheme callable reference disagrees with its actual singleton producer"), "{failure:?}");
+            let retarget_key = |key: usize| {
+                let mut wrong_key = (*executable).clone();
+                let payload = wrong_key.store.data[key].range().bounds(wrong_key.store.extra.len()).unwrap();
+                match wrong_key.store.tags[key] {
+                    FullTag::ExprPreparedConstant => {
+                        let constant = wrong_key.store.extra[payload.start] as usize;
+                        assert!(matches!(&wrong_key.store.prepared_constants[constant].0, LoweredValue::Str(name) if name.as_ref() == "identity"));
+                        let index = wrong_key.store.prepared_constants.len() as u32;
+                        wrong_key.store.prepared_constants.push(PreparedConstantValue(LoweredValue::Str(Arc::from("other")), None));
+                        wrong_key.store.extra[payload.start] = index;
+                    }
+                    FullTag::ExprStr => {
+                        let other = executable.store.functions[other.index()].name;
+                        wrong_key.store.extra[payload.start] = other;
+                    }
+                    tag => panic!("constant get key has unexpected physical source: {tag:?}"),
+                }
+                wrong_key
+            };
+            let failure = FullVerifier::verify(&retarget_key(key)).unwrap_err();
+            assert!(failure.message.contains("checked method result disagrees"), "{failure:?}");
+            let index_key = (0..executable.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&executable.store, step).unwrap();
+                decoder.instruction_range.clone().find_map(|instruction| match decoder.expression_view(instruction).unwrap() {
+                    schema::ExprView::Index { index, .. } => Some(index.raw() as usize),
+                    _ => None,
+                })
+            }).unwrap();
+            let failure = FullVerifier::verify(&retarget_key(index_key)).unwrap_err();
+            assert!(failure.message.contains("checked index fact disagrees"), "{failure:?}");
+            let mut no_operand = (*executable).clone();
+            no_operand.store.checked_expr_types.retain(|fact| fact.instruction as usize != method);
+            let failure = FullVerifier::verify(&no_operand).unwrap_err();
+            assert_eq!(failure.message, "checked try producer is missing its operand type");
+            let field = (0..executable.store.driver_steps.len()).find_map(|step| {
+                let decoder = verify_schemes::decoder_for_driver_step(&executable.store, step).unwrap();
+                decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Field { name: "identity", .. })
+                    && executable.store.checked_expr_types.iter().any(|fact| fact.instruction as usize == instruction && fact.is_contract()
+                        && matches!(executable.store.semantic.to_type(fact.type_id).unwrap(), Type::SchemeCallable(_))))
+            }).unwrap();
+            let field_fact = executable.store.checked_expr_types.iter().find(|fact| fact.instruction as usize == field).unwrap();
+            assert_eq!(executable.store.semantic.to_type(field_fact.type_id).unwrap(), *success);
+            let mut wrong_field = (*executable).clone();
+            let payload = wrong_field.store.data[field].range().bounds(wrong_field.store.extra.len()).unwrap();
+            let other = executable.store.functions[other.index()].name;
+            assert_eq!(wrong_field.store.string(wrong_field.store.extra[payload.start + 1]).unwrap(), "identity");
+            wrong_field.store.extra[payload.start + 1] = other;
+            let failure = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert!(failure.message.contains("checked field fact disagrees"), "{failure:?}");
+            let _symbols = executable.symbol_owner().enter();
+            let target = executable.store.scheme_callable_values[relationship].canonical.index();
+            let namespace = Name::intern(executable.store.string(executable.store.function_metadata[target].owner).unwrap());
+            let target_name = Name::intern(executable.store.string(executable.store.functions[target].name).unwrap());
+            let function = QualifiedName::new(namespace, target_name);
+            let site = executable.store.scheme_callable_calls.iter().find(|site| site.relationship as usize == relationship).unwrap();
+            assert!(executable.store.call_instantiations.iter().any(|instance| instance.instruction == site.instruction));
+            let bindings = executable.invocation_applications(site.instruction, target, &PreparedInvocationBindings::default()).unwrap();
+            assert!(!bindings.substitution.types.is_empty());
+            let alternate = executable.store.functions.iter().position(|header| executable.store.string(header.name).unwrap() == "other").unwrap();
+            let alternate_function = QualifiedName::new(namespace, Name::intern(executable.store.string(executable.store.functions[alternate].name).unwrap()));
+            let union = executable.store.scheme_callable_values.iter().position(|value| {
+                let range = value.targets.bounds(executable.store.scheme_callable_targets.len()).unwrap();
+                executable.store.scheme_callable_targets[range].iter().map(|member| member.function.index()).collect::<BTreeSet<_>>() == BTreeSet::from([target, alternate])
+            }).expect("source conditional retains its actual two-target relationship");
+            executable.validate_scheme_callable_target(union as u32, target, CallableKind::Pure).unwrap();
+            executable.validate_scheme_callable_target(union as u32, alternate, CallableKind::Pure).unwrap();
+            let foreign_program = Arc::new((*executable).clone());
+            FullVerifier::verify(&foreign_program).unwrap();
+            let use_step = (0..executable.driver_step_count().unwrap()).find(|&step| executable.driver_step_view(step).unwrap().tag() == FullDriverTag::Use).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executable.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&executable));
+                for step in 0..executable.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(executable.store.source_id, 0)).unwrap().unwrap(); }
+                let Value::Callable(original) = &evaluator.lookup(Name::intern("by_get")).unwrap().value else { panic!("owned get success remains callable") };
+                let Value::Callable(same) = &evaluator.lookup(Name::intern("same")).unwrap().value else { panic!("immutable alias remains callable") };
+                assert!(Arc::ptr_eq(original.instance().unwrap(), same.instance().unwrap()));
+                for (owner, prepared_function, state, expected) in [
+                    (Arc::clone(&executable), function, crate::runtime::eval::PreparedCallableState::Instance(bindings.clone()), "instantiated callable cannot regain a quantified relationship"),
+                    (Arc::clone(&foreign_program), function, crate::runtime::eval::PreparedCallableState::SchemeValue(relationship as u32), "callable materialization belongs to another program"),
+                    (Arc::clone(&executable), alternate_function, crate::runtime::eval::PreparedCallableState::SchemeValue(union as u32), "prepared callable identity disagrees with its owner"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*executable.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&executable));
+                    for step in 0..=use_step { evaluator.eval_indexed_driver_step(step, Span::at(executable.store.source_id, 0)).unwrap().unwrap(); }
+                    let mut binding = evaluator.lookup(library_name).unwrap().clone();
+                    let Value::Module(exports) = &mut binding.value else { panic!("actual imported module exists before host replacement") };
+                    assert!(matches!(exports.get("identity"), Some(Value::Callable(callable)) if callable.instance().is_none()));
+                    let callable = crate::runtime::value::CallableValue::prepared(function.into(), Arc::new(crate::runtime::eval::PreparedCallable {
+                        program: owner, function: crate::runtime::eval::LoweredFunctionKey::Qualified(prepared_function), kind: CallableKind::Pure, state,
+                    }));
+                    exports.insert(Arc::from("identity"), Value::Callable(callable));
+                    evaluator.define(library_name, binding);
+                    let failure = (use_step + 1..executable.driver_step_count().unwrap()).find_map(|step| {
+                        evaluator.eval_indexed_driver_step(step, Span::at(executable.store.source_id, 0)).unwrap().err()
+                    }).unwrap_or_else(|| panic!("owned relationship publication must reject: {expected}"));
+                    assert_eq!(failure.message, expected);
+                }
             }
         });
     }

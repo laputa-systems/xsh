@@ -4,7 +4,7 @@ use super::{CallableAlias, Checker, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::scheme_callable::{SchemeCallableError, SchemeCallableRelationship};
 use crate::sema::types::{CallableKind, SchemeCallableId};
-use crate::syntax::arena::{ArenaCallArg, ArenaProgram, ExprId};
+use crate::syntax::arena::{ArenaCallArg, ArenaExprKind, ArenaProgram, ExprId};
 use std::sync::Arc;
 
 impl Checker {
@@ -75,7 +75,8 @@ impl Checker {
         Ok(id)
     }
 
-    pub(super) fn retain_named_scheme_callable(&mut self, program: &ArenaProgram, named: &CallableAlias, span: Span) -> Option<Type> {
+    pub(super) fn retain_named_scheme_callable(&mut self, program: &ArenaProgram, named: &CallableAlias, expression: ExprId) -> Option<Type> {
+        let span = program.arena.expr(expression).span;
         if !named.signature.scheme().callable().is_quantified() { return None; }
         let target = named.signature.definition_target()?;
         let contract = self.scheme_value_contract(program, &named.signature);
@@ -89,6 +90,16 @@ impl Checker {
         match self.intern_scheme_callable_relationship(prepared) {
             Ok(id) => {
                 let ty = Type::SchemeCallable(id);
+                if let ArenaExprKind::Try(inner) = program.arena.expr(expression).kind
+                    && let Some(projection) = self.projections.get(&program.arena.expr(inner).span)
+                    && projection.operation == crate::sema::projection::ProjectionOperation::Get
+                    && let Some(actual) = projection.callable.as_ref().and_then(|export| self.resolve_generic_module_callable_alias(program, projection.receiver, projection.field, export))
+                    && actual.signature.definition_target() == Some(target)
+                    && let Some(Type::Result(success, error)) = self.expr_types.get(&program.arena.expr(inner).span)
+                    && success.as_ref() == &Type::Function(named.kind)
+                {
+                    self.record_expr_type(program.arena.expr(inner).span, Type::Result(Box::new(ty.clone()), error.clone()));
+                }
                 self.record_selected_function_value(span, &named.signature);
                 self.record_expr_type(span, ty.clone());
                 Some(ty)

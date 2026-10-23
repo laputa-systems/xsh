@@ -869,11 +869,39 @@ pub(super) fn materialize_indexed_callable(
 ) -> Result<LoweredValue, RuntimeError> {
     let relationship = execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))?;
     if !execution.program().has_invocation(instruction) && relationship.is_none() { return Ok(value); }
+    let materialization = match relationship {
+        Some(relationship) => IndexedCallableMaterialization::Relationship(relationship),
+        None => IndexedCallableMaterialization::Invocation { instruction, bindings: invocation },
+    };
+    prepare_indexed_callable(evaluator, execution, materialization, value, span)
+}
+
+enum IndexedCallableMaterialization<'a> {
+    Relationship(u32),
+    Invocation { instruction: u32, bindings: &'a crate::runtime::eval::indexed::full::PreparedInvocationBindings },
+}
+
+pub(super) fn retain_indexed_scheme_callable(
+    evaluator: &Evaluator, execution: &FullExecution<'_>, instruction: u32,
+    value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    if !execution.program().has_scheme_callable_values() { return Ok(value); }
+    let Some(relationship) = execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))? else { return Ok(value); };
+    prepare_indexed_callable(evaluator, execution, IndexedCallableMaterialization::Relationship(relationship), value, span)
+}
+
+fn prepare_indexed_callable(
+    evaluator: &Evaluator, execution: &FullExecution<'_>, materialization: IndexedCallableMaterialization<'_>,
+    value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
     let (function, kind) = indexed_callable_identity(&value, span)?;
     let callable = match &value {
         LoweredValue::Callable(callable) => callable,
         _ => unreachable!("callable identity requires a callable value"),
     };
+    if callable.instance().is_some_and(|instance| instance.kind != kind || instance.function != function) {
+        return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
+    }
     let program = execution.program_owner().dispatch_arc(evaluator.indexed_program.as_ref())
         .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable lost its executable program owner").with_span(span))?;
     if callable.instance().is_some_and(|instance| !Arc::ptr_eq(&instance.program, &program)) {
@@ -886,12 +914,24 @@ pub(super) fn materialize_indexed_callable(
         return Err(RuntimeError::new("indexed-ir", "prepared callable kind disagrees with its actual target").with_span(span));
     }
     let target = view.index();
-    let state = if let Some(relationship) = relationship {
-        program.validate_scheme_callable_target(relationship, target, actual_kind).map_err(|error| indexed_error(error, span))?;
-        crate::runtime::eval::PreparedCallableState::SchemeValue(relationship)
-    } else {
-        crate::runtime::eval::PreparedCallableState::Instance(program.invocation_applications(instruction, target, invocation)
-            .map_err(|error| indexed_error(error, span))?)
+    let state = match materialization {
+        IndexedCallableMaterialization::Relationship(relationship) => {
+            program.validate_scheme_callable_target(relationship, target, actual_kind).map_err(|error| indexed_error(error, span))?;
+            if let Some(instance) = callable.instance() {
+                match instance.state {
+                    crate::runtime::eval::PreparedCallableState::SchemeValue(actual) => {
+                        program.validate_scheme_callable_target(actual, target, actual_kind).map_err(|error| indexed_error(error, span))?;
+                        if actual == relationship { return Ok(value); }
+                    }
+                    crate::runtime::eval::PreparedCallableState::Instance(_) => return Err(RuntimeError::new("indexed-ir", "instantiated callable cannot regain a quantified relationship").with_span(span)),
+                }
+            }
+            crate::runtime::eval::PreparedCallableState::SchemeValue(relationship)
+        }
+        IndexedCallableMaterialization::Invocation { instruction, bindings } => {
+            crate::runtime::eval::PreparedCallableState::Instance(program.invocation_applications(instruction, target, bindings)
+                .map_err(|error| indexed_error(error, span))?)
+        }
     };
     let callable = crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
         program, function, kind: actual_kind, state,
@@ -1402,11 +1442,15 @@ impl Evaluator {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
         };
         let publication = self.sync_indexed_root_slots(slots, call_span);
-        let mut flow = match (result, publication) {
+        let flow = match (result, publication) {
             (Err(error), _) => Err(error),
             (Ok(_), Err(error)) => Err(error),
             (Ok(flow), Ok(())) => Ok(flow),
         }?;
+        let mut flow = match flow {
+            ControlFlow::Continue(value) => ControlFlow::Continue(retain_indexed_scheme_callable(self, execution, instruction, value, call_span)?),
+            ControlFlow::Break(value) => ControlFlow::Break(value),
+        };
         self.register_returned_lowered_streams(&mut flow, call_span)?;
         Ok(flow)
     }

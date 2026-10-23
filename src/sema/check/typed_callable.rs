@@ -53,7 +53,7 @@ impl Checker {
             }
             if (expected.is_none() || matches!(expected, Some(Type::SchemeCallable(_))))
                 && let Some(named) = self.resolve_callable_alias_target(arena, id)
-                && let Some(retained) = self.retain_named_scheme_callable(arena, &named, arena.arena.expr(id).span)
+                && let Some(retained) = self.retain_named_scheme_callable(arena, &named, id)
             { return retained; }
             return actual;
         };
