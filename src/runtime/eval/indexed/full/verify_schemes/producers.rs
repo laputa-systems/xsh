@@ -1899,7 +1899,7 @@ struct RecordProducerWriters {
     types: BTreeMap<usize, Arc<Type>>,
 }
 
-struct ProducerProof<'a> {
+pub(super) struct ProducerProof<'a> {
     store: &'a FullStore,
     contexts: ProducerContexts<'a>,
     used_contexts: BTreeMap<u32, (super::super::ExecutableOwner, Arc<Type>)>,
@@ -1932,19 +1932,22 @@ struct ProducerProof<'a> {
     budget: SchemeInstantiationBudget,
 }
 
-pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, requests: SchemeProducerRequests) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerRequests) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+    let store = proof.store;
+    let index = proof.index;
     if index.demand == crate::runtime::eval::ProducerDemand::Absent
         && store.checked_expr_types.iter().any(|fact| !fact.is_contract())
     {
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent {
-        if !requests.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
+        if !requests.is_empty() || !proof.scheme_applications.is_empty() || !proof.pending.is_empty() { return Err(IrVerifyError::new("generic body requests have no mandatory producer demand")); }
         return Ok(Vec::new());
     }
+    proof.budget.charge(requests.applications.len())?;
+    proof.scheme_applications.extend(requests.applications);
     let mut scheme_methods = requests.methods;
     let completion_requests = requests.completions;
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: requests.applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     let mut completion_contributions = BTreeMap::new();
     for request in completion_requests {
         proof.budget.charge(request.actual.len().saturating_add(1))?;
@@ -1965,11 +1968,6 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         {
             proof.budget.charge(2)?;
             proof.ground_function(index)?;
-        }
-    }
-    for call in &store.checked_call_targets {
-        if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
-            proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize);
         }
     }
     for &step in &index.driver_outputs {
@@ -2322,6 +2320,36 @@ impl ConditionalProducerType {
 }
 
 impl<'a> ProducerProof<'a> {
+    pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
+        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: BTreeMap::new(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), bindings: BTreeMap::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        if index.demand == crate::runtime::eval::ProducerDemand::Needed {
+            for call in &store.checked_call_targets {
+                if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
+                    proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize);
+                }
+            }
+        }
+        proof
+    }
+
+    pub(super) fn pattern_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
+            return Err(IrVerifyError::new("pattern argument proof has no mandatory producer demand"));
+        }
+        let decoder = self.owner(owner)?;
+        let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
+        let binding = self.binding(owner, instruction, slot)?;
+        self.budget.charge(1)?;
+        if !self.index.owners[&owner].pattern_sources.contains_key(&binding) { return Ok(None); }
+        let Some(source) = self.pattern_binding_type(&decoder, binding, slot)? else { return Ok(None) };
+        self.binding_slot(owner, binding, slot, source)?;
+        let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
+        super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
+        self.expression(owner, instruction, Arc::clone(&actual), false);
+        self.budget.charge_clone(&actual)?;
+        Ok(Some((*actual).clone()))
+    }
+
     fn require_callable_effects(&mut self, decoder: &FullDecoder<'_>, instruction: usize, effects: Option<&[crate::syntax::node::Effect]>, pure: bool) -> Result<(), IrVerifyError> {
         let index = self.index;
         super::super::verify_effects::require_callable(decoder, index.scheme_scopes(self.store)?, &mut self.budget, instruction, effects, pure, |at| {

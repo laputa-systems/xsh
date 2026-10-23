@@ -22632,6 +22632,55 @@ run true
     }
 
     #[test]
+    fn generic_arguments_authenticate_result_pattern_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-result-pattern-argument.xsh", r#"
+type Entry = {size: Int, wrong: Str}
+pure forward(value) { value }
+pure read(input: Result[Entry, Str], replacement: Str) -> Int {
+    let _ = replacement
+    if let Ok(entry) = input { forward(entry.size) } else { 0 }
+}
+assert read(Ok({size: 7, wrong: "wrong"}), "replacement") == 7
+assert read(Err("absent"), "replacement") == 0
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "read");
+            let decoder = function_view_decoder(&program.store, owner);
+            let fields = function_instruction_indices(&program, "read", FullTag::ExprField);
+            assert_eq!(fields.len(), 1);
+            let field = fields[0];
+            let schema::ExprView::Field { base, name, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+            assert_eq!(name, "size");
+            let payload = program.store.data[field].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.extra[payload.start + 1] = scheme_fixture_string(&program, "wrong");
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            assert!(matches!(decoder.expression_view(base.raw() as usize).unwrap(), schema::ExprView::Param(slot) if slot >= 2));
+            let binding = program.store.data[base.raw() as usize].range().bounds(program.store.extra.len()).unwrap();
+            let mut foreign_binding = (*program).clone();
+            foreign_binding.store.extra[binding.start] = 0;
+            let error = FullVerifier::verify(&foreign_binding).unwrap_err();
+            assert_eq!(error.message, "generic call argument has no closed checked type");
+            let patterns = program.store.patterns.iter().enumerate().filter_map(|(index, tag)| (*tag == FullPatternTag::ResultOk).then_some(index)).collect::<Vec<_>>();
+            assert_eq!(patterns.len(), 1);
+            let mut wrong_pattern = (*program).clone();
+            wrong_pattern.store.patterns[patterns[0]] = FullPatternTag::ResultErr;
+            let error = FullVerifier::verify(&wrong_pattern).unwrap_err();
+            assert_eq!(error.message, "generic call argument has no closed checked type");
+        });
+    }
+
+    #[test]
     fn checked_record_lists_preserve_nominal_sources_during_optional_initialization() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-record-nominal-list.xsh", r#"

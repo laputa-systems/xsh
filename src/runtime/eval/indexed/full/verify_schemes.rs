@@ -247,8 +247,9 @@ pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, co
     let scopes = &producer_index.scheme_scopes(store)?.scopes;
     scheme_values::verify_relationships(store, scopes)?;
     let mut requests = verify_scheme_body_facts(store, scopes, producer_index, function_signatures)?;
-    verify_call_instantiations(store, scopes, &mut requests, function_signatures)?;
-    producers::verify(store, producer_index, contexts, requests)
+    let mut proof = producers::ProducerProof::new(store, producer_index, contexts, std::mem::take(&mut requests.applications));
+    verify_call_instantiations(store, scopes, &mut requests, function_signatures, &mut proof)?;
+    producers::verify(proof, requests)
 }
 
 fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCoverage) -> Result<Vec<Option<SchemeScope>>, IrVerifyError> {
@@ -2321,6 +2322,7 @@ fn verify_call_instantiations(
     scopes: &[Option<SchemeScope>],
     requests: &mut producers::SchemeProducerRequests,
     function_signatures: &Arc<super::FunctionSignatureIndex>,
+    producer_proof: &mut producers::ProducerProof<'_>,
 ) -> Result<(), IrVerifyError> {
     let mut target_by_instruction = BTreeMap::new();
     for fact in &store.checked_call_targets {
@@ -2504,6 +2506,7 @@ fn verify_call_instantiations(
                 &substitution,
                 &mut materialization,
                 function_signatures,
+                producer_proof,
             )?);
             let result = checked_expression_type_id(store, instantiation.instruction)
                 .ok_or_else(|| IrVerifyError::new("generic call has no checked result type"))?;
@@ -3578,6 +3581,7 @@ fn verify_instantiated_call_arguments(
     substitution: &CallSubstitution,
     materialization: &mut SchemeInstantiationBudget,
     function_signatures: &Arc<super::FunctionSignatureIndex>,
+    producer_proof: &mut producers::ProducerProof<'_>,
 ) -> Result<Vec<producers::GroundArgumentRequest>, IrVerifyError> {
     let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
     let view = decoder.expression_view(instruction)?;
@@ -3676,15 +3680,10 @@ fn verify_instantiated_call_arguments(
         let actual = match actual {
             Some(actual) => actual,
             None if !is_splice => {
-                let Some(actual) = annotated_optional_record_argument_type(
-                    store,
-                    &decoder,
-                    value.raw() as usize,
-                    materialization,
-                )? else {
-                    return Err(IrVerifyError::new(
-                        "generic call argument has no closed checked type",
-                    ));
+                let actual = match producer_proof.pattern_argument_type(decoder.owner, value.raw() as usize)? {
+                    Some(actual) => actual,
+                    None => annotated_optional_record_argument_type(store, &decoder, value.raw() as usize, materialization)?
+                        .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
                 };
                 ensure_closed_type(&actual)?;
                 if !actual.matches_expected(&expected) {
