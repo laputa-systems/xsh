@@ -4962,6 +4962,17 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            callable; RuntimeOp::FsRead if values.len() == 1 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.read_bytes",
+                    span,
+                )?;
+                match read_host_path_bytes(&self.host_path(&path), span) {
+                    Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             callable; RuntimeOp::FsReadText if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),

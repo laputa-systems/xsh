@@ -39,7 +39,7 @@ use super::{
     lowered_type_name, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
-    read_host_path_bytes, run_pipeline_inherit_with_policy,
+    run_pipeline_inherit_with_policy,
     identified_structured_error_constructor, runtime_error_from_value, splice_to_argv,
     ValueView, value_matches_static_type, value_to_argv_bytes,
 };
@@ -1306,10 +1306,12 @@ pub(super) fn indexed_frame_apply_value(
                 }
             };
             assert!(values.next().is_none(), "path read operand count mismatch");
-            Ok(match read_host_path_bytes(&evaluator.host_path(&path), span) {
-                Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes)),
-                Err(error) => lowered_result_err_value(error),
-            })
+            indexed_frame_apply_module_call(
+                evaluator,
+                RuntimeOp::FsRead,
+                vec![Some(LoweredValue::Path(path))],
+                span,
+            )
         }
         ExprView::PathExists { span, .. }
         | ExprView::PathExecutable { span, .. }

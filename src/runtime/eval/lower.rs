@@ -4779,14 +4779,33 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
                         ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
                     }
-                    let lowered = if let Some(receiver) = receiver {
-                        let args = ordered.into_iter().collect::<Option<Vec<_>>>()?;
-                        push_build_row!(self, expr, BuildExprRow::Method { receiver, name: crate::symbol::NameText::Dynamic(Arc::clone(&plan.name)), args, span })
-                    } else {
-                        push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args: ordered, span })
+                    let path_operation = match plan.signature.op {
+                        RuntimeOp::FsReadText => Some("read_text"),
+                        RuntimeOp::FsRead => Some("read_bytes"),
+                        RuntimeOp::FsExists => Some("exists"),
+                        RuntimeOp::FsExecutable => Some("executable"),
+                        _ => None,
                     };
-                    registered = Some(plan);
-                    lowered
+                    if let (Some(receiver), Some(name), Some(crate::modules::MethodReceiver::Path)) = (receiver, path_operation, plan.receiver) {
+                        let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
+                        let receiver_type = lowered_types.get(&receiver)?;
+                        if plan.name.as_ref() != name
+                            || receiver_type.closed_ground_type().as_ref().map(Type::unvalidated) != Some(&Type::Path)
+                            || !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { name: selected, .. } | ArenaExprKind::NullSafeField { name: selected, .. } if selected.as_str().as_str() == name)
+                            || !crate::sema::builtin_templates::verify_registered_call(&plan, Some(receiver_type), &arguments, &ty)
+                        { return self.block_scheme_lowering_expr(expression); }
+                        ordered.insert(0, Some(receiver));
+                        push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args: ordered, span })
+                    } else {
+                        let lowered = if let Some(receiver) = receiver {
+                            let args = ordered.into_iter().collect::<Option<Vec<_>>>()?;
+                            push_build_row!(self, expr, BuildExprRow::Method { receiver, name: crate::symbol::NameText::Dynamic(Arc::clone(&plan.name)), args, span })
+                        } else {
+                            push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args: ordered, span })
+                        };
+                        registered = Some(plan);
+                        lowered
+                    }
                 } else { return self.block_scheme_lowering_expr(expression); }
             }
             _ => return self.block_scheme_lowering_expr(expression),

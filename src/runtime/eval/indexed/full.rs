@@ -34939,6 +34939,135 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     }
 
     #[test]
+    fn generic_path_io_methods_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc inspect(token, file: Path) [fs, error] {
+  let alias = file
+  {token, text: alias.read_text()?, bytes: file.read_bytes()?, exists: file.exists()?, executable: file.executable()?}
+}
+proc inspect_relative(token, file: RelPath) [fs, error] {
+  {token, text: file.read_text()?, bytes: file.read_bytes()?, exists: file.exists()?, executable: file.executable()?}
+}
+proc missing(token, file: Path) [fs, error] { let _ = token; file.read_text()? }
+proc present(token, file: Path) [fs, error] { let _ = token; file.exists()? }
+proc load_bytes(token, file: Path) [fs, error] { let _ = token; file.read_bytes()? }
+proc driver() [fs, env, error] -> Bool {
+  tempdir directory {
+    let file = fp"{directory}/payload"
+    file.write("payload", mode: 0o600)?
+    let integer = inspect(7, file)?
+    let text = inspect("seven", file)?
+    assert integer.token == 7
+    assert text.token == "seven"
+    assert integer.text == "payload"
+    assert text.text == "payload"
+    assert integer.bytes == b"payload"
+    assert text.bytes == b"payload"
+    assert integer.exists
+    assert text.exists
+    assert !integer.executable
+    assert !text.executable
+    file.write("runnable", mode: 0o700)?
+    let runnable = inspect(8, file)?
+    assert runnable.executable
+    let absent = fp"{directory}/missing"
+    assert !present("absent", absent)?
+    let failure = missing(7, absent)
+    assert match failure { Err(_) => true; Ok(_) => false }
+    let byte_failure = load_bytes("missing", absent)
+    assert match byte_failure { Err(_) => true; Ok(_) => false }
+    let plain_text_failure = absent.read_text()
+    let plain_byte_failure = absent.read_bytes()
+    let text_message = match failure { Err(problem) => problem.message; Ok(_) => "" }
+    let byte_message = match byte_failure { Err(problem) => problem.message; Ok(_) => "" }
+    assert text_message != ""
+    assert byte_message != ""
+    assert text_message == (match plain_text_failure { Err(problem) => problem.message; Ok(_) => "" })
+    assert byte_message == (match plain_byte_failure { Err(problem) => problem.message; Ok(_) => "" })
+    cd directory {
+      let relative: RelPath = "payload"
+      assert relative.read_text()? == "runnable"
+      assert relative.read_bytes()? == b"runnable"
+      assert relative.exists()?
+      assert relative.executable()?
+      let relative_integer = inspect_relative(10, relative)?
+      let relative_text = inspect_relative("ten", relative)?
+      assert relative_integer.token == 10
+      assert relative_text.token == "ten"
+      assert relative_integer.text == "runnable"
+      assert relative_text.text == "runnable"
+      assert relative_integer.bytes == b"runnable"
+      assert relative_text.bytes == b"runnable"
+      assert relative_integer.exists
+      assert relative_text.exists
+      assert relative_integer.executable
+      assert relative_text.executable
+    }
+    file.write(b"\xff\x00")?
+    assert file.read_bytes()? == b"\xff\x00"
+    assert load_bytes(9, file)? == b"\xff\x00"
+    assert load_bytes("nine", file)? == b"\xff\x00"
+  }
+  true
+}
+"#;
+            let program = Arc::new(fixture("generic-path-io.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "driver")),
+                    CallableKind::Proc, &[], Span::at(program.store.source_id, 0),
+                ).expect("Path driver exists").unwrap();
+                assert_eq!(result, Value::Bool(true));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_path_io_methods_reject_forged_native_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-path-io-contracts.xsh", r#"
+proc read(token, file: Path, spare: Str) [fs] {
+  let _ = token
+  let _ = spare
+  file.read_text()
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "read");
+            let instruction = function_instruction_indices(&program, "read", FullTag::ExprModuleCall)[0];
+            let schema::ExprView::ModuleCall { op, call_plan, mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            assert_eq!(op, RuntimeOp::FsReadText);
+            assert!(call_plan.is_none());
+            assert!(!program.store.registered_calls.contains_key(&(instruction as u32)));
+            let receiver = args.next().unwrap().unwrap().unwrap().raw() as usize;
+            assert!(args.next().is_none());
+            let spare = function_instruction_indices(&program, "read", FullTag::ExprParam).into_iter()
+                .find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(2)))).unwrap();
+            let operation = program.store.extra[payload_start(&program, instruction)] as usize;
+            for wrong in [RuntimeOp::FsMkdir, RuntimeOp::FsRead] {
+                let mut forged = program.clone();
+                forged.store.runtime_ops[operation] = wrong;
+                assert!(FullVerifier::verify(&forged).is_err(), "{wrong:?}");
+            }
+            let mut wrong_operand = program.clone();
+            wrong_operand.store.data.swap(receiver, spare);
+            assert!(FullVerifier::verify(&wrong_operand).is_err());
+            let mut wrong_plan = program.clone();
+            let signature = &crate::modules::api_spec().method_overloads(crate::modules::MethodReceiver::Path, "read_text").unwrap()[0].sig;
+            wrong_plan.store.registered_calls.insert(instruction as u32, Arc::new(crate::sema::schemes::RegisteredCallPlan {
+                receiver: Some(crate::modules::MethodReceiver::Path), name: Arc::from("read_text"), signature,
+                argument_slots: Arc::from([]), argument_checks: Arc::from([]),
+            }));
+            assert!(FullVerifier::verify(&wrong_plan).is_err());
+        });
+    }
+
+    #[test]
     fn generic_row_host_body_executes_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source = "type Row = {value: Int}\npure item(value: Int) -> Int { value }\npure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }\n";
