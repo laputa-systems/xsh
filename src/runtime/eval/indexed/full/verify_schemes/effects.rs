@@ -369,12 +369,7 @@ impl<'a> ScopedEffectProof<'a> {
         let site = self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction)
             .map_err(|_| IrVerifyError::new("scheme callable effect site has no checked relationship"))?;
         let site = self.store.scheme_callable_calls[site];
-        let source = super::checked_expression_type_id(self.store, callee.raw())
-            .ok_or_else(|| IrVerifyError::new("scheme callable effect source has no checked contract"))?;
-        let crate::sema::types::Type::SchemeCallable(source) = self.store.semantic.to_type_with_budget(source, &mut budget.semantic_types)? else {
-            return Err(IrVerifyError::new("scheme callable effect source is not quantified"));
-        };
-        if self.store.semantic.scheme_callable_index(source)? != site.relationship {
+        if super::scheme_callable_source_relationship(self.store, decoder, callee.raw(), &self.scopes.scopes, budget)? != site.relationship {
             return Err(IrVerifyError::new("scheme callable effect source disagrees with its relationship"));
         }
         let relationship = self.store.scheme_callable_values.get(site.relationship as usize)

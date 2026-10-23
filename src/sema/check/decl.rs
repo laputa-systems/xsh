@@ -435,6 +435,21 @@ impl Checker {
                     && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+                let span = program.arena.expr(expression).span;
+                let site = crate::sema::schemes::InstantiationSite::call(span);
+                let relationship = self.scheme_callable_calls.get(&site)?;
+                let Type::SchemeCallable(callee_relationship) = generalized_body_types.get(&callee)?.closed_ground_type()? else { return None; };
+                if callee_relationship != *relationship { return None; }
+                generalized_calls.get(&site)?.invocation()?;
+                let relationship = self.scheme_callable_relationship(*relationship).ok()?;
+                let scheme = relationship.canonical().scheme();
+                let permitted = scheme.kind() == crate::sema::types::CallableKind::Pure
+                    || matches!(pending.kind(), crate::sema::types::CallableKind::Proc | crate::sema::types::CallableKind::Stream)
+                        && (self.collecting_effects || scheme.effects().is_known());
+                permitted.then_some(span)
+            }));
             checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
                 let Type::SchemeCallable(relationship) = ty.closed_ground_type()? else { return None; };
                 let span = program.arena.expr(expression).span;

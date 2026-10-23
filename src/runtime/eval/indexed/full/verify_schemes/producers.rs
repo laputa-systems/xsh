@@ -2078,6 +2078,7 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
             } else {
                 proof.need_context(&decoder, argument)?.ok_or_else(|| IrVerifyError::new("generic call argument has no ground producer contract"))?
             };
+            proof.contextual_argument(&decoder, argument, &ty)?;
             proof.expression(owner, argument, ty, false);
         }
     }
@@ -4391,10 +4392,33 @@ impl<'a> ProducerProof<'a> {
                 match self.store.functions[function].contract {
                     FullCallableContract::Ground(_) => { self.ground_function(function)?; self.call_arguments(&decoder, function, &arguments)?; }
                     FullCallableContract::Scheme(_) => {
-                        for argument in arguments {
-                            let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
-                            let ty = self.need_context(&decoder, argument)?.ok_or_else(|| IrVerifyError::new("generic argument producer has no ground type"))?;
-                            self.expression(owner, argument, ty, false);
+                        let scopes = self.index.scheme_scopes(self.store)?;
+                        if let Some(result) = super::scoped_expression_type(self.store, &decoder, instruction as u32, &scopes.scopes, &mut self.budget)? {
+                            if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_err() {
+                                return Err(IrVerifyError::new("scoped direct scheme call has no authenticated invocation"));
+                            }
+                            super::ScopedEffectProof::new(self.store, scopes).call_contract(&decoder, instruction, function, &mut self.budget)?;
+                            if expected.as_ref() != &Type::Any && result.closed_ground_type().is_none_or(|result| !result.matches_expected(&expected)) {
+                                return Err(IrVerifyError::new("scoped direct scheme result cannot establish its ground producer contract"));
+                            }
+                            for argument in arguments {
+                                let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
+                                let ty = super::scoped_expression_type(self.store, &decoder, argument as u32, &scopes.scopes, &mut self.budget)?
+                                    .ok_or_else(|| IrVerifyError::new("scoped direct scheme argument has no owned expression type"))?;
+                                if let Some(ty) = ty.closed_ground_type() { self.expression(owner, argument, Arc::new(ty), false); }
+                            }
+                        } else {
+                            if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_err() {
+                                return Err(IrVerifyError::new("ground direct scheme call has no authenticated invocation"));
+                            }
+                            super::ScopedEffectProof::new(self.store, scopes).call_contract(&decoder, instruction, function, &mut self.budget)?;
+                            for argument in arguments {
+                                let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
+                                self.budget.charge(1)?;
+                                if !self.expressions.contains_key(&(owner, argument)) {
+                                    return Err(IrVerifyError::new("ground direct scheme argument has no instantiated producer obligation"));
+                                }
+                            }
                         }
                     }
                 }
@@ -4521,7 +4545,25 @@ impl<'a> ProducerProof<'a> {
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, predicate.method_name(), &[needle.raw() as usize], &expected)
             }
             schema::ExprView::DynamicCall { callee, .. } => {
-                if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok() {
+                if let Ok(site) = self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction) {
+                    let scopes = &self.index.scheme_scopes(self.store)?.scopes;
+                    if let Some(result) = super::scoped_expression_type(self.store, &decoder, instruction as u32, scopes, &mut self.budget)? {
+                        if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_err() {
+                            return Err(IrVerifyError::new("scoped scheme value call has no authenticated invocation"));
+                        }
+                        if expected.as_ref() != &Type::Any && result.closed_ground_type().is_none_or(|result| !result.matches_expected(&expected)) {
+                            return Err(IrVerifyError::new("scoped scheme value result cannot establish its ground producer contract"));
+                        }
+                        let source = super::scoped_expression_type(self.store, &decoder, callee.raw(), scopes, &mut self.budget)?;
+                        let Some(super::SchemeType::SchemeCallable(source) | super::SchemeType::Ground(Type::SchemeCallable(source))) = source else {
+                            return Err(IrVerifyError::new("scoped scheme value callee has no owned relationship"));
+                        };
+                        if self.store.semantic.scheme_callable_index(source)? != self.store.scheme_callable_calls[site].relationship {
+                            return Err(IrVerifyError::new("scoped scheme value callee disagrees with its invocation relationship"));
+                        }
+                        self.expression(owner, callee.raw() as usize, Arc::new(Type::SchemeCallable(source)), false);
+                        return Ok(());
+                    }
                     let result = self.declared_type(&decoder, instruction)?.ok_or_else(|| IrVerifyError::new("scheme callable invocation has no checked result"))?;
                     if !result.matches_expected(&expected) { return Err(IrVerifyError::new("scheme callable invocation result disagrees with its producer contract")); }
                     let callee_type = self.need_context(&decoder, callee.raw() as usize)?.ok_or_else(|| IrVerifyError::new("scheme callable invocation has no callee producer contract"))?;

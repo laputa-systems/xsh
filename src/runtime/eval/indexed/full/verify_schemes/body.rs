@@ -789,8 +789,13 @@ pub(super) fn verify_body(
                 match decoder.expression_view(instruction)? {
                     schema::ExprView::DynamicCall { .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
-                        applications.insert(instruction);
-                        for child in applications::verify_site(store, decoder, instruction, scheme_scope, effect_scopes, scope.error_boundary.is_some(), types, budget)? {
+                        let children = if store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
+                            super::scheme_values::verify_call_site(store, decoder, instruction, effect_scopes, scope.error_boundary.is_some(), types, budget)?
+                        } else {
+                            applications.insert(instruction);
+                            applications::verify_site(store, decoder, instruction, scheme_scope, effect_scopes, scope.error_boundary.is_some(), types, budget)?
+                        };
+                        for child in children {
                             pending.push(Obligation::Expression(child, scope));
                         }
                     }
@@ -1439,6 +1444,61 @@ mod tests {
         let program = build(definition);
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_scheme_value_calls_authenticate_owned_sources_and_bindings() {
+        let program = prepare("pure items(maybe) { maybe?.items ?? [] }\npure other(maybe) { maybe?.other ?? [] }\npure relay(maybe) { let lookup = items; lookup(maybe) }\npure foreign(maybe) { let lookup = other; lookup(maybe) }\npure direct(maybe, wrong) { items(maybe) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "relay").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let foreign_range = program.store.function_instruction_range(foreign).unwrap();
+        let site = program.store.scheme_callable_calls.iter().position(|site| range.contains(&(site.instruction as usize))).unwrap();
+        let foreign_site = program.store.scheme_callable_calls.iter().find(|site| foreign_range.contains(&(site.instruction as usize))).unwrap();
+        let call = program.store.scheme_callable_calls[site].instruction as usize;
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let schema::ExprView::DynamicCall { callee, mut args, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let super::super::super::decode::CallArgView::Single(argument) = args.next().unwrap().unwrap() else { unreachable!() };
+        let callee = callee.raw() as usize;
+        let argument = argument.raw() as usize;
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == callee && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let mut missing_source = program.clone();
+        remove_scheme_body_fact(&mut missing_source, fact);
+        assert!(FullVerifier::verify(&missing_source).is_err());
+        let mut wrong_relationship = program.clone();
+        wrong_relationship.store.scheme_callable_calls[site].relationship = foreign_site.relationship;
+        assert!(FullVerifier::verify(&wrong_relationship).is_err());
+        let mut missing_invocation = program.clone();
+        missing_invocation.store.call_instantiations.retain(|instance| instance.instruction as usize != call);
+        assert!(FullVerifier::verify(&missing_invocation).is_err());
+        assert_eq!(program.store.tags[callee], super::super::super::FullTag::ExprParam);
+        assert_eq!(program.store.tags[argument], super::super::super::FullTag::ExprParam);
+        let lookup = program.store.extra[program.store.data[callee].range().start as usize];
+        let input = program.store.extra[program.store.data[argument].range().start as usize];
+        assert_ne!(lookup, input);
+        let mut wrong_callee = program.clone();
+        wrong_callee.store.extra[program.store.data[callee].range().start as usize] = input;
+        assert!(FullVerifier::verify(&wrong_callee).is_err());
+        let mut wrong_argument = program.clone();
+        wrong_argument.store.extra[program.store.data[argument].range().start as usize] = lookup;
+        assert!(FullVerifier::verify(&wrong_argument).is_err());
+        let direct = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct").unwrap();
+        let direct_range = program.store.function_instruction_range(direct).unwrap();
+        let direct_call = program.store.checked_call_targets.iter().find(|call| direct_range.contains(&(call.instruction as usize))).unwrap().instruction as usize;
+        let mut wrong_target = program.clone();
+        wrong_target.store.extra[program.store.data[direct_call].range().start as usize] = program.store.scheme_callable_values[foreign_site.relationship as usize].canonical.raw();
+        wrong_target.store.checked_call_targets.iter_mut().find(|target| target.instruction as usize == direct_call).unwrap().function = program.store.scheme_callable_values[foreign_site.relationship as usize].canonical;
+        assert!(FullVerifier::verify(&wrong_target).is_err());
+        let direct_decoder = super::super::decoder_for_function(&program.store, direct).unwrap();
+        let (schema::ExprView::Call { mut args, .. } | schema::ExprView::DirectPureCall { mut args, .. }) = direct_decoder.expression_view(direct_call).unwrap() else { unreachable!() };
+        let super::super::super::decode::CallArgView::Single(argument) = args.next().unwrap().unwrap() else { unreachable!() };
+        let argument = argument.raw() as usize;
+        let mut wrong_binding = program.clone();
+        wrong_binding.store.extra[program.store.data[argument].range().start as usize] = 1;
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
     }
 
     #[test]

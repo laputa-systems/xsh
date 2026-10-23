@@ -976,6 +976,46 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn wrapper_empty_list_fallbacks_preserve_independent_row_items() {
+        let rows = "type IntRow = {items: List[Int]}\ntype StrRow = {items: List[Str]}";
+        let calls = "let numbers: IntRow? = {items: [2, 4]}\nlet absent: IntRow? = null\nlet words: StrRow? = {items: [\"a\", \"b\"]}\nlet numeric: List[Int] = inspect(numbers)\nlet empty: List[Int] = inspect(absent)\nlet textual: List[Str] = inspect(words)";
+        for body in ["maybe?.items ?? []", "let source = maybe; source?.items ?? []"] {
+            accepts(&format!("{rows}\npure inspect(maybe) {{ {body} }}"), calls);
+        }
+        for body in ["items(maybe)", "let lookup = items; lookup(maybe)"] {
+            accepts(&format!("{rows}\npure items(maybe) {{ maybe?.items ?? [] }}\npure inspect(maybe) {{ {body} }}"), calls);
+        }
+    }
+
+    #[test]
+    fn wrapper_empty_list_actuals_preserve_source_and_named_argument_order() {
+        let definition = "type IntRow = {items: List[Int]}\ntype StrRow = {items: List[Str]}\npure inspect(maybe, otherwise) { maybe?.items ?? otherwise }";
+        for arguments in ["numbers, []", "maybe: numbers, otherwise: []", "otherwise: [], maybe: numbers"] {
+            let calls = format!("let numbers: IntRow? = {{items: [2, 4]}}\nlet words: StrRow? = {{items: [\"a\"]}}\nlet numeric: List[Int] = inspect({arguments})\nlet textual: List[Str] = inspect({})", arguments.replace("numbers", "words"));
+            accepts(definition, &calls);
+        }
+    }
+
+    #[test]
+    fn contextual_empty_lists_preserve_dynamic_and_unrooted_rejections() {
+        for source in [
+            "let bare = []\nlet scalar: Int = bare",
+            "pure empty(marker) { let _ = marker; [] }\nlet unrooted = empty(7)",
+            "let erased: Any = []\nlet concrete: List[Int] = erased",
+            "pure inspect(maybe) { maybe?.items ?? [] }\nlet erased: Any = null\nlet value = inspect(erased)",
+            "type Row = {items: Int}\npure inspect(maybe) { maybe?.items ?? [] }\nlet row: Row? = {items: 7}\nlet invalid = inspect(row)",
+            "proc effectful(value) [env] { let _ = env.get(\"XSH_EMPTY_LIST_EFFECT\"); value }\npure forward(value) { effectful(value) }",
+            "proc effectful(value) [env] { let _ = env.get(\"XSH_EMPTY_LIST_EFFECT\"); value }\npure forward(value) { let lookup = effectful; lookup(value) }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        accepts("", "let bare = []\nlet explicit: Any = []");
+    }
+
+    #[test]
     fn result_pattern_calls_close_only_constructor_phantom_errors() {
         let definition = "pure choose(outcome, fallback) { match outcome { Ok(value) => value; Err(_) => fallback } }";
         let calls = "let number = choose(Ok(9), 4)\nlet word = choose(Ok(\"ready\"), \"waiting\")";

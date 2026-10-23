@@ -4,6 +4,46 @@ use super::super::scheme_values::FullSchemeCallableTarget;
 
 fn invalid() -> IrVerifyError { IrVerifyError::new("scheme callable target contracts disagree") }
 
+pub(super) fn verify_call_site(store: &FullStore, decoder: &FullDecoder<'_>, instruction: usize, effects: &VerifiedSchemeScopes, captured: bool, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<Vec<usize>, IrVerifyError> {
+    budget.charge(1)?;
+    let site = store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction)
+        .map_err(|_| IrVerifyError::new("generic scheme value call has no owned relationship"))?;
+    if store.scheme_application_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
+        return Err(IrVerifyError::new("generic value call has conflicting application authority"));
+    }
+    let site = store.scheme_callable_calls[site];
+    let schema::ExprView::DynamicCall { callee, args, .. } = decoder.expression_view(instruction)? else {
+        return Err(IrVerifyError::new("generic scheme value call has no physical callee"));
+    };
+    let source = types.get(&(callee.raw() as usize)).ok_or_else(|| IrVerifyError::new("generic scheme value callee has no expression type"))?;
+    let (SchemeType::SchemeCallable(source) | SchemeType::Ground(Type::SchemeCallable(source))) = source else {
+        return Err(IrVerifyError::new("generic scheme value callee has no relationship type"));
+    };
+    if store.semantic.scheme_callable_index(*source)? != site.relationship {
+        return Err(IrVerifyError::new("generic scheme value call disagrees with its callee relationship"));
+    }
+    let relationship = store.scheme_callable_values.get(site.relationship as usize).ok_or_else(|| IrVerifyError::new("generic scheme value relationship is out of bounds"))?;
+    let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic scheme value call has no function owner"))?.index();
+    let owner_kind = store.function_metadata.get(owner).ok_or_else(|| IrVerifyError::new("generic scheme value owner metadata is missing"))?.callable_kind;
+    let target_kind = store.function_metadata.get(relationship.canonical.index()).ok_or_else(|| IrVerifyError::new("generic scheme value target metadata is missing"))?.callable_kind;
+    if owner_kind == crate::sema::types::CallableKind::Pure && target_kind != crate::sema::types::CallableKind::Pure {
+        return Err(IrVerifyError::new("generic pure body has an impure scheme value call"));
+    }
+    let proof = ScopedEffectProof::new(store, effects);
+    let contract = proof.value_call_contract(decoder, instruction, relationship.canonical.index(), budget)?;
+    proof.require(owner, &contract, captured || owner_kind == crate::sema::types::CallableKind::Pure, budget)?;
+    budget.charge(1 + args.len())?;
+    let mut children = Vec::with_capacity(1 + args.len());
+    children.push(callee.raw() as usize);
+    for argument in args {
+        match argument? {
+            super::super::decode::CallArgView::Single(value) | super::super::decode::CallArgView::Splice(value) => children.push(value.raw() as usize),
+            super::super::decode::CallArgView::Default(_) => {}
+        }
+    }
+    Ok(children)
+}
+
 fn normalize_scope(scope: &SchemeScope, types: &[u32], rows: &[u32], effects: &[u32], budget: &mut SchemeInstantiationBudget) -> Result<SchemeScope, IrVerifyError> {
     budget.charge(scope.type_parameters.len() + scope.row_parameters.len() + scope.effects.parameters.len() + scope.row_lacks.iter().map(BTreeSet::len).sum::<usize>())?;
     let mut normalized = scope.clone();

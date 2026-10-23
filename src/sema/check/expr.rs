@@ -1750,6 +1750,19 @@ impl Checker {
         if range.is_empty() && matches!(expected, Some(Type::Any)) {
             return Type::List(Box::new(Type::Any));
         }
+        if range.is_empty() && let Some(context @ Type::Inference(variable)) = expected {
+            let level = match self.type_constraints.type_level(*variable) {
+                Ok(level) => level,
+                Err(error) => {
+                    self.error(literal_span, &format!("empty list context cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
+            };
+            let item = self.type_constraints.fresh_at_level(literal_span, level);
+            let list = Type::List(Box::new(item));
+            self.expect_type(context, &list, literal_span);
+            return list;
+        }
         let validated = expected
             .map(|ty| ty.optional_inner().unwrap_or(ty))
             .and_then(Type::validated);

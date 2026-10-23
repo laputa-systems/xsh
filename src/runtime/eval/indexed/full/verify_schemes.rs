@@ -2279,9 +2279,8 @@ fn verify_call_instantiations(
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => value,
             _ => return Err(IrVerifyError::new("scheme callable invocation has no physical value callee")),
         };
-        let id = checked_expression_type_id(store, callee.raw()).ok_or_else(|| IrVerifyError::new("scheme callable callee has no checked relationship"))?;
-        let Type::SchemeCallable(id) = store.semantic.to_type(id)? else { return Err(IrVerifyError::new("scheme callable callee is not quantified")); };
-        if store.semantic.scheme_callable_index(id)? != call.relationship { return Err(IrVerifyError::new("scheme callable call relationship disagrees with its callee")); }
+        let mut budget = SchemeInstantiationBudget::new(store);
+        if scheme_callable_source_relationship(store, &decoder, callee.raw(), scopes, &mut budget)? != call.relationship { return Err(IrVerifyError::new("scheme callable call relationship disagrees with its callee")); }
         let relationship = store.scheme_callable_values.get(call.relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable call relationship is out of bounds"))?;
         value_targets.insert(call.instruction, relationship.canonical);
         if store.call_instantiations.binary_search_by_key(&call.instruction, |instance| instance.instruction).is_err() { return Err(IrVerifyError::new("scheme callable call has no fresh instantiation")); }
@@ -4994,6 +4993,36 @@ fn scheme_type_binders(
         }
     }
     Ok((types, rows))
+}
+
+pub(super) fn scoped_expression_type(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    budget.charge(1)?;
+    if !decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("scoped expression belongs to another executable owner")); }
+    let super::ExecutableOwner::Function(function) = super::ExecutableOwner::from_raw(decoder.owner)? else { return Ok(None); };
+    let FullCallableContract::Scheme(id) = store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("scoped expression owner is invalid"))?.contract else { return Ok(None); };
+    if decoder.instruction_range != store.function_instruction_range(function.index())? { return Err(IrVerifyError::new("scoped expression range disagrees with its owner")); }
+    let facts = bounded(store.scheme(id)?.body_facts, &store.scheme_body_facts, "scoped expression fact range is invalid")?;
+    let key = (instruction, FullSchemeBodyFactKind::Expression as u8);
+    let mut comparisons = 0;
+    let found = facts.binary_search_by_key(&key, |fact| { comparisons += 1; (fact.instruction, fact.kind() as u8) });
+    budget.charge(comparisons)?;
+    let fact = &facts[found.map_err(|_| IrVerifyError::new("scoped expression has no mandatory expression fact"))?];
+    if fact.function != function { return Err(IrVerifyError::new("scoped expression fact belongs to another function")); }
+    let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped expression fact has no semantic type"))?;
+    let scope = scopes.get(id.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("scoped expression owner has no binder scope"))?;
+    decode_scheme_type(store, scope, ty, budget, 0).map(Some)
+}
+
+fn scheme_callable_source_relationship(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], budget: &mut SchemeInstantiationBudget) -> Result<u32, IrVerifyError> {
+    match scoped_expression_type(store, decoder, instruction, scopes, budget)? {
+        Some(SchemeType::SchemeCallable(id) | SchemeType::Ground(Type::SchemeCallable(id))) => store.semantic.scheme_callable_index(id),
+        Some(_) => Err(IrVerifyError::new("scheme callable source expression has no relationship type")),
+        None => {
+            let ty = checked_expression_type_id(store, instruction).ok_or_else(|| IrVerifyError::new("scheme callable source has no checked contract"))?;
+            let Type::SchemeCallable(id) = store.semantic.to_type_with_budget(ty, &mut budget.semantic_types)? else { return Err(IrVerifyError::new("scheme callable source is not quantified")); };
+            store.semantic.scheme_callable_index(id)
+        }
+    }
 }
 
 fn checked_expression_type_id(store: &FullStore, instruction: u32) -> Option<TypeId> {

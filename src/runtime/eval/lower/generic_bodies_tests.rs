@@ -699,6 +699,68 @@ fn record_form_program(source: &str) -> (Arc<crate::runtime::eval::FullProgram>,
     (Arc::new(program), sources, source_id)
 }
 
+#[test]
+fn generic_optional_row_empty_fallbacks_execute_after_frontend_disposal() {
+    let source = r#"
+type IntRow = {items: List[Int]}
+type StrRow = {items: List[Str]}
+pure items(maybe) { maybe?.items ?? [] }
+pure fallback(maybe, otherwise) { maybe?.items ?? otherwise }
+pure forward(maybe) { items(maybe) }
+pure relay(maybe) { let lookup = items; lookup(maybe) }
+let numbers: IntRow? = {items: [2, 4]}
+let absent: IntRow? = null
+let words: StrRow? = {items: ["a", "b"]}
+assert relay(numbers) == [2, 4]
+assert relay(absent) == []
+assert relay(words) == ["a", "b"]
+assert forward(numbers) == [2, 4]
+assert forward(absent) == []
+assert forward(words) == ["a", "b"]
+assert fallback(otherwise: [], maybe: numbers) == [2, 4]
+assert fallback(otherwise: [], maybe: absent) == []
+assert fallback(otherwise: [], maybe: words) == ["a", "b"]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+    }
+}
+
+#[test]
+fn generic_optional_rows_compose_empty_fallbacks_index_and_slice() {
+    let source = r#"
+type IntRow = {name: Str, items: List[Int]}
+type StrRow = {name: Str, items: List[Str]}
+pure inspect(maybe, start, end) {
+  let name = maybe?.name ?? "missing"
+  let items = maybe?.items ?? []
+  let selected = if items.len() == 0 { null } else { items[start] }
+  let slice = items[start..end]
+  {name: name, selected: selected, slice: slice}
+}
+let numbers: IntRow? = {name: "numbers", items: [2, 4, 6]}
+let absent: IntRow? = null
+let words: StrRow? = {name: "words", items: ["a", "b"]}
+let numeric = inspect(numbers, 1, 3)
+let empty = inspect(absent, 0, 0)
+let textual = inspect(words, 1, 2)
+assert numeric == {name: "numbers", selected: 4, slice: [4, 6]}
+assert empty == {name: "missing", selected: null, slice: []}
+assert textual == {name: "words", selected: "b", slice: ["b"]}
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+    }
+}
+
 fn record_form_observable(value: Value) -> Value {
     match value {
         Value::Record(fields) => Value::Map(fields.into_iter().map(|(name, value)| (crate::runtime::value::MapKey::Str(name), record_form_observable(value))).collect()),
