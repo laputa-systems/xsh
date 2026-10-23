@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::super::*;
 use crate::runtime::eval::Evaluator;
 use crate::sema::check::{CheckOptions, Checker};
@@ -734,7 +735,7 @@ assert choose(false) == "none"
         let owner = function(&program, name);
         let decoder = function_view_decoder(&program.store, owner);
         assert!(program.store.function_instruction_range(owner).unwrap().any(|instruction| {
-            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { value, check, .. })
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. })
                 if check.schema.is_none() && (match check.ty.materialize().unwrap() { Type::Record(_) => name == "choose", Type::Int => name == "choose_int", _ => false })
                     && matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Param(_))))
         }));
@@ -755,7 +756,7 @@ fn checked_prefix_guards_reject_fallthrough_writes() {
         let decoder = function_view_decoder(&program.store, owner);
         let range = program.store.function_instruction_range(owner).unwrap();
         let selected = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
-            Ok(schema::ExprView::CheckedValue { value, check, .. }) if check.schema.is_none() && matches!(check.ty.materialize().unwrap(), Type::Record(_)) => match decoder.expression_view(value.raw() as usize).unwrap() {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. }) if check.schema.is_none() && matches!(check.ty.materialize().unwrap(), Type::Record(_)) => match decoder.expression_view(value.raw() as usize).unwrap() {
                 schema::ExprView::Param(slot) => Some(slot),
                 _ => None,
             },
@@ -1417,7 +1418,7 @@ assert empty() == []
     let owner = function(&program, "empty");
     let decoder = function_view_decoder(&program.store, owner);
     let (gate, checked) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
-        Ok(schema::ExprView::CheckedValue { check, value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprValueBlock => Some((instruction, check.ty.id)),
+        Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. }) if program.store.tags[value.raw() as usize] == FullTag::ExprValueBlock => Some((instruction, check.ty.id)),
         _ => None,
     }).unwrap();
     let Type::List(item) = program.store.semantic.to_type(checked).unwrap() else { panic!("list gate") };
@@ -1427,7 +1428,7 @@ assert empty() == []
     let word = program.store.data[gate].range().start as usize + 1;
     assert_eq!(program.store.extra[word], checked.raw());
     malformed.store.extra[word] = nonempty.raw();
-    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check, .. } if check.ty.id == nonempty));
+    assert!(matches!(function_view_decoder(&malformed.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } if check.ty.id == nonempty));
     let error = FullVerifier::verify(&malformed).unwrap_err();
     assert!(error.message.contains("checked value input has no producer contract"), "{error:?}");
 }
@@ -3144,7 +3145,7 @@ assert read({selected: "kept", wrong: true}, [1]) == "kept"
     let decoder = function_view_decoder(&program.store, owner);
     let _symbols = program.symbol_owner().enter();
     let (gate, input, checked) = range.clone().find_map(|instruction| {
-        let Ok(schema::ExprView::CheckedValue { check, value, .. }) = decoder.expression_view(instruction) else { return None };
+        let Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. }) = decoder.expression_view(instruction) else { return None };
         if check.schema.is_none() && program.store.semantic.to_type(check.ty.id).unwrap() == Type::Str
             && matches!(decoder.expression_view(value.raw() as usize), Ok(schema::ExprView::Field { name: "selected", .. }))
         { Some((instruction, value.raw() as usize, check.ty.id)) } else { None }
@@ -3166,7 +3167,7 @@ assert read({selected: "kept", wrong: true}, [1]) == "kept"
     assert_eq!(program.store.extra[check_type], checked.raw());
     weakened.store.extra[check_type] = optional.raw();
     weakened.store.checked_expr_types.retain(|fact| fact.instruction as usize != gate);
-    assert!(matches!(function_view_decoder(&weakened.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check, .. } if check.ty.id == optional));
+    assert!(matches!(function_view_decoder(&weakened.store, owner).expression_view(gate).unwrap(), schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } if check.ty.id == optional));
     let error = FullVerifier::verify(&weakened).unwrap_err();
     assert!(error.message.contains("contract"), "{error:?}");
     let condition = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. })
@@ -3478,7 +3479,7 @@ assert selected(-1, null) == 2
         wrong_guard.store.binary_ops[op] = BinaryOp::Ne;
         assert!(FullVerifier::verify(&wrong_guard).is_err());
         let input = range.find_map(|instruction| match decoder.expression_view(instruction) {
-            Ok(schema::ExprView::CheckedValue { check, value, .. }) if check.ty.materialize().unwrap() == Type::Int => Some(value.raw() as usize),
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. }) if check.ty.materialize().unwrap() == Type::Int => Some(value.raw() as usize),
             _ => None,
         }).unwrap();
         assert!(matches!(decoder.expression_view(input), Ok(schema::ExprView::Param(0))));

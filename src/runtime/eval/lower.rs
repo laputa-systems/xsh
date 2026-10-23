@@ -481,7 +481,7 @@ use super::{
     LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption,
     LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
     LoweredRunTailOperand, LoweredStrPredicate, LoweredTopLevelBinding, LoweredTopLevelSlot,
-    LoweredTopLevelSlots, LoweredType, LoweredTypeCheck, LoweredValue, ProgramBuild, ReduceByOp,
+    LoweredTopLevelSlots, LoweredType, LoweredTypeCheck, LoweredValueCheck, LoweredValue, ProgramBuild, ReduceByOp,
     ScanBytes, ScanCheck, ScanCondition, SchemeBodyFacts, SchemeType, StmtFlow, lowered_method_name,
 };
 
@@ -4201,9 +4201,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => return self.block_scheme_lowering_expr(expression),
             };
             self.scratch.borrow_mut().scheme_constructors.insert(lowered.index(), kind);
+            if let Some(crate::sema::value_materialization::InstantiationEvidence::Value(plan)) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)) {
+                return self.publish_scheme_materialization(expression, lowered, plan.clone(), slots, lowered_types, body);
+            }
             return Some(lowered);
         }
         let mut ty = facts.expression_types().get(&expression)?.clone();
+        let materialization = match self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)) {
+            Some(crate::sema::value_materialization::InstantiationEvidence::Value(plan)) => Some(plan.clone()),
+            _ => None,
+        };
+        if let Some(plan) = &materialization { ty = plan.source.clone(); }
+
         if self.declarations.prepared_constants.values.contains_key(&expression) {
             let value = self.lower_expr(expression, slots, Some(current_function), None)?;
             return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
@@ -4719,6 +4728,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
+                if let Some(callable) = self.bodies.typed_callable_calls.get(&expression).cloned() {
+                    if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { .. }) { return self.block_scheme_lowering_expr(expression); }
+                    let expected = Type::Callable(Arc::clone(&callable));
+                    if facts.expression_types().get(&callee)?.closed_ground_type().as_ref() != Some(&expected) {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let callee = self.lower_scheme_expression(callee, slots, current_function, facts, visited, lowered_types, body)?;
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let arguments = self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Ground(&callable.sig.params)), self.call_argument_slots(expression), None, slots, Some(current_function), None)?;
+                    let lowered = push_build_row!(self, expr, BuildExprRow::TypedCall { callee, kind: callable.kind, signature: expected, args: arguments, span });
+                    return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
                 let applications = &facts.scheme().callable().requirements().applications;
                 let mut selected = applications.iter().enumerate().filter(|(_, application)| application.span == span);
                 if let Some((ordinal, _)) = selected.next() {
@@ -4842,7 +4863,32 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
         if let Some(ordinal) = facts.wrapper_site(expression) { self.scratch.borrow_mut().scheme_wrappers.insert(lowered.index(), ordinal); }
+        if let Some(plan) = materialization {
+            return self.publish_scheme_materialization(expression, lowered, plan, slots, lowered_types, body);
+        }
         Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body))
+    }
+
+    fn publish_scheme_materialization(
+        &mut self,
+        expression: ExprId,
+        lowered: BuildExprId,
+        plan: Box<crate::sema::value_materialization::ValueMaterialization<SchemeType, crate::sema::schemes::CallInstantiation>>,
+        slots: &mut SlotScope,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        lowered_types.insert(lowered, plan.source.clone());
+        if let Some(source) = plan.source.closed_ground_type() {
+            if !self.scratch.borrow_mut().record_checked_expr_type(lowered, source, false) { return None; }
+        }
+        let destination = plan.destination.clone();
+        let span = self.program.arena.expr(expression).span;
+        let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check: LoweredValueCheck::Materialization(Arc::from(plan)), span });
+        if let Some(destination) = destination.closed_ground_type() {
+            if !self.scratch.borrow_mut().record_checked_expr_type(checked, destination, false) { return None; }
+        }
+        Some(self.publish_scheme_expression(checked, destination, slots, lowered_types, body))
     }
 
     fn block_scheme_lowering(
@@ -7166,7 +7212,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 (PhysicalReadContract::Stored(stored), BuildExprRow::Param(slot)) if self.source_slot(id, slots) == Some(*slot) => return Some(stored.clone()),
                 (PhysicalReadContract::Stored(stored), BuildExprRow::Field { name, .. })
                     if matches!(self.program.arena.expr(id).kind, ArenaExprKind::Field { name: source, .. } if source.as_str() == *name) => return Some(stored.clone()),
-                (_, BuildExprRow::CheckedValue { check, .. }) => return Some(check.ty.clone()),
+                (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
+                    LoweredValueCheck::Ground(check) => Some(check.ty.clone()),
+                    LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type(),
+                },
                 _ => {}
             }
         }
@@ -7180,15 +7229,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn checked_invocation(&self, site: &crate::sema::schemes::InstantiationSite<ExprId>) -> Option<&crate::sema::schemes::CallInstantiation> {
-        use crate::sema::value_materialization::{InstantiationEvidence, Materialization, ValueLeafSource};
-        match self.bodies.call_instantiations.get(site)? {
-            InstantiationEvidence::Invocation(instance) => Some(instance),
-            InstantiationEvidence::Value(plan) if site.role == crate::sema::schemes::InstantiationRole::Value => match &plan.shape {
-                Materialization::Callable { source: ValueLeafSource::DirectTarget(_), instance } => Some(instance.as_ref()),
-                _ => None,
-            },
-            InstantiationEvidence::Value(_) => None,
-        }
+        self.bodies.call_instantiations.get(site)?.invocation()
     }
 
     fn lower_expr_attempt(
@@ -7202,11 +7243,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let lowered_result = self.lower_expr_untyped(id, slots, current_function, item_slot);
         let lowered = lowered_result?;
         self.record_lowered_producer_inputs(id, lowered, slots)?;
+        if let Some(crate::sema::value_materialization::InstantiationEvidence::Value(plan)) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(id)) {
+            let plan = plan.clone();
+            let source = self.canonicalize_checked_type(plan.source.closed_ground_type()?);
+            let destination = self.canonicalize_checked_type(plan.destination.closed_ground_type()?);
+            let check = LoweredValueCheck::Materialization(Arc::from(plan));
+            let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check, span: self.program.arena.expr(id).span });
+            let mut scratch = self.scratch.borrow_mut();
+            if !scratch.record_checked_expr_type(lowered, source, false)
+                || !scratch.record_checked_expr_type(checked, destination, false)
+            { return None; }
+            return Some(checked);
+        }
         if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)) {
             let ty = self.canonicalize_checked_type(self.bodies.expr_types.get(&id)?.clone());
             let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(id))?.clone();
             let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty: ty.clone(), schema: None };
-            let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check, span: self.program.arena.expr(id).span });
+            let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check: LoweredValueCheck::Ground(check), span: self.program.arena.expr(id).span });
             let mut scratch = self.scratch.borrow_mut();
             if !scratch.record_checked_expr_type(lowered, Type::SchemeCallable(relationship), false)
                 || !scratch.record_checked_expr_type(checked, ty, false)
@@ -7564,7 +7617,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Ident(name) => {
                 let value = self.lower_bare_ident(id, name, slots)?;
                 if let Some(check) = self.narrowed_optional_payload_check(id, slots) {
-                    Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }))
+                    Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }))
                 } else { Some(value) }
             }
             ArenaExprKind::Item => {
@@ -8196,7 +8249,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let check = self.narrowed_optional_payload_check(id, slots);
                 let lowered_base = self.lower_producer_input_expr(base, slots, current_function, item_slot)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Field { base: lowered_base, name: name.as_str(), span });
-                Some(if let Some(check) = check { push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }) } else { value })
+                Some(if let Some(check) = check { push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }) } else { value })
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_postfix_receiver(base, slots, current_function, item_slot)?;

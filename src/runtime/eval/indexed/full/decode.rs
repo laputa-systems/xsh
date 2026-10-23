@@ -2,7 +2,7 @@ use super::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption, LoweredRunOperands,
     LoweredRunRedirection, LoweredRunPipelineSegment, LoweredRunTailOperand,
     LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
-    LoweredTypeCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
+    LoweredTypeCheck, LoweredValueCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
     LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
     LoweredPipelineStage,
@@ -994,6 +994,54 @@ struct_schema!(LoweredTypeCheck => TypeCheckView {
         return Err(IrVerifyError::new("prepared schema does not match its checked type"));
     }
 });
+pub(in crate::runtime::eval) enum ValueCheckView<'a> {
+    Ground(TypeCheckView<'a>),
+    Materialization(u32),
+}
+
+impl BorrowCodec for LoweredValueCheck {
+    type View<'a> = ValueCheckView<'a>;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        match input.raw()? {
+            0 => LoweredTypeCheck::borrow(context, input).map(ValueCheckView::Ground),
+            1 => {
+                let id = input.raw()?;
+                context.store.value_materializations.get(id as usize).ok_or_else(|| IrVerifyError::new("value materialization is out of bounds"))?;
+                Ok(ValueCheckView::Materialization(id))
+            }
+            _ => Err(IrVerifyError::new("checked value contract tag is invalid")),
+        }
+    }
+}
+
+impl FullCodec for LoweredValueCheck {
+    fn encode(&self, builder: &mut super::FullBuilder, output: &mut Vec<u32>) -> Result<(), super::IrBuildError> {
+        match self {
+            Self::Ground(check) => { output.push(0); check.encode(builder, output)?; }
+            Self::Materialization(plan) => { output.push(1); output.push(builder.encode_value_materialization(plan)?); }
+        }
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => LoweredTypeCheck::decode(decoder, input).map(Self::Ground),
+            1 => Err(IrVerifyError::new("owned materialization plans cannot be decoded from executable IR")),
+            _ => Err(IrVerifyError::new("checked value contract tag is invalid")),
+        }
+    }
+
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
+        match input.raw()? {
+            0 => LoweredTypeCheck::verify(decoder, input),
+            1 => decoder.store.value_materializations.get(input.raw()? as usize).map(|_| ())
+                .ok_or_else(|| IrVerifyError::new("value materialization is out of bounds")),
+            _ => Err(IrVerifyError::new("checked value contract tag is invalid")),
+        }
+    }
+}
+
 struct_schema!(ScanBytes => ScanBytesView {
     line_slot: usize, block_depth_slot: usize, code_seen_slot: usize, comment_seen_slot: usize,
     in_string_slot: usize, string_delim_slot: usize, escaped_slot: usize, nested: bool, span: Span,

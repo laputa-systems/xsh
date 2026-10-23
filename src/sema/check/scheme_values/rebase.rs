@@ -168,13 +168,9 @@ pub(in crate::sema::check) fn output(output: &mut CheckOutput, rebaser: &mut Sch
     for instantiation in output.call_instantiations.values_mut() {
         *instantiation = instantiation.try_map(&mut map,
             &mut |map, ty| map.scheme_type(ty),
-            &mut |map, source, instance| {
-                use crate::sema::value_materialization::ValueLeafSource;
-                let source = match source {
-                    ValueLeafSource::DirectTarget(target) => ValueLeafSource::DirectTarget(target),
-                    ValueLeafSource::Relationship(id) => ValueLeafSource::Relationship(map.rebaser.relationship(id, map.source, 0)?),
-                };
-                Ok((source, map.instance(instance)?))
+            &mut |map, relationship, instance| {
+                let relationship = map.rebaser.relationship(relationship, map.source, 0)?;
+                Ok((relationship, map.instance(instance)?))
             },
             &mut |map, instance| map.instance(instance),
         ).map_err(|error| match error {

@@ -2355,7 +2355,7 @@ enum FrameContinuation {
     },
     CheckedValue {
         instruction: u32,
-        check: LoweredTypeCheck,
+        check: super::IndexedValueCheck,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -7249,7 +7249,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("checked-value tag has a checked-value view")
                 };
-                let check = super::indexed_type_check(check, span)?;
+                let check = super::indexed_value_check(check, span)?;
                 self.push_expr(
                     index,
                     value.raw(),
@@ -9689,9 +9689,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::CheckedValue { instruction, check, span, next } => match value {
                 FrameValue::Value(mut value) => {
-                    value = super::materialize_indexed_scheme_value(&self.calls[index].execution, &self.calls[index].applications, instruction, value, span)?;
-                    super::super::checked_storage_value(self.evaluator, &value, &check, span)?;
-                    let value = value.materialize_validated_list(&check.ty);
+                    value = super::finish_checked_value(self.evaluator, &self.calls[index].execution, &self.calls[index].applications, instruction, &check, value, span)?;
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),

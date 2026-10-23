@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
@@ -409,6 +410,42 @@ pub(super) fn indexed_type_check(
         name: Arc::from(check.name),
         schema: check.schema.cloned(),
     })
+}
+
+pub(in crate::runtime::eval) enum IndexedValueCheck {
+    Ground(LoweredTypeCheck),
+    Materialization(u32),
+}
+
+pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Result<IndexedValueCheck, RuntimeError> {
+    match check {
+        ValueCheckView::Ground(check) => indexed_type_check(check, span).map(IndexedValueCheck::Ground),
+        ValueCheckView::Materialization(id) => Ok(IndexedValueCheck::Materialization(id)),
+    }
+}
+
+pub(super) fn finish_checked_value(
+    evaluator: &Evaluator,
+    execution: &FullExecution<'_>,
+    invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32,
+    check: &IndexedValueCheck,
+    value: LoweredValue,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    match check {
+        IndexedValueCheck::Ground(check) => {
+            let value = materialize_indexed_scheme_value(execution, invocation, instruction, value, span)?;
+            super::checked_storage_value(evaluator, &value, check, span)?;
+            Ok(value.materialize_validated_list(&check.ty))
+        }
+        IndexedValueCheck::Materialization(id) => {
+            let (value, ty) = execution.program().materialize_checked_value(*id, instruction, invocation, value).map_err(|error| indexed_error(error, span))?;
+            let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None };
+            super::checked_storage_value(evaluator, &value, &check, span)?;
+            Ok(value.materialize_validated_list(&check.ty))
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1781,13 +1818,12 @@ impl Evaluator {
                 else {
                     unreachable!("checked-value tag has a checked-value view")
                 };
-                let check = indexed_type_check(check, call_span)?;
+                let check = indexed_value_check(check, call_span)?;
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
-                        let value = materialize_indexed_scheme_value(execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, value, span)?;
-                        super::checked_storage_value(self, &value, &check, span)?;
-                        ControlFlow::Continue(value.materialize_validated_list(&check.ty))
+                        let value = finish_checked_value(self, execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, &check, value, span)?;
+                        ControlFlow::Continue(value)
                     }
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }

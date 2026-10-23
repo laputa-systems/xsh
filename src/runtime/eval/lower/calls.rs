@@ -3,7 +3,7 @@ use super::{
     CompactLowerConstructProbe, ExprId, FxHashMap, FxHashSet, LoweredCallArg, LoweredFunctionKey,
     CheckedFunctionTarget, LoweredHashVerifyFileArgs, LoweredProcessCommandArgv, LoweredRecordEntry,
     LoweredStrPredicate,
-    LoweredTypeCheck,
+    LoweredTypeCheck, LoweredValueCheck,
     ModuleExportType, Name, QualifiedName, RuntimeOp, SlotScope, Span, StdlibLowerLinkage, Type,
     api_spec, call_positional_arguments, is_env_module_expr, lower_archive_tar_create_args,
     lower_fs_files_args, lower_fs_list_args, lower_hash_verify_file_args, lower_path_remove_args,
@@ -803,7 +803,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 .into(),
             };
-            return Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check, span }));
+            return Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }));
         }
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)

@@ -11,7 +11,7 @@ use super::{
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
     LoweredBindingIdentity, LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot,
-    LoweredType, LoweredTypeCheck,
+    LoweredType, LoweredTypeCheck, LoweredValueCheck,
     LoweredValue, Name, NameText, PathValue,
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
     Type, text_hole_kind, verify_node_metadata,
@@ -1050,10 +1050,9 @@ instruction_schema! {
             check: LoweredTypeCheck,
             span: Span,
         } => ExprRequire = 65 [0; Operands; FrameControl];
-        // Preserve a checked domain while retaining ordinary runtime failure semantics.
         CheckedValue {
             value: BuildExprId,
-            check: LoweredTypeCheck,
+            check: LoweredValueCheck,
             span: Span,
         } => ExprCheckedValue = 66 [0; Operands; FrameControl];
         // Boxed because captured and spawned runs are cold, unusually wide

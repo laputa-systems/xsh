@@ -9,6 +9,7 @@ pub(super) enum PreparedValidationContract {
     Return { kind: LoweredReturnKind, check: Option<LoweredTypeCheck>, formal: Option<Type> },
     DefaultParameter { kind: LoweredType, check: Option<LoweredTypeCheck> },
     CheckedValue(LoweredTypeCheck),
+    Materialization { source: crate::sema::schemes::SchemeType, destination: crate::sema::schemes::SchemeType },
     Require(LoweredTypeCheck),
     Assignment(LoweredTypeCheck),
     DriverBinding { check: Option<LoweredTypeCheck>, kind: Option<LoweredType> },

@@ -2,7 +2,7 @@ use super::{
     Arc, ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaProgram,
     ArenaTypeExprTag, AstArena, BindingTargetId, BuildExprId, BuildExprRow, CompactDeclOutput,
     CompactLowerConstructProbe, ExprId, LoweredReturnKind,
-    LoweredType, LoweredTypeCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
+    LoweredType, LoweredTypeCheck, LoweredValueCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
     compact_checked_type_is_concrete, concrete_checked_fact, lowered_method_name,
 };
 
@@ -426,7 +426,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         push_build_row!(
             self,
             expr,
-            BuildExprRow::CheckedValue { value, check, span }
+            BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }
         )
     }
 
@@ -500,7 +500,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::CheckedValue { value: lowered, check, span }
+                BuildExprRow::CheckedValue { value: lowered, check: LoweredValueCheck::Ground(check), span }
             ))
         } else {
             Some(lowered)

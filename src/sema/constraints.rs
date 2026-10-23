@@ -1835,6 +1835,20 @@ impl TypeConstraints {
         }
     }
 
+    pub(crate) fn contextual_record_fields(
+        &self,
+        expected: &Type,
+    ) -> Result<Option<std::collections::BTreeMap<crate::symbol::Name, Type>>, ConstraintResolutionError> {
+        let expected = self.resolve(expected)?;
+        match expected.unvalidated() {
+            Type::Record(fields) => Ok(Some(fields.as_ref().clone())),
+            Type::Inference(id) => self.record_binding(*id)?.map(|record| {
+                self.resolve_row(&record.shape).map(|row| row.fields)
+            }).transpose(),
+            _ => Ok(None),
+        }
+    }
+
     pub(crate) fn missing_required_open_record_field(
         &self,
         expected: &Type,

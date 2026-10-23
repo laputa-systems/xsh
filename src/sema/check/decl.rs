@@ -423,6 +423,19 @@ impl Checker {
                 let relationship = self.scheme_callable_relationship(relationship).ok()?;
                 (relationship.targets().len() == 1 && relationship.targets()[0].target() == *target).then_some(span)
             }));
+            checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
+                let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
+                let span = program.arena.expr(expression).span;
+                if !matches!(program.arena.expr(callee).kind, crate::syntax::arena::ArenaExprKind::Field { .. }) { return None; }
+                let checked = self.typed_callable_calls.get(&span)?;
+                let checked = self.type_constraints.resolve(&Type::Callable(Arc::clone(checked))).ok()?;
+                let actual = generalized_body_types.get(&callee)?.closed_ground_type()?;
+                let Type::Callable(callable) = &actual else { return None; };
+                if checked != actual || pending.kind() == crate::sema::types::CallableKind::Pure && callable.kind != crate::sema::types::CallableKind::Pure {
+                    return None;
+                }
+                matches!(callable.sig.effects.contract().clone().for_invocation(callable.kind).concrete(), Ok(Some(_))).then_some(span)
+            }));
             checked_operations.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {

@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
     BTreeMap, BTreeSet, CheckedArgumentType, FullCallableContract, FullDecoder, FullStore, FullTag,
     IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
@@ -477,7 +478,7 @@ impl ProducerPrefixContext<'_> {
             return Err(IrVerifyError::new("producer prefix context disagrees with its owner range"));
         }
         self.evidence.work.borrow_mut().charge(1)?;
-        let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(instruction)? else {
+        let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(instruction)? else {
             return Err(IrVerifyError::new("optional presence evidence requires a physical checked value"));
         };
         if check.schema.is_some() || check.ty.id != checked_id || value.raw() as usize != source {
@@ -1173,6 +1174,7 @@ impl GroundProducerIndex {
                 let schema::ExprView::TypedCall { callee, signature, .. } = decoder.expression_view(instruction)? else {
                     return Err(IrVerifyError::new("typed callable proof has another physical expression"));
                 };
+                if self.scheme_owners.contains_key(&owner) { continue; }
                 decoder.verify_typed_callee_signature(callee.raw() as usize, signature.id)?;
             }
             decoder.verify_callable_slot_initializers()?;
@@ -2324,6 +2326,29 @@ impl<'a> ProducerProof<'a> {
         Ok(ty.closed_ground_type().map(Arc::new))
     }
 
+    fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<crate::sema::schemes::SchemeType>, IrVerifyError> {
+        if !self.index.scheme_owners.contains_key(&decoder.owner) { return Ok(None); }
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) {
+            return Err(IrVerifyError::new("scoped field proof has another physical expression"));
+        }
+        let function = function_index(decoder.owner)?;
+        let FullCallableContract::Scheme(id) = self.store.functions[function].contract else {
+            return Err(IrVerifyError::new("scoped field proof has no scheme owner"));
+        };
+        let scheme = self.store.scheme(id)?;
+        let facts = bounded(scheme.body_facts, &self.store.scheme_body_facts, "scoped field fact range is invalid")?;
+        self.budget.charge(2 + 2 * facts.len().max(1).ilog2() as usize)?;
+        let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped field instruction is invalid"))?;
+        let key = (instruction, super::FullSchemeBodyFactKind::Expression as u8);
+        let position = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8))
+            .map_err(|_| IrVerifyError::new("scoped field has no mandatory expression fact"))?;
+        let fact = facts[position];
+        if fact.function.raw() != decoder.owner { return Err(IrVerifyError::new("scoped field fact belongs to another owner")); }
+        let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped field fact has no semantic type"))?;
+        let scope = self.index.scheme_scopes(self.store)?.get(id)?;
+        super::decode_scheme_type(self.store, scope, ty, &mut self.budget, 0).map(Some)
+    }
+
     fn slot(&mut self, owner: u32, at: usize, slot: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
         let binding = self.binding(owner, at, slot)?;
         self.binding_slot(owner, binding, slot, expected)
@@ -2945,7 +2970,11 @@ impl<'a> ProducerProof<'a> {
                 return merge_list_item_types(&items, &mut self.budget).map(|ty| ty.map(Arc::new));
             }
             schema::ExprView::Require { check, .. } => Some(Type::Result(Box::new(check.ty.materialize()?), Box::new(Type::Error))),
-            schema::ExprView::CheckedValue { check, .. } => Some(check.ty.materialize()?),
+            schema::ExprView::CheckedValue { check: ValueCheckView::Materialization(id), .. } => {
+                let (_, destination) = super::materialization_contract(self.store, self.index.scheme_scopes(self.store)?, id, instruction, &mut self.budget)?;
+                return Ok(destination.closed_ground_type().map(Arc::new));
+            }
+            schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Some(check.ty.materialize()?),
             schema::ExprView::Tag { type_name, .. } => Some(Type::Tag(type_name)),
             schema::ExprView::ComparisonChain { .. } => Some(Type::Bool),
             schema::ExprView::Binary { op: super::super::BinaryOp::Eq | super::super::BinaryOp::Ne | super::super::BinaryOp::Lt | super::super::BinaryOp::Le | super::super::BinaryOp::Gt | super::super::BinaryOp::Ge | super::super::BinaryOp::And | super::super::BinaryOp::Or | super::super::BinaryOp::In | super::super::BinaryOp::NotIn, .. } => Some(Type::Bool),
@@ -3013,6 +3042,9 @@ impl<'a> ProducerProof<'a> {
                 None
             }
             schema::ExprView::Field { base, name, .. } => {
+                if let Some(ty) = self.scoped_field_type(decoder, instruction)? {
+                    return Ok(ty.closed_ground_type().map(Arc::new));
+                }
                 let receiver_instruction = base.raw() as usize;
                 if let Some(base) = self.need_context(decoder, receiver_instruction)? {
                     let receiver = match base.unvalidated() {
@@ -4150,7 +4182,7 @@ impl<'a> ProducerProof<'a> {
                 (FullTag::ExprListComp, Type::List(_)) | (FullTag::ExprMapComp, Type::Map(_, _)))
                 && let Some(parent) = decoder.instruction_parent_of(instruction)?
                 && self.store.tags[parent].kind() == schema::InstructionKind::Expr
-                && let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)?
+                && let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)?
                 && value.raw() as usize == instruction && check.schema.is_none()
             { self.contract_type(check.ty.id)?.as_ref() == container } else { false };
             let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
@@ -4418,6 +4450,13 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Field { base, .. } => {
+                if let Some(ty) = self.scoped_field_type(&decoder, instruction)? {
+                    let actual = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("scoped field has no closed producer contract"))?;
+                    if !decoder.checked_type_fits(&actual, &expected) {
+                        return Err(IrVerifyError::new("scoped field producer disagrees with its expected contract"));
+                    }
+                    return Ok(());
+                }
                 let (ty, fact) = self.operand_context(&decoder, base.raw() as usize)?.into_parts();
                 let ty = ty.ok_or_else(|| IrVerifyError::new("ground field producer has no receiver contract"))?;
                 self.expression_with_fact(owner, base.raw() as usize, ty, false, fact);
@@ -4736,7 +4775,13 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::PreparedConstant(value) => decoder.verify_prepared_constant_type(value, &expected, &mut |amount| self.budget.charge(amount)),
-            schema::ExprView::CheckedValue { check, value, .. } => {
+            schema::ExprView::CheckedValue { check: ValueCheckView::Materialization(id), value, .. } => {
+                let (source, destination) = super::materialization_endpoints(self.store, id, instruction, &mut self.budget)?;
+                if !destination.matches_expected(&expected) { return Err(IrVerifyError::new("materialization destination disagrees with its ground producer contract")); }
+                self.expression(owner, value.raw() as usize, Arc::new(source), false);
+                Ok(())
+            }
+            schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } => {
                 let checked = self.contract_type(check.ty.id)?;
                 if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
                 if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
@@ -5821,7 +5866,7 @@ impl<'a> ProducerProof<'a> {
         let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
         if !empty {
             let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
-            let schema::ExprView::CheckedValue { check, value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
+            let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
             if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
         }
         self.budget.charge(args.len())?;

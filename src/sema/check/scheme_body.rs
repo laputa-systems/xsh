@@ -603,6 +603,9 @@ pub(super) fn is_body_expression(
                     }
                 } else if !checked_operations.contains(&program.arena.expr(expression).span)
                     && !result_constructors.contains_key(&program.arena.expr(expression).span) { return false; }
+                if matches!(types.get(&callee).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::Callable(_))) {
+                    pending.push(callee);
+                }
                 for argument in program.arena.call_args(args) {
                     match argument.kind {
                         ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }

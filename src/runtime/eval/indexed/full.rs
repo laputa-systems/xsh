@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
@@ -38,7 +39,7 @@ use crate::runtime::eval::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunOption,
     LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
     LoweredRunTailOperand, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
-    LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
+    LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck, LoweredValueCheck,
     LoweredParamKind, LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck,
     ScanCondition, CheckedPatternVariantKey, CheckedPatternVariantKind,
 };
@@ -740,6 +741,11 @@ struct FullStore {
     scheme_callable_targets: Vec<scheme_values::FullSchemeCallableTarget>,
     scheme_callable_binders: Vec<u32>,
     scheme_callable_calls: Vec<scheme_values::FullSchemeCallableCall>,
+    value_materializations: Vec<value_materialization::FullValueMaterialization>,
+    materialization_nodes: Vec<value_materialization::FullMaterializationNode>,
+    materialization_edges: Vec<value_materialization::FullMaterializationEdge>,
+    materialization_leaves: Vec<value_materialization::FullMaterializationLeaf>,
+
 
     scheme_callable_parameters: Vec<schemes::FullSchemeCallableParameter>,
     scheme_fields: Vec<schemes::FullSchemeField>,
@@ -847,6 +853,11 @@ impl Default for FullStore {
             scheme_callable_targets: Vec::new(),
             scheme_callable_binders: Vec::new(),
             scheme_callable_calls: Vec::new(),
+            value_materializations: Vec::new(),
+            materialization_nodes: Vec::new(),
+            materialization_edges: Vec::new(),
+            materialization_leaves: Vec::new(),
+
 
             scheme_callable_parameters: Vec::new(),
             scheme_fields: Vec::new(),
@@ -1095,6 +1106,11 @@ impl FullStore {
             + self.scheme_callable_targets.capacity() * size_of::<scheme_values::FullSchemeCallableTarget>()
             + self.scheme_callable_binders.capacity() * size_of::<u32>()
             + self.scheme_callable_calls.capacity() * size_of::<scheme_values::FullSchemeCallableCall>()
+            + self.value_materializations.capacity() * size_of::<value_materialization::FullValueMaterialization>()
+            + self.materialization_nodes.capacity() * size_of::<value_materialization::FullMaterializationNode>()
+            + self.materialization_edges.capacity() * size_of::<value_materialization::FullMaterializationEdge>()
+            + self.materialization_leaves.capacity() * size_of::<value_materialization::FullMaterializationLeaf>()
+
 
             + self.scheme_callable_parameters.capacity() * size_of::<schemes::FullSchemeCallableParameter>()
             + self.scheme_fields.capacity() * size_of::<schemes::FullSchemeField>()
@@ -1222,6 +1238,11 @@ impl FullStore {
         self.scheme_callable_targets.shrink_to_fit();
         self.scheme_callable_binders.shrink_to_fit();
         self.scheme_callable_calls.shrink_to_fit();
+        self.value_materializations.shrink_to_fit();
+        self.materialization_nodes.shrink_to_fit();
+        self.materialization_edges.shrink_to_fit();
+        self.materialization_leaves.shrink_to_fit();
+
 
         self.scheme_callable_parameters.shrink_to_fit();
         self.scheme_fields.shrink_to_fit();
@@ -1382,6 +1403,16 @@ impl FullProgram {
         let instance = self.store.call_instantiations[index];
         let relationship = self.store.scheme_callable_calls.binary_search_by_key(&instruction, |call| call.instruction).ok()
             .map(|index| self.store.scheme_callable_calls[index].relationship);
+        self.invocation_payload(&instance.arguments, relationship, target, caller)
+    }
+
+    fn invocation_payload(
+        &self,
+        instance: &schemes::FullInstantiation,
+        relationship: Option<u32>,
+        target: usize,
+        caller: &PreparedInvocationBindings,
+    ) -> Result<PreparedInvocationBindings, IrVerifyError> {
         let (contract_target, selected) = if let Some(relationship) = relationship {
             let value = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("value-call relationship is out of bounds"))?;
             let range = value.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("value-call target range is invalid"))?;
@@ -1394,14 +1425,14 @@ impl FullProgram {
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
         let mut substitution = verify_schemes::instantiate_invocation(
-            &self.store, self.store.scheme(id)?, &instance.arguments, &caller.substitution, &mut budget,
+            &self.store, self.store.scheme(id)?, instance, &caller.substitution, &mut budget,
         )?;
         if let Some(selected) = selected {
             substitution.types = scheme_values::reorder_binders(&self.store, selected.types, substitution.types, &mut budget)?;
             substitution.rows = scheme_values::reorder_binders(&self.store, selected.rows, substitution.rows, &mut budget)?;
             substitution.effects = scheme_values::reorder_binders(&self.store, selected.effects, substitution.effects, &mut budget)?;
         }
-        let range = instance.arguments.application_bindings.bounds(self.store.call_application_bindings.len())
+        let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
         budget.charge(range.len())?;
         let mut layouts = Vec::with_capacity(range.len());
@@ -1659,6 +1690,7 @@ impl FullProgram {
         use crate::sema::check::BodyContractSite as Site;
         let _symbols = self.symbol_owner().enter();
         let mut records = Vec::new();
+        let materialization_scopes = verify_schemes::prepare_tables(&self.store)?;
         for index in 0..self.store.functions.len() {
             let view = self.function_view_at(index).ok_or_else(|| IrVerifyError::new("validation function is absent"))?;
             let declaration = view.definition_span()?;
@@ -1672,7 +1704,7 @@ impl FullProgram {
                 kind: header.return_kind, check: header.return_check.clone(), formal: self.validation_formal_type(index, None)?,
             } });
             let execution = view.execution()?;
-            self.validation_rows(&execution.decoder(), Some(declaration), &mut records)?;
+            self.validation_rows(&execution.decoder(), Some(declaration), &materialization_scopes, &mut records)?;
         }
         for index in 0..self.store.driver_steps.len() {
             let view = FullDriverStepView { program: self, index };
@@ -1687,7 +1719,7 @@ impl FullProgram {
                 }
                 records.push(Record { site: Site::Statement(view.source_span()?), contract: Contract::DriverBinding { check, kind } });
             }
-            self.validation_rows(&execution.decoder(), None, &mut records)?;
+            self.validation_rows(&execution.decoder(), None, &materialization_scopes, &mut records)?;
         }
         Ok(records)
     }
@@ -1719,14 +1751,22 @@ impl FullProgram {
         Ok(LoweredTypeCheck { ty: check.ty.materialize()?, schema: check.schema.cloned(), name: Arc::from(check.name) })
     }
 
-    fn validation_rows(&self, decoder: &FullDecoder<'_>, declaration: Option<Span>, records: &mut Vec<super::super::body_contract::PreparedValidationRecord>) -> Result<(), IrVerifyError> {
+    fn validation_rows(&self, decoder: &FullDecoder<'_>, declaration: Option<Span>, scopes: &verify_schemes::VerifiedSchemeScopes, records: &mut Vec<super::super::body_contract::PreparedValidationRecord>) -> Result<(), IrVerifyError> {
         use super::super::body_contract::{PreparedValidationContract as Contract, PreparedValidationRecord as Record};
         use crate::sema::check::BodyContractSite as Site;
         for instruction in decoder.instruction_range.clone() {
             let record = match self.store.tags[instruction] {
                 FullTag::ExprCheckedValue => {
                     let schema::ExprView::CheckedValue { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
-                    Some(Record { site: Site::ValueBoundary(span), contract: Contract::CheckedValue(Self::owned_validation(check)?) })
+                    let contract = match check {
+                        ValueCheckView::Ground(check) => Contract::CheckedValue(Self::owned_validation(check)?),
+                        ValueCheckView::Materialization(id) => {
+                            let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+                            let (source, destination) = verify_schemes::materialization_contract(&self.store, scopes, id, instruction, &mut budget)?;
+                            Contract::Materialization { source, destination }
+                        }
+                    };
+                    Some(Record { site: Site::ValueBoundary(span), contract })
                 }
                 FullTag::ExprRequire => {
                     let schema::ExprView::Require { check, span, .. } = decoder.expression_view(instruction)? else { unreachable!() };
@@ -3386,6 +3426,11 @@ struct FullCheckpoint {
     scheme_callable_targets: usize,
     scheme_callable_binders: usize,
     scheme_callable_calls: usize,
+    value_materializations: usize,
+    materialization_nodes: usize,
+    materialization_edges: usize,
+    materialization_leaves: usize,
+
     pending_scheme_callable_values: usize,
 
     scheme_callable_parameters: usize,
@@ -5185,6 +5230,11 @@ impl FullBuilder {
             scheme_callable_targets: self.store.scheme_callable_targets.len(),
             scheme_callable_binders: self.store.scheme_callable_binders.len(),
             scheme_callable_calls: self.store.scheme_callable_calls.len(),
+            value_materializations: self.store.value_materializations.len(),
+            materialization_nodes: self.store.materialization_nodes.len(),
+            materialization_edges: self.store.materialization_edges.len(),
+            materialization_leaves: self.store.materialization_leaves.len(),
+
             pending_scheme_callable_values: self.pending_scheme_callable_values.len(),
 
             scheme_callable_parameters: self.store.scheme_callable_parameters.len(),
@@ -5291,6 +5341,11 @@ impl FullBuilder {
         self.store.scheme_callable_targets.truncate(checkpoint.scheme_callable_targets);
         self.store.scheme_callable_binders.truncate(checkpoint.scheme_callable_binders);
         self.store.scheme_callable_calls.truncate(checkpoint.scheme_callable_calls);
+        self.store.value_materializations.truncate(checkpoint.value_materializations);
+        self.store.materialization_nodes.truncate(checkpoint.materialization_nodes);
+        self.store.materialization_edges.truncate(checkpoint.materialization_edges);
+        self.store.materialization_leaves.truncate(checkpoint.materialization_leaves);
+
         self.pending_scheme_callable_values.truncate(checkpoint.pending_scheme_callable_values);
         self.scheme_callable_ids.retain(|_, index| (*index as usize) < checkpoint.pending_scheme_callable_values);
 
@@ -6805,9 +6860,17 @@ impl<'a> FullDecoder<'a> {
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
         if let Some(proof) = &self.instruction_proof {
+            let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
+                let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
+                match check {
+                    ValueCheckView::Materialization(_) => true,
+                    ValueCheckView::Ground(_) => self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok(),
+                }
+            } else { false };
             let class = if tag == FullTag::ExprParam
                 && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
                 || tag == FullTag::ExprField && self.store.wrapper_site(self.owner, index as u32)?.is_some()
+                || binding_dependent_value
             { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
             proof.borrow_mut().enter(index, tag.kind(), class);
         }
@@ -7042,7 +7105,10 @@ impl<'a> FullDecoder<'a> {
                 self.derive_typed_callee_leaf_type(current)?
             } else if leaf_tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(current)? else { unreachable!() };
-                check.ty.id
+                match check {
+                    ValueCheckView::Ground(check) => check.ty.id,
+                    ValueCheckView::Materialization(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
+                }
             } else {
                 self.checked_expression_type_id(current)?
                     .ok_or_else(|| IrVerifyError::new("typed callee receiver has no checked type"))?
@@ -9773,7 +9839,13 @@ impl<'a> FullDecoder<'a> {
                     ))
                 }
             }
-            schema::ExprView::CheckedValue { value, check, .. } => {
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
+                let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
+                let (source, destination) = verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget)?;
+                if destination != *expected { return Err(IrVerifyError::new("materialized value disagrees with its checked result")); }
+                self.checked_expression_matches_type(value.raw() as usize, &source)
+            }
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
                 if checked != *expected {
                     return Err(IrVerifyError::new(
@@ -10989,7 +11061,11 @@ impl<'a> FullDecoder<'a> {
                 Box::new(check.ty.materialize()?),
                 Box::new(Type::Error),
             ))),
-            schema::ExprView::CheckedValue { check, .. } => Ok(Some(check.ty.materialize()?)),
+            schema::ExprView::CheckedValue { check: ValueCheckView::Materialization(id), .. } => {
+                let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
+                verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget).map(|(_, destination)| Some(destination))
+            }
+            schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Ok(Some(check.ty.materialize()?)),
             schema::ExprView::ValueBlock { mut body, .. } => {
                 match self.checked_value_block_result(&mut body)? {
                     CheckedValueBlockResult::Tail(value) => {
@@ -11521,7 +11597,14 @@ impl<'a> FullDecoder<'a> {
             }
         };
         match view {
-            schema::ExprView::CheckedValue { value, check, .. } => {
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
+                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("materialization fact carries unrelated authority")); }
+                let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
+                let (source, destination) = verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget)?;
+                if destination != ty { return Err(IrVerifyError::new("materialization fact disagrees with its destination")); }
+                require_child(value.raw() as usize, &source)?;
+            }
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
                 if fact.function_ref().is_some() || fact.with_error_source()
                     || check.schema.is_some() || checked != ty
@@ -12731,7 +12814,7 @@ impl<'a> FullDecoder<'a> {
                     fields.push(Name::intern(name));
                     instruction = base.raw() as usize;
                 }
-                schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => {
+                schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => {
                     let source = value.raw() as usize;
                     let Some(binding) = self.checked_binding_path_with(source, charge, remaining)? else { return Ok(None) };
                     let checked = check.ty.materialize()?;
@@ -20809,6 +20892,9 @@ macro_rules! impl_build_id_codec {
                     builder.store.tags.len(),
                     needs_instruction,
                 )?;
+                if let Some(instruction) = instruction {
+                    builder.attach_value_materialization(instruction)?;
+                }
                 if let Some(plan) = registered_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("registered_call_instruction", None, 0, self.index()))?;
                     if builder.active_scheme.is_none()
@@ -25786,7 +25872,7 @@ assert observed.scoped == Ok(8)
             ));
             FullVerifier::verify(&program).unwrap();
             let decoder = return_analysis_decoder(&program, "number");
-            assert!(function_instruction_indices(&program, "number", FullTag::ExprCheckedValue).iter().any(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check, .. }) if check.schema.is_none() && matches!(check.ty.materialize(), Ok(Type::Result(_, error)) if matches!(*error, Type::ErrorFamily(_))))));
+            assert!(function_instruction_indices(&program, "number", FullTag::ExprCheckedValue).iter().any(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) if check.schema.is_none() && matches!(check.ty.materialize(), Ok(Type::Result(_, error)) if matches!(*error, Type::ErrorFamily(_))))));
             let integer = function_instruction_indices(&program, "number", FullTag::ExprInt).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7)))).unwrap();
             let string = function_instruction_indices(&program, "number", FullTag::ExprStr).into_iter().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("wrong")))).unwrap();
             let mut forged = program.clone();
@@ -30935,7 +31021,7 @@ assert nullable_name == null
         let argument = scheme_fixture_call_arguments(&program, checked_call)[0].1 as usize;
         assert_eq!(program.store.tags[argument], FullTag::ExprCheckedValue);
         let decoder = stage_view_decoder(&program.store);
-        let schema::ExprView::CheckedValue { check, .. } =
+        let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } =
             decoder.expression_view(argument).unwrap()
         else {
             panic!("UInt list argument has a checked-value wrapper");
@@ -32030,7 +32116,7 @@ assert render(null)? == ""
         }
         let owner = scheme_fixture_root_function(&program, "render");
         let decoder = function_view_decoder(&program.store, owner);
-        let check = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check, .. }) if matches!(check.ty.materialize(), Ok(Type::Record(_))))).unwrap();
+        let check = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) if matches!(check.ty.materialize(), Ok(Type::Record(_))))).unwrap();
         let mut forged = (*program).clone();
         let any = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Any).unwrap();
         let words = forged.store.data[check].range().bounds(forged.store.extra.len()).unwrap();
@@ -33495,7 +33581,7 @@ assert results == [4]
             let decoder = function_view_decoder(&program.store, scheme_fixture_root_function(program, function));
             match decoder.expression_view(receiver).expect("typed receiver view is valid") {
                 schema::ExprView::Field { base, .. } => receiver = base.raw() as usize,
-                schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => {
+                schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => {
                     let ty = check.ty.materialize().expect("typed receiver contract is valid");
                     decoder.checked_expression_matches_type(value.raw() as usize, &Type::Optional(Box::new(ty))).expect("typed receiver carrier has its original optional source");
                     receiver = value.raw() as usize;
@@ -42339,6 +42425,195 @@ assert stored_name(failed) == name(failed)
     }
 
     #[test]
+    fn scheme_callable_nested_mutable_storage_uses_one_monomorphic_contract_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-nested-mutable-storage.xsh", r#"
+pure first(value) { value }
+pure second(value) { value }
+var box = {apply: first}
+box.apply = second
+assert box.apply(7) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+            let source = "pure first(value) { value }\nvar box = {apply: first}\nlet integer = box.apply(7)\nlet text = box.apply(\"demo\")\n";
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)), "nested mutable callable storage must stay monomorphic: {:?}", checked.diagnostics);
+        });
+    }
+
+    #[test]
+    fn scheme_callable_aggregate_materialization_preserves_alias_and_factory_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-aggregate-factory.xsh", r#"
+pure first(value) { value }
+pure second(value) { value }
+pure factory(marker) { let operations = {copy: first, other: second, marker: marker}; operations }
+let original = factory(true)
+var held = original
+held.copy = second
+assert held.copy(11) == 11
+assert held.other("demo") == "demo"
+assert held.marker
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_aggregate_materialization_preserves_opaque_generic_siblings() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-aggregate-opaque.xsh", r#"
+pure first(value) { value }
+pure second(value) { value }
+pure keep(marker) {
+    let original = {copy: first, other: second, marker: marker}
+    var held = original
+    let integer = held.copy(11)
+    let text = held.other("demo")
+    {integer: integer, text: text, marker: held.marker}
+}
+let number = keep(42)
+assert number.integer == 11
+assert number.text == "demo"
+assert number.marker == 42
+let text = keep("kept")
+assert text.integer == 11
+assert text.text == "demo"
+assert text.marker == "kept"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let calls = function_instruction_indices(&program, "keep", FullTag::ExprTypedCall);
+            assert_eq!(calls.len(), 2);
+            let first = program.store.data[calls[0]].range().bounds(program.store.extra.len()).unwrap().start;
+            let second = program.store.data[calls[1]].range().bounds(program.store.extra.len()).unwrap().start;
+            assert_ne!(program.store.extra[first + 2], program.store.extra[second + 2]);
+            let mut forged = (*program).clone();
+            forged.store.extra[first + 2] = program.store.extra[second + 2];
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic typed call disagrees with its actual callee contract");
+            let mut missing = (*program).clone();
+            let removed = missing.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == calls[0]).unwrap();
+            missing.store.scheme_body_facts.remove(removed);
+            for scheme in &mut missing.store.schemes {
+                if scheme.body_facts.start as usize > removed { scheme.body_facts.start -= 1; }
+                else if (scheme.body_facts.start as usize) <= removed && removed < (scheme.body_facts.start + scheme.body_facts.len) as usize { scheme.body_facts.len -= 1; }
+            }
+            assert!(FullVerifier::verify(&missing).is_err(), "a deferred typed call requires its scoped expression proof");
+            let mut reordered = (*program).clone();
+            let adjacent = reordered.store.scheme_body_facts.windows(2).position(|facts| facts[0].function == facts[1].function && facts[0].instruction != facts[1].instruction).unwrap();
+            reordered.store.scheme_body_facts.swap(adjacent, adjacent + 1);
+            assert!(FullVerifier::verify(&reordered).is_err(), "scoped field lookup requires canonical fact order");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_materialization_rejects_foreign_paths_and_shared_evidence() {
+        run_with_large_stack(|| {
+            let program = fixture("scheme-callable-materialization-proof.xsh", r#"
+pure first(value) { value }
+pure second(value) { value }
+let original = {copy: first, other: second, marker: true}
+var held = original
+assert held.copy(11) == 11
+assert held.other("demo") == "demo"
+assert held.marker
+"#);
+            FullVerifier::verify(&program).unwrap();
+            assert_eq!(size_of::<schemes::FullCallInstantiation>(), 60);
+            assert_eq!(size_of::<schemes::FullInstantiation>(), 56);
+            assert_eq!(size_of::<value_materialization::FullValueMaterialization>(), 16);
+            assert_eq!(size_of::<value_materialization::FullMaterializationNode>(), 16);
+            assert_eq!(size_of::<value_materialization::FullMaterializationEdge>(), 8);
+            assert_eq!(size_of::<value_materialization::FullMaterializationLeaf>(), 60);
+            let retained = program.store.value_materializations.capacity() * size_of::<value_materialization::FullValueMaterialization>()
+                + program.store.materialization_nodes.capacity() * size_of::<value_materialization::FullMaterializationNode>()
+                + program.store.materialization_edges.capacity() * size_of::<value_materialization::FullMaterializationEdge>()
+                + program.store.materialization_leaves.capacity() * size_of::<value_materialization::FullMaterializationLeaf>();
+            assert_eq!(retained, 224);
+            let header = program.store.value_materializations[0];
+            let root = program.store.materialization_nodes[header.root as usize];
+            let children = root.children.bounds(program.store.materialization_edges.len()).unwrap();
+            let fields = &program.store.materialization_edges[children.clone()];
+            let callable_nodes = fields.iter().map(|edge| edge.node as usize).filter(|&node| program.store.materialization_nodes[node].kind == value_materialization::FullMaterializationKind::Callable).collect::<Vec<_>>();
+            assert_eq!(callable_nodes.len(), 2);
+            let first = program.store.materialization_nodes[callable_nodes[0]].leaf as usize;
+            let second = program.store.materialization_nodes[callable_nodes[1]].leaf as usize;
+            let mut foreign = program.clone();
+            foreign.store.materialization_leaves[first].relationship = program.store.materialization_leaves[second].relationship;
+            assert!(FullVerifier::verify(&foreign).is_err(), "compatible but unrelated targets cannot replace the actual source leaf");
+            let mut shared = program.clone();
+            shared.store.materialization_leaves[first].instance.type_arguments = program.store.materialization_leaves[second].instance.type_arguments;
+            assert!(FullVerifier::verify(&shared).is_err(), "leaf substitutions are exclusively owned");
+            let mut duplicate = program.clone();
+            duplicate.store.materialization_edges[children.start + 1].name = program.store.materialization_edges[children.start].name;
+            assert!(FullVerifier::verify(&duplicate).is_err(), "each structural field path is authenticated once");
+            let mut orphan = program.clone();
+            orphan.store.value_materializations.push(header);
+            assert!(FullVerifier::verify(&orphan).is_err(), "every retained plan has one actual CheckedValue owner");
+            let mut missing = program.clone();
+            missing.store.materialization_nodes[callable_nodes[0]].kind = value_materialization::FullMaterializationKind::Keep;
+            missing.store.materialization_nodes[callable_nodes[0]].leaf = IR_NONE;
+            assert!(FullVerifier::verify(&missing).is_err(), "a missing conversion cannot establish a monomorphic destination");
+        });
+    }
+
+    #[test]
+    fn scheme_callable_quantified_fields_cannot_gain_a_retained_mutable_role() {
+        run_with_large_stack(|| {
+            let program = fixture("scheme-callable-forged-mutable-role.xsh", r#"
+pure identity(value) { value }
+let operations = {copy: identity}
+assert operations.copy(7) == 7
+assert operations.copy("demo") == "demo"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            let mut forged = program.clone();
+            let name = program_name(&program, "operations");
+            let step = program.store.driver_steps.iter().enumerate().find_map(|(index, step)| {
+                if step.tag != FullDriverTag::Let { return None; }
+                let decoder = stage_view_decoder(&program.store);
+                let mut cursor = FullCursor::new(program.store.payload(step.data.range()).unwrap());
+                (Name::decode(&decoder, &mut cursor).unwrap() == name).then_some(index)
+            }).unwrap();
+            let decoder = stage_view_decoder(&program.store);
+            let payload = program.store.driver_steps[step].data.range().bounds(program.store.extra.len()).unwrap();
+            let mut cursor = FullCursor::new(&program.store.extra[payload.clone()]);
+            let _: Name = FullCodec::decode(&decoder, &mut cursor).unwrap();
+            let _: Option<LoweredType> = FullCodec::decode(&decoder, &mut cursor).unwrap();
+            let _: Option<LoweredTypeCheck> = FullCodec::decode(&decoder, &mut cursor).unwrap();
+            let _: Option<Type> = FullCodec::decode(&decoder, &mut cursor).unwrap();
+            let mutable = payload.start + cursor.index;
+            assert!(!bool::decode(&decoder, &mut cursor).unwrap());
+            forged.store.extra[mutable] = 1;
+            for slot in &mut forged.store.driver_slots {
+                if program.store.string(slot.name).ok() == Some("operations") { slot.flags |= DRIVER_SLOT_MUTABLE; }
+            }
+            let error = FullVerifier::verify(&forged).expect_err("a retained mutable role cannot store visible quantified callable fields");
+            assert_eq!(error.message, "scheme callable relationship disagrees with its exact physical producers");
+        });
+    }
+
+    #[test]
     fn scheme_callable_values_instantiate_once_at_monomorphic_boundaries_on_both_routes() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("scheme-callable-monomorphic-boundaries.xsh", r#"
@@ -44131,7 +44406,7 @@ assert make([1, 2], true, 7, false)?.len() == 0
         let decoder = function_view_decoder(&program.store, owner);
         let range = program.store.function_instruction_range(owner).unwrap();
         let comprehension = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
-            Ok(schema::ExprView::CheckedValue { check, value, .. }) if check.schema.is_none()
+            Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. }) if check.schema.is_none()
                 && check.ty.materialize().unwrap() == Type::List(Box::new(Type::UInt))
                 && program.store.tags[value.raw() as usize] == FullTag::ExprListComp => Some(value.raw() as usize),
             _ => None,

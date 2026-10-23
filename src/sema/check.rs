@@ -404,6 +404,7 @@ mod stream;
 mod stream_origins;
 #[path = "check/typed_callable.rs"]
 mod typed_callable;
+mod storage_materialization;
 #[path = "check/types.rs"]
 mod types;
 #[path = "check/validated.rs"]

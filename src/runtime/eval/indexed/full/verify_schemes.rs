@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 mod producers;
 mod constructors;
 mod body;
@@ -7,6 +8,7 @@ mod operations;
 mod methods;
 mod wrappers;
 mod references;
+mod materializations;
 mod commands;
 pub(super) use effects::ScopedEffectProof;
 pub(super) use producers::ProducerContexts;
@@ -635,33 +637,43 @@ fn verify_scheme_tables(
         row_lacks: Vec::new(),
         effects: effects::EffectScope::default(),
     };
-    for instantiation in &store.call_instantiations {
+    for plan in &store.value_materializations {
+        let caller = caller_scheme_for_instruction(store, plan.instruction as usize, scopes)?;
+        let (owner, scope) = caller.map_or((scopes.len(), &empty_scope), |(id, scope)| (id.index(), scope));
+        for endpoint in [plan.source, plan.destination] {
+            visit_scheme_type(store, owner, endpoint, scope, &mut type_owners, &mut type_states,
+                &mut field_coverage, &mut child_coverage, &mut validation_coverage, &mut validation_references,
+                &mut type_binder_uses, &mut row_binder_uses, effects, 0)?;
+        }
+    }
+    let materialization_instances = materializations::owned_instances(store, &mut application_budget)?;
+    for (instruction, arguments) in store.call_instantiations.iter().map(|instance| (instance.instruction, instance.arguments)).chain(materialization_instances) {
         let caller = caller_scheme_for_instruction(
             store,
-            instantiation.instruction as usize,
+            instruction as usize,
             scopes,
         )?;
         let (owner, scope) = caller.map_or((scopes.len(), &empty_scope), |(id, scope)| {
             (id.index(), scope)
         });
-        effects.arguments(store, owner, scope, instantiation.arguments.effect_arguments)?;
-        mark_range(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, &mut wrapper_binding_coverage, "generic call wrapper binding range is invalid or overlaps")?;
-        for binding in mark_range(instantiation.arguments.operation_bindings, &store.call_operation_bindings, &mut operation_binding_coverage, "generic call operation binding range is invalid or overlaps")? {
+        effects.arguments(store, owner, scope, arguments.effect_arguments)?;
+        mark_range(arguments.wrapper_bindings, &store.call_wrapper_bindings, &mut wrapper_binding_coverage, "generic call wrapper binding range is invalid or overlaps")?;
+        for binding in mark_range(arguments.operation_bindings, &store.call_operation_bindings, &mut operation_binding_coverage, "generic call operation binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullOperationBinding::Forwarded(ordinal) = *binding {
                 let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards an operation requirement")); };
                 if ordinal >= store.scheme(caller)?.operations.len { return Err(IrVerifyError::new("generic call operation ordinal is out of scope")); }
             }
         }
-        for binding in mark_range(instantiation.arguments.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
+        for binding in mark_range(arguments.method_bindings, &store.call_method_bindings, &mut method_binding_coverage, "generic call method binding range is invalid or overlaps")? {
             application_budget.charge(1)?;
             if let super::schemes::FullMethodBinding::Forwarded(ordinal) = *binding {
                 let Some((caller, _)) = caller else { return Err(IrVerifyError::new("ground generic call forwards a method family")); };
                 if ordinal >= store.scheme(caller)?.methods.len { return Err(IrVerifyError::new("generic call method ordinal is out of scope")); }
             }
         }
-        application_budget.charge(instantiation.arguments.application_bindings.len as usize)?;
-        for binding in mark_range(instantiation.arguments.application_bindings, &store.call_application_bindings, &mut binding_coverage,
+        application_budget.charge(arguments.application_bindings.len as usize)?;
+        for binding in mark_range(arguments.application_bindings, &store.call_application_bindings, &mut binding_coverage,
             "generic call application binding range is invalid or overlaps")?
         {
             match *binding {
@@ -684,12 +696,12 @@ fn verify_scheme_tables(
             }
         }
         let type_rows = bounded(
-            instantiation.arguments.type_arguments,
+            arguments.type_arguments,
             &store.call_type_arguments,
             "generic call type argument range is invalid",
         )?;
         let row_rows = bounded(
-            instantiation.arguments.row_arguments,
+            arguments.row_arguments,
             &store.call_row_arguments,
             "generic call row argument range is invalid",
         )?;
@@ -1187,7 +1199,13 @@ fn verify_scheme_body_facts(
         let mut wrapper_sites = BTreeMap::new();
         let mut tails = BTreeMap::new();
         let mut declarations = BTreeMap::new();
+        let mut previous_fact = None;
         for (offset, fact) in store.scheme_body_facts[facts_range.clone()].iter().enumerate() {
+            budget.charge(1)?;
+            let key = (fact.instruction, fact.kind() as u8);
+            if previous_fact == Some(key) { return Err(IrVerifyError::new("generic body fact is duplicated")); }
+            if previous_fact.is_some_and(|previous| previous > key) { return Err(IrVerifyError::new("generic body fact order is invalid")); }
+            previous_fact = Some(key);
             covered[facts_range.start + offset] = true;
             let instruction = fact.instruction as usize;
             if fact.function != function_id || !instruction_range.contains(&instruction) { return Err(IrVerifyError::new("generic body fact has invalid ownership")); }
@@ -1850,6 +1868,47 @@ fn verify_body_expression(
                 },
             }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?
         }
+        schema::ExprView::TypedCall { callee, kind, signature, args, .. } => {
+            let actual = child(callee, budget)?;
+            let expected = store.semantic.to_type_with_budget(signature.id, &mut budget.semantic_types)?;
+            let Type::Callable(callable) = &expected else { return Err(IrVerifyError::new("generic typed call has no callable signature")); };
+            budget.charge_scheme_clone(&actual)?;
+            if kind != callable.kind || actual.closed_ground_type().as_ref() != Some(&expected) {
+                return Err(IrVerifyError::new("generic typed call disagrees with its actual callee contract"));
+            }
+            let rest = callable.sig.params.iter().position(|parameter| parameter.rest);
+            let fixed = rest.unwrap_or(callable.sig.params.len());
+            if rest.is_some_and(|slot| slot + 1 != callable.sig.params.len()) { return Err(IrVerifyError::new("generic typed rest parameter is not final")); }
+            let required = callable.sig.params[..fixed].iter().rposition(|parameter| !parameter.defaulted).map_or(0, |slot| slot + 1);
+            let mut supplied = 0;
+            for argument in args {
+                budget.charge(1)?;
+                if rest.is_none() && supplied >= fixed { return Err(IrVerifyError::new("generic typed call has too many arguments")); }
+                let parameter = &callable.sig.params[supplied.min(fixed)];
+                match argument? {
+                    super::decode::CallArgView::Default(slot) => {
+                        if slot as usize != supplied || supplied >= fixed || !parameter.defaulted { return Err(IrVerifyError::new("generic typed default has no actual parameter default")); }
+                    }
+                    argument => {
+                        let (value, splice) = match argument {
+                            super::decode::CallArgView::Single(value) => (value, false),
+                            super::decode::CallArgView::Splice(value) => (value, true),
+                            super::decode::CallArgView::Default(_) => unreachable!(),
+                        };
+                        let actual = child(value, budget)?;
+                        let expected = if supplied >= fixed && !splice {
+                            let Type::List(item) = &parameter.ty else { return Err(IrVerifyError::new("generic typed rest parameter has no list domain")); };
+                            item.as_ref()
+                        } else { &parameter.ty };
+                        if splice && supplied < fixed || !body_type_matches_ground(&actual, expected) { return Err(IrVerifyError::new("generic typed argument disagrees with its actual parameter")); }
+                    }
+                }
+                supplied += 1;
+            }
+            if supplied < required { return Err(IrVerifyError::new("generic typed call is missing a required argument")); }
+            budget.charge_clone(&callable.sig.return_ty)?;
+            SchemeType::Ground(callable.sig.return_ty.as_ref().clone())
+        }
         schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } => {
             let function = match decoder.expression_view(instruction)? {
                 schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => function.id,
@@ -1895,7 +1954,13 @@ fn verify_body_expression(
                 }
             }
         }
-        schema::ExprView::CheckedValue { value, check, .. } => {
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
+            let actual = child(value, budget)?;
+            let (source, destination) = materializations::endpoints(store, id, instruction, Some(scheme_scope), budget)?;
+            if !body_types_equal(&actual, &source) { return Err(IrVerifyError::new("materialization source disagrees with its actual generic producer")); }
+            destination
+        }
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
             let actual = child(value, budget)?;
             let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;
             let materialized = store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok();
@@ -2026,6 +2091,21 @@ fn verify_body_expression(
     Ok(ty.clone())
 }
 
+pub(super) fn materialization_contract(
+    store: &FullStore, scopes: &VerifiedSchemeScopes, id: u32, instruction: usize, budget: &mut SchemeInstantiationBudget,
+) -> Result<(SchemeType, SchemeType), IrVerifyError> {
+    let scope = caller_scheme_for_instruction(store, instruction, &scopes.scopes)?.map(|(_, scope)| scope);
+    materializations::endpoints(store, id, instruction, scope, budget)
+}
+
+pub(super) fn materialization_endpoints(
+    store: &FullStore, id: u32, instruction: usize, budget: &mut SchemeInstantiationBudget,
+) -> Result<(Type, Type), IrVerifyError> {
+    let (source, destination) = materializations::endpoints(store, id, instruction, None, budget)?;
+    Ok((source.closed_ground_type().ok_or_else(|| IrVerifyError::new("ground materialization source has symbolic binders"))?,
+        destination.closed_ground_type().ok_or_else(|| IrVerifyError::new("ground materialization destination has symbolic binders"))?))
+}
+
 fn verify_call_instantiations(
     store: &FullStore,
     scopes: &[Option<SchemeScope>],
@@ -2046,7 +2126,7 @@ fn verify_call_instantiations(
         let decoder = decoder_for_instruction(store, call.instruction as usize, function_signatures)?;
         let callee = match decoder.expression_view(call.instruction as usize)? {
             schema::ExprView::DynamicCall { callee, .. } => callee,
-            schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => value,
+            schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => value,
             _ => return Err(IrVerifyError::new("scheme callable invocation has no physical value callee")),
         };
         let id = checked_expression_type_id(store, callee.raw()).ok_or_else(|| IrVerifyError::new("scheme callable callee has no checked relationship"))?;
@@ -2288,6 +2368,7 @@ fn verify_call_instantiations(
             }
         }
     }
+    materializations::verify(store, scopes, function_signatures, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage)?;
     if instantiation_coverage.iter().any(|covered| !covered)
         || type_argument_coverage.iter().any(|covered| !covered)
         || row_argument_coverage.iter().any(|covered| !covered)
@@ -4008,7 +4089,7 @@ fn checked_argument_type_inner(
         ));
     }
     materialization.charge(1)?;
-    if let schema::ExprView::CheckedValue { check, .. } =
+    if let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } =
         decoder.expression_view(instruction)?
     {
         let checked_type = store
@@ -5016,6 +5097,10 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(store.scheme_callable_targets.len())
         .saturating_add(store.scheme_callable_binders.len())
         .saturating_add(store.scheme_callable_calls.len())
+        .saturating_add(store.value_materializations.len())
+        .saturating_add(store.materialization_nodes.len())
+        .saturating_add(store.materialization_edges.len())
+        .saturating_add(store.materialization_leaves.len())
         .saturating_add(store.scheme_methods.len())
         .saturating_add(store.scheme_method_slots.len())
         .saturating_add(store.scheme_method_arguments.len())

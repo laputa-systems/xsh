@@ -608,7 +608,7 @@ impl FullBuilder {
         })
     }
 
-    fn scheme_effect_parameter_map(
+    pub(super) fn scheme_effect_parameter_map(
         &self, scheme: FullSchemeId,
     ) -> Result<BTreeMap<SchemeEffectParameterId, u32>, IrBuildError> {
         let record = self.store.schemes.get(scheme.index())
@@ -1120,7 +1120,7 @@ impl FullBuilder {
         })
     }
 
-    fn intern_scheme_type(
+    pub(super) fn intern_scheme_type(
         &mut self,
         ty: &SchemeType,
         type_parameters: &BTreeMap<SchemeTypeParameterId, u32>,
@@ -1447,7 +1447,7 @@ impl FullBuilder {
         Ok(id)
     }
 
-    fn scheme_type_parameter_map(
+    pub(super) fn scheme_type_parameter_map(
         &self,
         scheme: FullSchemeId,
     ) -> Result<BTreeMap<SchemeTypeParameterId, u32>, IrBuildError> {
@@ -1466,7 +1466,7 @@ impl FullBuilder {
             .collect())
     }
 
-    fn scheme_row_parameter_map(
+    pub(super) fn scheme_row_parameter_map(
         &self,
         scheme: FullSchemeId,
     ) -> Result<BTreeMap<SchemeRowParameterId, u32>, IrBuildError> {

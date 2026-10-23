@@ -3,6 +3,7 @@ use super::super::schemes::{FullApplicationArgumentKind, FullApplicationBinding,
 use crate::sema::arguments::{ArgumentParameterLayout, StaticArgumentKind};
 use crate::sema::callable_application::CallableKindRequirement;
 
+#[derive(Clone, Copy)]
 pub(super) enum ApplicationSubstitution<'a> {
     Ground(&'a CallSubstitution),
     Symbolic(&'a SymbolicCallSubstitution),

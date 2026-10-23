@@ -1,13 +1,6 @@
-use super::check::CheckedFunctionTarget;
 use super::types::SchemeCallableId;
 use crate::symbol::Name;
 use std::collections::BTreeMap;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ValueLeafSource {
-    DirectTarget(CheckedFunctionTarget),
-    Relationship(SchemeCallableId),
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ValueMaterialization<T, I> {
@@ -19,7 +12,7 @@ pub(crate) struct ValueMaterialization<T, I> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Materialization<T, I> {
     Keep,
-    Callable { source: ValueLeafSource, instance: Box<I> },
+    Callable { relationship: SchemeCallableId, instance: Box<I> },
     Record(BTreeMap<Name, ValueMaterialization<T, I>>),
     List(Box<ValueMaterialization<T, I>>),
     MapValues(Box<ValueMaterialization<T, I>>),
@@ -40,11 +33,18 @@ pub(crate) enum MaterializationMapError<E> {
 }
 
 impl<T, I> ValueMaterialization<T, I> {
+    pub(crate) fn instances(&self) -> impl Iterator<Item = &I> {
+        MaterializationNodes { pending: vec![self] }.filter_map(|node| match &node.shape {
+            Materialization::Callable { instance, .. } => Some(instance.as_ref()),
+            _ => None,
+        })
+    }
+
     pub(crate) fn try_map<C, U, J, E>(
         &self,
         context: &mut C,
         map_type: &mut impl FnMut(&mut C, &T) -> Result<U, E>,
-        map_instance: &mut impl FnMut(&mut C, ValueLeafSource, &I) -> Result<(ValueLeafSource, J), E>,
+        map_instance: &mut impl FnMut(&mut C, SchemeCallableId, &I) -> Result<(SchemeCallableId, J), E>,
     ) -> Result<ValueMaterialization<U, J>, MaterializationMapError<E>> {
         self.try_map_at_depth(context, map_type, map_instance, 0)
     }
@@ -53,7 +53,7 @@ impl<T, I> ValueMaterialization<T, I> {
         &self,
         context: &mut C,
         map_type: &mut impl FnMut(&mut C, &T) -> Result<U, E>,
-        map_instance: &mut impl FnMut(&mut C, ValueLeafSource, &I) -> Result<(ValueLeafSource, J), E>,
+        map_instance: &mut impl FnMut(&mut C, SchemeCallableId, &I) -> Result<(SchemeCallableId, J), E>,
         depth: usize,
     ) -> Result<ValueMaterialization<U, J>, MaterializationMapError<E>> {
         if depth > super::constraints::MAX_TYPE_DEPTH { return Err(MaterializationMapError::TypeDepth); }
@@ -61,9 +61,9 @@ impl<T, I> ValueMaterialization<T, I> {
         let destination = map_type(context, &self.destination).map_err(MaterializationMapError::Mapping)?;
         let shape = match &self.shape {
             Materialization::Keep => Materialization::Keep,
-            Materialization::Callable { source, instance } => {
-                let (source, instance) = map_instance(context, *source, instance).map_err(MaterializationMapError::Mapping)?;
-                Materialization::Callable { source, instance: Box::new(instance) }
+            Materialization::Callable { relationship, instance } => {
+                let (relationship, instance) = map_instance(context, *relationship, instance).map_err(MaterializationMapError::Mapping)?;
+                Materialization::Callable { relationship, instance: Box::new(instance) }
             }
             Materialization::Record(fields) => Materialization::Record(fields.iter().map(|(&name, field)| {
                 Ok((name, field.try_map_at_depth(context, map_type, map_instance, depth + 1)?))
@@ -89,7 +89,7 @@ impl<T, I> InstantiationEvidence<T, I> {
         &self,
         context: &mut C,
         map_type: &mut impl FnMut(&mut C, &T) -> Result<U, E>,
-        map_instance: &mut impl FnMut(&mut C, ValueLeafSource, &I) -> Result<(ValueLeafSource, J), E>,
+        map_instance: &mut impl FnMut(&mut C, SchemeCallableId, &I) -> Result<(SchemeCallableId, J), E>,
         map_invocation: &mut impl FnMut(&mut C, &I) -> Result<J, E>,
     ) -> Result<InstantiationEvidence<U, J>, MaterializationMapError<E>> {
         Ok(match self {

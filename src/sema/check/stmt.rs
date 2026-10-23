@@ -5221,9 +5221,8 @@ impl Checker {
             && ty.is_none()
             && matches!(arena.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
             && let ArenaExprOrRun::Expr(expression) = initializer
-            && matches!(actual, Type::Function(_) | Type::SchemeCallable(_))
         {
-            self.materialize_callable_value(arena, expression, actual)
+            self.materialize_mutable_storage(arena, expression, actual)
         } else {
             actual
         };

@@ -1,3 +1,4 @@
+use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -188,13 +189,13 @@ fn condition(types: &BTreeMap<usize, SchemeType>, instruction: usize, role: crat
 }
 
 #[derive(Clone, Copy)]
-enum BodyTypeRef<'a> {
+pub(super) enum BodyTypeRef<'a> {
     Scheme(&'a SchemeType),
     Ground(&'a Type),
 }
 
 impl<'a> BodyTypeRef<'a> {
-    fn unvalidated(mut self) -> Self {
+    pub(super) fn unvalidated(mut self) -> Self {
         loop {
             self = match self {
                 Self::Scheme(SchemeType::Validated(_, base)) => Self::Scheme(base),
@@ -205,11 +206,11 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn is_record(self) -> bool {
+    pub(super) fn is_record(self) -> bool {
         matches!(self.unvalidated(), Self::Scheme(SchemeType::Record { .. }) | Self::Scheme(SchemeType::Ground(Type::Record(_))) | Self::Ground(Type::Record(_)))
     }
 
-    fn field(self, name: Name) -> Option<Self> {
+    pub(super) fn field(self, name: Name) -> Option<Self> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::Record { fields, .. }) => fields.get(&name).map(Self::Scheme),
             Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).field(name),
@@ -218,7 +219,7 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn list_item(self) -> Option<Self> {
+    pub(super) fn list_item(self) -> Option<Self> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::List(item)) => Some(Self::Scheme(item)),
             Self::Ground(Type::List(item)) => Some(Self::Ground(item)),
@@ -226,7 +227,7 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn result_parts(self) -> Option<(Self, Self)> {
+    pub(super) fn result_parts(self) -> Option<(Self, Self)> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::Result(ok, error)) => Some((Self::Scheme(ok), Self::Scheme(error))),
             Self::Ground(Type::Result(ok, error)) => Some((Self::Ground(ok), Self::Ground(error))),
@@ -234,7 +235,7 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn map_parts(self) -> Option<(Self, Self)> {
+    pub(super) fn map_parts(self) -> Option<(Self, Self)> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::Map(key, value)) => Some((Self::Scheme(key), Self::Scheme(value))),
             Self::Ground(Type::Map(key, value)) => Some((Self::Ground(key), Self::Ground(value))),
@@ -242,7 +243,7 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn validation(self) -> Option<Validation> {
+    pub(super) fn validation(self) -> Option<Validation> {
         match self {
             Self::Scheme(SchemeType::Validated(validation, _)) => Some(*validation),
             Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).validation(),
@@ -251,12 +252,45 @@ impl<'a> BodyTypeRef<'a> {
         }
     }
 
-    fn materialize(self, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
+    pub(super) fn materialize(self, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
         match self {
             Self::Scheme(ty) => { budget.charge_scheme_clone(ty)?; Ok(ty.clone()) }
             Self::Ground(ty) => { budget.charge_clone(ty)?; Ok(SchemeType::Ground(ty.clone())) }
         }
     }
+    pub(super) fn optional_payload(self) -> Option<Self> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::Optional(value)) => Some(Self::Scheme(value)),
+            Self::Ground(Type::Optional(value)) => Some(Self::Ground(value)),
+            _ => None,
+        }
+    }
+
+    pub(super) fn record_shape(self) -> Option<(usize, crate::sema::schemes::SchemeRowTail)> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::Record { fields, tail }) => Some((fields.len(), *tail)),
+            Self::Ground(Type::Record(fields)) => Some((fields.len(), crate::sema::schemes::SchemeRowTail::Closed)),
+            _ => None,
+        }
+    }
+
+    pub(super) fn relationship(self) -> Option<crate::sema::types::SchemeCallableId> {
+        match self {
+            Self::Scheme(SchemeType::SchemeCallable(id)) | Self::Ground(Type::SchemeCallable(id)) => Some(*id),
+            Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).relationship(),
+            _ => None,
+        }
+    }
+
+    pub(super) fn validated_base(self) -> Option<(Validation, Self)> {
+        match self {
+            Self::Scheme(SchemeType::Validated(validation, base)) => Some((*validation, Self::Scheme(base))),
+            Self::Scheme(SchemeType::Ground(ty)) => Self::Ground(ty).validated_base(),
+            Self::Ground(Type::Validated(ty)) => Some((ty.validation(), Self::Ground(ty.base()))),
+            _ => None,
+        }
+    }
+
 }
 
 pub(super) fn record_path(ty: &SchemeType, path: &[Name], budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
@@ -2051,7 +2085,7 @@ mod tests {
         let range = program.store.function_instruction_range(owner).unwrap();
         let (check_instruction, other_check, expected) = {
             let mut checks = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
-                Ok(schema::ExprView::CheckedValue { check, .. }) => Some((instruction, check.ty.id)),
+                Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) => Some((instruction, check.ty.id)),
                 _ => None,
             });
             let (first, _) = checks.next().unwrap();

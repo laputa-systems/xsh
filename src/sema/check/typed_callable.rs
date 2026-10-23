@@ -42,7 +42,10 @@ impl Checker {
             return actual;
         }
         if !matches!(actual, Type::Function(_)) {
-            return actual;
+            return match expected {
+                Some(expected) => self.materialize_contextual_storage(arena, id, actual, expected),
+                None => actual,
+            };
         }
         let Some(target) = expected_typed_callable(expected) else {
             if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
@@ -71,26 +74,35 @@ impl Checker {
     }
 
     fn materialize_scheme_callable(&mut self, relationship: crate::sema::types::SchemeCallableId, span: Span) -> Type {
-        let relationship_contract = match self.scheme_callable_relationship(relationship) {
-            Ok(relationship) => relationship,
-            Err(error) => {
-                self.error(span, &format!("callable value relationship is not owned: {error:?}"), DiagnosticCode::CheckCallableMismatch);
+        let (ty, instance) = match self.fresh_scheme_callable_value(relationship, span) {
+            Ok(value) => value,
+            Err(message) => {
+                self.error(span, &message, DiagnosticCode::CheckCallableMismatch);
                 return Type::Invalid;
             }
-        };
-        let scheme = relationship_contract.canonical().scheme();
-        let contract = self.fresh_scheme_call_contract(scheme, None, None, span);
-        let super::InvocationEffects::Checked(effects) = contract.effects else {
-            self.error(span, "callable value has no settled declaration effect contract", DiagnosticCode::CheckLocalInference);
-            return Type::Invalid;
-        };
-        let Some(instance) = contract.instantiation else {
-            self.error(span, "scheme callable value has no quantified contract", DiagnosticCode::CheckCallableMismatch);
-            return Type::Invalid;
         };
         self.record_pending_value_instantiation(span, instance);
         let previous = self.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite::value(span), relationship);
         assert!(previous.is_none(), "a scheme callable value instantiates once");
+        self.record_expr_type(span, ty.clone());
+        ty
+    }
+
+    pub(super) fn fresh_scheme_callable_value(
+        &mut self,
+        relationship: crate::sema::types::SchemeCallableId,
+        span: Span,
+    ) -> Result<(Type, super::PendingCallInstantiation), String> {
+        let relationship_contract = self.scheme_callable_relationship(relationship)
+            .map_err(|error| format!("callable value relationship is not owned: {error:?}"))?;
+        let scheme = relationship_contract.canonical().scheme();
+        let contract = self.fresh_scheme_call_contract(scheme, None, None, span);
+        let super::InvocationEffects::Checked(effects) = contract.effects else {
+            return Err("callable value has no settled declaration effect contract".into());
+        };
+        let Some(instance) = contract.instantiation else {
+            return Err("scheme callable value has no quantified contract".into());
+        };
         let ty = Type::Callable(Arc::new(TypedCallable {
             kind: scheme.kind(),
             sig: super::CallableType {
@@ -100,8 +112,7 @@ impl Checker {
                 return_ty: Box::new(contract.return_ty), effects,
             },
         }));
-        self.record_expr_type(span, ty.clone());
-        ty
+        Ok((ty, instance))
     }
 
     fn materialize_named_callable(&mut self, named: CallableAlias, span: Span) -> Type {
@@ -709,6 +720,21 @@ mod inferred_callable_tests {
             !checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)),
             "{source}\n{:?}", checked.diagnostics
         );
+    }
+
+    #[test]
+    fn nested_mutable_callable_storage_instantiates_visible_leaves_once() {
+        for source in [
+            "pure identity(value) { value }\nlet original = {copy: identity}\nvar held = original\nlet integer = held.copy(7)\nlet text = held.copy(\"demo\")\n",
+            "pure identity(value) { value }\npure consume(operations) { let integer = operations.copy(7); operations.copy(\"demo\") }\nlet operations = {copy: identity}\nlet result = consume(operations)\n",
+        ] {
+            let checked = checked(source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error
+                && matches!(diagnostic.code, Some(DiagnosticCode::CheckTypeMismatch | DiagnosticCode::CheckCallableMismatch))),
+                "a shared callback is monomorphic within one activation: {source}\n{:?}", checked.diagnostics);
+        }
+        accepts("pure first(value) { value }\npure second(value) { value }\nlet original = {copy: first, other: second}\nvar held = original\nheld.copy = second\nlet integer = held.copy(7)\nlet text = held.other(\"demo\")\n");
+        accepts("pure identity(value) { value }\npure passive(value) { value }\nlet operations = passive({copy: identity})\nlet integer = operations.copy(7)\nlet text = operations.copy(\"demo\")\n");
     }
 
     #[test]
