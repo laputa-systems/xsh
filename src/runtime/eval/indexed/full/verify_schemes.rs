@@ -2411,6 +2411,36 @@ fn verify_body_expression(
                 SchemeType::Ground(FullDecoder::checked_binary_result_type(op, left.unvalidated(), right.unvalidated()).ok_or_else(|| IrVerifyError::new("generic binary operands disagree with the operation"))?)
             }
         }
+        schema::ExprView::Error(super::ErrorExprView::Structured { family_identity, variant, fields, .. }) => {
+            let family = Name::intern(family_identity);
+            let variant = Name::intern(variant);
+            let key = crate::runtime::eval::CheckedPatternVariantKey {
+                kind: crate::runtime::eval::CheckedPatternVariantKind::Error,
+                owner: family,
+                variant,
+            };
+            let declaration = store.checked_pattern_variants.get(&key)
+                .ok_or_else(|| IrVerifyError::new("generic error constructor has no canonical variant declaration"))?;
+            let mut supplied = BTreeSet::new();
+            for field in fields {
+                budget.charge(1)?;
+                let (name, value) = field?;
+                let name = Name::intern(name);
+                if !supplied.insert(name) { return Err(IrVerifyError::new("generic error constructor repeats a payload field")); }
+                let mut expected = None;
+                for field in &declaration.fields {
+                    budget.charge(1)?;
+                    if field.name == Some(name) { expected = Some(field.type_id); break; }
+                }
+                let expected = expected.ok_or_else(|| IrVerifyError::new("generic error constructor supplies an undeclared payload field"))?;
+                let expected = store.semantic.to_type_with_budget(expected, &mut budget.semantic_types)?;
+                if !body_type_matches_ground(&child(value, budget)?, &expected) {
+                    return Err(IrVerifyError::new("generic error payload disagrees with its declared field contract"));
+                }
+            }
+            if supplied.len() != declaration.fields.len() { return Err(IrVerifyError::new("generic error constructor omits a declared payload field")); }
+            SchemeType::Ground(Type::ErrorVariant { family, variant })
+        }
         schema::ExprView::Field { base, name, .. } if wrapper_sites.contains_key(&instruction) => {
             let base = child(base, budget)?;
             if let Some(contribution) = wrappers::verify_field_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites[&instruction], &base, Name::intern(name), ty, slots.captures_error(), boundary, budget)? {

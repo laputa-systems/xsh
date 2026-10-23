@@ -3183,7 +3183,8 @@ validation; filters and additional sources do not.
 
 Values may be scalar literals, parameter or local reads, ground immutable
 runtime captures, required `.field` projections, list literals without splices,
-records with named fields, `Ok` and `Err` constructors, value blocks,
+records with named fields, declared error variant constructors, `Ok` and `Err`
+constructors, value blocks,
 value-producing `if` and `match` branches, loops, or statically selected pure
 calls. Unguarded indexing retains the `List` or `Map` receiver, key, and item
 relationships; slicing retains the `List`, `Str`, or `Bytes` receiver domain.
@@ -3196,6 +3197,9 @@ This covers integer and floating-point arithmetic, text and list concatenation,
 Set difference, and duration arithmetic. Duration scaling requires `Int`, and
 dividing two durations returns `Int`. Unsupported operand pairs remain type
 errors. Unary operations retain their ordinary contracts.
+Declared error variants retain their nominal family and variant, payload field
+types, source argument evaluation order, and ordinary default message. Inferred
+arguments do not erase payload validation or authorize a different family.
 Inferred method calls retain finite registered families. `len()` accepts List,
 Map, Set, and Bytes receivers; `is_empty()` also accepts Str. There is no
 `Str.len()`. A generic `Path.write` call selects its text or bytes overload,

@@ -5250,6 +5250,40 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if !recorded { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
+                if self.bodies.error_constructors.contains_key(&expression) {
+                    if !matches!(ty.closed_ground_type(), Some(Type::ErrorVariant { .. })) { return self.block_scheme_lowering_expr(expression); }
+                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let (error, bindings) = self.lower_compact_error_expr(expression, callee, &arguments, slots, Some(current_function), None)?;
+                    let mut bound_types = BTreeMap::new();
+                    for (value, slot) in bindings {
+                        let actual = lowered_types.get(&value)?.clone();
+                        bound_types.insert(slot, actual.clone());
+                        let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
+                        slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: actual, mutability: super::SchemeLocalMutability::Immutable });
+                        body.push(declaration);
+                    }
+                    let LoweredErrorExpr::Structured { fields, .. } = &error;
+                    for (_, value) in fields {
+                        let generated = self.scratch.borrow().expressions[value.index()].clone();
+                        match generated {
+                            BuildExprRow::Param(slot) if bound_types.contains_key(&slot) => {
+                                lowered_types.insert(*value, bound_types[&slot].clone());
+                            }
+                            BuildExprRow::CheckedValue { value: source, check: LoweredValueCheck::Ground(check), .. } => {
+                                let source_row = self.scratch.borrow().expressions[source.index()].clone();
+                                let BuildExprRow::Param(slot) = source_row else { return self.block_scheme_lowering_expr(expression); };
+                                lowered_types.insert(source, bound_types.get(&slot)?.clone());
+                                self.record_scheme_storage_elaboration(*value, &SchemeType::Ground(check.ty), lowered_types);
+                            }
+                            BuildExprRow::Str(_) => { lowered_types.insert(*value, SchemeType::Ground(Type::Str)); }
+                            _ if lowered_types.contains_key(value) => {},
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        }
+                    }
+                    let value = self.push_checked_structured_error(expression, error, span)?;
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
                 if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) || facts.constructor_instances().contains_key(&expression) {
                     let construction = if facts.constructor_instances().contains_key(&expression) {
                         self.checked_scheme_record_construction(expression, facts)?
@@ -10079,6 +10113,53 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             .remove(&call)
             .is_some());
         checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_require_canonical_identity_and_fields() {
+        let source = "error Failure = Rejected(message: Str)\nerror Other = Rejected(message: Str)\nproc make(payload, message: Str) -> Result[Unit, Failure] { let _ = payload; Err(Failure.Rejected(message:)) }\nproc other(payload, message: Str) -> Result[Unit, Other] { let _ = payload; Err(Other.Rejected(message:)) }\n";
+        let checked = CheckedSource::new("generic-error-constructor-facts.xsh", source, Vec::new());
+        let _symbols = checked.parsed.arena.symbol_owner().enter();
+        let built = checked.build(&checked.declarations);
+        assert!(built.is_ok(), "{built:?}");
+        let constructor = |text| checked.declarations.bodies.error_constructors.keys().copied()
+            .find(|&call| checked.sources.span_text(checked.parsed.arena.arena.expr(call).span) == Some(text)).unwrap();
+        let call = constructor("Failure.Rejected(message:)");
+        let other = constructor("Other.Rejected(message:)");
+        let mut missing = checked.declarations.clone();
+        assert!(missing.bodies.error_constructors.remove(&call).is_some());
+        assert!(checked.build(&missing).is_err());
+        let mut missing_type = checked.declarations.clone();
+        assert!(missing_type.bodies.expr_types.remove(&call).is_some());
+        assert!(checked.build(&missing_type).is_err());
+        let mut foreign = checked.declarations.clone();
+        foreign.bodies.expr_types.insert(call, checked.declarations.bodies.expr_types[&other].clone());
+        assert!(checked.build(&foreign).is_err());
+        let mut wrong_field = checked.declarations.clone();
+        wrong_field.bodies.error_constructors.get_mut(&call).unwrap().fields[0] = crate::symbol::Name::intern("undeclared");
+        assert!(checked.build(&wrong_field).is_err());
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_keep_imported_family_ownership() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).unwrap();
+        let modules = tempfile::tempdir_in(&work).unwrap();
+        for module in ["first", "second"] {
+            std::fs::write(modules.path().join(format!("{module}.xsh")), "##! Error constructor fixture.\n## An owned failure.\nexport error Failure = Rejected(message: Str)\n").unwrap();
+        }
+        let source = "use first as left\nuse second as right\nproc make(payload, message: Str) -> Result[Unit, left.Failure] { let _ = payload; Err(left.Failure.Rejected(message:)) }\nproc other(payload, message: Str) -> Result[Unit, right.Failure] { let _ = payload; Err(right.Failure.Rejected(message:)) }\n";
+        let checked = CheckedSource::new("generic-imported-error-constructors.xsh", source, vec![modules.path().to_path_buf()]);
+        let built = checked.build(&checked.declarations);
+        assert!(built.is_ok(), "{built:?}");
+        let constructor = |text| checked.declarations.bodies.error_constructors.keys().copied()
+            .find(|&call| checked.sources.span_text(checked.parsed.arena.arena.expr(call).span) == Some(text)).unwrap();
+        let call = constructor("left.Failure.Rejected(message:)");
+        let other = constructor("right.Failure.Rejected(message:)");
+        assert_ne!(checked.declarations.bodies.expr_types[&call], checked.declarations.bodies.expr_types[&other]);
+        let mut foreign = checked.declarations.clone();
+        foreign.bodies.expr_types.insert(call, checked.declarations.bodies.expr_types[&other].clone());
+        assert!(checked.build(&foreign).is_err());
     }
 
     #[test]

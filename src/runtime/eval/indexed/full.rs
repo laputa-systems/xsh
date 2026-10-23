@@ -39968,6 +39968,103 @@ assert open_bool.extra == 9
     }
 
     #[test]
+    fn generic_error_variant_constructors_preserve_canonical_family_and_payload() {
+        run_with_large_stack(|| {
+            for parameter in ["value: Int", "value"] {
+                let source = format!("error ObserverFailure = Rejected(message: Str)\nproc reject({parameter}) -> Result[Unit, ObserverFailure] {{ Err(ObserverFailure.Rejected(message: \"observer failed\")) }}\nlet result = reject(7)\n");
+                let program = Arc::new(fixture("generic-error-variant-constructor.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        let completion = evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                        assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}");
+                    }
+                    let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("result")).unwrap().value.clone() else { panic!("error constructor must remain Result data") };
+                    let Value::Error(error) = value.as_ref() else { panic!("error variant must retain its nominal runtime identity") };
+                    assert_eq!(error.family, "ObserverFailure");
+                    assert_eq!(error.kind, "ObserverFailure.Rejected");
+                    assert_eq!(error.message, "observer failed");
+                    assert!(evaluator.stdout.is_empty());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_preserve_defaults_order_and_unsigned_fields() {
+        run_with_large_stack(|| {
+            for count in [7, -1] {
+                let source = format!("error Failure = Rejected(message: Str, code: UInt) | Default\nproc observed(label: Str, value: Int) [io] -> Int {{ print $label; value }}\nproc make(payload, count: Int) [io] -> Result[Unit, Failure] {{ let _ = payload; Err(Failure.Rejected(code: observed(\"code\", count), message: {{ print \"message\"; \"failed\" }})) }}\nproc defaulted(payload) -> Result[Unit, Failure] {{ let _ = payload; Err(Failure.Default()) }}\nlet defaulted_result = defaulted(\"kept\")\nlet result = make(7, {count})\n");
+                let program = Arc::new(fixture("generic-error-variant-fields.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    let mut failed = false;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        match evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap() {
+                            Ok(completion) => assert!(matches!(completion, None | Some(crate::runtime::eval::Flow::Continue(Value::Unit))), "{completion:?}"),
+                            Err(error) => { assert_eq!(count, -1); assert_eq!(error.kind, "type-error"); failed = true; break; }
+                        }
+                    }
+                    assert_eq!(failed, count < 0);
+                    let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("defaulted_result")).unwrap().value.clone() else { panic!("default constructor remains Result data") };
+                    let Value::Error(error) = value.as_ref() else { panic!("default error variant") };
+                    assert_eq!(error.kind, "Failure.Default");
+                    assert_eq!(error.message, "Failure.Default");
+                    if count >= 0 {
+                        let Value::Result(crate::runtime::value::ResultValue::Err(value)) = evaluator.lookup(Name::intern("result")).unwrap().value.clone() else { panic!("unsigned constructor remains Result data") };
+                        let Value::Error(error) = value.as_ref() else { panic!("unsigned error variant") };
+                        assert_eq!(error.kind, "Failure.Rejected");
+                        assert_eq!(error.payload.get("code"), Some(&Value::Int(count)));
+                    }
+                    assert_eq!(evaluator.stdout, b"code\nmessage\n");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_error_variant_constructors_reject_foreign_identity_and_payload_producers() {
+        let source = "error Failure = Rejected(message: Str)\nerror Other = Rejected(message: Str)\nproc make(payload, message: Str, code: Int) -> Result[Unit, Failure] { let _ = payload; let _ = Other.Rejected(message: \"other\"); Err(Failure.Rejected(message:)) }\n";
+        let program = fixture("generic-error-constructor-proof.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "make");
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut errors = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::ExprError);
+        let other = errors.next().unwrap();
+        let actual = errors.next().unwrap();
+        assert!(errors.next().is_none());
+        let mut foreign = program.clone();
+        foreign.store.in_place.take();
+        foreign.store.data.swap(actual, other);
+        FullVerifier::verify(&foreign).expect_err("another declared family cannot replace the actual error constructor");
+        let schema::ExprView::Error(super::ErrorExprView::Structured { mut fields, .. }) = decoder.expression_view(actual).unwrap() else { unreachable!() };
+        let (field, value) = fields.next().unwrap().unwrap();
+        assert_eq!(field, "message");
+        assert!(fields.next().is_none());
+        let value = value.raw() as usize;
+        assert!(matches!(decoder.expression_view(value), Ok(schema::ExprView::Param(_))));
+        let mut wrong_field = program.clone();
+        wrong_field.store.in_place.take();
+        let words = wrong_field.store.data[value].range().bounds(wrong_field.store.extra.len()).unwrap();
+        assert_eq!(words.len(), 1);
+        wrong_field.store.extra[words.start] = 2;
+        FullVerifier::verify(&wrong_field).expect_err("an Int parameter cannot prove the actual message producer is Str");
+        let mut missing = program.clone();
+        missing.store.in_place.take();
+        let key = missing.store.checked_pattern_variants.keys().find(|key| key.owner.as_str().as_str() == "Failure").copied().unwrap();
+        missing.store.checked_pattern_variants.remove(&key);
+        FullVerifier::verify(&missing).expect_err("an error constructor needs its retained canonical declaration");
+    }
+
+    #[test]
     fn generic_named_record_constructors_reject_forged_nominal_and_actual_field_evidence() {
         run_with_large_stack(|| {
             let program = fixture("generic-named-record-constructor-proof.xsh", r#"

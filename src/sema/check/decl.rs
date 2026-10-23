@@ -250,7 +250,7 @@ impl Checker {
             let def = program.arena.function_def(definition);
             let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
             let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span)
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span)
                     || self.declaration_inference.pending(FunctionDeclarationId::new(self.effect_declaration_id(program, def.body))).is_some_and(|pending| pending.constructor_instances.contains_key(&span)) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
@@ -316,7 +316,7 @@ impl Checker {
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
         let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
-                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
+                |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
@@ -624,6 +624,11 @@ impl Checker {
                 let span = program.arena.expr(expression).span;
                 let constructor = self.record_constructor_instances.get(&span)?;
                 (ty.closed_ground_type().as_ref() == Some(&constructor.ty)).then_some(span)
+            }));
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                let span = program.arena.expr(expression).span;
+                (self.error_constructors.contains_key(&span)
+                    && matches!(ty.closed_ground_type(), Some(Type::ErrorVariant { .. }))).then_some(span)
             }));
             checked_operations.extend(self.conversions.keys().filter(|span| expression_spans.contains(span)).copied());
             checked_operations.extend(self.requirement_targets.keys().filter(|span| expression_spans.contains(span)).copied());

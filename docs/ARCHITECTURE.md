@@ -125,6 +125,13 @@ the result or its nominal identity. A body result annotation cannot supply that
 source evidence or authorize a constructor from another function.
 Only checker-selected constructor callees use a static namespace role. Their
 arguments and independent module-value reads retain ordinary capture rules.
+Error variant constructors in generic bodies reuse the canonical checked
+family, variant, and source-ordered payload binding from ordinary lowering.
+Generated default-message and unsigned-check rows retain actual producer types
+and immutable scope ownership. Scoped proof authenticates the exact error
+identity and complete unique payload against its canonical declaration before
+accepting the result; constructor namespaces remain static only at selected
+constructor sites.
 Constructor instance completion closes schema arguments; surrounding callable
 generalization and final fact resolution own the supplied expressions. A closed
 constructor field does not close the open row from which its value was projected.

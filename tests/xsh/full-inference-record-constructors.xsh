@@ -87,3 +87,21 @@ assert inferred_wrapped("kept").tag.value == 19
   assert output.success, output.stderr
   assert output.stdout == ""
 }
+
+
+test test_generic_error_variant_constructors_keep_payload_order_and_defaults { |ctx|
+  let output = test.expect(ctx, r"""
+error Failure = Rejected(message: Str, code: UInt) | Default
+proc observed(label: Str, value: Int) [io] -> Int { print $label; value }
+proc make(payload, count: Int) [io] -> Result[Unit, Failure] {
+  let _ = payload
+  Err(Failure.Rejected(code: observed("code", count), message: { print "message"; "failed" }))
+}
+proc defaulted(payload) -> Result[Unit, Failure] { let _ = payload; Err(Failure.Default()) }
+let result = make(7, 3)
+assert match result { Err(Failure.Rejected {message, code}) => message == "failed" && code == 3; _ => false }
+assert match defaulted("kept") { Err(Failure.Default {message}) => message == "Failure.Default"; _ => false }
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "code\nmessage\n"
+}
