@@ -274,6 +274,16 @@ the denominator:
 | Joint effect proof pending | 202 | All clauses remain in the source; individual lint suggestions do not prove simultaneous removal. |
 | **Total** | **1,843** | |
 
+With source-qualified `654fe6e99` products, erasing all 202 effect clauses alone
+passes checks of `core/date.xsh` and `core/lib/system_report_live.xsh`.
+Adding fourteen Proc annotation erasures from the broader candidate makes
+both roots fail with unresolved Proc contracts and downstream unknown-effect
+diagnostics. The two local helper chains also pass when only their effect
+clauses are erased. These checks separate that Proc interaction from a
+standalone effect-summary failure; they earn no joint removal or runtime credit.
+Raw results are under
+`.work/wt/full-inference-effect-corpus/.work/tmp/effect-propagation-isolation-654-r2/runs-r2/`.
+
 ### Bounded 20-site source relationship review
 
 `frozen_witnesses.py` identifies twelve Proc sites in this sample: 94, 95, 97,
