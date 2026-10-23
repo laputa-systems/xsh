@@ -22697,6 +22697,91 @@ pure keep(value, state: State) {
     }
 
     #[test]
+    fn ground_result_tails_authenticate_conditional_error_arms() {
+        run_with_large_stack(|| {
+            for annotation in ["", " -> Result[Selection, Usage]"] {
+                let source = format!(r#"
+enum Selection {{ First, Second }}
+enum OtherSelection {{ Foreign }}
+error Usage = Invalid(message: Str)
+error OtherUsage = Invalid(message: Str)
+pure usage(message: Str) {{ Usage.Invalid(message) }}
+pure other_usage(message: Str) {{ OtherUsage.Invalid(message) }}
+pure foreign() -> OtherSelection {{ Foreign }}
+pure select(value: Str){annotation} {{
+    match value {{
+        "first" => First
+        "second" => Second
+        else => Err(usage("invalid"))
+    }}
+}}
+pure stored(value: Str) -> Result[Selection, Usage] {{
+    var selected = First
+    if value == "second" {{ selected = Second }}
+    match value {{
+        "invalid" => Err(usage("invalid"))
+        else => selected
+    }}
+}}
+pure boxed(value: Str) -> Result[Result[Selection, Usage], Error] {{
+    if value == "first" {{ return Ok(select("invalid")) }}
+    Ok(select("first"))
+}}
+pure keep(value) {{ value }}
+assert keep(select("first")) == Ok(First)
+assert keep(select("second")) == Ok(Second)
+assert match keep(select("invalid")) {{ Err(_) => true; Ok(_) => false }}
+assert keep(stored("first")) == Ok(First)
+assert keep(stored("second")) == Ok(Second)
+assert match keep(stored("invalid")) {{ Err(_) => true; Ok(_) => false }}
+let opaque_error = keep(boxed("first"))
+let opaque_success = keep(boxed("second"))
+"#);
+                let program = Arc::new(fixture("ground-result-conditional-errors.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() {
+                        evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                    }
+                    for (input, error_data) in [("first", true), ("second", false)] {
+                        let value = evaluator.call_indexed_direct(
+                            LoweredFunctionKey::Name(program_name(&program, "boxed")), CallableKind::Pure,
+                            &[Value::Str(input.into())], Span::at(program.store.source_id, 0),
+                        ).unwrap().unwrap();
+                        let Value::Result(crate::runtime::value::ResultValue::Ok(inner)) = value else { panic!("outer success must retain the authored Result payload") };
+                        assert!(matches!(*inner, Value::Result(crate::runtime::value::ResultValue::Err(_))) == error_data);
+                        assert!(matches!(*inner, Value::Result(crate::runtime::value::ResultValue::Ok(_))) != error_data);
+                    }
+                }
+                let other = function_instruction_indices(&program, "foreign", FullTag::ExprTag)[0];
+                let other_words = program.store.data[other].range().bounds(program.store.extra.len()).unwrap();
+                for name in ["select", "stored"] {
+                    let tag = function_instruction_indices(&program, name, FullTag::ExprTag)[0];
+                    let words = program.store.data[tag].range().bounds(program.store.extra.len()).unwrap();
+                    let mut wrong_branch = (*program).clone();
+                    wrong_branch.store.in_place.take();
+                    wrong_branch.store.extra[words.start..words.start + 2].copy_from_slice(&program.store.extra[other_words.start..other_words.start + 2]);
+                    let failure = FullVerifier::verify(&wrong_branch).unwrap_err();
+                    assert!(failure.message.contains("producer") || failure.message.contains("contract"), "{failure:?}");
+                }
+                let error = function_instruction_indices(&program, "usage", FullTag::ExprError)[0];
+                let other_error = function_instruction_indices(&program, "other_usage", FullTag::ExprError)[0];
+                let words = program.store.data[error].range().bounds(program.store.extra.len()).unwrap();
+                let other_words = program.store.data[other_error].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[words.start], 1);
+                let mut wrong_error = (*program).clone();
+                wrong_error.store.in_place.take();
+                wrong_error.store.extra[words.start + 1..words.start + 4].copy_from_slice(&program.store.extra[other_words.start + 1..other_words.start + 4]);
+                let failure = FullVerifier::verify(&wrong_error).unwrap_err();
+                assert!(failure.message.contains("error") || failure.message.contains("producer") || failure.message.contains("contract"), "{failure:?}");
+            }
+        });
+    }
+
+    #[test]
     fn nested_index_writers_authenticate_derived_collection_bases() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("nested-index-writers.xsh", r#"

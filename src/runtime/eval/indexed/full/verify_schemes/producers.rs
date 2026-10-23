@@ -4312,6 +4312,17 @@ impl<'a> ProducerProof<'a> {
         }
         let actual = match declared {
             Some(actual) => Some(actual),
+            None if returned
+                && matches!(expected.as_ref(), Type::Result(_, _))
+                && self.store.function_metadata[function_index(owner)?].callable_kind == CallableKind::Pure
+                && matches!(decoder.expression_view(instruction)?,
+                    schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. }
+                    | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. }
+                    | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. }) =>
+            {
+                checked_expression_type_id(self.store, instruction as u32)
+                    .map(|ty| self.contract_type(ty)).transpose()?
+            }
             None => self.declared_type(&decoder, instruction)?,
         };
         if matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _))
