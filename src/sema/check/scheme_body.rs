@@ -545,7 +545,9 @@ pub(super) fn is_body_expression(
                     let callback = matches!(stage.kind,
                         crate::syntax::node::StreamStageKind::Map | crate::syntax::node::StreamStageKind::Where
                         | crate::syntax::node::StreamStageKind::FlatMap | crate::syntax::node::StreamStageKind::Any
-                        | crate::syntax::node::StreamStageKind::All);
+                        | crate::syntax::node::StreamStageKind::All | crate::syntax::node::StreamStageKind::ParMap
+                        | crate::syntax::node::StreamStageKind::GroupBy | crate::syntax::node::StreamStageKind::UniqueBy)
+                        || (stage.kind == crate::syntax::node::StreamStageKind::Count && stage.block.is_some());
                     let fold = matches!(stage.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce);
                     let descriptor = if callback {
                         match crate::sema::stage_arguments::stage_callable_argument(program, stage, |expression| types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type)) {

@@ -1025,11 +1025,36 @@ pub(super) fn verify_body(
                             let stage = stage?;
                             stage_ids.push(stage.id.raw());
                             match stage.view {
-                                super::super::StageView::Map { slot, value } => {
+                                super::super::StageView::Map { slot, value }
+                                | super::super::StageView::ParMap { slot, value, .. } => {
                                     let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    if let super::super::StageView::ParMap { jobs: Some(jobs), .. } = stage.view {
+                                        if !body_type_matches(&expression_type(types, jobs.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? { return Err(IrVerifyError::new("generic parallel pipeline jobs is not Int")); }
+                                        pending.push(Obligation::Expression(jobs.raw() as usize, scope));
+                                    }
                                     item = expression_type(types, value.raw() as usize, budget)?;
                                     if matches!(BodyTypeRef::Scheme(&item).unvalidated(), BodyTypeRef::Ground(Type::Unit)) { return Err(IrVerifyError::new("generic map callback has no value result")); }
                                     pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::GroupBy { slot, key }
+                                | super::super::StageView::UniqueBy { slot, key }
+                                | super::super::StageView::CountBy { slot, key } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    let key_type = expression_type(types, key.raw() as usize, budget)?;
+                                    match stage.view {
+                                        super::super::StageView::GroupBy { .. } => {
+                                            budget.charge_scheme_clone(&item)?;
+                                            budget.charge(4)?;
+                                            item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(item.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                        }
+                                        super::super::StageView::CountBy { .. } => {
+                                            if !matches!(key_type.closed_ground_type().as_ref().map(Type::unvalidated), Some(Type::Str | Type::Int | Type::UInt | Type::Bool)) { return Err(IrVerifyError::new("generic count callback has no checked string key conversion")); }
+                                            budget.charge(3)?;
+                                            terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
+                                        }
+                                        _ => {}
+                                    }
+                                    pending.push(Obligation::Expression(key.raw() as usize, inner));
                                 }
                                 super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
                                     let accumulator = expression_type(types, initial.raw() as usize, budget)?;
@@ -4431,6 +4456,66 @@ mod structured_pipeline_tests {
             let mut escaped = program.clone();
             escaped.store.extra[program.store.data[read].range().start as usize] = replacement as u32;
             assert!(FullVerifier::verify(&escaped).is_err());
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_parallel_callbacks_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-parallel.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-parallel.xsh", crate::loader::entry_source_from_text("generic-pipeline-parallel.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_parallel", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_keys_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-keys.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-keys.xsh", crate::loader::entry_source_from_text("generic-pipeline-keys.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_keys", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
+    }
+
+    #[test]
+    fn generic_parallel_and_key_stages_keep_their_callback_item_owners() {
+        for stage in ["par-map(jobs: 1)", "group-by", "unique-by"] {
+            let program = prepare(&format!("pure observed(value) {{ let first = [value] |> {stage} {{ |item| item }}; [value] |> {stage} {{ |item| item }} }}\n"));
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "observed").unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let slots = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                    super::super::super::StageView::ParMap { slot, .. }
+                    | super::super::super::StageView::GroupBy { slot, .. }
+                    | super::super::super::StageView::UniqueBy { slot, .. } => Some(slot),
+                    _ => None,
+                },
+                _ => None,
+            }).collect::<Vec<_>>();
+            assert_eq!(slots.len(), 2);
+            let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == slots[1])).unwrap();
+            let mut escaped = program.clone();
+            escaped.store.extra[program.store.data[read].range().start as usize] = slots[0] as u32;
+            assert!(FullVerifier::verify(&escaped).is_err(), "{stage}");
         }
     }
 

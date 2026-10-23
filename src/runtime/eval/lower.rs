@@ -4884,7 +4884,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
                 for stage in self.program.arena.stream_stages(stages).to_vec() {
-                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All) {
+                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All | StreamStageKind::ParMap | StreamStageKind::GroupBy | StreamStageKind::UniqueBy)
+                        || (stage.kind == StreamStageKind::Count && stage.block.is_some())
+                    {
                         let (slot, value) = self.lower_scheme_pipeline_callback(&stage, &item_type, slots, current_function, facts, visited, lowered_types)?;
                         let result = lowered_types.get(&value)?.clone();
                         let lowered = match stage.kind {
@@ -4893,6 +4895,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             StreamStageKind::Where => LoweredPipelineStage::Where { slot, predicate: value },
                             StreamStageKind::Any => LoweredPipelineStage::Any { slot, predicate: value },
                             StreamStageKind::All => LoweredPipelineStage::All { slot, predicate: value },
+                            StreamStageKind::ParMap => {
+                                let mut configuration = Vec::new();
+                                let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
+                                let jobs = match arguments.as_slice() {
+                                    [] => None,
+                                    [argument] if self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() == [0] => {
+                                        let jobs = argument.lowered?;
+                                        let ty = lowered_types.get(&jobs)?.clone();
+                                        configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: jobs }));
+                                        let jobs = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
+                                        lowered_types.insert(jobs, ty);
+                                        Some(jobs)
+                                    }
+                                    _ => return self.block_scheme_lowering_expr(expression),
+                                };
+                                item_type = result;
+                                LoweredPipelineStage::ParMap { slot, jobs, value }
+                            }
+                            StreamStageKind::GroupBy => {
+                                item_type = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), result), (Name::intern("items"), SchemeType::List(Box::new(item_type)))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                LoweredPipelineStage::GroupBy { slot, key: value }
+                            }
+                            StreamStageKind::UniqueBy => LoweredPipelineStage::UniqueBy { slot, key: value },
+                            StreamStageKind::Count => LoweredPipelineStage::CountBy { slot, key: value },
                             _ => unreachable!(),
                         };
                         lowered_stages.push(lowered);
