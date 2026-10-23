@@ -151,6 +151,7 @@ impl ProducerPrefixContext<'_> {
                     let (base, field) = match source.expression_view(instruction)? {
                         schema::ExprView::Field { base, name, .. } => (base, Name::intern(name)),
                         schema::ExprView::Index { base, index, .. } => {
+                            let Some(index) = index.ordinary() else { return Ok(None); };
                             let Some(field) = source.checked_literal_string(index.raw() as usize)? else { return Ok(None); };
                             (base, Name::intern(&field))
                         }

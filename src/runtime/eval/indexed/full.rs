@@ -42884,7 +42884,7 @@ assert by_index(true) == true
             let index_key = (0..executable.store.driver_steps.len()).find_map(|step| {
                 let decoder = verify_schemes::decoder_for_driver_step(&executable.store, step).unwrap();
                 decoder.instruction_range.clone().find_map(|instruction| match decoder.expression_view(instruction).unwrap() {
-                    schema::ExprView::Index { index, .. } => Some(index.raw() as usize),
+                    schema::ExprView::Index { index, .. } => index.ordinary().map(|index| index.raw() as usize),
                     _ => None,
                 })
             }).unwrap();
