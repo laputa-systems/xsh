@@ -4707,6 +4707,24 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, value.raw() as usize, Arc::new((**value_type).clone()), false);
                 Ok(())
             }
+            schema::ExprView::RecordUpdate { base, mut updates, .. } => {
+                let source = self.need_context(&decoder, base.raw() as usize)?
+                    .ok_or_else(|| IrVerifyError::new("ground record update base has no record contract"))?;
+                if !matches!(source.as_ref(), Type::Record(_))
+                    || !super::initializer_type_matches_annotation(&source, &expected, &mut self.budget, 0)?
+                {
+                    return Err(IrVerifyError::new("ground record update base disagrees with its result contract"));
+                }
+                self.expression(owner, base.raw() as usize, Arc::clone(&source), false);
+                for _ in 0..updates.len() {
+                    self.budget.charge(1)?;
+                    let (path, value, _) = updates.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground record update entry is missing"))?;
+                    let target = FullDecoder::checked_record_update_target_type(&source, path, &mut |amount| self.budget.charge(amount))?;
+                    self.budget.charge_clone(target)?;
+                    self.expression(owner, value.raw() as usize, Arc::new(target.clone()), false);
+                }
+                Ok(())
+            }
             schema::ExprView::MapLiteral(mut entries) => {
                 let Type::Map(key_type, value_type) = expected.unvalidated() else { return Err(IrVerifyError::new("ground map literal has no map contract")) };
                 for entry in &mut entries {

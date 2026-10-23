@@ -9594,6 +9594,25 @@ impl<'a> FullDecoder<'a> {
         Ok(writers)
     }
 
+    fn checked_record_update_target_type<'t>(
+        mut target: &'t Type,
+        path: impl IntoIterator<Item = Result<Name, IrVerifyError>>,
+        charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<&'t Type, IrVerifyError> {
+        for name in path {
+            charge(1)?;
+            let Type::Record(fields) = target else {
+                return Err(IrVerifyError::new(
+                    "checked record update path crosses a non-record field",
+                ));
+            };
+            target = fields.get(&name?).ok_or_else(|| {
+                IrVerifyError::new("checked record update field is absent from its result type")
+            })?;
+        }
+        Ok(target)
+    }
+
     fn checked_record_update_matches_type(
         &self,
         base: usize,
@@ -9608,20 +9627,7 @@ impl<'a> FullDecoder<'a> {
         self.checked_expression_matches_type(base, expected)?;
         for update in &mut updates {
             let (path, value, _) = update?;
-            let mut target_type = expected;
-            for name in path {
-                let name = name?;
-                let Type::Record(target_fields) = target_type else {
-                    return Err(IrVerifyError::new(
-                        "checked record update path crosses a non-record field",
-                    ));
-                };
-                target_type = target_fields.get(&name).ok_or_else(|| {
-                    IrVerifyError::new(
-                        "checked record update field is absent from its result type",
-                    )
-                })?;
-            }
+            let target_type = Self::checked_record_update_target_type(expected, path, &mut |_| Ok(()))?;
             if target_type.contains_typed_callable() {
                 self.checked_expression_matches_type(value.raw() as usize, target_type)
                     .map_err(|_| {
@@ -41481,6 +41487,62 @@ pure selected() -> Str {
             truncated.store.pattern_data[row] =
                 IrData::from_range(IrRange::new(payload.start as u32, payload.len() as u32 - 1));
             assert!(FullVerifier::verify(&truncated).is_err());
+        });
+    }
+
+    #[test]
+    fn ground_record_updates_authenticate_nested_optional_replacements() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("ground-record-update-contracts.xsh", r#"
+enum State { Observed, Denied }
+type Observation = {state: State, value: Str?}
+type SourceRead = {observation: Observation, errno: Int?, error_kind: Str?}
+type Inspect = pure(source: SourceRead) -> Int
+pure inspect(source: SourceRead) -> Int { source.errno ?? 0 }
+pure apply(action: Inspect, observed: SourceRead, wrong: Int) -> Int {
+    let _ = wrong
+    action({...observed, observation.state: Denied, observation.value: null, errno: 13, error_kind: "denied"})
+}
+let observed = SourceRead(observation: {state: Observed, value: "text"}, errno: null, error_kind: null)
+assert apply(inspect, observed, 0) == 13
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "apply");
+            let decoder = function_view_decoder(&program.store, owner);
+            let update = function_instruction_indices(&program, "apply", FullTag::ExprRecordUpdate)[0];
+            let schema::ExprView::RecordUpdate { base, .. } = decoder.expression_view(update).unwrap() else { unreachable!() };
+            assert!(matches!(decoder.expression_view(base.raw() as usize).unwrap(), schema::ExprView::Param(1)));
+            let mut wrong_base = (*program).clone();
+            let base_words = wrong_base.store.data[base.raw() as usize].range().bounds(wrong_base.store.extra.len()).unwrap();
+            wrong_base.store.extra[base_words.start] = 2;
+            let error = FullVerifier::verify(&wrong_base).unwrap_err();
+            assert_eq!(error.message, "ground record update base disagrees with its result contract");
+            let integer = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(13)))).unwrap();
+            let text = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("denied")))).unwrap();
+            let mut wrong_field = (*program).clone();
+            wrong_field.store.tags[integer] = FullTag::ExprStr;
+            wrong_field.store.data[integer] = program.store.data[text];
+            let error = FullVerifier::verify(&wrong_field).unwrap_err();
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract");
+            let payload = program.store.data[update].range().bounds(program.store.extra.len()).unwrap();
+            let updates = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let entries = program.store.blocks[updates.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let path = IrBlockId::from_raw(program.store.extra[entries.start + 1]).unwrap();
+            let names = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            assert_eq!(Name::from_symbol(Symbol::from_raw(program.store.extra[names.start + 1])), program_name(&program, "observation"));
+            let wrong = program_name(&program, "wrong").symbol().raw();
+            let mut wrong_path = (*program).clone();
+            wrong_path.store.extra[names.start + 1] = wrong;
+            let error = FullVerifier::verify(&wrong_path).unwrap_err();
+            assert_eq!(error.message, "checked record update field is absent from its result type");
         });
     }
 
