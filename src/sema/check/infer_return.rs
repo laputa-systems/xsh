@@ -357,10 +357,10 @@ impl Checker {
                 let candidates = self.inferred_returns.take().unwrap();
                 let schema = Self::common_checked_schema(candidates.iter().map(|candidate| candidate.schema.clone()));
                 let mut inferred = None;
-                for candidate in candidates {
+                for candidate in &candidates {
                     inferred = Some(match inferred {
-                        None => candidate.ty,
-                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty, candidate.span),
+                        None => candidate.ty.clone(),
+                        Some(previous) => self.unify_inferred_returns(previous, candidate.ty.clone(), candidate.span),
                     });
                 }
                 let ty = inferred.unwrap_or(Type::Unknown);
@@ -378,6 +378,18 @@ impl Checker {
                     Type::Invalid
                 };
                 let mut ty = ty;
+                if !ty.contains_recovery() {
+                    let diagnostics = self.diagnostics.len();
+                    for candidate in &candidates {
+                        let expected = self.type_constraints.resolve(&ty);
+                        let actual = self.type_constraints.resolve(&candidate.ty);
+                        if matches!((&expected, &actual), (Ok(expected), Ok(actual)) if actual.matches_expected(expected)) { continue; }
+                        self.expect_type(&ty, &candidate.ty, candidate.span);
+                    }
+                    if self.diagnostics[diagnostics..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                        ty = Type::Invalid;
+                    }
+                }
                 for (error, span) in std::mem::take(&mut self.inferred_propagations) {
                     match &ty {
                         Type::Result(_, expected) if error.matches_expected(expected) => {}
@@ -1060,6 +1072,93 @@ mod tests {
         ] {
             let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == name).unwrap();
             assert_eq!(checked.function_return_types.get(&declaration.body), Some(&expected), "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod pure_error_return_tests {
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::sema::check::{CheckOptions, Checker};
+
+    #[test]
+    fn pure_return_error_domains_are_checked_before_lowering() {
+        let mut accepted_invalid = Vec::new();
+        for (label, definition, observation, should_pass) in [
+            ("typed string control", "pure attempt(flag: Bool, value: Int) -> Result[Int, Str] { if flag { return Err(\"stop\") }; Ok(value) }", "assert match attempt(true, 7) { Err(problem) => problem == \"stop\"; Ok(_) => false }", true),
+            ("nominal error and generic success control", "error Local = Stop\npure failure() -> Error { Local.Stop() }\npure attempt(flag, value) { if flag { return Err(failure()) }; Ok(value) }", "let integer: Result[Int] = attempt(false, 7)\nlet word: Result[Str] = attempt(false, \"kept\")\nassert integer == Ok(7)\nassert word == Ok(\"kept\")\nassert match attempt(true, 7) { Err(_) => true; Ok(_) => false }", true),
+            ("ordinary error and generic success control", "pure attempt(flag, value) { if flag { return Err(error.failure(\"stop\")) }; Ok(value) }", "let integer: Result[Int] = attempt(false, 7)\nlet word: Result[Str] = attempt(false, \"kept\")\nassert integer == Ok(7)\nassert word == Ok(\"kept\")", true),
+            ("inferred string and default error", "pure attempt(flag, value) { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("inferred mixed authored errors", "pure attempt(flag, value) { if flag { return Err(\"stop\") }; if !flag { return Err(error.failure(\"structured\")) }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("typed error negative", "pure attempt(flag: Bool, value: Int) -> Result[Int, Error] { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)", false),
+            ("ground string failure projection", "pure attempt(flag: Bool, value: Int) { if flag { return Err(\"stop\") }; Ok(value) }", "let result = attempt(true, 7)\nmatch result { Err(problem) => print $problem.message; Ok(_) => print \"unexpected success\" }", false),
+        ] {
+            let source = format!("{definition}\n{observation}\n");
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                "pure-error-return.xsh",
+                crate::loader::entry_source_from_text("pure-error-return.xsh", source.clone()),
+                Vec::new(),
+            );
+            assert!(parsed.diagnostics.is_empty(), "{label}: {:?}", parsed.diagnostics);
+            let source_id = parsed.arena.source_text_source_id().unwrap();
+            let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions::for_execution());
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            if errors.is_empty() {
+                let output = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id);
+                if should_pass {
+                    assert_eq!(output.status, 0, "{label}: {:?} {:?}", output.diagnostics, output.traceback);
+                    assert!(output.diagnostics.is_empty() && output.traceback.is_none(), "{label}: {:?} {:?}", output.diagnostics, output.traceback);
+                } else {
+                    accepted_invalid.push(label);
+                }
+            } else {
+                assert!(!should_pass, "{label}: {errors:?}");
+                assert!(errors.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{label}: {errors:?}");
+                assert!(checked.annotation_facts.iter().all(|fact| !matches!(fact.kind, crate::sema::check::AnnotationFactKind::InferredPureReturn { .. })), "{label}: an invalid inferred pure return was published");
+                let output = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id);
+                assert_eq!(output.status, 2, "{label}: {:?}", output.diagnostics);
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)), "{label}: {:?}", output.diagnostics);
+                assert!(output.traceback.is_none(), "{label}: {:?}", output.traceback);
+            }
+        }
+        assert!(accepted_invalid.is_empty(), "invalid pure returns passed the checker: {accepted_invalid:?}");
+    }
+
+    #[test]
+    fn pure_return_validation_preserves_nullable_parameter_relationships() {
+        for source in [
+            "pure choose(flag, value) { if flag { return null }; value }\nlet integer: Int? = choose(false, 7)\nlet word: Str? = choose(false, \"kept\")\n",
+            "pure choose(flag, value) { if flag { return {row: {value: null}} }; {row: {value}} }\nlet integer: Int? = choose(false, 7).row.value\nlet word: Str? = choose(false, \"kept\").row.value\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn pure_error_return_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/pure-error-return-domains.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "pure-error-return-domains.xsh",
+            crate::loader::entry_source_from_text("pure-error-return-domains.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked)
+            .unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("pure_error_returns_preserve_explicit_payloads_and_nominal_errors", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(matches!(&result.result, Some(crate::runtime::value::Value::Unit))
+                || matches!(&result.result, Some(crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), crate::runtime::value::Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
         }
     }
 }
