@@ -8162,22 +8162,22 @@ impl Evaluator {
             && let Some(methods) = api_spec().method_overloads(crate::modules::MethodReceiver::Path, name)
             && methods.iter().any(|method| !method.sig.pure)
         {
-            let mut candidates = methods.iter().filter(|method| {
-                values.len() <= method.sig.params.len()
-                    && method.sig.params.iter().enumerate().all(|(slot, parameter)| match values.get(slot) {
-                        Some(value) => value_matches_static_type(ValueView::Lowered(value), &parameter.ty),
-                        None => parameter.defaulted,
-                    })
-            });
-            let Some(method) = candidates.next() else {
-                return Err(RuntimeError::new("type-error", "Path host method arguments disagree with its canonical signature").with_span(*span));
+            let Some((method, others)) = methods.split_first() else {
+                return Err(RuntimeError::new("unsupported-call", "Path host method has no registered native contract").with_span(*span));
             };
-            if candidates.next().is_some() || method.sig.pure
+            if method.sig.pure
                 || method.sig.binding != crate::modules::signature::ImplBinding::Native
                 || !method.sig.effects.contains(&crate::syntax::node::Effect::Fs)
                 || !Self::lowered_module_op_executable(method.sig.op)
+                || others.iter().any(|other| other.sig.op != method.sig.op
+                    || other.sig.pure != method.sig.pure
+                    || other.sig.binding != method.sig.binding
+                    || other.sig.effects != method.sig.effects
+                    || other.sig.return_ty != method.sig.return_ty
+                    || other.sig.arg_check != method.sig.arg_check
+                    || other.sig.semantic_rule != method.sig.semantic_rule)
             {
-                return Err(RuntimeError::new("unsupported-call", "Path host method has no unique executable native contract").with_span(*span));
+                return Err(RuntimeError::new("unsupported-call", "Path host method overloads have no shared executable native contract").with_span(*span));
             }
             let mut arguments = Vec::with_capacity(values.len() + 1);
             arguments.push(Some(receiver));

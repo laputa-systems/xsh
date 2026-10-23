@@ -207,9 +207,11 @@ Checked native `Path` host methods lower to `ModuleCall` with the receiver in
 the first argument slot. The selected registry method must match the source
 name, checked receiver, ordered operands, and result. The executable operation
 catalog and canonical native contracts authenticate that physical ABI. Ordinary
-method rows validate a unique closed registry signature before forwarding to the
-same host operation. Pure Path transforms retain method rows. Path line streams
-keep the existing reader, resource registration, and cancellation path.
+method rows forward only when every registered overload shares one executable
+native operation and host contract. The native argument handlers preserve the
+checked operand layout and defaults. Pure Path transforms retain method rows.
+Path line streams keep the existing reader, resource registration, and
+cancellation path.
 
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
