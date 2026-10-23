@@ -42,10 +42,16 @@ source `a7900d1f1` passes 26 focused aggregate, ownership, Path, TempDir, tail
 and defer controls with no failures or ignored tests. Matching verification
 products build successfully at `96a932e04`, including the XSHT static API
 catalog consumer. The catalog rejects owned callable relationships because
-its registry signatures cannot contain them. The native boundary replay is
-next. These focused results do not qualify every container, capture or
-returned-callable case. Test-only import and helper scoping at `27aed9509`
-follows the product freeze and has not yet received a production rebuild.
+its registry signatures cannot contain them. Matching normal and forced native
+runs each execute 138 selectors: 124 pass, fourteen fail, and none skip. Their
+failure sets match. Against `b5989a1e7`, compatible callable selection now
+passes, while two formerly passing imported-module selectors fail with
+`checked try producer is missing its operand type`. The missing evidence lies
+between `module.get(...)` and its outer propagation. Six API catalog selectors
+fail before execution because successful assertions do not establish non-null
+authority in the ground producer proof. Both gaps require repair. These results
+do not qualify the combined compiler. Test-only import and helper scoping at
+`27aed9509` follows the product freeze and awaits a production rebuild.
 
 The provisional Proc completion and effect repair executes ten focused
 selectors: six pass and four fail. Remaining failures concern authored Err
