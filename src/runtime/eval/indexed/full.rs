@@ -22632,6 +22632,63 @@ run true
     }
 
     #[test]
+    fn checked_record_lists_preserve_nominal_sources_during_optional_initialization() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-record-nominal-list.xsh", r#"
+enum State { Present, Absent }
+enum Other { Different }
+type Row = {state: State, driver: Str?}
+type Collection = {links: List[Row]}
+pure package(state: State, wrong: Other) -> Collection {
+    let _ = wrong
+    Collection(links: [{state: state, driver: null}])
+}
+let result = package(Present, Different)
+assert result.links[0].state == Present
+assert result.links[0].driver == null
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "package");
+            let decoder = function_view_decoder(&program.store, owner);
+            let reads = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| {
+                matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
+            }).collect::<Vec<_>>();
+            assert_eq!(reads.len(), 1);
+            let read = reads[0];
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { unreachable!() };
+            let (_, state, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+            let (_, other, _) = program.store.semantic.signature_param(signature, 1).unwrap();
+            assert!(matches!(program.store.semantic.to_type(state).unwrap(), Type::Tag(_)));
+            assert!(matches!(program.store.semantic.to_type(other).unwrap(), Type::Tag(_)));
+            assert_ne!(state, other);
+            let facts = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            assert!(facts.len() >= 2);
+            let mut with_source_fact = (*program).clone();
+            assert!(matches!(with_source_fact.store.slot_type_facts[facts.start + 1], IR_NONE) || with_source_fact.store.slot_type_facts[facts.start + 1] == other.raw());
+            with_source_fact.store.slot_type_facts[facts.start + 1] = other.raw();
+            FullVerifier::verify(&with_source_fact).unwrap();
+            let payload = with_source_fact.store.data[read].range().bounds(with_source_fact.store.extra.len()).unwrap();
+            let mut lying_source_fact = with_source_fact.clone();
+            lying_source_fact.store.extra[payload.start] = 1;
+            lying_source_fact.store.slot_type_facts[facts.start + 1] = state.raw();
+            let error = FullVerifier::verify(&lying_source_fact).unwrap_err();
+            assert_eq!(error.message, "checked record field disagrees with its contract");
+            let mut wrong_nominal = with_source_fact;
+            wrong_nominal.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&wrong_nominal).unwrap_err();
+            assert_eq!(error.message, "checked record field disagrees with its contract");
+        });
+    }
+
+    #[test]
     fn checked_record_constructors_preserve_nested_optional_list_fields() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("checked-record-list-optional-fields.xsh", r#"

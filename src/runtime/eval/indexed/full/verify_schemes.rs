@@ -4856,11 +4856,18 @@ fn initializer_types_match_invariant(
 }
 
 fn runtime_complete_value_check_type(ty: &Type, materialization: &mut SchemeInstantiationBudget, depth: usize) -> Result<bool, IrVerifyError> {
-    runtime_complete_check_type(ty, materialization, depth, false)
+    runtime_complete_check_type(ty, materialization, depth, false, None)
 }
 
 fn runtime_complete_storage_check_type(ty: &Type, materialization: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
-    runtime_complete_check_type(ty, materialization, 0, true)
+    runtime_complete_check_type(ty, materialization, 0, true, None)
+}
+
+fn runtime_complete_storage_check_from_source(actual: &Type, checked: &Type, materialization: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let actual_dynamic = closed_type_contains_any(actual, &mut |amount| materialization.charge(amount))?;
+    let checked_dynamic = closed_type_contains_any(checked, &mut |amount| materialization.charge(amount))?;
+    if actual_dynamic || checked_dynamic { return Ok(false); }
+    runtime_complete_check_type(checked, materialization, 0, true, Some(actual))
 }
 
 fn runtime_complete_check_type(
@@ -4868,6 +4875,7 @@ fn runtime_complete_check_type(
     materialization: &mut SchemeInstantiationBudget,
     depth: usize,
     allow_dynamic: bool,
+    source: Option<&Type>,
 ) -> Result<bool, IrVerifyError> {
     if depth > 128 {
         return Err(IrVerifyError::new(
@@ -4902,24 +4910,34 @@ fn runtime_complete_check_type(
         | Type::Unit
         => true,
         Type::List(item) | Type::Optional(item) => {
-            runtime_complete_check_type(item, materialization, depth + 1, allow_dynamic)?
+            let source = match (ty, source) {
+                (Type::List(_), Some(Type::List(source))) | (Type::Optional(_), Some(Type::Optional(source))) => Some(source.as_ref()),
+                _ => None,
+            };
+            runtime_complete_check_type(item, materialization, depth + 1, allow_dynamic, source)?
         }
         Type::Map(key, value) => {
             key.is_map_key()
-                && runtime_complete_check_type(value, materialization, depth + 1, allow_dynamic)?
+                && runtime_complete_check_type(value, materialization, depth + 1, allow_dynamic,
+                    match source { Some(Type::Map(_, value)) => Some(value.as_ref()), _ => None })?
         }
         Type::Set(item) => item.is_map_key(),
         Type::Record(fields) => {
             let mut complete = true;
-            for field_type in fields.values() {
-                complete &=
-                    runtime_complete_check_type(field_type, materialization, depth + 1, allow_dynamic)?;
+            for (name, field_type) in fields.iter() {
+                if source.is_some() { materialization.charge(1)?; }
+                let source = match source { Some(Type::Record(fields)) => fields.get(name), _ => None };
+                complete &= runtime_complete_check_type(field_type, materialization, depth + 1, allow_dynamic, source)?;
             }
             complete
         }
         Type::Result(success, error) => {
-            runtime_complete_check_type(success, materialization, depth + 1, allow_dynamic)?
-                && runtime_complete_check_type(error, materialization, depth + 1, allow_dynamic)?
+            let (source_success, source_error) = match source {
+                Some(Type::Result(success, error)) => (Some(success.as_ref()), Some(error.as_ref())),
+                _ => (None, None),
+            };
+            runtime_complete_check_type(success, materialization, depth + 1, allow_dynamic, source_success)?
+                && runtime_complete_check_type(error, materialization, depth + 1, allow_dynamic, source_error)?
         }
         Type::Union(members) => {
             if members.is_empty() {
@@ -4928,7 +4946,7 @@ fn runtime_complete_check_type(
                 let mut complete = true;
                 for member in members {
                     complete &=
-                        runtime_complete_check_type(member, materialization, depth + 1, allow_dynamic)?;
+                        runtime_complete_check_type(member, materialization, depth + 1, allow_dynamic, None)?;
                 }
                 complete
             }
@@ -4940,8 +4958,10 @@ fn runtime_complete_check_type(
                 materialization,
                 depth + 1,
                 allow_dynamic,
+                source.map(Type::unvalidated),
             )?,
         },
+        Type::Tag(_) => source == Some(ty),
         Type::Any => allow_dynamic,
         Type::BuiltinParameter(_)
         | Type::Inference(_)
@@ -4951,7 +4971,6 @@ fn runtime_complete_check_type(
         | Type::Module(_)
         | Type::DynamicModule
         | Type::Callable(_)
-        | Type::Tag(_)
         | Type::ErrorFamily(_)
         | Type::ErrorVariant { .. }
         | Type::ErrorFacet(_) => false,
@@ -5726,22 +5745,34 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
     })
 }
 
-pub(super) fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
+fn closed_type_contains_any(ty: &Type, charge: &mut impl FnMut(usize) -> Result<(), IrVerifyError>) -> Result<bool, IrVerifyError> {
     let mut pending = vec![ty];
+    let mut dynamic = false;
     while let Some(ty) = pending.pop() {
+        charge(1)?;
         match ty {
             Type::BuiltinParameter(_) | Type::Inference(_) | Type::Unknown | Type::Invalid => return Err(IrVerifyError::new("scheme type contains an inference, recovery, or builtin parameter type")),
-            Type::List(inner) | Type::Stream(inner) | Type::Set(inner) | Type::Optional(inner) => pending.push(inner),
-            Type::Map(key, value) | Type::Result(key, value) => { pending.push(key); pending.push(value); }
-            Type::Record(fields) => pending.extend(fields.values()),
-            Type::Union(members) => pending.extend(members),
-            Type::Validated(validated) => pending.push(validated.base()),
-            Type::Callable(callable) => { pending.push(&callable.sig.return_ty); pending.extend(callable.sig.params.iter().map(|parameter| &parameter.ty)); }
+            Type::Any => dynamic = true,
+            Type::List(inner) | Type::Stream(inner) | Type::Set(inner) | Type::Optional(inner) => { charge(1)?; pending.push(inner); },
+            Type::Map(key, value) | Type::Result(key, value) => { charge(2)?; pending.push(key); pending.push(value); }
+            Type::Record(fields) => { charge(fields.len())?; pending.extend(fields.values()); },
+            Type::Union(members) => { charge(members.len())?; pending.extend(members); },
+            Type::Validated(validated) => { charge(1)?; pending.push(validated.base()); },
+            Type::Callable(callable) => {
+                charge(callable.sig.params.len().saturating_add(1))?;
+                pending.push(&callable.sig.return_ty);
+                pending.extend(callable.sig.params.iter().map(|parameter| &parameter.ty));
+            }
             Type::Module(module) => {
+                charge(module.len())?;
                 for export in module.values() {
                     match export {
-                        crate::sema::types::ModuleExportType::Value { ty, .. } => pending.push(ty),
-                        crate::sema::types::ModuleExportType::Callable { sig, .. } => { pending.push(&sig.return_ty); pending.extend(sig.params.iter().map(|parameter| &parameter.ty)); }
+                        crate::sema::types::ModuleExportType::Value { ty, .. } => { charge(1)?; pending.push(ty); },
+                        crate::sema::types::ModuleExportType::Callable { sig, .. } => {
+                            charge(sig.params.len().saturating_add(1))?;
+                            pending.push(&sig.return_ty);
+                            pending.extend(sig.params.iter().map(|parameter| &parameter.ty));
+                        }
                         crate::sema::types::ModuleExportType::GenericCallable { .. } => {}
                     }
                 }
@@ -5749,12 +5780,15 @@ pub(super) fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
             _ => {}
         }
     }
-    Ok(())
+    Ok(dynamic)
+}
+
+pub(super) fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
+    closed_type_contains_any(ty, &mut |_| Ok(())).map(|_| ())
 }
 
 pub(super) fn ensure_substitution_type(ty: &Type) -> Result<(), IrVerifyError> {
-    ensure_closed_type(ty)?;
-    if ty.contains_any() {
+    if closed_type_contains_any(ty, &mut |_| Ok(()))? {
         return Err(IrVerifyError::new(
             format!("generic call substitution contains dynamic type {ty}"),
         ));
@@ -5798,6 +5832,53 @@ mod tests {
     use super::*;
     use super::super::super::semantic::SemanticPoolBuilder;
     use super::super::schemes::FullSchemeTypeNode;
+
+    #[test]
+    fn checked_storage_source_validation_charges_hidden_record_fields() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let name = Name::intern("state");
+            let state = Type::Tag(Name::intern("State"));
+            let checked = Type::Record(Arc::new(BTreeMap::from([(name, state.clone())])));
+            let mut fields = BTreeMap::from([(name, state)]);
+            for index in 0..64 { fields.insert(Name::intern(&format!("hidden{index}")), Type::Int); }
+            let actual = Type::Record(Arc::new(fields));
+            let mut sufficient = SchemeInstantiationBudget { remaining: 4096, semantic_types: TypeMaterializationBudget::default() };
+            assert!(runtime_complete_storage_check_from_source(&actual, &checked, &mut sufficient).unwrap());
+            let mut insufficient = SchemeInstantiationBudget { remaining: 8, semantic_types: TypeMaterializationBudget::default() };
+            assert!(runtime_complete_storage_check_from_source(&actual, &checked, &mut insufficient).unwrap_err().message.contains("exceeds its work bound"));
+        });
+    }
+
+    #[test]
+    fn checked_storage_tag_completeness_requires_exact_closed_source_paths() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let state = Type::Tag(Name::intern("State"));
+            let other = Type::Tag(Name::intern("Other"));
+            let row = |state, driver| Type::List(Box::new(Type::Record(Arc::new(BTreeMap::from([
+                (Name::intern("state"), state), (Name::intern("driver"), driver),
+            ])))));
+            let checked = row(state.clone(), Type::Optional(Box::new(Type::Str)));
+            let actual = row(state.clone(), Type::Null);
+            let mut budget = SchemeInstantiationBudget { remaining: 4096, semantic_types: TypeMaterializationBudget::default() };
+            assert!(!runtime_complete_storage_check_type(&checked, &mut budget).unwrap());
+            assert!(runtime_complete_storage_check_from_source(&actual, &checked, &mut budget).unwrap());
+            assert!(!runtime_complete_storage_check_from_source(&row(other, Type::Null), &checked, &mut budget).unwrap());
+            assert!(!runtime_complete_storage_check_from_source(&Type::Record(Arc::new(BTreeMap::new())), &checked, &mut budget).unwrap());
+            assert!(!runtime_complete_storage_check_from_source(&row(Type::Any, Type::Null), &checked, &mut budget).unwrap());
+            assert!(runtime_complete_storage_check_from_source(&row(Type::Unknown, Type::Null), &checked, &mut budget).is_err());
+            let recovery = Name::intern("recovery");
+            let dynamic = Name::intern("dynamic");
+            let mixed = Type::Record(Arc::new(BTreeMap::from([(recovery, Type::Unknown), (dynamic, Type::Any)])));
+            let expected_error = "scheme type contains an inference, recovery, or builtin parameter type";
+            assert_eq!(ensure_closed_type(&mixed).unwrap_err().message, expected_error);
+            assert_eq!(ensure_substitution_type(&mixed).unwrap_err().message, expected_error);
+            assert!(!runtime_complete_storage_check_from_source(&state, &Type::Optional(Box::new(state.clone())), &mut budget).unwrap());
+            let union = Type::Union(vec![state, Type::Str]);
+            assert!(!runtime_complete_storage_check_from_source(&union, &union, &mut budget).unwrap());
+            let mut exhausted = SchemeInstantiationBudget { remaining: 1, semantic_types: TypeMaterializationBudget::default() };
+            assert!(runtime_complete_storage_check_from_source(&actual, &checked, &mut exhausted).unwrap_err().message.contains("exceeds its work bound"));
+        });
+    }
 
     fn symbolic_substitution_test_scope() -> SchemeScope {
         SchemeScope {

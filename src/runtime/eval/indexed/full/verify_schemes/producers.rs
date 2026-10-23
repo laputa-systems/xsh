@@ -5021,7 +5021,16 @@ impl<'a> ProducerProof<'a> {
                     self.expression(owner, value.raw() as usize, source, false);
                     return Ok(());
                 }
-                let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                let mut runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
+                if check.schema.is_none() && !runtime_complete {
+                    let (actual, fact) = self.operand_context(&decoder, value.raw() as usize)?.into_parts();
+                    if let Some(actual) = actual
+                        && super::runtime_complete_storage_check_from_source(&actual, &checked, &mut self.budget)?
+                    {
+                        self.expression_with_fact(owner, value.raw() as usize, actual, false, fact);
+                        runtime_complete = true;
+                    }
+                }
                 let mut checked_record = false;
                 if check.schema.is_none() {
                     let input = value.raw() as usize;
@@ -5833,7 +5842,8 @@ impl<'a> ProducerProof<'a> {
                 if result { return Ok(true); }
             }
         }
-        if super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+        if (super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+            || super::runtime_complete_storage_check_from_source(actual, checked, &mut self.budget)?)
             && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
         { return Ok(true); }
         Ok(false)
