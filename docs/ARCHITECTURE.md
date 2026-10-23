@@ -565,6 +565,11 @@ Context scopes wrap the body in Result without flattening nested Results. They
 retain the ordinary static escape rule and check symbolic values before resource
 transfer and context restoration.
 
+Generalized Proc `tempdir` scopes use the ordinary `MatchExpr` and `ValueBlock`
+rows and deferred cleanup. Entry failure arms reconstruct `Err` from the actual
+filesystem error payload. Generated expressions and immutable locals carry owned
+type facts. Body returns and errors keep their ordinary destinations.
+
 Selected native calls retain their registry identity, argument layout, and
 ordinary effect contract in generalized bodies. Native selection does not imply
 purity: every owner still proves the operation's actual effects and invocation

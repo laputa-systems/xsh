@@ -3951,6 +3951,9 @@ field contracts, including ordinary unsigned validation, and a failure exposes
 no partial update. Complete typed storage checks remain active in a quantified
 body; an annotation does not replace proof of its actual input.
 
+A quantified proc supports both `tempdir` heads with their ordinary result
+and cleanup rules (10.4).
+
 A quantified proc may also call a selected finite proc whose effects fit its
 own checked ceiling. Branches evaluate only the selected value, in ordinary
 source order.
