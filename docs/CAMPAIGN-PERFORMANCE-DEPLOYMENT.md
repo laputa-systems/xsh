@@ -87,16 +87,33 @@ default. Rejected calls roll back bindings and close argument checkpoints.
 No runtime evidence or solver is added. Matching native qualification remains
 open; the SPEC template records the behavior and awaits combined generation.
 
-The provisional Proc completion and effect repair has rebased onto the
-combined scoped producer authority. Its latest executed twelve-selector run
-passes nine and fails three mutation-fixture assumptions; corrected fixtures
-are awaiting replay. This does not qualify the repair. Generic Index and Slice
-controls cover negative literal modes, forwarding, actual scalar module keys
-and dynamic payload provenance. A three-selector run passes both dynamic
-payload controls but exposes a real unsigned Map key regression: ordinary
-indexing rejects a negative key with `schema`, while the generic path returns
-`map-missing`. The repair must preserve the existing key validation. None of
-this provisional work has full native or performance acceptance.
+Callable-list repair `41452fb0c`, integrated as `db81ac347`, passes six
+focused controls. The checker joins actual target families, and list producer
+proof preserves the exact physical target union while authenticating each
+child's own contract. Duplicates, aliases and contextual empty branches work
+on both execution routes. Canonical foreign children, forged references,
+erased members and extra parent targets reject. Parent source review is clear;
+matching native replay remains pending.
+
+Proc completion and effect repair `b4664014b` plus `b44499d01`, integrated
+through `911fd9bb7`, passes twelve focused controls with independent review
+clear. Owned completion groups distinguish synthetic lifts, original Results
+and callback application returns. Symbolic data instantiated with a Result
+remains nested data. Scoped producer and effect evidence retain their existing
+authority. Mutation controls preserve table ownership while changing actual
+source roles or contracts; rejection of orphan rows is not credited as source
+authentication. Forwarding, effect ceilings and both execution routes pass.
+Combined library, native and performance qualification remain open.
+
+Generic Index and Slice remain provisional. Focused controls cover literal
+modes, forwarding, scalar module keys and dynamic payload provenance. UInt
+validation now reaches lexical captures, and the ordinary and generic forms
+both reject an incompatible captured error contract. Unhandled validation in
+an erased generic return still returns failure as data where the ordinary
+form fails. Its repair must use the authenticated substituted return envelope
+and preserve deliberate Result data. Known open-record projection also awaits
+its final runtime and rejection replay. No native or performance acceptance
+is claimed for this tranche.
 
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
