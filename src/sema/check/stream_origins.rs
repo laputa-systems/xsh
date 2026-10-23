@@ -228,7 +228,7 @@ impl StreamOrigins {
     }
 
     fn resolve_applications(&self, owner: EffectDeclarationId, constraints: &crate::sema::constraints::TypeConstraints,
-        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>, edges: &BTreeMap<Span, (EffectDeclarationId, super::FunctionDeclarationId)>,
+        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>, edges: &BTreeMap<Span, (EffectDeclarationId, super::FunctionDeclarationId)>,
     ) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
         for (path, origin) in &self.0 {
@@ -237,7 +237,7 @@ impl StreamOrigins {
                     if *actual_owner != owner || edges.get(span) != Some(&(owner, super::FunctionDeclarationId::new(*target))) {
                         return Err(StreamOriginBoundaryError);
                     }
-                    let (callable, instance) = calls.get(&crate::sema::schemes::InstantiationSite::call(*span)).ok_or(StreamOriginBoundaryError)?;
+                    let (callable, instance) = calls.get(&crate::sema::schemes::InstantiationSite::call(*span)).and_then(|evidence| evidence.invocation()).ok_or(StreamOriginBoundaryError)?;
                     if instance.applications.len() != callable.requirements().applications.len() { return Err(StreamOriginBoundaryError); }
                     let id = *instance.applications.get(*ordinal as usize).ok_or(StreamOriginBoundaryError)?;
                     StreamOrigin::OriginalApplication { reference: constraints.callable_application_reference(id).map_err(|_| StreamOriginBoundaryError)?, projection: projection.clone() }
@@ -855,7 +855,7 @@ use crate::syntax::arena::{ArenaProgram, ArenaExprKind, ArenaStmtKind, ArenaExpr
 
 impl Checker {
     pub(super) fn resolve_stream_origin_applications(&mut self,
-        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>, calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>,
+        members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>, calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>,
     ) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
         let mut resolved = self.stream_origin_outputs.clone();
         for (&owner, summary) in &mut resolved.declarations {
@@ -1201,7 +1201,7 @@ impl Checker {
                             if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
                             if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
-                                let instances = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).map(|(_, instance)| instance.applications.as_slice());
+                                let instances = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation()).map(|(_, instance)| instance.applications.as_slice());
                                 let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(target));
                                 let deferred_call = self.provisional_function_calls.get(&span).filter(|(owner, callee)| Some(*owner) == self.stream_origin_owner && callee.effect_declaration() == target).map(|(owner, _)| (*owner, span));
                                 let returned = summary.returned.specialize_applications(target, instances, &self.type_constraints, pending, deferred_call)?;

@@ -1579,7 +1579,7 @@ impl SchemeType {
         }
     }
 
-    fn retained_bytes(&self) -> usize {
+    pub(crate) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         let mut bytes = size_of::<Self>();
         match self {

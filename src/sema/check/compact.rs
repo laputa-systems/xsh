@@ -102,7 +102,7 @@ pub struct CompactBodyFacts {
         FxHashMap<ExprId, super::CheckedFunctionTarget>,
     pub(crate) scheme_callable_calls: FxHashMap<crate::sema::schemes::InstantiationSite<ExprId>, crate::sema::types::SchemeCallableId>,
     pub(crate) call_instantiations:
-        FxHashMap<crate::sema::schemes::InstantiationSite<ExprId>, crate::sema::schemes::CallInstantiation>,
+        FxHashMap<crate::sema::schemes::InstantiationSite<ExprId>, crate::sema::value_materialization::CheckedInstantiation>,
     pub(crate) selected_function_references:
         BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
     pub(crate) statically_resolved_calls: FxHashSet<ExprId>,

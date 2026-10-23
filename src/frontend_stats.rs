@@ -173,14 +173,14 @@ fn measure_check_output_with_allocations(checked: Option<&CheckOutput>, allocati
             })
             .sum::<usize>();
     let call_instantiation_bytes = checked.call_instantiations.len()
-        * size_of::<(crate::sema::schemes::InstantiationSite<Span>, crate::sema::schemes::CallInstantiation)>()
+        * size_of::<(crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation)>()
         + checked
             .call_instantiations
             .values()
             .map(|instantiation| {
                 instantiation
                     .retained_bytes()
-                    .saturating_sub(size_of::<crate::sema::schemes::CallInstantiation>())
+                    .saturating_sub(size_of::<crate::sema::value_materialization::CheckedInstantiation>())
             })
             .sum::<usize>();
     let counted_schemes = checked.checked_declarations.functions.values().filter_map(|declaration| declaration.scheme.as_ref())
@@ -576,6 +576,7 @@ fn measure_compact_body_types(
     let call_evidence_type_count = facts
         .call_instantiations
         .values()
+        .flat_map(|evidence| evidence.instances())
         .map(|instantiation| {
             instantiation.type_arguments().len()
                 + instantiation
@@ -591,7 +592,7 @@ fn measure_compact_body_types(
         .map(|instantiation| {
             instantiation
                 .retained_bytes()
-                .saturating_sub(size_of::<crate::sema::schemes::CallInstantiation>())
+                .saturating_sub(size_of::<crate::sema::value_materialization::CheckedInstantiation>())
         })
         .sum::<usize>();
     (
@@ -601,7 +602,7 @@ fn measure_compact_body_types(
             + facts.call_instantiations.capacity()
                 * size_of::<(
                     crate::sema::schemes::InstantiationSite<crate::syntax::arena::ExprId>,
-                    crate::sema::schemes::CallInstantiation,
+                    crate::sema::value_materialization::CheckedInstantiation,
                 )>()
             + call_evidence_bytes,
     )
@@ -909,7 +910,12 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
             nodes.add_type(ty);
         }
     }
-    for instantiation in body.call_instantiations.values() {
+    for evidence in body.call_instantiations.values() {
+        for node in evidence.nodes() {
+            nodes.add_scheme_type(&node.source);
+            nodes.add_scheme_type(&node.destination);
+        }
+        for instantiation in evidence.instances() {
         for ty in instantiation.type_arguments().values() {
             nodes.add_scheme_type(ty);
         }
@@ -917,6 +923,7 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
             for ty in row.fields().values() {
                 nodes.add_scheme_type(ty);
             }
+        }
         }
     }
     for (_, ty) in body.selected_function_references.values() {
@@ -960,6 +967,7 @@ fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
     let call_nodes = body
         .call_instantiations
         .values()
+        .flat_map(|evidence| evidence.instances())
         .try_fold(0usize, |total, instantiation| {
             let row_nodes = instantiation
                 .row_arguments()

@@ -14,6 +14,21 @@ impl Mapper<'_> {
         Ok(())
     }
 
+    fn scheme_type(&mut self, source: &crate::sema::schemes::SchemeType) -> Result<crate::sema::schemes::SchemeType, SchemeCallableError> {
+        let mut mapped = source.clone();
+        let mut failure = None;
+        mapped.map_ground_types(&mut |ty| if failure.is_none() { failure = self.ty(ty).err(); });
+        if let Some(error) = failure { return Err(error); }
+        Ok(mapped)
+    }
+
+    fn instance(&mut self, source: &crate::sema::schemes::CallInstantiation) -> Result<crate::sema::schemes::CallInstantiation, SchemeCallableError> {
+        let mut failure = None;
+        let mapped = source.map_ground_types(&mut |ty| if failure.is_none() { failure = self.ty(ty).err(); });
+        if let Some(error) = failure { return Err(error); }
+        Ok(mapped)
+    }
+
     fn callable(&mut self, callable: &mut CallableType) -> Result<(), SchemeCallableError> {
         for parameter in &mut callable.params { self.ty(&mut parameter.ty)?; }
         self.ty(&mut callable.return_ty)
@@ -151,10 +166,21 @@ pub(in crate::sema::check) fn output(output: &mut CheckOutput, rebaser: &mut Sch
         }
     }
     for instantiation in output.call_instantiations.values_mut() {
-        let mut failure = None;
-        let mapped = instantiation.map_ground_types(&mut |ty| if failure.is_none() { failure = map.ty(ty).err(); });
-        if let Some(error) = failure { return Err(error); }
-        *instantiation = mapped;
+        *instantiation = instantiation.try_map(&mut map,
+            &mut |map, ty| map.scheme_type(ty),
+            &mut |map, source, instance| {
+                use crate::sema::value_materialization::ValueLeafSource;
+                let source = match source {
+                    ValueLeafSource::DirectTarget(target) => ValueLeafSource::DirectTarget(target),
+                    ValueLeafSource::Relationship(id) => ValueLeafSource::Relationship(map.rebaser.relationship(id, map.source, 0)?),
+                };
+                Ok((source, map.instance(instance)?))
+            },
+            &mut |map, instance| map.instance(instance),
+        ).map_err(|error| match error {
+            crate::sema::value_materialization::MaterializationMapError::TypeDepth => SchemeCallableError::TypeDepth,
+            crate::sema::value_materialization::MaterializationMapError::Mapping(error) => error,
+        })?;
     }
     for relationship in output.scheme_callable_calls.values_mut() { *relationship = map.rebaser.relationship(*relationship, &source, 0)?; }
     Ok(())

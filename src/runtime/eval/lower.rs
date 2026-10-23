@@ -4700,7 +4700,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let parameters = contract.canonical().scheme().params();
                     let arguments = self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(expression), None, slots, Some(current_function), None)?;
                     let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args: arguments, span });
-                    let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(expression))?.clone();
+                    let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression))?.clone();
                     let recorded = {
                         let mut scratch = self.scratch.borrow_mut();
                         scratch.record_call_instantiation(lowered, instantiation) && scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_none()
@@ -4714,7 +4714,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let function = self.function_index().checked_target_key(target)?;
                     let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None)?;
                     let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
-                    if let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(expression)).cloned()
+                    if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(expression)).cloned()
                         && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
                     { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
@@ -7179,6 +7179,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None })
     }
 
+    fn checked_invocation(&self, site: &crate::sema::schemes::InstantiationSite<ExprId>) -> Option<&crate::sema::schemes::CallInstantiation> {
+        use crate::sema::value_materialization::{InstantiationEvidence, Materialization, ValueLeafSource};
+        match self.bodies.call_instantiations.get(site)? {
+            InstantiationEvidence::Invocation(instance) => Some(instance),
+            InstantiationEvidence::Value(plan) if site.role == crate::sema::schemes::InstantiationRole::Value => match &plan.shape {
+                Materialization::Callable { source: ValueLeafSource::DirectTarget(_), instance } => Some(instance.as_ref()),
+                _ => None,
+            },
+            InstantiationEvidence::Value(_) => None,
+        }
+    }
+
     fn lower_expr_attempt(
         &mut self,
         id: ExprId,
@@ -7192,7 +7204,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.record_lowered_producer_inputs(id, lowered, slots)?;
         if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)) {
             let ty = self.canonicalize_checked_type(self.bodies.expr_types.get(&id)?.clone());
-            let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(id))?.clone();
+            let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(id))?.clone();
             let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty: ty.clone(), schema: None };
             let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check, span: self.program.arena.expr(id).span });
             let mut scratch = self.scratch.borrow_mut();

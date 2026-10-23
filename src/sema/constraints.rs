@@ -878,14 +878,14 @@ impl TypeConstraints {
         callable_types: &[Type],
         body_types: &BTreeMap<ExprId, Type>,
         tail_types: &BTreeMap<StmtId, Type>,
-        calls: &BTreeMap<K, (Arc<CallableScheme>, InstantiatedScheme)>,
+        calls: &BTreeMap<K, super::value_materialization::InstantiationEvidence<Type, (Arc<CallableScheme>, InstantiatedScheme)>>,
         environment_level: u32,
         owner: crate::sema::check::EffectDeclarationId,
     ) -> Result<(
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
         BTreeMap<StmtId, SchemeType>,
-        BTreeMap<K, CallInstantiation>,
+        BTreeMap<K, super::value_materialization::CheckedInstantiation>,
     ), SchemeOperationError> {
         self.generalize_callable_body_with_calls_in_component(
             callable_types, body_types, tail_types, calls, environment_level, owner,
@@ -898,7 +898,7 @@ impl TypeConstraints {
         callable_types: &[Type],
         body_types: &BTreeMap<ExprId, Type>,
         tail_types: &BTreeMap<StmtId, Type>,
-        calls: &BTreeMap<K, (Arc<CallableScheme>, InstantiatedScheme)>,
+        calls: &BTreeMap<K, super::value_materialization::InstantiationEvidence<Type, (Arc<CallableScheme>, InstantiatedScheme)>>,
         environment_level: u32,
         owner: crate::sema::check::EffectDeclarationId,
         component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
@@ -906,7 +906,7 @@ impl TypeConstraints {
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
         BTreeMap<StmtId, SchemeType>,
-        BTreeMap<K, CallInstantiation>,
+        BTreeMap<K, super::value_materialization::CheckedInstantiation>,
     ), SchemeOperationError> {
         if !component.contains(&owner) {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
@@ -954,15 +954,16 @@ impl TypeConstraints {
         let call_effect_parameter_count = generalization.effect_parameters.len();
         let ground_caller = call_type_parameter_count == 0 && call_row_parameter_count == 0;
         let mut call_instantiations = BTreeMap::new();
-        for (&span, (callable, instantiated)) in calls {
-            let call = self.generalize_call_instantiation(
-                callable,
-                instantiated,
-                &mut generalization,
-                environment_level,
-                ground_caller,
-                &requirements.applications, &requirements.operations, &requirements.methods, &requirements.wrappers,
-            )?;
+        for (&span, evidence) in calls {
+            let call = evidence.try_map(&mut generalization,
+                &mut |generalization, ty| self.generalize_type(ty, environment_level, generalization, 0),
+                &mut |generalization, source, (callable, instantiated)| {
+                    Ok((source, self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
+                        &requirements.applications, &requirements.operations, &requirements.methods, &requirements.wrappers)?))
+                },
+                &mut |generalization, (callable, instantiated)| self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
+                    &requirements.applications, &requirements.operations, &requirements.methods, &requirements.wrappers),
+            ).map_err(materialization_operation_error)?;
             call_instantiations.insert(span, call);
         }
         if generalization.type_parameters.len() != call_type_parameter_count
@@ -1331,6 +1332,22 @@ impl TypeConstraints {
         let mut operand = self.clone();
         let ty = operand.instantiate_scheme_type(ty, &instance.type_arguments, &instance.row_arguments, &instance.effect_arguments, 1, origin, 0)?;
         operand.resolve(&ty).map_err(SchemeOperationError::Resolution)
+    }
+
+    pub(crate) fn resolve_instantiation_evidence(
+        &self,
+        evidence: &super::value_materialization::InstantiationEvidence<Type, (Arc<CallableScheme>, InstantiatedScheme)>,
+    ) -> Result<super::value_materialization::CheckedInstantiation, SchemeOperationError> {
+        evidence.try_map(&mut (),
+            &mut |_, ty| {
+                let ty = self.resolve(ty)?;
+                if ty.contains_inference() { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedType)); }
+                if ty.contains_recovery() { return Err(SchemeOperationError::Build(SchemeBuildError::RecoveryType)); }
+                Ok(SchemeType::Ground(ty))
+            },
+            &mut |_, source, (callable, instantiated)| Ok((source, self.resolve_call_instantiation(callable, instantiated)?)),
+            &mut |_, (callable, instantiated)| self.resolve_call_instantiation(callable, instantiated),
+        ).map_err(materialization_operation_error)
     }
 
     pub(crate) fn resolve_call_instantiation(
@@ -5241,7 +5258,7 @@ mod tests {
                 .unwrap();
             let calls = BTreeMap::from([(
                 span(31),
-                (Arc::new(generic), instantiated),
+                crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::new(generic), instantiated)),
             )]);
             let error = constraints
                 .generalize_callable_body_with_calls(
@@ -5290,7 +5307,7 @@ mod tests {
                 .unwrap();
             let calls = BTreeMap::from([(
                 span(33),
-                (Arc::new(row_callable), instantiated),
+                crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::new(row_callable), instantiated)),
             )]);
             let error = constraints
                 .generalize_callable_body_with_calls(
@@ -6916,5 +6933,12 @@ mod tests {
         assert_eq!(metrics.candidate_tests, 1);
         assert_eq!(metrics.rollbacks, 2);
         assert!(metrics.rollback_changes > 0);
+    }
+}
+
+fn materialization_operation_error(error: super::value_materialization::MaterializationMapError<SchemeOperationError>) -> SchemeOperationError {
+    match error {
+        super::value_materialization::MaterializationMapError::TypeDepth => SchemeOperationError::Resolution(ConstraintResolutionError::TypeDepth),
+        super::value_materialization::MaterializationMapError::Mapping(error) => error,
     }
 }

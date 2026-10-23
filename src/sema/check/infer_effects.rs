@@ -387,7 +387,7 @@ impl EffectGraph {
         &mut self,
         mut bind: impl FnMut(EffectDeclarationId, &EffectContract<EffectVariableId>) -> Result<EffectContract<SchemeEffectParameterId>, SchemeOperationError>,
         mut parameters: impl FnMut(EffectDeclarationId) -> Arc<[SchemeEffectParameterId]>,
-        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, CallInstantiation>,
+        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation>,
     ) -> Result<(), EffectScopeFailure> {
         let mut nodes = BTreeMap::new();
         for (&owner, node) in &self.nodes {
@@ -417,7 +417,10 @@ impl EffectGraph {
                     }) {
                         return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
                     }
-                    if let Some(instance) = calls.get(&crate::sema::schemes::InstantiationSite::call(site)) { edge.instantiation = Some(Arc::new(instance.clone())); }
+                    if let Some(evidence) = calls.get(&crate::sema::schemes::InstantiationSite::call(site)) {
+                        let instance = evidence.invocation().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))?;
+                        edge.instantiation = Some(Arc::new(instance.clone()));
+                    }
                 }
             }
             node.direct = EffectContributions::Checked(summary);
@@ -1425,7 +1428,7 @@ impl Checker {
     pub(super) fn prepare_recursive_stream_error_flows(
         &self,
         members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>,
-        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>,
+        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>,
     ) -> Result<BTreeSet<Span>, (Span, SchemeOperationError)> {
         let mut latent = BTreeSet::new();
         if self.collecting_effects { return Ok(latent); }
@@ -1436,7 +1439,7 @@ impl Checker {
             let invalid = || (check.span, SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
             let &(caller, callee) = self.provisional_function_calls.get(&check.span).ok_or_else(invalid)?;
             if check.context.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
-            let instance = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span)).ok_or_else(invalid)?;
+            let instance = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span)).and_then(|evidence| evidence.invocation()).ok_or_else(invalid)?;
             let effects = self.resolve_invocation_effects(super::InvocationEffects::Pending(*target), Some(instance)).map_err(|error| (check.span, error))?;
             let flow = self.invocation_error_flow(&effects, return_ty).map_err(|error| (check.span, error.into()))?;
             if matches!(flow, crate::sema::types::CalleeErrorFlow::Latent) { latent.insert(check.span); }
@@ -1446,17 +1449,17 @@ impl Checker {
 
     pub(super) fn publish_recursive_invocation_instances(
         &mut self,
-        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>,
+        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>,
     ) {
         for check in &mut self.deferred_effect_checks {
-            if let Some(instantiation) = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span))
+            if let Some(evidence) = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span))
                 && let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), instance, .. } = &mut check.kind
             {
                 let (_, callee) = self.provisional_function_calls.get(&check.span)
                     .expect("a recursive effect check retains its selected call");
                 assert_eq!(*owner, callee.effect_declaration());
                 assert!(instance.is_none());
-                *instance = Some(instantiation.clone());
+                *instance = Some(evidence.invocation().expect("a recursive call retains invocation evidence").clone());
             }
         }
     }

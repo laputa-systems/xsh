@@ -752,6 +752,9 @@ mod inferred_callable_tests {
         let initial_instance = declarations.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(initial)).unwrap();
         let assigned_instance = declarations.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(assigned)).unwrap();
         assert_eq!(initial_instance, assigned_instance);
+        let initial_leaves = initial_instance.instances().collect::<Vec<_>>();
+        assert_eq!(initial_leaves.len(), 1);
+        let initial_instance = initial_leaves[0];
         assert_eq!(initial_instance.type_arguments().len(), 1);
         assert_eq!(
             initial_instance.type_arguments().values().next().unwrap().closed_ground_type(),

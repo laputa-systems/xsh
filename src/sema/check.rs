@@ -645,7 +645,7 @@ pub struct CheckOutput {
     pub(crate) selected_function_value_references: BTreeSet<Span>,
     pub(crate) scheme_callables: Arc<super::scheme_callable::SchemeCallableTable>,
     pub(crate) scheme_callable_calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::types::SchemeCallableId>,
-    pub(crate) call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::schemes::CallInstantiation>,
+    pub(crate) call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::value_materialization::CheckedInstantiation>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
     /// count from the end; lowering reads this instead of looking at the
@@ -1288,6 +1288,8 @@ pub(super) struct FunctionCallContract {
     instantiation: Option<PendingCallInstantiation>,
 }
 
+type PendingInstantiation = super::value_materialization::InstantiationEvidence<Type, PendingCallInstantiation>;
+
 type PendingCallInstantiation = (
     Arc<super::schemes::CallableScheme>,
     super::constraints::InstantiatedScheme,
@@ -1777,9 +1779,9 @@ pub struct Checker {
     typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
     selected_function_value_references: BTreeSet<Span>,
-    pending_call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, PendingCallInstantiation>,
+    pending_call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, PendingInstantiation>,
     provisional_function_calls: BTreeMap<Span, (EffectDeclarationId, FunctionDeclarationId)>,
-    call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::schemes::CallInstantiation>,
+    call_instantiations: BTreeMap<super::schemes::InstantiationSite<Span>, super::value_materialization::CheckedInstantiation>,
     prepared_function_call_contracts: BTreeMap<Span, FunctionCallContract>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources:

@@ -401,7 +401,7 @@ mod tests {
             let caller = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 2, 3) };
             let instance = constraints.instantiate_callable(&selected, 1, span(), CallableApplicationScope::Declaration(caller)).unwrap();
             assert!(constraints.applications.entries[&instance.applications[0]].binding.is_none());
-            let calls = BTreeMap::from([(span(), (Arc::clone(&selected), instance.clone()))]);
+            let calls = BTreeMap::from([(span(), crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::clone(&selected), instance.clone())))]);
             let result = constraints.generalize_callable_body_with_calls::<crate::source::Span>(
                 &[instance.params[0].clone(), instance.params[1].clone(), instance.return_type.clone()],
                 &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller,
@@ -409,7 +409,7 @@ mod tests {
             let (generalized, _, _, calls) = result.expect("a forwarded application remains the same caller-qualified obligation");
             assert_eq!(generalized.requirements.applications.len(), 1);
             assert_eq!(calls.len(), 1);
-            let evidence = &calls[&span()];
+            let evidence = calls[&span()].invocation().expect("a forwarded call retains invocation evidence");
             assert_eq!(evidence.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0)]);
             for (binding, requirements) in [
                 (crate::sema::schemes::CallableApplicationBinding::Forwarded(0), &[][..]),

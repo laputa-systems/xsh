@@ -57,7 +57,7 @@ impl Checker {
                 }
             }
         }
-        let mut recursive_calls = BTreeMap::<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>::new();
+        let mut recursive_calls = BTreeMap::<crate::sema::schemes::InstantiationSite<Span>, super::PendingInstantiation>::new();
         let mut substitutions = BTreeMap::new();
         let calls = self.provisional_function_calls.iter().map(|(&span, &edge)| (span, edge)).collect::<Vec<_>>();
         for (span, (owner, callee)) in calls {
@@ -81,11 +81,11 @@ impl Checker {
                 }
             };
             substitutions.insert((owner, span), substitution);
-            recursive_calls.insert(crate::sema::schemes::InstantiationSite::call(span), (Arc::clone(&callee.callable), instance.clone()));
+            recursive_calls.insert(crate::sema::schemes::InstantiationSite::call(span), crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::clone(&callee.callable), instance.clone())));
         }
         for ((owner, span), substitution) in substitutions {
             if self.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span))
-                || prepared.get_mut(&owner).expect("the recursive caller was prepared").calls.insert(crate::sema::schemes::InstantiationSite::call(span), substitution).is_some()
+                || prepared.get_mut(&owner).expect("the recursive caller was prepared").calls.insert(crate::sema::schemes::InstantiationSite::call(span), crate::sema::value_materialization::InstantiationEvidence::Invocation(substitution)).is_some()
             {
                 self.error(span, "recursive call already has a published substitution", DiagnosticCode::CheckLocalInference);
                 self.reject_recursive_component(program, definitions);
@@ -357,8 +357,8 @@ mod tests {
                 assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Stream);
                 assert_eq!(scheme.type_parameters().len(), 1);
                 assert_eq!(checked.call_instantiations.len(), 2);
-                assert!(checked.call_instantiations.values().any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Int))));
-                assert!(checked.call_instantiations.values().any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Str))));
+                assert!(checked.call_instantiations.values().flat_map(|evidence| evidence.instances()).any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Int))));
+                assert!(checked.call_instantiations.values().flat_map(|evidence| evidence.instances()).any(|call| call.type_arguments().values().any(|ty| ty == &SchemeType::Ground(Type::Str))));
             });
         }
     }
@@ -841,7 +841,7 @@ mod tests {
                 assert_eq!(scheme.params()[1].ty, SchemeType::Ground(Type::Int));
             }
             assert_eq!(checked.call_instantiations.len(), 4);
-            assert_eq!(checked.call_instantiations.values().filter(|call| call.type_arguments().values().any(SchemeType::contains_parameter)).count(), 2);
+            assert_eq!(checked.call_instantiations.values().flat_map(|evidence| evidence.instances()).filter(|call| call.type_arguments().values().any(SchemeType::contains_parameter)).count(), 2);
         });
     }
 

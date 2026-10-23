@@ -159,7 +159,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
-    pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::schemes::CallInstantiation>,
+    pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::CheckedInstantiation>,
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<super::BindingId>,
     local_statements: std::collections::BTreeSet<StmtId>,
@@ -301,9 +301,7 @@ impl Checker {
                 }
             }
         }
-        let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, (callable, instantiated))| {
-            (site, (Arc::clone(callable), instantiated.clone()))
-        }).collect::<BTreeMap<_, _>>();
+        let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, evidence)| (site, evidence.clone())).collect::<BTreeMap<_, _>>();
         let generalized = if component.len() == 1 {
             self.type_constraints.generalize_callable_body_with_calls(
                 &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(),

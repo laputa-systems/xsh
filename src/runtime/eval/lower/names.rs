@@ -209,7 +209,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if binding.is_some() {
             let lowered = self.lower_named_binding(binding, name, slots)?;
             if !self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::value(expression))
-                && let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)) {
+                && let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression)) {
                 let target = *self.bodies.selected_function_calls.get(&expression)?;
                 let key = self.function_index().checked_target_key(target)?;
                 return self.record_materialized_function_value(lowered, key, self.bodies.expr_types.get(&expression)?, instantiation);
@@ -218,7 +218,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
             let checked_type = self.bodies.expr_types.get(&expression)?;
-            return self.lower_selected_function_ref(target, name, checked_type, self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)));
+            return self.lower_selected_function_ref(target, name, checked_type, self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression)));
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);

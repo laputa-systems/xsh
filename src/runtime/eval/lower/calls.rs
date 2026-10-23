@@ -38,7 +38,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             span,
             current_function,
         )?;
-        if let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(id))
+        if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id))
             && (!instantiation.type_arguments().is_empty()
                 || !instantiation.row_arguments().is_empty())
         {
@@ -606,7 +606,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self.call_argument_slots(id), None, slots, current_function, item_slot)?;
             let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
             let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span });
-            let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(id))?.clone();
+            let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(id))?.clone();
             let mut scratch = self.scratch.borrow_mut();
             let result_type = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned())?;
             if !scratch.record_call_instantiation(lowered, instantiation) || !scratch.record_checked_call_result_type(lowered, result_type) || scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_some() { return None; }

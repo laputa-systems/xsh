@@ -890,7 +890,7 @@ mod tests {
         {
             assert!(!ty.contains_inference(), "{ty:?}");
         }
-        for instantiation in output.call_instantiations.values() {
+        for instantiation in output.call_instantiations.values().flat_map(|evidence| evidence.instances()) {
             for ty in instantiation.type_arguments().values() {
                 assert_no_inference_in_scheme_type(ty);
             }
@@ -1369,11 +1369,11 @@ mod tests {
         let first_instantiation = first_output
             .call_instantiations
             .get(&crate::sema::schemes::InstantiationSite::call(call_span(first_source, first_text, first_call)))
-            .expect("first root has a checked call instantiation");
+            .expect("first root has a checked call instantiation").invocation().expect("the first root site is a call");
         let second_instantiation = second_output
             .call_instantiations
             .get(&crate::sema::schemes::InstantiationSite::call(call_span(second_source, second_text, second_call)))
-            .expect("second root has a checked call instantiation");
+            .expect("second root has a checked call instantiation").invocation().expect("the second root site is a call");
         assert_eq!(
             first_instantiation.type_arguments().values().collect::<Vec<_>>(),
             [&SchemeType::Ground(crate::sema::check::Type::Str)]
@@ -1570,6 +1570,7 @@ mod tests {
         let arguments = output
             .call_instantiations
             .values()
+            .flat_map(|evidence| evidence.instances())
             .flat_map(|instantiation| instantiation.type_arguments().values())
             .cloned()
             .collect::<Vec<_>>();
@@ -1668,7 +1669,7 @@ mod tests {
                 && matches!(node.kind, crate::syntax::arena::ArenaExprKind::Ident(name) if name == "shared")
         }).unwrap();
         assert_eq!(facts.expression_types()[&shared_read].closed_ground_type(), Some(Type::Int));
-        let arguments = checked.call_instantiations.values().flat_map(|instantiation| instantiation.type_arguments().values()).cloned().collect::<Vec<_>>();
+        let arguments = checked.call_instantiations.values().flat_map(|evidence| evidence.instances()).flat_map(|instantiation| instantiation.type_arguments().values()).cloned().collect::<Vec<_>>();
         assert_eq!(arguments.len(), 2);
         assert!(arguments.contains(&SchemeType::Ground(Type::Int)));
         assert!(arguments.contains(&SchemeType::Ground(Type::Str)));
@@ -1855,6 +1856,7 @@ mod tests {
         let mut actual = output
             .call_instantiations
             .values()
+            .flat_map(|evidence| evidence.instances())
             .flat_map(|instantiation| instantiation.type_arguments().values())
             .cloned()
             .collect::<Vec<_>>();

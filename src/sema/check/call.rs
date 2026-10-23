@@ -1356,7 +1356,7 @@ impl Checker {
     }
 
     pub(super) fn resolve_pending_call_instantiations(&mut self) {
-        for (span, (callable, instantiated)) in
+        for (span, evidence) in
             std::mem::take(&mut self.pending_call_instantiations)
         {
             if self.call_instantiations.contains_key(&span) {
@@ -1364,7 +1364,7 @@ impl Checker {
             }
             match self
                 .type_constraints
-                .resolve_call_instantiation(&callable, &instantiated)
+                .resolve_instantiation_evidence(&evidence)
             {
                 Ok(instantiation) => {
                     let previous = self.call_instantiations.insert(span, instantiation);
@@ -1388,7 +1388,7 @@ impl Checker {
         span: Span,
         instantiation: super::PendingCallInstantiation,
     ) {
-        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::call(span), instantiation);
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::call(span), crate::sema::value_materialization::InstantiationEvidence::Invocation(instantiation));
         assert!(previous.is_none(), "a call instantiation is recorded once");
     }
 
@@ -1397,7 +1397,7 @@ impl Checker {
         span: Span,
         instantiation: super::PendingCallInstantiation,
     ) {
-        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::value(span), instantiation);
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::value(span), crate::sema::value_materialization::InstantiationEvidence::Invocation(instantiation));
         assert!(previous.is_none(), "a value instantiation is recorded once");
     }
 
@@ -3225,7 +3225,7 @@ mod reveal_type_tests {
 mod generic_alias_call_tests {
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::check::{CheckOptions, CheckOutput, Checker};
-    use crate::sema::schemes::{CallInstantiation, SchemeType};
+    use crate::sema::schemes::SchemeType;
     use crate::sema::types::Type;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
@@ -3245,13 +3245,11 @@ mod generic_alias_call_tests {
             })
     }
 
-    fn type_arguments(instantiations: impl Iterator<Item = CallInstantiation>) -> Vec<SchemeType> {
+    fn type_arguments(instantiations: impl Iterator<Item = crate::sema::value_materialization::CheckedInstantiation>) -> Vec<SchemeType> {
         instantiations
             .flat_map(|instantiation| {
-                instantiation
-                    .type_arguments()
-                    .values()
-                    .cloned()
+                instantiation.instances()
+                    .flat_map(|instance| instance.type_arguments().values().cloned())
                     .collect::<Vec<_>>()
             })
             .collect()
