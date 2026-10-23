@@ -4608,7 +4608,7 @@ list must be distinct (`check.duplicate-name`). A fold or reduce initializer
 uses the enclosing scope before the callback parameters are bound.
 
 - `where`, `any`, and `all` require a `Bool` callback result, `sort-by` a
-  sortable key, and keyed `count` a `Str`, `Int`, or `Bool` key. A
+  sortable key, and keyed `count` a `Str`, `Int`, `UInt`, or `Bool` key. A
   `Result` there is a type error: add `?` to propagate.
 - `map` and `par-map` keep whatever the callback returns. Without `?`, a
   fallible callback yields `List[Result[T, E]]` and every item runs (collect
@@ -4686,6 +4686,13 @@ values, and records whose fields are themselves orderable (compared field by
 field in field-name order). `desc: true` reverses. An `Any` item or key must be
 validated to an orderable type before sorting; other unsupported types are
 check-time errors.
+
+Generic sorting retains the same key requirement for every call. A generic
+record key includes every field supplied through its row tail. Keyed `count`
+retains its separate requirement for `Str`, `Int`, `UInt`, or `Bool` keys and
+converts each key to text. A callable that requires both domains accepts only
+their intersection. Generic key requirements do not admit `Any`, callable
+values, or resource handles.
 
 ### 13.6 Guidance
 

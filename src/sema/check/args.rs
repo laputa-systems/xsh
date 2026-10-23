@@ -247,6 +247,10 @@ impl Checker {
                     DiagnosticCode::CheckEffectViolation
                 } else if let crate::sema::constraints::CallableApplicationError::Operation(error) = &error {
                     match error {
+                        crate::sema::constraints::SealedOperationError::UnsupportedTypePredicate { domain, .. } => match domain {
+                            crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort,
+                            crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey,
+                        },
                         crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
                         crate::sema::constraints::SealedOperationError::UnsupportedSlice { .. } => DiagnosticCode::CheckSliceType,
                         crate::sema::constraints::SealedOperationError::UnsupportedRecordSpread { .. } => DiagnosticCode::CheckSpreadNotRecord,

@@ -152,6 +152,16 @@ Cold verification requires it for symbolic Map and Set domains and rejects
 missing or malformed parameter metadata. These rows belong to the in-memory
 Full IR; they do not define a serialized program format.
 
+Pipeline key requirements use `SealedOperation::TypePredicate` in the existing
+operation authority. A predicate carries its actual subject type and has no
+result, invocation, effect, or computational use-site. `SortKey` accepts `Int`,
+`Str`, `Bool`, `Path`, and records of supported keys. `CountKey` accepts `Str`,
+`Int`, `UInt`, and `Bool`. These requirements remain distinct from `MapKey`.
+Generalization retains the whole subject, including row tails. Invocation
+substitution checks every actual field. Cold pipeline proof derives the key
+from its input or callback and requires the matching scoped predicate.
+Computational operations retain their existing use-site ownership checks.
+
 Cold generic verification proves actual fixed arguments, rest items and splices
 against the selected callable contract. Default prefixes require unique matching
 parameter entries, concrete checked parameter representations, actual value and

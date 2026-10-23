@@ -54,7 +54,9 @@ impl TypeConstraints {
                 let inputs = self.unresolved_input_variables(&entry.operation.inputs().cloned().collect::<Vec<_>>())?;
                 if !inputs.is_subset(&supported) { continue; }
                 operations.insert(id);
-                supported.extend(self.unresolved_input_variables(std::slice::from_ref(entry.operation.result()))?);
+                if let Some(result) = entry.operation.result() {
+                    supported.extend(self.unresolved_input_variables(std::slice::from_ref(result))?);
+                }
                 changed = true;
             }
             for (&id, entry) in &self.wrappers.entries {

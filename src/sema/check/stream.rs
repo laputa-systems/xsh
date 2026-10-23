@@ -325,20 +325,8 @@ impl Checker {
                         DiagnosticCode::CheckStreamStageBlock,
                     );
                 }
-                if matches!(
-                    item_ty.unvalidated(),
-                    Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
-                ) || is_sortable_record_key_type(&item_ty)
-                {
-                    Type::Stream(Box::new(item_ty))
-                } else {
-                    self.error(
-                        stage_span,
-                        "sort items must be Int, Str, Bool, Path, or a record of supported items",
-                        DiagnosticCode::CheckStreamSort,
-                    );
-                    Type::Stream(Box::new(item_ty))
-                }
+                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &item_ty, stage_span);
+                Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
@@ -595,23 +583,7 @@ impl Checker {
                 if stage.block.is_some() {
                     let key_ty =
                         self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                    if key_ty == Type::Any {
-                        self.reject_dynamic_use("a count key", None, stage_span);
-                    } else if !matches!(
-                        key_ty.unvalidated(),
-                        Type::Str
-                            | Type::Int
-                            | Type::UInt
-                            | Type::Bool
-                            | Type::Unknown
-                            | Type::Invalid
-                    ) {
-                        self.error(
-                            stage_span,
-                            "count keys must be Str, Int, or Bool",
-                            DiagnosticCode::CheckStreamCountKey,
-                        );
-                    }
+                    self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::CountKey, &key_ty, stage_span);
                     Type::Map(Box::new(Type::Str), Box::new(Type::Int))
                 } else {
                     Type::Int
@@ -700,11 +672,7 @@ impl Checker {
                 Type::Stream(Box::new(item_ty.clone()))
             }
             StreamStageKind::SortBy => {
-                if let Some(key) = self.resolve_stream_sort_key(&callback_ty, stage_span)
-                    && !self.defer_stream_sort_key(&key, stage_span)
-                {
-                    self.check_resolved_stream_sort_key(&key, stage_span);
-                }
+                self.require_pipeline_key_domain(crate::sema::sealed_operation::TypeDomain::SortKey, &callback_ty, stage_span);
                 Type::Stream(Box::new(item_ty.clone()))
             }
             StreamStageKind::GroupBy => Type::Stream(Box::new(Type::Record(btree_map(vec![
@@ -719,31 +687,28 @@ impl Checker {
         }
     }
 
-    fn resolve_stream_sort_key(&mut self, key: &Type, span: Span) -> Option<Type> {
-        match self.type_constraints.resolve(key) {
-            Ok(key) => Some(key),
-            Err(error) => {
-                self.error(span, &format!("sort key type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
-                None
-            }
-        }
+    fn require_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
+        if !self.defer_pipeline_key_domain(domain, key, span) { self.validate_pipeline_key_domain(domain, key, span); }
     }
 
-    pub(super) fn validate_stream_sort_key(&mut self, key: &Type, span: Span) {
-        if let Some(key) = self.resolve_stream_sort_key(key, span) {
-            self.check_resolved_stream_sort_key(&key, span);
-        }
-    }
-
-    fn check_resolved_stream_sort_key(&mut self, key: &Type, span: Span) {
+    pub(super) fn validate_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
+        let key = match self.type_constraints.resolve(key) {
+            Ok(key) => key,
+            Err(error) => { self.error(span, &format!("pipeline key cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference); return; }
+        };
+        let code = match domain { crate::sema::sealed_operation::TypeDomain::SortKey => DiagnosticCode::CheckStreamSort, crate::sema::sealed_operation::TypeDomain::CountKey => DiagnosticCode::CheckStreamCountKey };
         if key.contains_any() {
-            self.reject_dynamic_use("a sort key", None, span);
-        } else if !is_sortable_key_type(key) {
-            self.error(
-                span,
-                "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
-                DiagnosticCode::CheckStreamSort,
-            );
+            self.reject_dynamic_use(match domain { crate::sema::sealed_operation::TypeDomain::SortKey => "a sort key", crate::sema::sealed_operation::TypeDomain::CountKey => "a count key" }, None, span);
+            return;
+        }
+        if !domain.may_accept(&key) {
+            self.error(span, &format!("{domain:?} does not support {key}"), code);
+            return;
+        }
+        if !key.contains_inference() { return; }
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        if let Err(error) = self.type_constraints.require_type_predicate(owner, domain, &key, span) {
+            self.error(span, &error.to_string(), code);
         }
     }
 
@@ -1274,18 +1239,6 @@ fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
     }
 }
 
-fn is_sortable_key_type(ty: &Type) -> bool {
-    match ty.unvalidated() {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
-        Type::Record(fields) => fields.values().all(is_sortable_key_type),
-        _ => false,
-    }
-}
-
-fn is_sortable_record_key_type(ty: &Type) -> bool {
-    matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
-}
-
 #[cfg(test)]
 mod inferred_sort_key_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
@@ -1352,12 +1305,114 @@ mod inferred_sort_key_tests {
     }
 
     #[test]
-    fn unresolved_generic_sort_keys_remain_rejected() {
-        let source = "pure ordered(item) { [item] |> sort-by . }\n";
+    fn generic_sort_keys_preserve_independent_supported_domains() {
+        let source = "pure ordered(item) { [item] |> sort-by . }\nlet numbers = ordered(7)\nlet words = ordered(\"kept\")\nlet flags = ordered(true)\nlet paths = ordered(p\"kept\")\nlet records = ordered({name: \"kept\", nested: {flag: true}})\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckStreamSort)), "{:?}", checked.diagnostics);
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_key_predicates_reject_distinct_invalid_domains_and_row_tails() {
+        for (body, rejected) in [
+            ("[value] |> sort", "Float"),
+            ("[value] |> sort", "UInt"),
+            ("[value] |> sort", "Bytes"),
+            ("[value] |> sort", "List[Int]"),
+            ("[value] |> sort", "Int?"),
+            ("[value] |> sort", "Any"),
+            ("[value] |> sort", "Action"),
+            ("[value] |> sort", "FsLock"),
+            ("[value] |> count { |item| item }", "Path"),
+            ("[value] |> count { |item| item }", "RecordKey"),
+            ("[value] |> count { |item| item }", "Any"),
+            ("[value] |> count { |item| item }", "Action"),
+            ("[value] |> count { |item| item }", "FsLock"),
+        ] {
+            let source = format!("type Action = pure(value: Int) -> Int\ntype RecordKey = {{name: Str}}\npure keyed(value) {{ {body} }}\npure rejected(value: {rejected}) {{ keyed(value) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+        for extra in ["List[Int]", "Any", "FsLock", "Action"] {
+            let source = format!("type Action = pure(value: Int) -> Int\ntype Row = {{name: Str, extra: {extra}}}\npure ordered(row) {{ let _ = row.name; [row] |> sort }}\npure rejected(row: Row) {{ ordered(row) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_key_domain_intersections_preserve_all_caller_requirements() {
+        for (value_type, valid) in [("Int", true), ("Str", true), ("Bool", true), ("UInt", false), ("Path", false), ("RecordKey", false)] {
+            let source = format!("type RecordKey = {{name: Str}}\npure both(value) {{ let counts = [value] |> count {{ |item| item }}; let ordered = [value] |> sort; {{counts, ordered}} }}\npure observed(value: {value_type}) {{ both(value) }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert_eq!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), valid, "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn generic_key_predicates_intersect_with_the_existing_map_key_bound() {
+        use crate::sema::sealed_operation::TypeDomain;
+        use crate::sema::types::Type;
+        for (domain, actual, valid) in [
+            (TypeDomain::SortKey, Type::Path, true),
+            (TypeDomain::SortKey, Type::Bool, true),
+            (TypeDomain::SortKey, Type::UInt, false),
+            (TypeDomain::SortKey, Type::Bytes, false),
+            (TypeDomain::SortKey, Type::Duration, false),
+            (TypeDomain::CountKey, Type::UInt, true),
+            (TypeDomain::CountKey, Type::Bool, true),
+            (TypeDomain::CountKey, Type::Path, false),
+            (TypeDomain::CountKey, Type::Bytes, false),
+            (TypeDomain::CountKey, Type::Duration, false),
+        ] {
+            let mut constraints = crate::sema::constraints::TypeConstraints::default();
+            let span = crate::source::Span::at(SourceId::new(0), 0);
+            let key = constraints.fresh(span);
+            constraints.require_map_key(&key, span).unwrap();
+            constraints.require_type_predicate(crate::sema::constraints::CallableApplicationScope::Invocation, domain, &key, span).unwrap();
+            let accepted = constraints.constrain(&key, &actual, span).is_ok() && constraints.solve_sealed_operations().is_ok();
+            assert_eq!(accepted, valid, "{domain:?} and MapKey with {actual}");
+        }
+    }
+
+    #[test]
+    fn generic_key_predicates_reject_impossible_known_shapes_before_calls() {
+        for body in [
+            "[value] |> sort-by { |item| {bad: [item]} }",
+            "[value] |> count { |item| [item] }",
+            "[value] |> count { |item| {key: item} }",
+        ] {
+            let source = format!("pure rejected(value) {{ {body} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_key_domains_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-key-domains.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-key-domains.xsh", crate::loader::entry_source_from_text("generic-pipeline-key-domains.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_key_domains", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
     }
 }
 

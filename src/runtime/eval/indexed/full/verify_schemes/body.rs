@@ -1038,17 +1038,25 @@ pub(super) fn verify_body(
                                 }
                                 super::super::StageView::GroupBy { slot, key }
                                 | super::super::StageView::UniqueBy { slot, key }
+                                | super::super::StageView::SortBy { slot, key, .. }
                                 | super::super::StageView::CountBy { slot, key } => {
                                     let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
                                     let key_type = expression_type(types, key.raw() as usize, budget)?;
                                     match stage.view {
+                                        super::super::StageView::SortBy { descending, .. } => {
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &key_type, budget)?;
+                                            if let Some(descending) = descending {
+                                                if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                                pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                            }
+                                        }
                                         super::super::StageView::GroupBy { .. } => {
                                             budget.charge_scheme_clone(&item)?;
                                             budget.charge(4)?;
                                             item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("key"), key_type), (Name::intern("items"), SchemeType::List(Box::new(item.clone())))]), tail: crate::sema::schemes::SchemeRowTail::Closed };
                                         }
                                         super::super::StageView::CountBy { .. } => {
-                                            if !matches!(key_type.closed_ground_type().as_ref().map(Type::unvalidated), Some(Type::Str | Type::Int | Type::UInt | Type::Bool)) { return Err(IrVerifyError::new("generic count callback has no checked string key conversion")); }
+                                            super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::CountKey, &key_type, budget)?;
                                             budget.charge(3)?;
                                             terminal = Some(SchemeType::Map(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Int))));
                                         }
@@ -1088,6 +1096,13 @@ pub(super) fn verify_body(
                                 super::super::StageView::Enumerate => {
                                     budget.charge(3)?;
                                     item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                }
+                                super::super::StageView::Sort { descending } => {
+                                    super::operations::verify_key_domain(store, scheme_scope, crate::sema::sealed_operation::TypeDomain::SortKey, &item, budget)?;
+                                    if let Some(descending) = descending {
+                                        if !body_type_matches(&expression_type(types, descending.raw() as usize, budget)?, &SchemeType::Ground(Type::Bool), budget)? { return Err(IrVerifyError::new("generic sort direction is not Bool")); }
+                                        pending.push(Obligation::Expression(descending.raw() as usize, scope));
+                                    }
                                 }
                                 super::super::StageView::Drop(value) | super::super::StageView::Take(value) => {
                                     if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &SchemeType::Ground(Type::Int), budget)? {
@@ -4517,6 +4532,32 @@ mod structured_pipeline_tests {
             escaped.store.extra[program.store.data[read].range().start as usize] = slots[0] as u32;
             assert!(FullVerifier::verify(&escaped).is_err(), "{stage}");
         }
+    }
+
+    #[test]
+    fn generic_pipeline_key_predicates_authenticate_actual_subjects_and_bindings() {
+        use crate::sema::sealed_operation::{SealedOperationSignature, TypeDomain};
+        use crate::sema::schemes::SealedOperationBinding;
+        use super::super::super::schemes::FullSealedOperation;
+        let program = prepare("pure ordered(value, marker) { let _ = [marker] |> count { |item| item }; [value] |> sort }\nlet rows = ordered(7, true)\n");
+        let (sort, subject) = program.store.scheme_operations.iter().enumerate().find_map(|(index, operation)| match operation {
+            FullSealedOperation::TypePredicate { domain: TypeDomain::SortKey, subject } => Some((index, *subject)),
+            _ => None,
+        }).unwrap();
+        let other = program.store.scheme_operations.iter().find_map(|operation| match operation {
+            FullSealedOperation::TypePredicate { domain: TypeDomain::CountKey, subject: other } if *other != subject => Some(*other),
+            _ => None,
+        }).unwrap();
+        let mut wrong_domain = program.clone();
+        wrong_domain.store.scheme_operations[sort] = FullSealedOperation::TypePredicate { domain: TypeDomain::CountKey, subject };
+        assert!(FullVerifier::verify(&wrong_domain).is_err());
+        let mut wrong_subject = program.clone();
+        wrong_subject.store.scheme_operations[sort] = FullSealedOperation::TypePredicate { domain: TypeDomain::SortKey, subject: other };
+        assert!(FullVerifier::verify(&wrong_subject).is_err());
+        let mut wrong_binding = program.clone();
+        let binding = wrong_binding.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::SortKey)))).unwrap();
+        *binding = SealedOperationBinding::Selected(SealedOperationSignature::TypePredicate(TypeDomain::CountKey));
+        assert!(FullVerifier::verify(&wrong_binding).is_err());
     }
 
     #[test]

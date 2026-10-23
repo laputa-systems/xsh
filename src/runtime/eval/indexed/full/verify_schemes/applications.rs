@@ -308,7 +308,7 @@ pub(super) fn extend_call_binder_evidence(
         let ordinal = outputs.len();
         let mut inputs = BTreeSet::new();
         let mut output = BTreeSet::new();
-        for (root, is_output) in operation.inputs(store)?.map(|root| (root, false)).chain(std::iter::once((operation.result(), true))) {
+        for (root, is_output) in operation.inputs(store)?.map(|root| (root, false)).chain(operation.result().map(|root| (root, true))) {
             budget.charge(1)?;
             let binders = if is_output { &mut output } else { &mut inputs };
             let (types, rows) = scheme_type_binders(store, root, budget)?;
