@@ -22632,6 +22632,71 @@ run true
     }
 
     #[test]
+    fn generic_nullary_tag_producers_authenticate_nominal_layouts() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-nullary-tag-proofs.xsh", r#"
+enum State { Ready, Missing, Payload(Int) }
+enum Other { Foreign }
+pure foreign() -> Other { Foreign }
+pure payload() -> State { Payload(1) }
+pure keep(value, state: State) {
+    let _ = true
+    if state == .Ready { value } else { value }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "keep");
+            let other = scheme_fixture_root_function(&program, "foreign");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let tag = function_instruction_indices(&program, "keep", FullTag::ExprTag)[0];
+            let boolean = function_instruction_indices(&program, "keep", FullTag::ExprBool)[0];
+            let schema::ExprView::Tag { type_name, name, fields, .. } = decoder.expression_view(tag).unwrap() else { unreachable!() };
+            assert_eq!(fields.len(), 0);
+            let words = program.store.data[tag].range().bounds(program.store.extra.len()).unwrap();
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| {
+                fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression
+            }).unwrap();
+            let cold = || { let mut program = program.clone(); program.store.in_place.take(); program };
+            let foreign_tag = function_instruction_indices(&program, "foreign", FullTag::ExprTag)[0];
+            let foreign_words = program.store.data[foreign_tag].range().bounds(program.store.extra.len()).unwrap();
+            let payload_tag = function_instruction_indices(&program, "payload", FullTag::ExprTag)[0];
+            let payload_words = program.store.data[payload_tag].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_family = cold();
+            wrong_family.store.extra[words.start..words.start + 2].copy_from_slice(&program.store.extra[foreign_words.start..foreign_words.start + 2]);
+            assert_eq!(FullVerifier::verify(&wrong_family).unwrap_err().message, "generic body expression disagrees with its checked type");
+            let mut wrong_layout = cold();
+            wrong_layout.store.extra[words.start + 1] = program.store.extra[payload_words.start + 1];
+            assert_eq!(FullVerifier::verify(&wrong_layout).unwrap_err().message, "generic nullary tag producer disagrees with its declared payload layout");
+            let mut missing_layout = cold();
+            let _symbols = program.symbol_owner().enter();
+            let key = CheckedPatternVariantKey { kind: CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
+            missing_layout.store.declared_pattern_variants.remove(&key);
+            assert_eq!(FullVerifier::verify(&missing_layout).unwrap_err().message, "checked nominal pattern schema has no canonical declaration");
+            let mut wrong_fact = cold();
+            wrong_fact.store.scheme_body_facts[fact(tag)].value = program.store.scheme_body_facts[fact(boolean)].value;
+            assert!(FullVerifier::verify(&wrong_fact).is_err());
+            let mut foreign_owner = cold();
+            foreign_owner.store.scheme_body_facts[fact(tag)].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&foreign_owner).unwrap_err().message.contains("ownership"));
+            let mut payload = cold();
+            assert_eq!(owner + 1, program.store.functions.len());
+            let end = u32::try_from(program.store.tags.len()).unwrap();
+            assert!(payload.store.driver_steps.iter().all(|step| step.instruction_start == end));
+            payload.store.tags.push(program.store.tags[boolean]);
+            payload.store.data.push(program.store.data[boolean]);
+            payload.store.resource_transfers.push(false);
+            payload.store.checked_call_target_required.push(false);
+            let block = IrBlockId::from_raw(program.store.extra[words.start + 2]).unwrap();
+            let start = u32::try_from(payload.store.extra.len()).unwrap();
+            payload.store.extra.extend_from_slice(&[1, end]);
+            payload.store.blocks[block.index()].instructions = IrRange::new(start, 2);
+            for step in &mut payload.store.driver_steps { step.instruction_start = end + 1; }
+            assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic nullary tag producer has payload fields");
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
@@ -39832,6 +39897,120 @@ pure selected() -> Str {
         };
         assert!(error.message.contains("another program"));
         assert_eq!(foreign_payload.raw().unwrap(), 15);
+    }
+
+    #[test]
+    fn automatic_path_entry_uses_argv_conversion_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = "proc main(first: Path, second: Path) [io, error] {\n  print first.display() second.display()\n}\nmain(@args)?\n";
+            for force_frames in [false, true] {
+                for (arguments, accepted) in [
+                    (vec!["a", "b"], true),
+                    (vec!["a"], false),
+                    (vec!["a", "b", "c"], false),
+                    (vec!["a\0", "b"], false),
+                ] {
+                    let (evaluator, plan, entry_span) = {
+                        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                            "automatic-path-entry.xsh", crate::loader::entry_source_from_text("automatic-path-entry.xsh", source.to_string()), Vec::new());
+                        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                        let source_id = sources.files()[0].id();
+                        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+                        let entry = parsed.arena.arena.stmt_ids(parsed.arena.statements).last().unwrap();
+                        let entry_span = parsed.arena.arena.stmt(entry).span;
+                        let mut evaluator = Evaluator::new_with_sources(arguments.into_iter().map(str::to_string).collect(), sources);
+                        evaluator.force_frames = force_frames;
+                        let plan = parsed.arena.symbol_owner().with_current(|| {
+                            evaluator.prepare_checked_compact_indexed_only(&parsed.arena, source_id, false, declarations)
+                        }).unwrap();
+                        (evaluator, plan, entry_span)
+                    };
+                    let program = evaluator.indexed_program.as_ref().unwrap();
+                    FullVerifier::verify(program).unwrap();
+                    let entry = program.driver_step_count().unwrap() - 1;
+                    assert!(program.driver_step_is_skip(entry).unwrap());
+                    assert_eq!(program.driver_step_view(entry).unwrap().source_span().unwrap(), entry_span);
+                    let output = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("prepared entry remains executable"));
+                    if accepted {
+                        assert_eq!(output.stdout, b"a b\n");
+                        assert!(output.stderr.is_empty());
+                        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                        assert!(output.traceback.is_none());
+                        assert_eq!(output.status, 0);
+                    } else {
+                        assert!(output.stdout.is_empty());
+                        assert!(output.traceback.is_some());
+                        assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::RuntimeCompactUnsupportedMain)), "{:?}", output.diagnostics);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn automatic_entry_preserves_defaults_rest_and_explicit_calls() {
+        run_with_large_stack(|| {
+            for force_frames in [false, true] {
+                for (name, source, arguments, expected) in [
+                    ("default", "proc main(target: Path = p\"default\") [io, error] { print target.display() }\nmain(@args)?\n", Vec::new(), "default\n"),
+                    ("rest", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\n", vec!["a", "b"], "a,b\n"),
+                    ("nonfinal", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\nprint \"after\"\n", vec!["original"], "original\nafter\noriginal\n"),
+                    ("pure", "pure main(...words: List[Str]) -> Str { words.join(\",\") }\nprint main(@args)\n", vec!["original"], "original\n"),
+                    ("test", "test main { assert false }\n", Vec::new(), ""),
+                ] {
+                    let (evaluator, plan) = {
+                        let path = format!("entry-{name}.xsh");
+                        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(&path,
+                            crate::loader::entry_source_from_text(&path, source.to_string()), Vec::new());
+                        assert!(parsed.diagnostics.is_empty(), "{name}: {:?}", parsed.diagnostics);
+                        let source_id = sources.files()[0].id();
+                        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+                        assert!(declarations.diagnostics.is_empty(), "{name}: {:?}", declarations.diagnostics);
+                        let mut evaluator = Evaluator::new_with_sources(arguments.into_iter().map(str::to_string).collect(), sources);
+                        evaluator.force_frames = force_frames;
+                        let plan = parsed.arena.symbol_owner().with_current(|| {
+                            evaluator.prepare_checked_compact_indexed_only(&parsed.arena, source_id, false, declarations)
+                        }).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                        (evaluator, plan)
+                    };
+                    let output = evaluator.eval_installed_compact_indexed_only(plan).unwrap_or_else(|_| panic!("{name}: prepared entry remains executable"));
+                    assert_eq!(output.stdout, expected.as_bytes(), "{name}: {:?} {:?}", output.diagnostics, output.traceback);
+                    assert!(output.diagnostics.is_empty(), "{name}: {:?}", output.diagnostics);
+                    assert!(output.traceback.is_none(), "{name}: {:?}", output.traceback);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn automatic_entry_rejects_shadowed_script_arguments() {
+        run_with_large_stack(|| {
+            let source = "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nlet args = [\"shadow\"]\nmain(@args)?\n";
+            let path = "shadowed-script-arguments.xsh";
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, source.to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_compact_declarations(&parsed.arena, &sources, sources.files()[0].id());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckStandardModuleShadow)), "{:?}", checked.diagnostics);
+        });
+    }
+
+    #[test]
+    fn imported_main_splices_remain_module_initialization_errors() {
+        run_with_large_stack(|| {
+            let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+            let root = tempfile::TempDir::new_in(scratch).unwrap();
+            std::fs::write(root.path().join("entry_module.xsh"), "##! Explicit module entry call.\nproc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\n").unwrap();
+            let path = root.path().join("entry.xsh");
+            let path = path.to_str().unwrap();
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(path,
+                crate::loader::entry_source_from_text(path, "use entry_module\n".to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(declarations.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleTopLevel)), "{:?}", declarations.diagnostics);
+        });
     }
 
     #[test]
