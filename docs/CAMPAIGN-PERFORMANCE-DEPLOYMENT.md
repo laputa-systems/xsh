@@ -61,8 +61,14 @@ owned expression and declaration facts. Both execution routes preserve entry
 ordering, body failure, early return, nested Results and cleanup. Six cold
 corruptions reject. Returned independent roots stay live until caller close in
 ordinary and generic scopes; no speculative transfer change was needed.
-Independent source review is clear. The source-level cleanup Error requirement
-and combined library/native qualification remain open.
+Independent source review is clear. Cleanup-effect repair `d69676bec`,
+integrated as `be40c6fcd`, passes one additional focused selector. TempDir
+requires `fs` and `error` unless lexical `try` or `retry` captures Error.
+Required checked Result contracts survive on fresh Match and at-path ValueBlock
+sources; their existing structural producer proofs remain mandatory. The test
+strips auxiliary contexts and rejects missing, incompatible and three Any-widened
+contracts. Independent review is clear. Combined library/native qualification
+remains open.
 
 Source `d54631649` builds matching verification binaries and completes the
 138-selector native inference boundary in normal and forced-frame modes.
