@@ -68,6 +68,14 @@ Plain inferred Proc returns now join actual propagated errors instead of always
 defaulting to Error. Compatibility checks remain required for that contract
 change. Phantom constructor context and generic tempdir support remain separate
 mandatory work.
+The combined compatibility check selects twelve controls: ten pass and two
+normalizer fixtures still assume every inferred error becomes Error. Their
+test-only repair `a1e6d312a`, integrated as `484fef6d8`, passes both focused
+controls. Actual Error inputs now exercise inferred mixed-error normalization,
+while a separate all-Str callback relay preserves its specific error. Existing
+traceback, authored-return and cleanup controls remain. The ten compatible
+passes and this two-test receipt cover the affected group; an unfiltered replay
+and matching native products remain required.
 
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
