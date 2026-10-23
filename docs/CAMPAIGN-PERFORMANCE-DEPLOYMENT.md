@@ -38,8 +38,17 @@ when a null field prevents independent type derivation. Existing writer proof
 and complete declaration validation remain authoritative: stale validation
 rejects cold, and malformed physical data behind a valid complete validator
 fails at the declaration before the generic call on both routes. Combined
-source `f2c1bae75` is frozen for the unfiltered Rust library check. The d546
-verification products do not qualify this newer source.
+source `f2c1bae75` completes the unfiltered Rust library check: 2,078 selected,
+2,061 pass, fourteen fail and three are ignored. Nine failures hit the existing
+work bound; one synthetic resource-cleanup capture lacks its required contract.
+Those remain active repairs. Four stale controls are corrected at `5c70eff57`
+and pass their focused rerun: explicit Any preserves Result data, supported
+fallback relationships do not require the old recovery error, known Unit
+propagation retains ProcessError, and required capture proof derives a fold
+without an auxiliary temporary row. The reduced fold still rejects a forged
+writer and executes on both routes. A fifth stale diagnostic assertion remains
+with the capture repair. No full-library pass or newer native result is claimed.
+The d546 verification products do not qualify this newer source.
 
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
@@ -101,8 +110,8 @@ Its complete native inference boundary executes every selector exactly once:
 118 pass, fourteen fail and none skip. Both producer witnesses now pass,
 including forced frames; every previously passing selector remains passing.
 The remaining failures cover wrappers, host method families, callable-value
-storage and open-row spread. The latest unfiltered Rust receipt remains the
-`865b8aac2` result below; it does not qualify this newer source.
+storage and open-row spread. The earlier passing unfiltered Rust receipt is the
+`865b8aac2` result below; it does not qualify these newer sources.
 
 Repair `a6fff7537`, integrated as `3ee4d8b92`, proves the missing Result shape
 from the same callable instance's own checked proc-return envelope. It resolves
