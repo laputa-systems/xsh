@@ -1541,6 +1541,42 @@ mod tests {
     }
 
     #[test]
+    fn generic_schema_constructor_instances_preserve_canonical_scoped_selections() {
+        for ty in ["Int", "Str"] {
+            let original = format!("type Box[T] = {{value: T}}\npure boxed(value: {ty}) -> Box[{ty}] {{ Box(value:) }}\n");
+            let candidate = "type Box[T] = {value: T}\npure boxed(value) { Box(value:) }\n";
+            let (old_program, old_sources, old_checked) = checked(&original);
+            let (new_program, new_sources, new_checked) = checked(candidate);
+            let old_interface = old_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+            let new_interface = new_checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+            for missing_or_other in [
+                "type Box[T] = {value: T}\npure boxed(value) { {value} }\n",
+                "type Other[T] = {value: T}\npure boxed(value) { Other(value:) }\n",
+            ] {
+                let (_, _, checked) = checked(missing_or_other);
+                let interface = checked.checked_declarations.functions.values().next().unwrap().callable_contract().unwrap();
+                assert!(old_interface.instance_evidence(&interface).unwrap().is_none());
+            }
+            let instance = old_interface.instance_evidence(&new_interface).unwrap().unwrap();
+            let body = |checked: &CheckOutput, program: &ArenaProgram, sources: &SourceMap|
+                PendingBodyContracts::capture(checked, program, sources).unwrap().into_contracts().into_iter()
+                    .find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
+            let old = body(&old_checked, &old_program, &old_sources);
+            let new = body(&new_checked, &new_program, &new_sources);
+            assert!(new.selections.values().any(|selection| selection.constructor.is_some()));
+            assert!(old.preserved_by_instance(&new, Some(&instance)));
+            assert!(!old.preserved_by(&new));
+            let mut wrong = new.clone();
+            wrong.selections.values_mut().find_map(|selection| selection.constructor.as_mut()).unwrap()
+                .instance.arguments[0] = OperandType::Ground(Type::Path);
+            assert!(!old.preserved_by_instance(&wrong, Some(&instance)));
+            let mut missing = new.clone();
+            missing.selections.values_mut().find(|selection| selection.constructor.is_some()).unwrap().constructor = None;
+            assert!(!old.preserved_by_instance(&missing, Some(&instance)));
+        }
+    }
+
+    #[test]
     fn generic_schema_constructor_contract_preserves_canonical_scoped_selections() {
         let source = "type Box[T] = {value: T}\npure boxed(value) { Box(value:) }\n";
         let old = declaration(source);

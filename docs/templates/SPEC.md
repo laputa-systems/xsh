@@ -3380,6 +3380,11 @@ Checked tooling contracts retain quantified parameter relationships and open
 record rows. Their diagnostic display can use `forall` notation; that notation
 is not source syntax. Tooling compares checked contracts by bound parameter
 renaming while preserving nominal types, labels, schemas, and effects.
+Concrete instance comparison specializes schema arguments through the same
+resolved parameter and return instance before comparing canonical schema
+identities. Missing or unresolved schema arguments do not establish a match.
+Structural projection still requires independently ground checked interfaces;
+solving a parameter does not supply a missing input validation.
 
 Interface comparison treats a nonparameterized ordinary record schema without
 defaults or validation obligations as its fully known structural type when
