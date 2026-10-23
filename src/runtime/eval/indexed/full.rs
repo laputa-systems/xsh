@@ -26506,6 +26506,18 @@ assert genuine_tail_runs == 0
             let integer = SemanticPoolBuilder::default().intern_type(&mut wrong_instance.store.semantic, &Type::Int).unwrap();
             wrong_instance.store.scheme_types[ty.index()].first = integer.raw();
             assert!(FullVerifier::verify(&wrong_instance).is_err());
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let span = Span::at(program.store.source_id, 0);
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
+                for (name, expected) in [("exercise", "local"), ("nested", "nested")] {
+                    let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), CallableKind::Pure, &[], span).unwrap().unwrap();
+                    assert_eq!(result, Value::Str(Arc::from(expected)));
+                }
+            }
         });
     }
 

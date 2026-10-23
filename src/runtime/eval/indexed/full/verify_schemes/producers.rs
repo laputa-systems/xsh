@@ -4203,7 +4203,7 @@ impl<'a> ProducerProof<'a> {
             return Ok(());
         }
         if let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
-            && let Type::Callable(callable) = expected.as_ref()
+            && matches!(expected.as_ref(), Type::Callable(_))
             && (self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
                 || {
                     let source = match &decoder.producer_prefix {
@@ -4222,7 +4222,9 @@ impl<'a> ProducerProof<'a> {
                 })
         {
             decoder.function_reference_matches_callable(instruction, &expected)?;
-            self.slot(owner, instruction, slot, Arc::new(Type::Function(callable.kind)))?;
+            let contract = self.slot_context_type(&decoder, instruction, slot)?
+                .ok_or_else(|| IrVerifyError::new("materialized callable source has no lexical slot contract"))?;
+            self.slot(owner, instruction, slot, contract)?;
             return Ok(());
         }
         if let schema::ExprView::FunctionRef { function, kind } = decoder.expression_view(instruction)?
