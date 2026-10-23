@@ -49181,6 +49181,40 @@ assert initializations == 2
     }
 
     #[test]
+    fn tempdir_resource_tails_transfer_owned_roots_on_both_routes() {
+        run_with_large_stack(|| {
+            let cases = [
+                ("ordinary-fresh", "proc make() [fs, error] -> Result[FsRoot] { tempdir directory { fs.tempdir()? } }", "make()"),
+                ("ordinary-at", "proc make(target: Path) [fs, error] -> Result[FsRoot] { tempdir directory at target { fs.tempdir()? } }", "make(fp\"{outer}/stage\")"),
+                ("generic-fresh", "proc make(marker) [fs, error] { let _ = marker; tempdir directory { fs.tempdir()? } }", "make(1)"),
+                ("generic-at", "proc make(marker, target: Path) [fs, error] { let _ = marker; tempdir directory at target { fs.tempdir()? } }", "make(1, fp\"{outer}/stage\")"),
+            ];
+            let mut failures = Vec::new();
+            for (name, definition, call) in cases {
+                let source = format!("{definition}\ntempdir outer {{\n  let root = {call}?\n  let returned_path = root.host_path()?\n  assert returned_path.exists()?\n  root.close()?\n  assert ! returned_path.exists()?\n}}\n");
+                let program = match fixture_result(name, &source) {
+                    Ok(program) => Arc::new(program),
+                    Err(error) => { failures.push(format!("{name}: {error:?}")); continue; }
+                };
+                let _symbols = program.symbol_owner().enter();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    evaluator.force_frames = force_frames;
+                    for step in 0..program.driver_step_count().unwrap() {
+                        match evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)) {
+                            Some(Ok(_)) => {}
+                            Some(Err(error)) => { failures.push(format!("{name}, frames={force_frames}: {error:?}")); break; }
+                            None => panic!("the driver step is indexed"),
+                        }
+                    }
+                }
+            }
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+        });
+    }
+
+    #[test]
     fn ordinary_tempdir_scopes_preserve_value_contracts_on_both_routes() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("ordinary-tempdir-value-contracts.xsh", r#"
