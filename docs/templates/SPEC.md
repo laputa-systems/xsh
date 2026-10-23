@@ -3356,7 +3356,10 @@ renaming while preserving nominal types, labels, schemas, and effects.
 Interface comparison treats a nonparameterized ordinary record schema without
 defaults or validation obligations as its fully known structural type when
 both checked interfaces have that same ground type. The stored schema and
-execution checks remain unchanged. This projection applies to implicit
+execution checks remain unchanged. A contained enum requires its validated
+Str wire mapping and the same exact ground enum family in both interfaces.
+Unbacked or unknown enum families retain their schema obligations.
+This projection applies to implicit
 parameter and return boundaries. Explicit validation and constructor selections
 remain part of body comparison. Unknown, generic, nominal, validated, unsigned,
 and defaulted schema obligations remain constrained. Removing a return

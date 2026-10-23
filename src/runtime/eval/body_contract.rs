@@ -228,6 +228,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn wire_enum_projection_preserves_header_and_local_body_facts() {
+        for (original, candidate) in [
+            ("enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: Int}\npure keep() -> Info { {state: Ready, count: 1} }\n",
+             "enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: Int}\npure keep() { {state: Ready, count: 1} }\n"),
+            ("enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: Int}\npure keep() -> List[Info] { let values: List[Info] = [{state: Ready, count: 1}]; values }\n",
+             "enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: Int}\npure keep() -> List[Info] { let values = [{state: Ready, count: 1}]; values }\n"),
+        ] {
+            let original = declaration(original);
+            let candidate = declaration(candidate);
+            assert!(original.preserved_by(&candidate));
+        }
+    }
+
     fn entry(source: &str) -> CheckedBodyContract {
         snapshots(source).into_iter().find(|body| body.owner() == BodyContractOwner::Entry).unwrap()
     }

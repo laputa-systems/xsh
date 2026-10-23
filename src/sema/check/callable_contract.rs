@@ -1,6 +1,7 @@
 use super::{CheckedFunctionDeclaration, Checker, CheckOutput};
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::types::Type;
+use crate::sema::wire_enums::PreparedWireEnums;
 use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
     SchemeRowTail, SchemeType, SchemeTypeParameterId, SchemeEffectParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
@@ -118,11 +119,12 @@ impl Checker {
             definitions.extend(schema.instances.iter().map(|instance| instance.definition));
             schemas.extend(schema.children.values());
         }
-        schema_identities(program, &self.record_constructors, definitions)
+        schema_identities(program, &self.record_constructors, &self.wire_enums, definitions)
     }
 }
 
 pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::sema::constants::RecordConstructors,
+    wire_enums: &PreparedWireEnums,
     definitions: impl IntoIterator<Item = TypeDefId>) -> Arc<BTreeMap<TypeDefId, SchemaIdentity>>
 {
     Arc::new(definitions.into_iter().map(|definition| {
@@ -141,7 +143,7 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
                     && constructors.defaults(definition).is_some_and(BTreeMap::is_empty) =>
             {
                 match constructors.instantiate_checked(&program.arena, definition, &[]) {
-                    Ok(ty) if structural_storage_type(&ty) => SchemaSemantics::Structural(Arc::new(ty)),
+                    Ok(ty) if structural_storage_type(&ty, wire_enums) => SchemaSemantics::Structural(Arc::new(ty)),
                     _ => SchemaSemantics::Retained,
                 }
             }
@@ -151,13 +153,14 @@ pub(super) fn schema_identities(program: &ArenaProgram, constructors: &crate::se
     }).collect())
 }
 
-fn structural_storage_type(ty: &Type) -> bool {
+fn structural_storage_type(ty: &Type, wire_enums: &PreparedWireEnums) -> bool {
     match ty {
         Type::Unit | Type::Null | Type::Bool | Type::Int | Type::Float | Type::Str
         | Type::Bytes | Type::Duration | Type::Path => true,
-        Type::List(item) | Type::Optional(item) => structural_storage_type(item),
-        Type::Map(key, value) => structural_storage_type(key) && structural_storage_type(value),
-        Type::Record(fields) => fields.values().all(structural_storage_type),
+        Type::List(item) | Type::Optional(item) => structural_storage_type(item, wire_enums),
+        Type::Map(key, value) => structural_storage_type(key, wire_enums) && structural_storage_type(value, wire_enums),
+        Type::Record(fields) => fields.values().all(|field| structural_storage_type(field, wire_enums)),
+        Type::Tag(name) => wire_enums.mappings.get(name).is_some_and(|mapping| mapping.type_name == *name),
         _ => false,
     }
 }
@@ -845,6 +848,34 @@ mod tests {
         let annotated = root_schema_contract("type Entry = {value: Int}\npure describe(value: Entry) -> Int { 1 }\n");
         let erased = root_schema_contract("pure describe(value) -> Int { 1 }\n");
         assert!(!annotated.is_instance_of(&erased).unwrap_or(false));
+    }
+
+    #[test]
+    fn wire_enum_interfaces_project_only_exact_ground_families() {
+        let declarations = "enum State: Str { Ready = \"ready\" }\nenum Other: Str { OtherReady = \"ready\" }\ntype Info = {state: State, count: Int}\n";
+        let original = root_schema_contract(&format!("{declarations}pure describe() -> Info {{ {{state: Ready, count: 1}} }}\n"));
+        let inferred = root_schema_contract(&format!("{declarations}pure describe() {{ {{state: Ready, count: 1}} }}\n"));
+        let other = root_schema_contract(&format!("{declarations}pure describe() {{ {{state: OtherReady, count: 1}} }}\n"));
+        assert!(original.equivalent_to(&inferred));
+        assert!(original.is_instance_of(&inferred).unwrap());
+        assert!(!original.equivalent_to(&other));
+        assert!(!original.is_instance_of(&other).unwrap_or(false));
+    }
+
+    #[test]
+    fn wire_enum_projection_retains_other_schema_obligations() {
+        for (declarations, original, candidate) in [
+            ("enum State { Ready }\ntype Info = {state: State}\n", "pure describe() -> Info { {state: Ready} }\n", "pure describe() { {state: Ready} }\n"),
+            ("enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: UInt}\n", "pure describe(count: Int) -> Info { {state: Ready, count} }\n", "pure describe(count: Int) { {state: Ready, count} }\n"),
+            ("enum State: Str { Ready = \"ready\" }\ntype Info = {state: State, count: Int = 1}\n", "pure describe() -> Info { {state: Ready, count: 1} }\n", "pure describe() { {state: Ready, count: 1} }\n"),
+            ("enum State: Str { Ready = \"ready\" }\ntype Info[T] = {state: State}\n", "pure describe() -> Info[Int] { {state: Ready} }\n", "pure describe() { {state: Ready} }\n"),
+            ("enum State: Str { Ready = \"ready\" }\nnominal type Info = {state: State}\n", "pure describe() -> Info { Info(state: Ready) }\n", "pure describe() { {state: Ready} }\n"),
+        ] {
+            let original = root_schema_contract(&format!("{declarations}{original}"));
+            let candidate = root_schema_contract(&format!("{declarations}{candidate}"));
+            assert!(!original.equivalent_to(&candidate));
+            assert!(!original.is_instance_of(&candidate).unwrap_or(false));
+        }
     }
 
     #[test]

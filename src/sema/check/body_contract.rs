@@ -519,7 +519,8 @@ impl PendingBodyContracts {
             contexts.extend(context.children.values());
         }
         definitions.extend(checked.record_constructor_instances.values().map(|constructor| constructor.instance.definition));
-        let schemas = schema_identities(program, &checked.checked_declarations.record_constructors, definitions);
+        let schemas = schema_identities(program, &checked.checked_declarations.record_constructors,
+            &checked.checked_declarations.wire_enums, definitions);
         let mut capture = Capture { checked, program, sources, bodies: BTreeMap::new(), schemas,
             registered: BTreeMap::new(), seen_registered: BTreeSet::new(), seen_binary: BTreeSet::new(), seen_prepared_binary: BTreeSet::new(), seen_api: BTreeSet::new(),
             seen_commands: BTreeSet::new(), seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
