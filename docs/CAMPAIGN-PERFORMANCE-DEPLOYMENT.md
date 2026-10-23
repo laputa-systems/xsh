@@ -33,10 +33,11 @@ results establish this capability boundary, not corpus or final qualification.
 The original corpus passes the require-target check. Ground RecordUpdate
 repair `3d62c73c2`, integrated as `b1c26aeb3`, proves the actual base and every
 replacement against existing field paths. Eight focused controls pass and
-independent review is clear. The original system-report module then reaches
-a separate checked-field mismatch: a List of records preserves its nominal
-tag but changes a Null field to its declared Optional type. That repair is
-in progress. Neither result qualifies the complete original module. The
+independent review is clear. Nominal-field repair `a589a1583`, integrated as
+`c637b226e`, preserves exact source Tag identities through checked fields and
+charges the complete source-type validation. All twelve focused checks pass,
+including cold preparation of the complete original system-report module.
+Independent review is clear. Runtime corpus qualification remains open. The
 historical 1,040-removal cohort alone also fails on the preceding `f87c6d69a`
 products with seven diagnostics: one list splice, one arithmetic generalization,
 two sort keys and three cold generic-argument builds. Additional Proc/effect
