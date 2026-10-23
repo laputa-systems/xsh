@@ -3552,3 +3552,72 @@ fn typed_constant_null_returns_keep_their_physical_representation() {
 fn generic_constant_null_returns_keep_their_physical_representation() {
     assert_constant_null_return_representations("proc null_task(marker) { return null }\npure absent(marker) { return null }");
 }
+
+fn assert_adjacent_range_boundaries(annotation: &str) {
+    let source = format!(r#"type Span = {{first: Int, last: Int}}
+proc ranges(spans: List[Span]) -> List[Span] {{
+    var merged{annotation} = []
+    assert merged.is_empty(), "initial range storage must be empty"
+    for span in spans |> sort-by .first {{
+        if ! merged.is_empty() and span.first <= merged[-1].last {{
+            let previous = merged[-1]
+            merged = [@merged[..merged.len() - 1], {{first: previous.first, last: if span.last > previous.last {{ span.last }} else {{ previous.last }}}}]
+        }} else {{ merged += [span] }}
+    }}
+    merged
+}}
+assert ranges([{{first: 1, last: 2}}, {{first: 3, last: 4}}]) == [{{first: 1, last: 2}}, {{first: 3, last: 4}}]
+assert ranges([{{first: 2, last: 4}}, {{first: 1, last: 3}}]) == [{{first: 1, last: 4}}]
+"#);
+    let (program, sources, source_id) = record_form_program(&source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
+fn typed_range_storage_preserves_guarded_last_element_reads() {
+    assert_adjacent_range_boundaries(": List[Span]");
+}
+
+#[test]
+fn inferred_range_storage_preserves_guarded_last_element_reads() {
+    assert_adjacent_range_boundaries("");
+}
+
+#[test]
+fn closed_negative_literal_index_modes_preserve_list_map_and_slice_domains() {
+    let source = r#"pure list_tail(values) {
+    let tail = values[-1]
+    let anchored: List[Int] = values
+    tail
+}
+pure map_values(values, index: Int) {
+    let literal = values[-1]
+    let computed = values[index]
+    let anchored: Map[Int, Str] = values
+    {literal, computed}
+}
+let mapping: Map[Int, Str] = {[-1]: "minus", [0]: "zero"}
+assert list_tail([7, 8]) == 8
+assert map_values(mapping, -1) == {literal: "minus", computed: "minus"}
+assert map_values(mapping, 0) == {literal: "minus", computed: "zero"}
+assert [1, 2, 3][-2..] == [2, 3]
+assert "aé🦀"[-2..] == "é🦀"
+assert b"abcdef"[-2..] == b"ef"
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap();
+        }
+    }
+}

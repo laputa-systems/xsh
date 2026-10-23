@@ -524,6 +524,21 @@ impl TypeConstraints {
         self.operations.source_sites.get(&(owner, span)).copied()
     }
 
+    pub(crate) fn source_list_from_end_indexes(&self, owner: super::CallableApplicationScope) -> Result<Vec<(Span, u32)>, ConstraintResolutionError> {
+        let mut indexes = Vec::new();
+        for (&(scope, span), id) in self.operations.source_sites.range((owner, Span::at(crate::source::SourceId::new(0), 0))..) {
+            if scope != owner { break; }
+            let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if entry.owner != owner || entry.operation.span() != span { return Err(ConstraintResolutionError::ForeignVariable); }
+            if let SealedOperation::Index { receiver, syntax: crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance), .. } = &entry.operation {
+                if matches!(self.resolve(receiver)?.unvalidated(), Type::List(_)) {
+                    indexes.push((span, distance.get()));
+                }
+            }
+        }
+        Ok(indexes)
+    }
+
     pub(crate) fn source_sealed_operation_id(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
         self.sealed_operation_at(owner, span)
     }

@@ -219,8 +219,11 @@ owned requirement and actual producer contracts. A generic negative literal
 uses the existing invocation substitution to select list-from-end access or a
 negative map key before the receiver value is read. Binding-dependent sites and
 their ancestors use scheduled execution, preserving the active substitution on
-both evaluator routes. Computed negative indices retain ordinary evaluation;
-there is no runtime overload search or value-tag selection of literal meaning.
+both evaluator routes. At body closure, a registered source operation with a
+resolved List receiver publishes its owned negative-literal distance for ordinary
+lowering. A closed Map keeps its ordinary negative key. Computed
+negative indices retain ordinary evaluation; there is no runtime overload
+search or value-tag selection of literal meaning.
 
 Unsigned map keys use the canonical UInt validator and existing lexical
 propagation flow. At erased function returns, the authenticated substituted
