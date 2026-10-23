@@ -743,6 +743,121 @@ assert choose(false) == "none"
 }
 
 #[test]
+fn successful_assertions_narrow_optional_binding_reads() {
+    let program = fixture(r#"
+proc assert_ordered(text: Str, fragments: List[Str]) [error] {
+  var start = 0
+  for fragment in fragments {
+    let offset = text.find(fragment, start)
+    assert offset != null, f"missing {fragment} after byte {start}: {text}"
+    start = offset + fragment.byte_len()
+  }
+}
+proc if_ordered(text: Str, fragments: List[Str]) [error] {
+  var start = 0
+  for fragment in fragments {
+    let offset = text.find(fragment, start)
+    if offset == null { return }
+    start = offset + fragment.byte_len()
+  }
+}
+type Row = {value: Int?}
+proc read_path(row: Row) [error] -> Int {
+  assert row.value != null
+  let checked: Int = row.value
+  checked
+}
+proc exercise() [error] -> Result[Unit] {
+  assert_ordered("alpha beta", ["alpha", "beta"])?
+  if_ordered("alpha beta", ["alpha", "beta"])?
+  assert read_path({value: 7}) == 7
+  Ok()
+}
+exercise()?
+var continued = false
+let failure: Result[Unit] = try {
+  assert false
+  continued = true
+}
+assert !continued
+assert failure is Err(_)
+"#);
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+}
+
+#[test]
+fn assertion_narrowing_requires_its_binding_and_precedes_the_read() {
+    let program = fixture(r#"
+type Callback = pure(value: Int) -> Int
+proc narrow(value: Callback?, other: Callback?) [error] -> Callback {
+  assert value != null
+  let checked: Callback = value
+  checked
+}
+"#);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function(&program, "narrow");
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let decoder = function_view_decoder(&program.store, owner);
+    let assertion = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssert).unwrap();
+    let condition = match decoder.statement_view(assertion).unwrap() {
+        schema::StmtView::Assert { value, .. } => value.raw() as usize,
+        _ => unreachable!(),
+    };
+    let schema::ExprView::Binary { op: BinaryOp::Ne, left, right, .. } = decoder.expression_view(condition).unwrap() else { panic!("assert condition is not a null comparison") };
+    assert!(matches!(decoder.expression_view(left.raw() as usize), Ok(schema::ExprView::Param(0))));
+    assert!(matches!(decoder.expression_view(right.raw() as usize), Ok(schema::ExprView::Null)));
+    let condition_slot = program.store.data[left.raw() as usize].range().start as usize;
+    let checked = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction),
+        Ok(schema::StmtView::Let { slot, .. }) if slot >= program.store.functions[owner].params.len as usize)).unwrap();
+    let checked_input = match decoder.statement_view(checked).unwrap() {
+        schema::StmtView::Let { value, .. } => match decoder.expression_view(value.raw() as usize).unwrap() {
+            schema::ExprView::CheckedValue { value, .. } => value.raw() as usize,
+            _ => panic!("callable annotation is not checked"),
+        },
+        _ => unreachable!(),
+    };
+    assert!(matches!(decoder.expression_view(checked_input), Ok(schema::ExprView::Param(0))));
+    let block = program.store.blocks.iter().enumerate().find_map(|(index, block)| {
+        if block.flags & super::super::BLOCK_STATEMENTS == 0 { return None; }
+        let words = block.instructions.bounds(program.store.extra.len())?;
+        let statements = &program.store.extra[words.start + 1..words.end];
+        (statements.contains(&(assertion as u32)) && statements.contains(&(checked as u32))).then_some(index)
+    }).unwrap();
+    let words = program.store.blocks[block].instructions.bounds(program.store.extra.len()).unwrap();
+    let asserted_position = (words.start + 1..words.end).find(|&position| program.store.extra[position] == assertion as u32).unwrap();
+    let checked_position = (words.start + 1..words.end).find(|&position| program.store.extra[position] == checked as u32).unwrap();
+
+    let mut wrong_guard = program.clone();
+    wrong_guard.store.extra[condition_slot] = 1;
+    assert!(matches!(function_view_decoder(&wrong_guard.store, owner).expression_view(condition).unwrap(),
+        schema::ExprView::Binary { left, .. } if matches!(function_view_decoder(&wrong_guard.store, owner).expression_view(left.raw() as usize), Ok(schema::ExprView::Param(1)))));
+    assert!(matches!(function_view_decoder(&wrong_guard.store, owner).expression_view(checked_input), Ok(schema::ExprView::Param(0))));
+    let error = FullVerifier::verify(&wrong_guard).unwrap_err();
+    assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+
+    let mut late_assertion = program.clone();
+    late_assertion.store.extra.swap(asserted_position, checked_position);
+    let error = FullVerifier::verify(&late_assertion).unwrap_err();
+    assert!(error.message.contains("non-null branch proof") || error.message.contains("checked value input disagrees"), "{error:?}");
+
+    let source = r#"
+proc stale(value: Int?) [error] -> Int {
+  var current: Int? = value
+  assert current != null
+  current = null
+  let checked: Int = current
+  checked
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)));
+}
+
+#[test]
 fn checked_prefix_guards_reject_fallthrough_writes() {
     for (index, guard) in [
         "if selected == null { return \"none\" } else if { other = null; flag } { return \"skip\" }",

@@ -837,6 +837,9 @@ impl ProducerOwner {
                     return self.completing_block_preserves_binding_path(decoder, body.block_identity().index(), target, charge);
                 }
             }
+            schema::StmtView::Assert { value, .. } if branch_index == 0 => {
+                return decoder.checked_expression_preserves_binding_path(value.raw() as usize, target, charge);
+            }
             _ => return Err(IrVerifyError::new("optional prefix guard is not conditional")),
         }
         Ok(true)
@@ -890,6 +893,10 @@ impl ProducerOwner {
                                 }
                                 conditions.push((condition.raw() as usize, false, true, branch_index));
                             }
+                        }
+                        schema::StmtView::Assert { value, .. } => {
+                            charge(1)?;
+                            conditions.push((value.raw() as usize, true, false, 0));
                         }
                         _ => {}
                     }
@@ -1282,7 +1289,7 @@ impl GroundProducerIndex {
                     complete_statement_positions &= range.contains(&statement)
                         && decoder.store.tags.get(statement).is_some_and(|tag| tag.kind() == schema::InstructionKind::Stmt);
                     complete_statement_positions &= owner.statement_positions.insert(statement, (block, position)).is_none();
-                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool) {
+                    if matches!(decoder.store.tags[statement], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtAssert) {
                         work.borrow_mut().charge(1)?;
                         guards.push((position, statement));
                     }
