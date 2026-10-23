@@ -38,8 +38,10 @@ mutable writers and complete evidence ownership remain cold-verified.
 Missing/foreign/shared evidence, changed signatures and noncanonical facts
 reject. Both execution routes retain invocation bindings, and unchanged shared
 containers keep their storage. Independent source reviews are clear. Combined
-Path/TempDir/body compatibility and matching native qualification remain open;
-these results do not qualify every container, capture or returned-callable case.
+source `a7900d1f1` passes 26 focused aggregate, ownership, Path, TempDir, tail
+and defer controls with no failures or ignored tests. Matching verification
+products and native qualification remain open; these results do not qualify
+every container, capture or returned-callable case.
 
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.

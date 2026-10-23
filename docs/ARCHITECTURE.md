@@ -511,6 +511,7 @@ substitutions and complete evidence ownership. Scoped field producers reuse
 the completed body proof without grounding opaque sibling fields. Unchanged
 subtrees remain shared; conversion visits only affected branches. Checks that
 need invocation bindings use scheduled execution on both evaluator routes.
+Body facts use cold-validated instruction/kind order for bounded lookup.
 Invocation and value materialization retain distinct checked evidence, including
 when a factory expression needs both at the same source span. Both execution
 routes use the same checked materialization operation. Dynamic value calls have

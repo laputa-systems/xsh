@@ -6339,9 +6339,9 @@ These are deliberately absent:
 - truthiness and implicit conversions between strings, numbers, and Booleans;
 - exceptions and `try`/`catch` (failures are `Result` data);
 - futures, `await`, asynchronous callbacks, and event loops;
-- first-class polymorphic function values, and expression-level type
-  arguments. Inferred quantified pure declarations are available through
-  direct calls, including calls through immutable aliases (9.2, 9.4);
+- higher-rank callable contracts and expression-level type arguments.
+  Inferred rank-1 callables support direct calls and checked values with a
+  finite family of actual targets (9.2, 9.4);
 - first-class command blocks and script-level job control;
 - tagged JSON.
 
