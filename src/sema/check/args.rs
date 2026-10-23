@@ -27,6 +27,31 @@ pub(super) struct CheckedArgumentValues {
     pub(super) contexts: Vec<CheckedArgumentContext>,
 }
 
+#[derive(Clone)]
+pub(super) struct CallSpliceItemContexts {
+    pub(super) expression: ExprId,
+    pub(super) items: Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
+    pub(super) authority: CallSpliceAuthority,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CallSpliceAuthority { Immediate, KnownCallable }
+
+#[derive(Clone, Copy)]
+enum CallArgumentAuthority<'a> {
+    Immediate,
+    KnownCallable {
+        instance: Option<&'a crate::sema::constraints::InstantiatedScheme>,
+        deferred: &'a std::cell::Cell<bool>,
+    },
+}
+
+impl<'a> CallArgumentAuthority<'a> {
+    fn instance(self) -> Option<&'a crate::sema::constraints::InstantiatedScheme> {
+        match self { Self::Immediate => None, Self::KnownCallable { instance, .. } => instance }
+    }
+}
+
 pub(super) struct CheckedBoundArguments {
     pub(super) values: CheckedArgumentValues,
     pub(super) binding: crate::sema::arguments::StaticArgumentBinding,
@@ -133,10 +158,10 @@ impl Checker {
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) {
-        self.check_function_call_arguments_with_instance_arena(arena, source, args, params, span, checked_argument, None);
+        self.check_function_call_arguments_with_authority_arena(arena, source, args, params, span, checked_argument, CallArgumentAuthority::Immediate);
     }
 
-    fn check_function_call_arguments_with_instance_arena(
+    fn check_function_call_arguments_with_authority_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -144,7 +169,7 @@ impl Checker {
         params: &[FunctionParamSig],
         span: Span,
         checked_argument: Option<CheckedCallArgument<'_>>,
-        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+        authority: CallArgumentAuthority<'_>,
     ) {
         if let Some(argument) = checked_argument {
             assert!(args.is_empty(), "a checked argument replaces source arguments");
@@ -161,18 +186,18 @@ impl Checker {
                     self.error(span, &message, DiagnosticCode::CheckArity);
                     if let Some(param) = params.first() {
                         let expected = self.function_argument_type(param, span);
-                        self.expect_function_call_argument(instance, &expected, argument.ty, argument.span);
+                        self.expect_function_call_argument(authority, &expected, argument.ty, argument.span);
                     }
                     return;
                 }
             };
             for (slot, argument) in binding.argument_slots.into_iter().zip(expanded) {
                 let expected = self.function_argument_type(&params[slot], span);
-                self.expect_function_call_argument(instance, &expected, &argument.ty, argument.span);
+                self.expect_function_call_argument(authority, &expected, &argument.ty, argument.span);
             }
             return;
         }
-        self.check_function_arg_list_arena(arena, source, args, params, span, instance);
+        self.check_function_arg_list_arena(arena, source, args, params, span, authority);
     }
 
     pub(super) fn check_function_contract_arguments_arena(
@@ -187,15 +212,17 @@ impl Checker {
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         let constructor_arguments = self.type_constraints.begin_constructor_arguments(owner);
         let diagnostics_before_arguments = self.diagnostics.len();
-        self.check_function_call_arguments_with_instance_arena(
+        let deferred = std::cell::Cell::new(false);
+        self.check_function_call_arguments_with_authority_arena(
             arena,
             source,
             args,
             &contract.params,
             span,
             checked_argument,
-            contract.instantiation.as_ref().map(|(_, instance)| instance),
+            CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred },
         );
+        if deferred.get() { self.retain_known_call_arguments(arena, args, contract, span, checked_argument, owner); }
         let argument_error = self.diagnostics[diagnostics_before_arguments..]
             .iter()
             .any(|diagnostic| {
@@ -220,11 +247,11 @@ impl Checker {
                     return false;
                 }
                 if let Some(instantiation) = &contract.instantiation {
-                    let (callable, instance) = instantiation;
-                    let validations = match self.type_constraints.index_validation_wrapper_requirements_for_instantiation(callable, instance) {
+                    let (callable, authority) = instantiation;
+                    let validations = match self.type_constraints.index_validation_wrapper_requirements_for_instantiation(callable, authority) {
                         Ok(validations) => validations,
                         Err(error) => {
-                            self.error(span, &format!("index validation escaped its callable instance: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            self.error(span, &format!("index validation escaped its callable authority: {error:?}"), DiagnosticCode::CheckLocalInference);
                             return false;
                         }
                     };
@@ -275,16 +302,83 @@ impl Checker {
         }
     }
 
+    fn retain_known_call_arguments(
+        &mut self,
+        arena: &ArenaProgram,
+        args: &[ArenaCallArg],
+        contract: &super::FunctionCallContract,
+        span: Span,
+        checked_argument: Option<CheckedCallArgument<'_>>,
+        owner: crate::sema::constraints::CallableApplicationScope,
+    ) {
+        use crate::sema::arguments::{ArgumentValueSource, StaticArgumentKind};
+        use crate::sema::callable_application::{CallableApplicationArgument, KnownArgumentParameter, KnownCallArguments};
+        let expanded = if let Some(argument) = checked_argument {
+            vec![expanded_checked_argument(argument)]
+        } else {
+            let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
+                self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+            }) {
+                Ok(expanded) => expanded,
+                Err(error) => {
+                    self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
+                    return;
+                }
+            };
+            let mut flattened = Vec::new();
+            for argument in expanded {
+                if let ArgumentValueSource::PositionalSplice(expression) = argument.value
+                    && let Some(elements) = static_positional_list_elements(arena, expression)
+                {
+                    for expression in elements {
+                        let span = arena.arena.expr(expression).span;
+                        let Some(ty) = self.expr_types.get(&span).cloned() else {
+                            self.error(span, "static splice argument has no checked type", DiagnosticCode::CheckLocalInference);
+                            return;
+                        };
+                        flattened.push(crate::sema::arguments::ExpandedArgument { entry_index: argument.entry_index, name: None, value: ArgumentValueSource::Expression(expression), ty, span });
+                    }
+                } else { flattened.push(argument); }
+            }
+            flattened
+        };
+        let parameters = callable_parameter_types(&contract.params);
+        if let Err(error) = crate::sema::arguments::bind_static_arguments(&parameters, &expanded) {
+            self.error(error.span, &error.message, DiagnosticCode::CheckNamedArg);
+            return;
+        }
+        let parameters = parameters.into_iter().map(|parameter| KnownArgumentParameter {
+            layout: crate::sema::arguments::ArgumentParameterLayout { name: parameter.name, defaulted: parameter.defaulted, rest: parameter.rest },
+            ty: parameter.ty,
+        }).collect::<Vec<_>>().into();
+        let arguments = expanded.into_iter().map(|argument| CallableApplicationArgument {
+            kind: match (argument.name, argument.value) {
+                (Some(name), _) => StaticArgumentKind::Named(name),
+                (None, ArgumentValueSource::PositionalSplice(_)) => StaticArgumentKind::Splice,
+                _ => StaticArgumentKind::Positional,
+            },
+            ty: argument.ty,
+            span: argument.span,
+        }).collect::<Vec<_>>().into();
+        if let Err(error) = self.type_constraints.register_known_call_arguments(owner, KnownCallArguments { parameters, arguments, span }) {
+            self.error(span, &format!("known argument relationship failed: {error}"), DiagnosticCode::CheckCallableMismatch);
+        }
+    }
+
     fn expect_function_call_argument(
         &mut self,
-        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+        authority: CallArgumentAuthority<'_>,
         expected: &Type,
         actual: &Type,
         span: Span,
     ) {
+        if let CallArgumentAuthority::KnownCallable { deferred, .. } = authority
+            && matches!(self.type_constraints.resolve(expected), Ok(Type::Optional(_)))
+            && matches!(self.type_constraints.resolve(actual), Ok(Type::Inference(_)))
+        { deferred.set(true); return; }
         if !self.scheme_callable_types_compatible(expected, actual) {
-            if let Some(instance) = instance.filter(|instance| actual.contains_any() || !instance.wrappers.is_empty()) {
-                if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
+            if let Some(authority) = authority.instance().filter(|authority| actual.contains_any() || !authority.wrappers.is_empty() || !authority.applications.is_empty()) {
+                if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span) {
                     if conflict.resolution_error.is_some() || !actual.contains_any() {
                         self.report_inferred_type_conflict(conflict);
                     } else {
@@ -636,22 +730,22 @@ impl Checker {
         expression: ExprId,
         item_ty: Type,
         item_contexts: Vec<(Type, Option<crate::sema::constants::SchemaExpectation>)>,
-        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+        authority: CallArgumentAuthority<'_>,
     ) -> Type {
         let expected = Type::List(Box::new(item_ty.clone()));
         let previous = self
             .call_splice_item_contexts
-            .replace((expression, item_contexts));
+            .replace(CallSpliceItemContexts { expression, items: item_contexts, authority: match authority { CallArgumentAuthority::Immediate => CallSpliceAuthority::Immediate, CallArgumentAuthority::KnownCallable { .. } => CallSpliceAuthority::KnownCallable } });
         let actual = self.check_expr_arena(arena, source, expression, Some(&expected));
-        let (_, contexts) = std::mem::replace(&mut self.call_splice_item_contexts, previous)
+        let contexts = std::mem::replace(&mut self.call_splice_item_contexts, previous)
             .expect("a checked static splice retains its item contexts");
-        if instance.is_some()
+        if matches!(authority, CallArgumentAuthority::KnownCallable { .. })
             && let crate::syntax::arena::ArenaExprKind::List(elements) = arena.arena.expr(expression).kind
         {
-            for (element, (expected, _)) in arena.arena.list_elements(elements).zip(contexts) {
+            for (element, (expected, _)) in arena.arena.list_elements(elements).zip(contexts.items) {
                 let span = arena.arena.expr(element.value).span;
-                if let Some(actual) = self.expr_types.get(&span).filter(|actual| actual.contains_any()).cloned() {
-                    self.expect_function_call_argument(instance, &expected, &actual, span);
+                if let Some(actual) = self.expr_types.get(&span).cloned() {
+                    self.expect_function_call_argument(authority, &expected, &actual, span);
                 }
             }
         }
@@ -665,7 +759,7 @@ impl Checker {
         args: &[ArenaCallArg],
         params: &[FunctionParamSig],
         span: Span,
-        instance: Option<&crate::sema::constraints::InstantiatedScheme>,
+        authority: CallArgumentAuthority<'_>,
     ) {
         if args
             .iter()
@@ -703,7 +797,7 @@ impl Checker {
                         };
                         if let ArenaCallArgKind::Splice { value, .. } = arg.kind {
                             let actual = self.check_expr_arena(arena, source, value, None);
-                            self.expect_function_call_argument(instance,
+                            self.expect_function_call_argument(authority,
                                 &Type::List(Box::new(expected.clone())),
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -712,7 +806,7 @@ impl Checker {
                             let actual = self.check_parameter_arg_arena(
                                 arena, source, &arg.kind, expected, param,
                             );
-                            self.expect_function_call_argument(instance,
+                            self.expect_function_call_argument(authority,
                                 expected,
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -750,7 +844,7 @@ impl Checker {
                 let item_ty = self.function_argument_type(param, span);
                 for (ty, item_span) in &pending_static_items[pending_static_item_index..] {
                     if let Some(ty) = ty {
-                        self.expect_function_call_argument(instance, &item_ty, ty, *item_span);
+                        self.expect_function_call_argument(authority, &item_ty, ty, *item_span);
                     }
                 }
                 for arg in &args[index..] {
@@ -760,8 +854,8 @@ impl Checker {
                             let splice_span = arena.arena.span(*span);
                             let actual = self.check_expr_arena(arena, source, *value, None);
                             match actual.into_unvalidated() {
-                                Type::List(item) if instance.is_some() && item.contains_any() => {
-                                    self.expect_function_call_argument(instance, &item_ty, &item, splice_span);
+                                Type::List(item) if authority.instance().is_some() && item.contains_any() => {
+                                    self.expect_function_call_argument(authority, &item_ty, &item, splice_span);
                                 }
                                 Type::List(item) if item.matches_expected(&item_ty) => {}
                                 Type::List(_) => self.error(
@@ -782,7 +876,7 @@ impl Checker {
                             let actual = self.check_parameter_arg_arena(
                                 arena, source, &arg.kind, &item_ty, param,
                             );
-                            self.expect_function_call_argument(instance,
+                            self.expect_function_call_argument(authority,
                                 &item_ty,
                                 &actual,
                                 call_arg_span_arena(arena, &arg.kind),
@@ -794,7 +888,7 @@ impl Checker {
             }
             if let Some((ty, item_span)) = pending_static_items.get(pending_static_item_index) {
                 if let Some(ty) = ty {
-                    self.expect_function_call_argument(instance, &param.ty, ty, *item_span);
+                    self.expect_function_call_argument(authority, &param.ty, ty, *item_span);
                 }
                 pending_static_item_index += 1;
                 continue;
@@ -833,7 +927,7 @@ impl Checker {
                             *value,
                             item_ty,
                             item_contexts,
-                            instance,
+                            authority,
                         )
                     } else {
                         self.check_expr_arena(arena, source, *value, None)
@@ -855,7 +949,7 @@ impl Checker {
                             pending_static_items.get(pending_static_item_index)
                         {
                             if let Some(ty) = ty {
-                                self.expect_function_call_argument(instance, &param.ty, ty, *item_span);
+                                self.expect_function_call_argument(authority, &param.ty, ty, *item_span);
                             }
                             pending_static_item_index += 1;
                         }
@@ -894,7 +988,7 @@ impl Checker {
                     self.check_call_arg_arena(arena, source, &arg.kind, None)
                 };
                 if let Some(expected) = expected {
-                    self.expect_function_call_argument(instance, expected, &actual, call_arg_span_arena(arena, &arg.kind));
+                    self.expect_function_call_argument(authority, expected, &actual, call_arg_span_arena(arena, &arg.kind));
                 }
                 index += 1;
                 break;
@@ -1482,6 +1576,65 @@ pub(super) fn bind_module_args_arena(
 #[allow(dead_code)]
 pub(super) fn module_arg_matches_param_arena(actual: &Type, expected: &Type) -> bool {
     actual.matches_expected(expected) || (expected == &Type::Path && is_path_like_type(actual))
+}
+
+#[cfg(test)]
+mod nullable_target_tests {
+    use super::Checker;
+    use crate::sema::{schemes::SchemeType, types::Type};
+
+    #[test]
+    fn nullable_argument_deferral_keeps_present_fields_validation_and_effect_authority() {
+        for (source, expected) in [
+            ("type Item = {value: Int}\npure accepts(value: Item?) -> Int { let _ = value; 0 }\npure read(value: Item?) -> Int { let _ = accepts(value); value.value }\n", crate::diagnostic::DiagnosticCode::CheckFieldAccess),
+            ("type Item = {value: Int}\npure accepts(value: Item?) -> Int { let _ = value; 0 }\nlet raw: Any = {value: 7}\nlet invalid = accepts(raw)\n", crate::diagnostic::DiagnosticCode::CheckDynamicBoundary),
+            ("type Item = {value: Int}\nproc accepts(value: Item?) [env] -> Int { let _ = env.get(\"XSH_NULLABLE_TARGET\"); let _ = value; 0 }\npure read(value) -> Int { let _ = accepts(value); value.value }\n", crate::diagnostic::DiagnosticCode::CheckPureEffect),
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn nullable_argument_relationship_preserves_static_splices_and_named_slots() {
+        for argument in ["value", "value: value", "@[value]"] {
+            let source = format!("type Item = {{value: Int}}\npure accepts(value: Item?) -> Int {{ let _ = value; 0 }}\npure read(value) -> Int {{ let _ = accepts({argument}); value.value }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+            let read = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "read").unwrap();
+            let parameter = &read.scheme.as_ref().unwrap().callable().params()[0].ty;
+            assert!(matches!(parameter, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))), "{argument}: {parameter:?}");
+        }
+    }
+
+    #[test]
+    fn nullable_target_requirements_generalize_before_any_callers() {
+        let source = "type Item = {value: Int}\npure accepts(value: Item?) -> Int { let _ = value; 0 }\npure forward(value) { accepts(value) }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let forward = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "forward").unwrap();
+        let scheme = forward.scheme.as_ref().unwrap();
+        assert!(matches!(scheme.callable().params()[0].ty, SchemeType::Parameter(_)));
+        assert!(scheme.callable().requirements().applications.iter().any(|application| matches!(application, crate::sema::callable_application::CallableApplication::KnownArguments(_))));
+    }
+
+    #[test]
+    fn nullable_argument_context_keeps_the_checked_record_parameter_present() {
+        let source = "type Item = {value: Int}\npure accepts(value: Item?) -> Int { let _ = value; 0 }\npure read(value) -> Int { let _ = accepts(value); value.value }\nlet result: Int = read({value: 7})\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let read = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "read").unwrap();
+        let parameter = &read.scheme.as_ref().unwrap().callable().params()[0].ty;
+        assert!(matches!(parameter, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))), "{parameter:?}");
+    }
 }
 
 #[cfg(test)]

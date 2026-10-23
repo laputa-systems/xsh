@@ -2078,6 +2078,7 @@ mod tests {
                 let declaration = output.checked_declarations.functions.values().find(|declaration| declaration.name == "collect").expect("higher-order declaration");
                 let scheme = declaration.scheme.as_ref().expect("higher-order scheme");
                 let application = scheme.callable().requirements().applications.first().expect("formal callable application");
+                let application = application.invocation().unwrap();
                 assert_eq!(&application.callee, &scheme.params()[0].ty);
                 assert!(application.arguments.is_empty());
                 assert_eq!(scheme.return_type(), &crate::sema::schemes::SchemeType::List(Box::new(application.result.clone())));

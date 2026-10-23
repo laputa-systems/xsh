@@ -585,6 +585,7 @@ impl Checker {
                 matches!(callable.sig.effects.contract().clone().for_invocation(callable.kind).concrete(), Ok(Some(_))).then_some(span)
             }));
             checked_operations.extend(generalized.requirements.applications.iter()
+                .filter_map(crate::sema::callable_application::CallableApplication::invocation)
                 .map(|application| application.span));
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;

@@ -1068,7 +1068,7 @@ mod deferred_invocation_tests {
             )),
             effects: crate::sema::effects::EffectContract::finite(crate::sema::effects::EffectSet::default()),
         };
-        let application = crate::sema::callable_application::CallableApplication {
+        let application = crate::sema::callable_application::CallableInvocation {
             callee: callback,
             arguments: Arc::from([]),
             result: result_type,
@@ -1089,7 +1089,7 @@ mod deferred_invocation_tests {
             None,
             false,
             crate::sema::schemes::CallableRequirements {
-                applications: vec![application],
+                applications: vec![application.into()],
                 ..crate::sema::schemes::CallableRequirements::default()
             },
         ).unwrap());
@@ -1743,6 +1743,7 @@ impl Checker {
         let Some((callable, instantiated)) = instance else { return Ok(false); };
         if self.type_constraints.resolve(&instantiated.return_type)? != *resolved_return { return Ok(false); }
         Ok(callable.requirements().applications.iter()
+            .filter_map(crate::sema::callable_application::CallableApplication::invocation)
             .flat_map(|application| application.proc_returns.iter())
             .any(|envelope| &envelope.result == callable.return_type()))
     }

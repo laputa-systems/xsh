@@ -200,7 +200,7 @@ pub fn bind_static_arguments(
     )))
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ArgumentParameterLayout {
     pub(crate) name: Name,
     pub(crate) defaulted: bool,

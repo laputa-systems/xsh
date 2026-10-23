@@ -1745,8 +1745,10 @@ impl Checker {
         let item_contexts = self
             .call_splice_item_contexts
             .as_ref()
-            .filter(|(context_expression, _)| *context_expression == expression)
-            .map(|(_, contexts)| contexts.clone());
+            .filter(|context| context.expression == expression)
+            .map(|context| context.items.clone());
+        let defer_nullable_arguments = self.call_splice_item_contexts.as_ref()
+            .is_some_and(|context| context.expression == expression && matches!(context.authority, super::args::CallSpliceAuthority::KnownCallable));
         if range.is_empty() && matches!(expected, Some(Type::Any)) {
             return Type::List(Box::new(Type::Any));
         }
@@ -1837,12 +1839,16 @@ impl Checker {
             if let Some((context_expected, _)) = context
                 && expected_item.is_some_and(|expected| expected != context_expected)
             {
-                self.expect_type(context_expected, &actual, span);
+                if !(defer_nullable_arguments && matches!(self.type_constraints.resolve(context_expected), Ok(Type::Optional(_))) && matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_)))) {
+                    self.expect_type(context_expected, &actual, span);
+                }
             }
             if inferred == Type::Unknown {
                 inferred = actual;
             } else if let Some(expected_item) = expected_item {
-                self.expect_type(expected_item, &actual, span);
+                if !(defer_nullable_arguments && matches!(self.type_constraints.resolve(expected_item), Ok(Type::Optional(_))) && matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_)))) {
+                    self.expect_type(expected_item, &actual, span);
+                }
             } else if let Some(merged) = self.merge_scheme_callable_values(&inferred, &actual) {
                 inferred = merged;
             } else if let Some(merged) = merge_list_literal_item_ty(&inferred, &actual) {

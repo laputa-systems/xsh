@@ -5145,8 +5145,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
-                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
                     let function = self.function_index().checked_target_key(target)?;
+                    let scheme = self.checked_function_scheme(function);
+                    let arguments = if scheme.as_ref().is_none_or(|scheme| scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()) {
+                        let arguments = self.expand_static_positional_source_arguments(self.program.arena.call_args(args));
+                        for &list in &arguments.expanded_lists {
+                            if facts.expression_types().contains_key(&list) || facts.constructor_producers().contains_key(&list) {
+                                if !visited.insert(list) { return self.block_scheme_lowering_expr(expression); }
+                            }
+                        }
+                        self.lower_scheme_source_arguments(expression, &arguments.arguments, None, slots, current_function, facts, visited, lowered_types, body)?
+                    } else {
+                        self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?
+                    };
                     let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None, SchemeType::closed_ground_type)?;
                     self.record_scheme_call_argument_checks(&arguments, lowered_types);
                     let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
@@ -5172,7 +5183,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 let applications = &facts.scheme().callable().requirements().applications;
-                let mut selected = applications.iter().enumerate().filter(|(_, application)| application.span == span);
+                let mut selected = applications.iter().enumerate().filter(|(_, application)| application.invocation().is_some_and(|application| application.span == span));
                 if let Some((ordinal, _)) = selected.next() {
                     if selected.next().is_some() { return self.block_scheme_lowering_expr(expression); }
                     let callee = self.lower_scheme_expression(callee, slots, current_function, facts, visited, lowered_types, body)?;

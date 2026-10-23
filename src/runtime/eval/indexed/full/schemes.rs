@@ -190,13 +190,30 @@ pub(super) struct FullEffectArgument {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
-pub(super) struct FullSchemeApplication {
+pub(super) struct FullSchemeInvocation {
     pub(super) callee: SchemeTypeId,
     pub(super) result: SchemeTypeId,
     pub(super) effects: FullEffectContract,
     pub(super) arguments: IrRange,
     pub(super) proc_returns: IrRange,
     pub(super) kind: crate::sema::callable_application::CallableKindRequirement,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullSchemeApplication {
+    Invocation(FullSchemeInvocation),
+    KnownArguments { parameters: IrRange, arguments: IrRange },
+}
+
+impl FullSchemeApplication {
+    pub(super) fn invocation(self) -> Option<FullSchemeInvocation> {
+        match self { Self::Invocation(value) => Some(value), Self::KnownArguments { .. } => None }
+    }
+
+    pub(super) fn arguments(self) -> IrRange {
+        match self { Self::Invocation(value) => value.arguments, Self::KnownArguments { arguments, .. } => arguments }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -863,6 +880,37 @@ impl FullBuilder {
         let effect_predicates = super::table_range(effect_predicates_start, self.store.scheme_effect_predicates.len())?;
         let mut applications = Vec::new();
         for application in &scheme.callable().requirements().applications {
+            if let crate::sema::callable_application::CallableApplication::KnownArguments(application) = application {
+                let mut parameters = Vec::new();
+                for parameter in application.parameters.iter() {
+                    parameters.push(FullSchemeCallableParameter {
+                        name: self.intern_string(parameter.layout.name.as_str().as_str())?.raw(),
+                        ty: self.intern_scheme_type(&parameter.ty, &type_parameters, &row_parameters, &effect_parameters)?,
+                        schema: None,
+                        flags: u8::from(parameter.layout.rest) | u8::from(parameter.layout.defaulted) << 1,
+                        reserved: [0; 3],
+                    });
+                }
+                let start = self.store.scheme_callable_parameters.len();
+                self.store.scheme_callable_parameters.extend(parameters);
+                let parameters = super::table_range(start, self.store.scheme_callable_parameters.len())?;
+                let mut arguments = Vec::new();
+                for argument in application.arguments.iter() {
+                    let ty = self.intern_scheme_type(&argument.ty, &type_parameters, &row_parameters, &effect_parameters)?;
+                    let kind = match argument.kind {
+                        crate::sema::arguments::StaticArgumentKind::Positional => FullApplicationArgumentKind::Positional,
+                        crate::sema::arguments::StaticArgumentKind::Named(name) => FullApplicationArgumentKind::Named(self.intern_string(name.as_str().as_str())?.raw()),
+                        crate::sema::arguments::StaticArgumentKind::Splice => FullApplicationArgumentKind::Splice,
+                    };
+                    arguments.push(FullApplicationArgument { ty, kind });
+                }
+                let start = self.store.scheme_application_arguments.len();
+                self.store.scheme_application_arguments.extend(arguments);
+                let arguments = super::table_range(start, self.store.scheme_application_arguments.len())?;
+                applications.push(FullSchemeApplication::KnownArguments { parameters, arguments });
+                continue;
+            }
+            let crate::sema::callable_application::CallableApplication::Invocation(application) = application else { unreachable!() };
             let callee = self.intern_scheme_type(&application.callee, &type_parameters, &row_parameters, &effect_parameters)?;
             let result = self.intern_scheme_type(&application.result, &type_parameters, &row_parameters, &effect_parameters)?;
             let effects = self.intern_effect_contract(&application.effects, &effect_parameters)?;
@@ -893,8 +941,8 @@ impl FullBuilder {
             }
             let returns_start = self.store.scheme_proc_returns.len();
             self.store.scheme_proc_returns.extend(proc_returns);
-            applications.push(FullSchemeApplication { callee, result, effects, arguments,
-                proc_returns: super::table_range(returns_start, self.store.scheme_proc_returns.len())?, kind: application.kind });
+            applications.push(FullSchemeApplication::Invocation(FullSchemeInvocation { callee, result, effects, arguments,
+                proc_returns: super::table_range(returns_start, self.store.scheme_proc_returns.len())?, kind: application.kind }));
         }
         let applications_start = self.store.scheme_applications.len();
         self.store.scheme_applications.extend(applications);

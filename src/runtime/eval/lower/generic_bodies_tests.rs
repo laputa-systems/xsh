@@ -9,6 +9,113 @@ use crate::syntax::parser::Parser;
 use std::sync::Arc;
 
 #[test]
+fn nullable_target_relations_execute_after_frontend_disposal() {
+    let source = r#"
+type Item = {value: Int}
+pure accepts(value: Item?) -> Int { let _ = value; 0 }
+pure forward(value) { accepts(value) }
+pure forward_named(value) { accepts(value: value) }
+pure forward_splice(value) { accepts(@[value]) }
+pure read(value) -> Int { let _ = accepts(value); value.value }
+let present: Item? = {value: 9}
+let absent: Item? = null
+assert forward({value: 7}) == 0
+assert forward(present) == 0
+assert forward(absent) == 0
+assert forward(null) == 0
+assert forward_named({value: 7}) == 0
+assert forward_named(null) == 0
+assert forward_splice({value: 7}) == 0
+assert forward_splice(null) == 0
+assert read({value: 11}) == 11
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
+fn nullable_target_recursive_proc_calls_preserve_their_actual_effect_boundary() {
+    let source = r#"
+type Item = {value: Int}
+proc accepts(value: Item?) [] -> Int { let _ = value; 0 }
+proc read(value, count: Int) -> Int {
+    if count == 0 { let _ = accepts(value); value.value } else { read(value, count - 1) }
+}
+assert read({value: 11}, 3) == 11
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
+fn nullable_target_requirements_keep_unsigned_argument_validation() {
+    for annotation in [": Int", ""] {
+        for input in [3, -1] {
+            let source = format!("pure accepts(value: UInt?) -> Int {{ let _ = value; 0 }}\npure forward(value{annotation}) {{ accepts(value) }}\nlet dynamic: Int = {input}\nassert forward(dynamic) == 0\n");
+            let (program, sources, source_id) = record_form_program(&source);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut failure = None;
+                for step in 0..program.driver_step_count().unwrap() {
+                    if let Err(error) = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap() {
+                        failure = Some(error);
+                        break;
+                    }
+                }
+                if input < 0 {
+                    let failure = failure.expect("the known nullable formal validates its unsigned payload");
+                    assert_eq!(failure.kind, "type-error");
+                    assert!(failure.message.contains("UInt"), "{failure:?}");
+                } else { assert!(failure.is_none(), "{annotation} frames={force_frames}: {failure:?}"); }
+            }
+        }
+    }
+}
+
+#[test]
+fn nullable_target_unsigned_argument_checks_preserve_later_argument_failure_order() {
+    for force_frames in [false, true] {
+        for later_argument in ["later(0)", "1"] {
+            let mut failures = Vec::new();
+            for annotation in [": Int", ""] {
+                let source = format!("pure consume(value: UInt?, later: Int) -> Int {{ let _ = value; later }}\npure later(divisor: Int) -> Int {{ 1 / divisor }}\npure forward(value{annotation}) {{ consume(value, {later_argument}) }}\nlet dynamic: Int = -1\nlet result = forward(dynamic)\n");
+                let (program, sources, source_id) = record_form_program(&source);
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut failure = None;
+                for step in 0..program.driver_step_count().unwrap() {
+                    if let Err(error) = evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap() {
+                        failure = Some(error);
+                        break;
+                    }
+                }
+                let error = failure.expect("a typed boundary or later argument must fail");
+                let failed_source = error.span.map(|span| source[span.range()].to_owned());
+                failures.push((error.kind, error.message, failed_source));
+            }
+            assert_eq!(failures[0], failures[1], "frames={force_frames}, later={later_argument}");
+        }
+    }
+}
+
+#[test]
 fn generic_value_conversions_execute_after_frontend_disposal() {
     for (argument, number, text, prefix) in [
         ("(value)", "7", "\"word\"", ""),

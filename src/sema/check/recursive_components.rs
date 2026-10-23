@@ -178,8 +178,8 @@ mod tests {
         let scheme = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "relay").unwrap().scheme.as_ref().unwrap();
         let applications = &scheme.callable().requirements().applications;
         assert_eq!(applications.len(), 1);
-        assert_eq!(applications[0].proc_returns.len(), 1);
-        assert_eq!(scheme.return_type(), &applications[0].proc_returns[0].result);
+        assert_eq!(applications[0].invocation().unwrap().proc_returns.len(), 1);
+        assert_eq!(scheme.return_type(), &applications[0].invocation().unwrap().proc_returns[0].result);
     }
 
     #[test]
@@ -200,8 +200,8 @@ mod tests {
         let scheme = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "relay").unwrap().scheme.as_ref().unwrap();
         let applications = &scheme.callable().requirements().applications;
         assert_eq!(applications.len(), 1);
-        assert_eq!(applications[0].proc_returns.len(), 1);
-        let envelope = &applications[0].proc_returns[0];
+        assert_eq!(applications[0].invocation().unwrap().proc_returns.len(), 1);
+        let envelope = &applications[0].invocation().unwrap().proc_returns[0];
         assert_eq!(scheme.return_type(), &envelope.result);
         assert_eq!(envelope.propagated_errors.as_ref(), &[crate::sema::schemes::SchemeType::Ground(Type::Error)]);
     }

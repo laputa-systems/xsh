@@ -148,6 +148,15 @@ impl TypeConstraints {
                     || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source))
                 { continue; }
                 let application = &entry.application;
+                if let crate::sema::callable_application::CallableApplication::KnownArguments(application) = application {
+                    let arguments = application.arguments.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>();
+                    if !self.unresolved_input_variables(&arguments)?.is_subset(&supported) { continue; }
+                    visited.insert(id);
+                    supported.extend(self.unresolved_input_variables(&application.parameters.iter().map(|parameter| parameter.ty.clone()).collect::<Vec<_>>())?);
+                    changed = true;
+                    continue;
+                }
+                let crate::sema::callable_application::CallableApplication::Invocation(application) = application else { unreachable!() };
                 let callee = self.resolve(&application.callee)?;
                 if !matches!(callee.unvalidated(), Type::Inference(_))
                     || !self.unresolved_input_variables(std::slice::from_ref(&callee))?.is_subset(&supported)
@@ -218,7 +227,7 @@ impl TypeConstraints {
 #[cfg(test)]
 mod tests {
     use super::{BTreeSet, CallableApplicationScope, ConstraintResolutionError, EffectContract, Type, TypeConstraints};
-    use crate::sema::callable_application::{CallableApplication, CallableKindRequirement};
+    use crate::sema::callable_application::CallableKindRequirement;
     use crate::sema::check::EffectDeclarationId;
     use crate::source::{SourceId, Span};
     use std::sync::Arc;
@@ -245,7 +254,7 @@ mod tests {
 
     fn application(constraints: &mut TypeConstraints, owner: EffectDeclarationId, callee: Type, result: Type) {
         let effects = constraints.fresh_effect_at_level(owner.body, 1);
-        constraints.register_callable_application(CallableApplicationScope::Declaration(owner), CallableApplication {
+        constraints.register_callable_application(CallableApplicationScope::Declaration(owner), crate::sema::callable_application::CallableInvocation {
             callee, result, arguments: Arc::from([]), effects: EffectContract::variable(effects),
             proc_returns: Arc::from([]), kind: CallableKindRequirement::Effectful, span: owner.body,
         }).unwrap();
@@ -308,7 +317,7 @@ mod tests {
                         return_ty: Box::new(returned.clone()), effects: crate::sema::types::CallableEffects::finite([]),
                     },
                 }));
-                constraints.register_callable_application(CallableApplicationScope::Declaration(declaration), CallableApplication {
+                constraints.register_callable_application(CallableApplicationScope::Declaration(declaration), crate::sema::callable_application::CallableInvocation {
                     callee: actual, result: returned,
                     arguments: Arc::from([crate::sema::callable_application::CallableApplicationArgument {
                         kind: crate::sema::arguments::StaticArgumentKind::Positional,

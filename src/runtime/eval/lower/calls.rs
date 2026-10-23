@@ -247,7 +247,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(args)
     }
 
-    fn checked_function_scheme(
+    pub(super) fn checked_function_scheme(
         &self,
         function: LoweredFunctionKey,
     ) -> Option<Arc<crate::sema::schemes::TypeScheme>> {

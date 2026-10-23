@@ -1525,7 +1525,7 @@ impl Checker {
         }
         let requested_argument_spans = ordinals.iter()
             .filter_map(|ordinal| requirements.get(*ordinal as usize))
-            .flat_map(|requirement| requirement.arguments.iter())
+            .flat_map(|requirement| requirement.arguments().iter())
             .filter(|argument| !matches!(&argument.ty, crate::sema::schemes::SchemeType::Parameter(_)))
             .map(|argument| argument.span)
             .filter(|span| span.source_id == source.body.source_id && source.body.start() <= span.start() && span.end() <= source.body.end())
@@ -1539,7 +1539,7 @@ impl Checker {
         let source_argument_bindings = self.source_argument_bindings(arena, source, &missing_argument_origins);
         let mut selected = BTreeMap::new();
         for ordinal in ordinals {
-            let requirement = requirements.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
+            let requirement = requirements.get(ordinal as usize).and_then(crate::sema::callable_application::CallableApplication::invocation).ok_or(StreamOriginBoundaryError)?;
             let id = *instance.applications.get(ordinal as usize).ok_or(StreamOriginBoundaryError)?;
             let Some(layout) = self.type_constraints.settled_callable_application_binding(id)
                 .map_err(|_| StreamOriginBoundaryError)? else { continue; };

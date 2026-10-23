@@ -751,17 +751,7 @@ impl OutputTypeNodes {
             self.add_schema(context);
         }
         for application in &scheme.callable().requirements().applications {
-            self.add_scheme_type(&application.callee);
-            for argument in application.arguments.iter() {
-                self.add_scheme_type(&argument.ty);
-            }
-            self.add_scheme_type(&application.result);
-            for envelope in application.proc_returns.iter() {
-                self.add_scheme_type(&envelope.result);
-                for ty in envelope.propagated_errors.iter() {
-                    self.add_scheme_type(ty);
-                }
-            }
+            for ty in application.types() { self.add_scheme_type(ty); }
         }
     }
 }
