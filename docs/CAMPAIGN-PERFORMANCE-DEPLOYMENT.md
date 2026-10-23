@@ -8,6 +8,17 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+Source `d54631649` builds matching verification binaries and completes the
+138-selector native inference boundary in normal and forced-frame modes.
+Each mode reports 123 passes, fifteen failures and no skips; every selector
+executes exactly once. All previously passing selectors remain passing, and
+the formerly failing legacy wrapper selector now passes. Six new selectors
+add four passes and two failures: generic Any-return cleanup with monomorphic
+captured counters, and guarded access to a nullable record field. The fifteen
+failures remain mandatory work; callable storage, open-row rebuilding and
+ordinary-body inference are not qualified. No new practical-corpus or full
+library result is claimed from this run.
+
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
 named mode/data arguments reproduce a cold-verifier failure before the repair;
@@ -27,7 +38,10 @@ proof replaces uncharged quadratic searches. Combined source `872f7d2bf` passes
 31 of 33 focused controls. A retained corruption case rejects earlier than its
 old expected diagnostic; the corrected assertion passes at `250631339`.
 The other failure is a genuine contextual UInt constructor false rejection,
-which remains open. Compiler layout assertions pass at 120 bytes per scheme
+repaired by `609a0feda`, integrated as `74c7ff885`. Eight affected combined
+controls pass, including removal of the required runtime validator and a
+negative payload failing at declaration before the call. Compiler layout
+assertions pass at 120 bytes per scheme
 and 60 bytes per call-instantiation row. Full-library, native and corpus
 qualification remain required.
 
