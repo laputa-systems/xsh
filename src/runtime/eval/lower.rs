@@ -3227,17 +3227,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let completion = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
                 let mut lowered = Vec::new();
-                for branch in self.program.arena.if_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
                     let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let branch_body = self.lower_scheme_completion_block(branch.block, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                     slots.exit(saved);
-                    lowered.push((condition, branch_body));
+                    lowered.push((condition, branch_body, captures));
                 }
                 let saved = slots.enter();
                 let else_body = self.lower_scheme_completion_block(else_block, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                 slots.exit(saved);
-                push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body: Some(else_body) })
+                if has_pattern {
+                    push_build_row!(self, stmt, BuildStmtRow::PatternIf { branches: lowered, else_body: Some(else_body), span: self.program.arena.stmt(tail).span })
+                } else {
+                    let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                    push_build_row!(self, stmt, BuildStmtRow::If { branches, else_body: Some(else_body) })
+                }
             }
             ArenaStmtKind::Match { value, arms } => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, &mut body)?;
@@ -3296,17 +3303,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let returned = match node.kind {
             ArenaExprKind::If { branches, else_value } if !facts.expression_types().contains_key(&expression) => {
                 let mut lowered = Vec::new();
-                for branch in self.program.arena.if_expr_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_expr_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
                     let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let branch_body = self.lower_scheme_return_completion_expression(branch.value, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                     slots.exit(saved);
-                    lowered.push((condition, branch_body));
+                    lowered.push((condition, branch_body, captures));
                 }
                 let saved = slots.enter();
                 let else_body = self.lower_scheme_return_completion_expression(else_value, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                 slots.exit(saved);
-                push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body: Some(else_body) })
+                if has_pattern {
+                    push_build_row!(self, stmt, BuildStmtRow::PatternIf { branches: lowered, else_body: Some(else_body), span: node.span })
+                } else {
+                    let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                    push_build_row!(self, stmt, BuildStmtRow::If { branches, else_body: Some(else_body) })
+                }
             }
             ArenaExprKind::Match { value, arms } if !facts.expression_types().contains_key(&expression) => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, &mut body)?;
@@ -3458,15 +3472,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             },
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
                 let mut values = Vec::new();
-                for branch in self.program.arena.if_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
+                    let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let value = self.lower_scheme_value_block(branch.block, slots, current_function, facts, visited, lowered_types)?;
-                    values.push((condition, value));
+                    slots.exit(saved);
+                    values.push((condition, value, captures));
                 }
                 let else_value = self.lower_scheme_value_block(else_block, slots, current_function, facts, visited, lowered_types)?;
                 let ty = facts.tail_types().get(&statement)?.clone();
                 let span = self.program.arena.stmt(statement).span;
-                let value = push_build_row!(self, expr, BuildExprRow::IfExpr { branches: values, else_value, span });
+                let value = if has_pattern {
+                    push_build_row!(self, expr, BuildExprRow::PatternIf { branches: values, else_value, span })
+                } else {
+                    let branches = values.into_iter().map(|(condition, value, _)| (condition, value)).collect();
+                    push_build_row!(self, expr, BuildExprRow::IfExpr { branches, else_value, span })
+                };
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -3510,6 +3533,48 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
         }
         Some(())
+    }
+
+    fn lower_scheme_pattern_condition(
+        &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(BuildExprId, Vec<usize>)> {
+        let ArenaExprKind::PatternCondition { value, arms } = self.program.arena.expr(expression).kind else { return None };
+        if facts.expression_types().get(&expression)?.closed_ground_type() != Some(Type::Bool) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        let arms = self.program.arena.match_expr_arms(arms).to_vec();
+        if arms.len() != 2 || !matches!(self.program.arena.pattern(arms[1].pattern).kind, ArenaPatternKind::Wildcard) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        for (position, arm) in arms.iter().enumerate() {
+            if arm.guard.is_some() || !matches!(self.program.arena.expr(arm.value).kind, ArenaExprKind::Bool(value) if value == (position == 0)) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+            self.consume_scheme_pattern(arm.pattern, facts, visited)?;
+            if let Some(ty) = facts.expression_types().get(&arm.value)
+                && (ty.closed_ground_type() != Some(Type::Bool) || !visited.insert(arm.value))
+            { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        }
+        let subject = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
+        let (ok, error) = self.compact_match_scrutinee_result_types(value);
+        let (condition, captures) = self.lower_pattern_condition_subject(expression, subject, slots, ok.as_ref(), error.as_ref())?;
+        let scratch = self.scratch.borrow();
+        let BuildExprRow::MatchExpr { arms, .. } = &scratch.expressions[condition.index()] else { return None };
+        for (_, _, value) in arms {
+            if !matches!(scratch.expressions[value.index()], BuildExprRow::Bool(_)) { return None; }
+            lowered_types.insert(*value, SchemeType::Ground(Type::Bool));
+        }
+        lowered_types.insert(condition, SchemeType::Ground(Type::Bool));
+        Some((condition, captures))
+    }
+
+    fn lower_scheme_branch_condition(
+        &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(BuildExprId, Vec<usize>)> {
+        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::PatternCondition { .. }) {
+            if !visited.insert(expression) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+            self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)
+        } else {
+            self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types).map(|condition| (condition, Vec::new()))
+        }
     }
 
     fn lower_scheme_value_block(
@@ -3702,16 +3767,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 },
                 ArenaStmtKind::If { branches, else_block } => {
                     let mut lowered = Vec::new();
-                    for branch in self.program.arena.if_branches(branches).to_vec() {
-                        let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                    let branches = self.program.arena.if_branches(branches).to_vec();
+                    let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                    for branch in branches {
+                        let saved = slots.enter();
+                        let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                         let body = self.lower_scheme_statement_block(branch.block, slots, current_function, facts, visited, lowered_types)?;
-                        lowered.push((condition, body));
+                        slots.exit(saved);
+                        lowered.push((condition, body, captures));
                     }
                     let else_body = match else_block {
                         Some(block) => Some(self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?),
                         None => None,
                     };
-                    BuildStmtRow::If { branches: lowered, else_body }
+                    if has_pattern {
+                        BuildStmtRow::PatternIf { branches: lowered, else_body, span: node.span }
+                    } else {
+                        let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                        BuildStmtRow::If { branches, else_body }
+                    }
                 }
                 ArenaStmtKind::Match { value, arms } => {
                     let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
@@ -4794,14 +4868,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::If { branches, else_value } => {
                 let mut values = Vec::new();
-                for branch in self.program.arena.if_expr_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_expr_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
+                    let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let value = self.lower_scheme_lazy_expression(branch.value, slots, current_function, facts, visited, lowered_types)?;
-                    values.push((condition, value));
+                    slots.exit(saved);
+                    values.push((condition, value, captures));
                 }
                 let else_value = self.lower_scheme_lazy_expression(else_value, slots, current_function, facts, visited, lowered_types)?;
-                push_build_row!(self, expr, BuildExprRow::IfExpr { branches: values, else_value, span })
+                if has_pattern {
+                    push_build_row!(self, expr, BuildExprRow::PatternIf { branches: values, else_value, span })
+                } else {
+                    let branches = values.into_iter().map(|(condition, value, _)| (condition, value)).collect();
+                    push_build_row!(self, expr, BuildExprRow::IfExpr { branches, else_value, span })
+                }
             }
+            ArenaExprKind::PatternCondition { .. } => self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)?.0,
             ArenaExprKind::ValueBlock(block) => self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?,
             ArenaExprKind::Loop { block } => {
                 let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;

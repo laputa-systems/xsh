@@ -5004,6 +5004,10 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, else_value.raw() as usize, expected, returned);
                 Ok(())
             }
+            schema::ExprView::MatchExpr { .. }
+                if expected.as_ref() == &Type::Bool
+                    && self.conditions.contains(&(owner, instruction, ConditionRole::Control))
+                    && matches!(self.scoped_expression_type(&decoder, instruction)?, Some(super::SchemeType::Ground(Type::Bool))) => Ok(()),
             schema::ExprView::MatchExpr { value, mut arms, .. } => {
                 if let Some(subject) = super::super::indexed_identity_match_subject(&decoder, instruction)? {
                     self.expression(owner, subject as usize, expected, returned);

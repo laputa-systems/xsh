@@ -114,8 +114,9 @@ pub(super) fn supports_generalized_body(
             }
             ArenaStmtKind::If { branches, else_block } => {
                 if !program.arena.if_branches(branches).iter().all(|branch| {
+                    let Some(inner) = condition_bindings(program, bindings, &available, branch.condition) else { return false };
                     is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, branch.condition)
-                        && supports_generalized_body(program, owner_kind, prepared, command_sites, branch.block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, nested_completion)
+                        && supports_generalized_body(program, owner_kind, prepared, command_sites, branch.block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, nested_completion)
                 }) || else_block.is_some_and(|block| !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, nested_completion)) { return false; }
             }
             ArenaStmtKind::Match { value, arms } => {
@@ -204,8 +205,9 @@ pub(super) fn supports_generalized_body(
         },
         ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
             program.arena.if_branches(branches).iter().all(|branch| {
+                let Some(inner) = condition_bindings(program, bindings, &available, branch.condition) else { return false };
                 is_body_expression(program, owner_kind, prepared, command_sites, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, branch.condition)
-                    && supports_generalized_body(program, owner_kind, prepared, command_sites, branch.block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, completion)
+                    && supports_generalized_body(program, owner_kind, prepared, command_sites, branch.block, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, completion)
             }) && supports_generalized_body(program, owner_kind, prepared, command_sites, else_block, bindings, &available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, completion)
         }
         ArenaStmtKind::Match { value, arms } => {
@@ -279,6 +281,12 @@ fn pattern_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, availab
         program.arena.for_each_pattern_child(pattern, |child| if let ArenaChild::Pattern(pattern) = child { pending.push(pattern); });
     }
     available
+}
+
+fn condition_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, available: &FxHashSet<BindingId>, condition: crate::syntax::arena::ExprId) -> Option<FxHashSet<BindingId>> {
+    let ArenaExprKind::PatternCondition { arms, .. } = program.arena.expr(condition).kind else { return Some(available.clone()) };
+    let arm = program.arena.match_expr_arms(arms).first()?;
+    Some(pattern_bindings(program, bindings, available, arm.pattern))
 }
 
 fn comprehension_bindings(
@@ -559,8 +567,20 @@ pub(super) fn is_body_expression(
             }
             ArenaExprKind::If { branches, else_value } => {
                 if !types.contains_key(&expression) { return false; }
-                for branch in program.arena.if_expr_branches(branches) { pending.push(branch.condition); pending.push(branch.value); }
+                for branch in program.arena.if_expr_branches(branches) {
+                    let Some(inner) = condition_bindings(program, bindings, available, branch.condition) else { return false };
+                    if !is_body_expression(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, branch.condition)
+                        || !is_body_expression(program, owner_kind, prepared, command_sites, bindings, &inner, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, branch.value)
+                    { return false; }
+                }
                 pending.push(else_value);
+            }
+            ArenaExprKind::PatternCondition { value, arms } => {
+                if types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type) != Some(crate::sema::types::Type::Bool) { return false; }
+                pending.push(value);
+                for arm in program.arena.match_expr_arms(arms) {
+                    if arm.guard.is_some() || !matches!(program.arena.expr(arm.value).kind, ArenaExprKind::Bool(_)) { return false; }
+                }
             }
             ArenaExprKind::ValueBlock(block) | ArenaExprKind::Capture(block) => {
                 if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, available, captures,
@@ -659,6 +679,45 @@ mod ordinary_body_tests {
         let checked = Checker::check_arena(&parsed.arena, &source);
         let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
         assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn generic_pattern_condition_preserves_its_branch_binding() {
+        accepts(
+            "pure select(value: Result[Int], label) { if let Ok(found) = value { return {label, found} }; {label, found: 0} }",
+            "let selected = select(Ok(7), \"kept\")\nlet number: Int = selected.found\nlet word: Str = selected.label",
+        );
+    }
+
+    #[test]
+    fn generic_pattern_bindings_stay_inside_their_success_branch() {
+        for source in [
+            "pure escaped(value: Result[Int], payload) { if let Ok(found) = value { let _ = found }; {payload, found} }",
+            "pure escaped(value: Result[Int], payload) { let first = if let Ok(found) = value { found } else { 0 }; let second = if let Ok(other) = value { found + 0 } else { 0 }; {payload, first, second} }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedName)), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pattern_condition_native_controls_run_on_both_routes() {
+        let source = include_str!("../../../tests/xsh/generic-pattern-conditions.xsh");
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pattern-conditions.xsh", crate::loader::entry_source_from_text("generic-pattern-conditions.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_pattern_conditions_preserve_success_and_failure_scopes", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
     }
 
     #[test]
