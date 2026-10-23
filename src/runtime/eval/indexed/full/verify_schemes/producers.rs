@@ -5789,9 +5789,20 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn checked_record_field_fits(&mut self, decoder: &FullDecoder<'a>, value: usize, actual: &Type, expected: &Type) -> Result<bool, IrVerifyError> {
+        let checked = expected;
         let expected = match expected { Type::Validated(validated) => validated.base(), _ => expected };
         if decoder.checked_type_fits(actual, expected) { return Ok(true); }
         if matches!((actual, expected), (Type::Record(_), Type::Record(_))) && self.checked_storage_record_fields_fit(decoder, actual, expected, 0)? { return Ok(true); }
+        if actual == &Type::ErasedRecord && matches!(checked, Type::Record(_))
+            && self.is_conditional_record_source(decoder, value)?
+        {
+            self.budget.charge_clone(checked)?;
+            self.expression(decoder.owner, value, Arc::new(checked.clone()), false);
+            return Ok(true);
+        }
+        if super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+            && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
+        { return Ok(true); }
         if let Type::Optional(payload) = actual
             && decoder.checked_type_fits(payload, expected)
         {

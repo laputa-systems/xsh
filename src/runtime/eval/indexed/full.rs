@@ -22615,6 +22615,154 @@ run true
         fixture_result(name, source).unwrap()
     }
 
+    #[test]
+    fn checked_record_constructors_preserve_nested_optional_list_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-record-list-optional-fields.xsh", r#"
+type Row = {count: Int?}
+type Package = {resources: List[Row]}
+pure package(number: Int, wrong: Str) -> Package {
+    let _ = wrong
+    Package(resources: [{count: number}])
+}
+let result = package(7, "wrong")
+assert result.resources[0].count == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "package");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let numbers = range.clone().filter(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).collect::<Vec<_>>();
+            assert_eq!(numbers.len(), 1);
+            let number = numbers[0];
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("package retains its authored ground signature"); };
+            let (_, wrong, _) = program.store.semantic.signature_param(signature, 1).unwrap();
+            assert_eq!(program.store.semantic.to_type(wrong).unwrap(), Type::Str);
+            let mut incompatible = (*program).clone();
+            let payload = incompatible.store.data[number].range().bounds(incompatible.store.extra.len()).unwrap();
+            incompatible.store.extra[payload.start] = 1;
+            let count = program.symbol_owner().intern("count");
+            fn replace_count(ty: Type, count: Name) -> Type {
+                match ty {
+                    Type::List(item) => Type::List(Box::new(replace_count(*item, count))),
+                    Type::Record(fields) => Type::Record(Arc::new(fields.iter().map(|(&name, value)| {
+                        (name, if name == count && *value == Type::Int { Type::Str } else { replace_count(value.clone(), count) })
+                    }).collect())),
+                    other => other,
+                }
+            }
+            let facts = program.store.checked_expr_types.iter().enumerate().filter(|(_, fact)| range.contains(&(fact.instruction as usize)))
+                .map(|(index, fact)| (index, fact.instruction as usize, program.store.semantic.to_type(fact.type_id).unwrap())).collect::<Vec<_>>();
+            for (index, instruction, ty) in facts {
+                let ty = if instruction == number { Type::Str } else { replace_count(ty, count) };
+                incompatible.store.checked_expr_types[index].type_id = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap();
+            }
+            let slots = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            for slot in slots {
+                let Some(id) = TypeId::from_raw(program.store.slot_type_facts[slot]) else { continue };
+                let ty = replace_count(program.store.semantic.to_type(id).unwrap(), count);
+                incompatible.store.slot_type_facts[slot] = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap().raw();
+            }
+            let failure = FullVerifier::verify(&incompatible).expect_err("a checked record still proves the actual nested field domain");
+            assert!(failure.message.contains("checked record field disagrees") || failure.message.contains("checked value input disagrees"), "{failure:?}");
+            let checked = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. }) if check.schema.is_none() => Some((instruction, check.ty.id, check.ty.materialize().unwrap())),
+                _ => None,
+            }).unwrap();
+            let Type::Record(mut fields) = checked.2 else { panic!("constructor check retains the record target"); };
+            let Type::List(item) = Arc::make_mut(&mut fields).get_mut(&program.symbol_owner().intern("resources")).unwrap() else { panic!("resources retains its list contract"); };
+            let Type::Record(row) = item.as_mut() else { panic!("resources retains its record item contract"); };
+            assert_eq!(Arc::make_mut(row).insert(count, Type::Int), Some(Type::Optional(Box::new(Type::Int))));
+            let mut weakened = (*program).clone();
+            let target = SemanticPoolBuilder::default().intern_type(&mut weakened.store.semantic, &Type::Record(fields)).unwrap();
+            let payload = weakened.store.data[checked.0].range().bounds(weakened.store.extra.len()).unwrap();
+            assert_eq!(weakened.store.extra[payload.start + 1], 0);
+            assert_eq!(weakened.store.extra[payload.start + 2], checked.1.raw());
+            weakened.store.extra[payload.start + 2] = target.raw();
+            let failure = FullVerifier::verify(&weakened).expect_err("the actual constructor gate must retain the declared optional item contract");
+            assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
+        });
+    }
+
+    #[test]
+    fn checked_record_pattern_branches_preserve_optional_fields() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("checked-record-pattern-branches.xsh", r#"
+type Observation = {state: Str, value: Str?, raw_bytes_base64: Str?}
+pure observe(data: Bytes, wrong: Int) -> Observation {
+    let _ = wrong
+    let observed: Observation = if let Ok(value) = data.utf8() {
+        {state: "observed", value: value, raw_bytes_base64: null}
+    } else {
+        {state: "malformed", value: null, raw_bytes_base64: data.base64()}
+    }
+    observed
+}
+assert observe(b"word", 7).value == "word"
+assert observe(b"\xff", 7).raw_bytes_base64 == "/w=="
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "observe");
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let value_name = program.symbol_owner().intern("value");
+            let values = range.clone().filter_map(|instruction| {
+                let Ok(schema::ExprView::Record(mut entries)) = decoder.expression_view(instruction) else { return None };
+                decoder.checked_record_entries(&mut entries).unwrap().into_iter().find_map(|entry| match entry {
+                    CheckedRecordEntry::Field(name, value) if name == value_name
+                        && matches!(decoder.expression_view(value), Ok(schema::ExprView::Param(_))) => Some(value),
+                    _ => None,
+                })
+            }).collect::<Vec<_>>();
+            assert_eq!(values.len(), 1);
+            let value = values[0];
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("observation keeps its authored ground signature"); };
+            let (_, wrong, _) = program.store.semantic.signature_param(signature, 1).unwrap();
+            assert_eq!(program.store.semantic.to_type(wrong).unwrap(), Type::Int);
+            let mut incompatible = (*program).clone();
+            let payload = incompatible.store.data[value].range().bounds(incompatible.store.extra.len()).unwrap();
+            incompatible.store.extra[payload.start] = 1;
+            fn replace_value(ty: Type, value_name: Name) -> Type {
+                match ty {
+                    Type::Record(fields) => Type::Record(Arc::new(fields.iter().map(|(&name, ty)| {
+                        (name, if name == value_name && *ty == Type::Str { Type::Int } else { replace_value(ty.clone(), value_name) })
+                    }).collect())),
+                    other => other,
+                }
+            }
+            let facts = program.store.checked_expr_types.iter().enumerate().filter(|(_, fact)| range.contains(&(fact.instruction as usize)))
+                .map(|(index, fact)| (index, fact.instruction as usize, program.store.semantic.to_type(fact.type_id).unwrap())).collect::<Vec<_>>();
+            for (index, instruction, ty) in facts {
+                let ty = if instruction == value { Type::Int } else { replace_value(ty, value_name) };
+                incompatible.store.checked_expr_types[index].type_id = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap();
+            }
+            let slots = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            for slot in slots {
+                let Some(id) = TypeId::from_raw(program.store.slot_type_facts[slot]) else { continue };
+                let ty = replace_value(program.store.semantic.to_type(id).unwrap(), value_name);
+                incompatible.store.slot_type_facts[slot] = SemanticPoolBuilder::default().intern_type(&mut incompatible.store.semantic, &ty).unwrap().raw();
+            }
+            let failure = FullVerifier::verify(&incompatible).expect_err("the typed conditional record must authenticate each actual branch field");
+            assert!(failure.message.contains("ground producer value disagrees"), "{failure:?}");
+        });
+    }
+
     fn fixture_result(name: &str, source: &str) -> Result<FullProgram, IrBuildError> {
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
             name,
