@@ -3227,17 +3227,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let completion = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
                 let mut lowered = Vec::new();
-                for branch in self.program.arena.if_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
                     let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let branch_body = self.lower_scheme_completion_block(branch.block, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                     slots.exit(saved);
-                    lowered.push((condition, branch_body));
+                    lowered.push((condition, branch_body, captures));
                 }
                 let saved = slots.enter();
                 let else_body = self.lower_scheme_completion_block(else_block, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                 slots.exit(saved);
-                push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body: Some(else_body) })
+                if has_pattern {
+                    push_build_row!(self, stmt, BuildStmtRow::PatternIf { branches: lowered, else_body: Some(else_body), span: self.program.arena.stmt(tail).span })
+                } else {
+                    let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                    push_build_row!(self, stmt, BuildStmtRow::If { branches, else_body: Some(else_body) })
+                }
             }
             ArenaStmtKind::Match { value, arms } => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, &mut body)?;
@@ -3296,17 +3303,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let returned = match node.kind {
             ArenaExprKind::If { branches, else_value } if !facts.expression_types().contains_key(&expression) => {
                 let mut lowered = Vec::new();
-                for branch in self.program.arena.if_expr_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_expr_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
                     let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let branch_body = self.lower_scheme_return_completion_expression(branch.value, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                     slots.exit(saved);
-                    lowered.push((condition, branch_body));
+                    lowered.push((condition, branch_body, captures));
                 }
                 let saved = slots.enter();
                 let else_body = self.lower_scheme_return_completion_expression(else_value, slots, current_function, facts, visited, lowered_types, tail_types, transfer)?;
                 slots.exit(saved);
-                push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body: Some(else_body) })
+                if has_pattern {
+                    push_build_row!(self, stmt, BuildStmtRow::PatternIf { branches: lowered, else_body: Some(else_body), span: node.span })
+                } else {
+                    let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                    push_build_row!(self, stmt, BuildStmtRow::If { branches, else_body: Some(else_body) })
+                }
             }
             ArenaExprKind::Match { value, arms } if !facts.expression_types().contains_key(&expression) => {
                 let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, &mut body)?;
@@ -3458,15 +3472,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             },
             ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
                 let mut values = Vec::new();
-                for branch in self.program.arena.if_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
+                    let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let value = self.lower_scheme_value_block(branch.block, slots, current_function, facts, visited, lowered_types)?;
-                    values.push((condition, value));
+                    slots.exit(saved);
+                    values.push((condition, value, captures));
                 }
                 let else_value = self.lower_scheme_value_block(else_block, slots, current_function, facts, visited, lowered_types)?;
                 let ty = facts.tail_types().get(&statement)?.clone();
                 let span = self.program.arena.stmt(statement).span;
-                let value = push_build_row!(self, expr, BuildExprRow::IfExpr { branches: values, else_value, span });
+                let value = if has_pattern {
+                    push_build_row!(self, expr, BuildExprRow::PatternIf { branches: values, else_value, span })
+                } else {
+                    let branches = values.into_iter().map(|(condition, value, _)| (condition, value)).collect();
+                    push_build_row!(self, expr, BuildExprRow::IfExpr { branches, else_value, span })
+                };
                 lowered_types.insert(value, ty);
                 Some(value)
             }
@@ -3510,6 +3533,48 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
         }
         Some(())
+    }
+
+    fn lower_scheme_pattern_condition(
+        &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(BuildExprId, Vec<usize>)> {
+        let ArenaExprKind::PatternCondition { value, arms } = self.program.arena.expr(expression).kind else { return None };
+        if facts.expression_types().get(&expression)?.closed_ground_type() != Some(Type::Bool) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        let arms = self.program.arena.match_expr_arms(arms).to_vec();
+        if arms.len() != 2 || !matches!(self.program.arena.pattern(arms[1].pattern).kind, ArenaPatternKind::Wildcard) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        for (position, arm) in arms.iter().enumerate() {
+            if arm.guard.is_some() || !matches!(self.program.arena.expr(arm.value).kind, ArenaExprKind::Bool(value) if value == (position == 0)) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+            self.consume_scheme_pattern(arm.pattern, facts, visited)?;
+            if let Some(ty) = facts.expression_types().get(&arm.value)
+                && (ty.closed_ground_type() != Some(Type::Bool) || !visited.insert(arm.value))
+            { let _ = self.block_scheme_lowering_expr(expression); return None; }
+        }
+        let subject = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
+        let (ok, error) = self.compact_match_scrutinee_result_types(value);
+        let (condition, captures) = self.lower_pattern_condition_subject(expression, subject, slots, ok.as_ref(), error.as_ref())?;
+        let scratch = self.scratch.borrow();
+        let BuildExprRow::MatchExpr { arms, .. } = &scratch.expressions[condition.index()] else { return None };
+        for (_, _, value) in arms {
+            if !matches!(scratch.expressions[value.index()], BuildExprRow::Bool(_)) { return None; }
+            lowered_types.insert(*value, SchemeType::Ground(Type::Bool));
+        }
+        lowered_types.insert(condition, SchemeType::Ground(Type::Bool));
+        Some((condition, captures))
+    }
+
+    fn lower_scheme_branch_condition(
+        &mut self, expression: ExprId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(BuildExprId, Vec<usize>)> {
+        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::PatternCondition { .. }) {
+            if !visited.insert(expression) { let _ = self.block_scheme_lowering_expr(expression); return None; }
+            self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)
+        } else {
+            self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types).map(|condition| (condition, Vec::new()))
+        }
     }
 
     fn lower_scheme_value_block(
@@ -3702,16 +3767,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 },
                 ArenaStmtKind::If { branches, else_block } => {
                     let mut lowered = Vec::new();
-                    for branch in self.program.arena.if_branches(branches).to_vec() {
-                        let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                    let branches = self.program.arena.if_branches(branches).to_vec();
+                    let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                    for branch in branches {
+                        let saved = slots.enter();
+                        let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                         let body = self.lower_scheme_statement_block(branch.block, slots, current_function, facts, visited, lowered_types)?;
-                        lowered.push((condition, body));
+                        slots.exit(saved);
+                        lowered.push((condition, body, captures));
                     }
                     let else_body = match else_block {
                         Some(block) => Some(self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?),
                         None => None,
                     };
-                    BuildStmtRow::If { branches: lowered, else_body }
+                    if has_pattern {
+                        BuildStmtRow::PatternIf { branches: lowered, else_body, span: node.span }
+                    } else {
+                        let branches = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect();
+                        BuildStmtRow::If { branches, else_body }
+                    }
                 }
                 ArenaStmtKind::Match { value, arms } => {
                     let subject = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
@@ -4016,6 +4090,67 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             if let Some(checked) = checked { self.record_scheme_storage_elaboration(*value, &SchemeType::Ground(checked), lowered_types); }
         }
+    }
+
+    fn lower_scheme_record_constructor(
+        &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
+        construction: calls::CheckedRecordConstruction, slots: &mut SlotScope,
+        current_function: Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(expression).span;
+        if facts.expression_types().get(&expression)?.closed_ground_type().as_ref() != Some(&construction.schema) {
+            return self.block_scheme_lowering_expr(expression);
+        }
+        let Type::Record(expected_fields) = construction.schema.unvalidated() else { return self.block_scheme_lowering_expr(expression); };
+        let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+        let mut supplied = FxHashSet::default();
+        let mut fields = Vec::new();
+        let mut actual_fields = BTreeMap::new();
+        for (index, argument) in arguments.iter().enumerate() {
+            if argument.splice { return self.block_scheme_lowering_expr(expression); }
+            let name = argument.name.or_else(|| construction.positional_fields.get(index).copied())?;
+            let expected = expected_fields.get(&name)?;
+            if !supplied.insert(name) { return self.block_scheme_lowering_expr(expression); }
+            let mut value = argument.lowered?;
+            if let crate::sema::arguments::ArgumentValueSource::Expression(source) = argument.source
+                && let Some(literal) = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, source, &FxHashMap::default())
+            {
+                let contextual = literal.clone().in_type(expected);
+                if contextual != literal {
+                    let constant = lower_prepared_literal(&contextual, Some(&self.declarations.wire_enums))?;
+                    value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
+                    lowered_types.insert(value, SchemeType::Ground(expected.clone()));
+                }
+            }
+            if expected.has_unsigned_constraint() {
+                value = self.checked_unsigned_value(value, expected, argument.span);
+                self.record_scheme_storage_elaboration(value, &SchemeType::Ground(expected.clone()), lowered_types);
+            }
+            actual_fields.insert(name, lowered_types.get(&value)?.clone());
+            fields.push(LoweredRecordEntry::Field(name, value));
+        }
+        for (name, value) in &construction.defaults {
+            if supplied.contains(name) { continue; }
+            let expected = expected_fields.get(name)?;
+            let value = value.clone().in_type(expected);
+            if !value.matches_data_type(expected) { return self.block_scheme_lowering_expr(expression); }
+            let constant = lower_prepared_literal(&value, Some(&self.declarations.wire_enums))?;
+            let value = push_build_row!(self, expr, BuildExprRow::PreparedConstant(constant));
+            let ty = SchemeType::Ground(expected.clone());
+            lowered_types.insert(value, ty.clone());
+            actual_fields.insert(*name, ty);
+            fields.push(LoweredRecordEntry::Field(*name, value));
+        }
+        if actual_fields.len() != expected_fields.len() { return self.block_scheme_lowering_expr(expression); }
+        let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
+        lowered_types.insert(value, SchemeType::Record { fields: actual_fields, tail: crate::sema::schemes::SchemeRowTail::Closed });
+        let check = LoweredTypeCheck {
+            schema: Some(self.prepared_schema(construction.schema.clone())),
+            ty: construction.schema,
+            name: construction.name,
+        };
+        Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }))
     }
 
     fn lower_scheme_call_arguments(
@@ -4745,9 +4880,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else { list }
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
+                let mut item_type = Self::scheme_pipeline_item(facts.expression_types().get(&input)?, facts)?;
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
                 for stage in self.program.arena.stream_stages(stages).to_vec() {
+                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All) {
+                        let (slot, value) = self.lower_scheme_pipeline_callback(&stage, &item_type, slots, current_function, facts, visited, lowered_types)?;
+                        let result = lowered_types.get(&value)?.clone();
+                        let lowered = match stage.kind {
+                            StreamStageKind::Map => { item_type = result; LoweredPipelineStage::Map { slot, value } }
+                            StreamStageKind::FlatMap => { item_type = Self::scheme_pipeline_item(&result, facts)?; LoweredPipelineStage::FlatMap { slot, value } }
+                            StreamStageKind::Where => LoweredPipelineStage::Where { slot, predicate: value },
+                            StreamStageKind::Any => LoweredPipelineStage::Any { slot, predicate: value },
+                            StreamStageKind::All => LoweredPipelineStage::All { slot, predicate: value },
+                            _ => unreachable!(),
+                        };
+                        lowered_stages.push(lowered);
+                        continue;
+                    }
                     if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
                     let mut configuration = Vec::new();
                     let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
@@ -4762,7 +4912,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
                         }
                         StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
-                            StreamStageKind::Enumerate => LoweredPipelineStage::Enumerate,
+                            StreamStageKind::Enumerate => {
+                                item_type = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item_type)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                LoweredPipelineStage::Enumerate
+                            }
                             StreamStageKind::Collect => LoweredPipelineStage::Collect,
                             StreamStageKind::Count => LoweredPipelineStage::Count,
                             StreamStageKind::First => LoweredPipelineStage::First,
@@ -4794,14 +4947,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::If { branches, else_value } => {
                 let mut values = Vec::new();
-                for branch in self.program.arena.if_expr_branches(branches).to_vec() {
-                    let condition = self.lower_scheme_lazy_expression(branch.condition, slots, current_function, facts, visited, lowered_types)?;
+                let branches = self.program.arena.if_expr_branches(branches).to_vec();
+                let has_pattern = branches.iter().any(|branch| matches!(self.program.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }));
+                for branch in branches {
+                    let saved = slots.enter();
+                    let (condition, captures) = self.lower_scheme_branch_condition(branch.condition, slots, current_function, facts, visited, lowered_types)?;
                     let value = self.lower_scheme_lazy_expression(branch.value, slots, current_function, facts, visited, lowered_types)?;
-                    values.push((condition, value));
+                    slots.exit(saved);
+                    values.push((condition, value, captures));
                 }
                 let else_value = self.lower_scheme_lazy_expression(else_value, slots, current_function, facts, visited, lowered_types)?;
-                push_build_row!(self, expr, BuildExprRow::IfExpr { branches: values, else_value, span })
+                if has_pattern {
+                    push_build_row!(self, expr, BuildExprRow::PatternIf { branches: values, else_value, span })
+                } else {
+                    let branches = values.into_iter().map(|(condition, value, _)| (condition, value)).collect();
+                    push_build_row!(self, expr, BuildExprRow::IfExpr { branches, else_value, span })
+                }
             }
+            ArenaExprKind::PatternCondition { .. } => self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)?.0,
             ArenaExprKind::ValueBlock(block) => self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?,
             ArenaExprKind::Loop { block } => {
                 let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
@@ -4902,6 +5065,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     if !recorded { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
+                if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) {
+                    let Some(construction) = self.checked_record_construction(expression) else { return self.block_scheme_lowering_expr(expression); };
+                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                    let value = self.lower_scheme_record_constructor(expression, args, construction, slots, current_function, facts, visited, lowered_types, body)?;
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
                 }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
@@ -9762,6 +9931,45 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             .remove(&call)
             .is_some());
         checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn generic_record_constructors_require_the_checked_instance_and_field_contract() {
+        let source = "type Counts = {value: Int, extra: Int = 9}\nnominal type Other = {value: Int, extra: Int = 9}\npure make(payload, count: Int) { let made = Counts(value: count); {payload, made} }\npure foreign(payload, count: Int) { let made = Other(value: count); {payload, made} }\n";
+        let checked = CheckedSource::new("generic-record-constructor-identity.xsh", source, Vec::new());
+        assert!(checked.build(&checked.declarations).is_ok());
+        let call = checked.expression_containing("Counts(value: count)");
+        let other = checked.expression_containing("Other(value: count)");
+        let mut missing_identity = checked.declarations.clone();
+        assert!(missing_identity.bodies.resolved_type_expressions.instantiations.remove(&call).is_some());
+        assert!(checked.build(&missing_identity).is_err());
+        let mut missing_type = checked.declarations.clone();
+        assert!(missing_type.bodies.expr_types.remove(&call).is_some());
+        assert!(checked.build(&missing_type).is_err());
+        let mut foreign_identity = checked.declarations.clone();
+        let instance = foreign_identity.bodies.resolved_type_expressions.instantiations[&other].clone();
+        foreign_identity.bodies.resolved_type_expressions.instantiations.insert(call, instance);
+        assert!(checked.build(&foreign_identity).is_err());
+    }
+
+    #[test]
+    fn generic_record_constructors_keep_imported_schema_ownership() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).unwrap();
+        let modules = tempfile::tempdir_in(&work).unwrap();
+        std::fs::write(modules.path().join("rows.xsh"), "##! Constructor ownership.\n## An integer row.\nexport type Row = {value: Int, extra: Int = 9}\n## A distinct branded row.\nexport nominal type Brand = {value: Int}\n").unwrap();
+        let source = "use rows\npure make(payload, count: Int) { let row = rows.Row(value: count); let brand = rows.Brand(value: count); {payload, row, brand} }\nlet result = make(7, 3)\nassert result.row.extra == 9\n";
+        let checked = CheckedSource::new("generic-imported-record-constructor.xsh", source, vec![modules.path().to_path_buf()]);
+        for fragment in ["rows.Row(value: count)", "rows.Brand(value: count)"] {
+            let call = checked.expression_containing(fragment);
+            let instance = &checked.declarations.bodies.resolved_type_expressions.instantiations[&call];
+            let canonical = checked.declarations.record_constructors.instantiate_checked(
+                &checked.parsed.arena.arena, instance.instance.definition, &instance.instance.arguments,
+            ).unwrap();
+            assert_eq!(checked.declarations.bodies.expr_types.get(&call), Some(&canonical), "{fragment}");
+        }
+        let result = checked.build(&checked.declarations);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]

@@ -17,11 +17,35 @@ single-native limits. Generic pipeline support has a separate expert so it
 does not wait behind pattern and record-constructor support. Independent checker repairs proceed while lowering owns
 their earlier prerequisites; ready reviews run alongside implementation.
 Approvals and next assignments use the follow-up operation that resumes idle
-lanes. Pyramid qualification still waits
+lanes. Experts run focused checks within their assigned scope through the
+existing physical leases without a separate coordinator grant for each check.
+Each expert owns at most one job. The shared limits remain two Cargo jobs and
+one native job. A busy lease is unavailable evidence, not a test failure;
+retry after an actual completion, without spinning. The coordinator reserves
+larger qualification waves and consumes their completions before resuming
+focused launches. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Current provisional source `ae7128949` integrates the strict process-word,
+Frozen combined source `733745c5c`, tree
+`da1b374f851a2e5332e29229b03bb0522e306917`, passes the full Rust library boundary:
+2,298 pass, zero fail and three remain ignored. Its matching warning-free
+products pass all 145 capability selectors in normal and forced-frame modes,
+plus six API selectors. All eleven historical roots and twenty-one exact
+selectors pass in both views. Interface qualification then fails with 498
+entry-context reports. These are repeated diagnostics, not 498 independent
+causes. They include a confirmed structural-schema comparison false proxy
+and genuine unsigned/schema meaning changes. No new removal credit is awarded.
+Products and logs remain in `.work/wt/full-inference-body-wave-qualification/`
+and `.work/wt/full-inference-body-library-qualification/`.
+
+Later provisional source `953d1e0ff` integrates focused-verified callback
+ownership, canonical record constructors and bare pipeline-input relationships.
+Their native fixtures and combined qualification remain pending. Open work
+includes constructor finalization, semantic contract comparison, nullable-target
+argument relationships, remaining pipeline families and practical Laputa imports.
+
+Earlier return-repair source `ae7128949` integrates the strict process-word,
 boxed Null-return and pure conditional Result-tail repairs. Focused checks
 pass, including both execution routes and cold producer mutations. The exact
 historical `dev/main` module now prepares and verifies. No additional annotation

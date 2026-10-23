@@ -69,9 +69,43 @@ impl ValueConversionSet {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IterationFailure<T> {
-    Infallible,
-    Propagates(T),
+pub(crate) enum IterationPolicy<T> {
+    IterableInfallible,
+    IterablePropagates(T),
+    PipelineInfallible,
+    PipelinePropagates(T),
+    PipelineTransport,
+}
+
+impl<T> IterationPolicy<T> {
+    pub(crate) fn error(&self) -> Option<&T> {
+        match self {
+            Self::IterablePropagates(error) | Self::PipelinePropagates(error) => Some(error),
+            Self::IterableInfallible | Self::PipelineInfallible | Self::PipelineTransport => None,
+        }
+    }
+
+    pub(crate) fn try_map<U, E>(&self, map: impl FnOnce(&T) -> Result<U, E>) -> Result<IterationPolicy<U>, E> {
+        Ok(match self {
+            Self::IterableInfallible => IterationPolicy::IterableInfallible,
+            Self::IterablePropagates(error) => IterationPolicy::IterablePropagates(map(error)?),
+            Self::PipelineInfallible => IterationPolicy::PipelineInfallible,
+            Self::PipelinePropagates(error) => IterationPolicy::PipelinePropagates(map(error)?),
+            Self::PipelineTransport => IterationPolicy::PipelineTransport,
+        })
+    }
+
+    pub(crate) fn into_pipeline(self) -> Self {
+        match self {
+            Self::IterableInfallible => Self::PipelineInfallible,
+            Self::IterablePropagates(error) => Self::PipelinePropagates(error),
+            policy => policy,
+        }
+    }
+
+    pub(crate) fn is_pipeline(&self) -> bool {
+        matches!(self, Self::PipelineInfallible | Self::PipelinePropagates(_) | Self::PipelineTransport)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -84,16 +118,13 @@ pub(crate) enum IterationSourceKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct IterationRequirement<T> {
     pub(crate) item: T,
-    pub(crate) failure: IterationFailure<T>,
+    pub(crate) policy: IterationPolicy<T>,
     pub(crate) source_kind: IterationSourceKind,
 }
 
 impl<T> IterationRequirement<T> {
     pub(crate) fn types(&self) -> impl Iterator<Item = &T> {
-        std::iter::once(&self.item).chain(match &self.failure {
-            IterationFailure::Infallible => None,
-            IterationFailure::Propagates(error) => Some(error),
-        })
+        std::iter::once(&self.item).chain(self.policy.error())
     }
 }
 
@@ -738,7 +769,7 @@ impl CallableRequirements {
         }, |_, contract| Ok(contract.clone())).unwrap()).collect();
         for iteration in mapped.iteration_parameters.values_mut() {
             iteration.item.map_ground_types(map);
-            if let IterationFailure::Propagates(error) = &mut iteration.failure { error.map_ground_types(map); }
+            match &mut iteration.policy { IterationPolicy::IterablePropagates(error) | IterationPolicy::PipelinePropagates(error) => error.map_ground_types(map), _ => {} }
         }
         for application in &mut mapped.applications {
             application.callee.map_ground_types(map);

@@ -1251,11 +1251,8 @@ impl TypeConstraints {
         for (parameter, iteration) in &callable.requirements().iteration_parameters {
             let source = type_arguments.get(parameter).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
             let item = self.instantiate_scheme_type(&iteration.item, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?;
-            let failure = match &iteration.failure {
-                super::schemes::IterationFailure::Infallible => super::schemes::IterationFailure::Infallible,
-                super::schemes::IterationFailure::Propagates(error) => super::schemes::IterationFailure::Propagates(self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0)?),
-            };
-            self.require_iteration(source, &super::schemes::IterationRequirement { item, failure, source_kind: iteration.source_kind }, origin).map_err(SchemeOperationError::Constraint)?;
+            let policy = iteration.policy.try_map(|error| self.instantiate_scheme_type(error, &type_arguments, &row_arguments, &effect_arguments, level, origin, 0))?;
+            self.require_iteration(source, &super::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind }, origin).map_err(SchemeOperationError::Constraint)?;
         }
         let params = callable
             .params()

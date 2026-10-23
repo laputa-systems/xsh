@@ -4140,25 +4140,25 @@ impl Checker {
 
     pub(super) fn checked_iteration_item(&mut self, ty: &Type, span: Span) -> Option<Type> {
         let Type::Inference(variable) = ty else { return ty.iteration_item_type() };
-        use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind};
+        use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
         let level = self.type_constraints.type_level(*variable).expect("a resolved iteration source belongs to its inference problem");
         let item = self.type_constraints.fresh_at_level(span, level);
-        let failure = if self.boundary.retry_attempt_depth > 0 {
-            IterationFailure::Propagates(Type::Error)
+        let policy = if self.boundary.retry_attempt_depth > 0 {
+            IterationPolicy::IterablePropagates(Type::Error)
         } else if self.boundary.current_effects.as_ref().is_some_and(|effects| !Self::effects_covers(effects, &super::Effect::Error)) {
-            IterationFailure::Infallible
+            IterationPolicy::IterableInfallible
         } else {
             match &self.boundary.current_return {
-                Some(super::ReturnContext::Function(Type::Result(_, error))) => IterationFailure::Propagates((**error).clone()),
-                Some(super::ReturnContext::Producer) | None => IterationFailure::Propagates(Type::Error),
-                Some(super::ReturnContext::Function(Type::Unknown)) if !self.boundary.in_pure => IterationFailure::Propagates(Type::Error),
-                Some(super::ReturnContext::Function(_)) => IterationFailure::Infallible,
+                Some(super::ReturnContext::Function(Type::Result(_, error))) => IterationPolicy::IterablePropagates((**error).clone()),
+                Some(super::ReturnContext::Producer) | None => IterationPolicy::IterablePropagates(Type::Error),
+                Some(super::ReturnContext::Function(Type::Unknown)) if !self.boundary.in_pure => IterationPolicy::IterablePropagates(Type::Error),
+                Some(super::ReturnContext::Function(_)) => IterationPolicy::IterableInfallible,
             }
         };
-        if let IterationFailure::Propagates(error) = &failure {
+        if let IterationPolicy::IterablePropagates(error) = &policy {
             self.check_propagation(&Type::Result(Box::new(Type::Unit), Box::new(error.clone())), span);
         }
-        match self.type_constraints.require_iteration(ty, &IterationRequirement { item: item.clone(), failure, source_kind: IterationSourceKind::DirectOrResult }, span) {
+        match self.type_constraints.require_iteration(ty, &IterationRequirement { item: item.clone(), policy, source_kind: IterationSourceKind::DirectOrResult }, span) {
             Ok(()) => Some(self.type_constraints.resolve(&item).expect("a checked iteration item has a resolvable relationship")),
             Err(_) => None,
         }

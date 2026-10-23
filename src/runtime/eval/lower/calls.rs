@@ -11,7 +11,46 @@ use super::{
     lowered_module_call_args, lowered_str_byte_op, script_argument_slots,
 };
 
+pub(super) struct CheckedRecordConstruction {
+    pub(super) schema: Type,
+    pub(super) defaults: std::collections::BTreeMap<Name, crate::sema::constants::LiteralConstant>,
+    pub(super) positional_fields: Vec<Name>,
+    pub(super) name: Arc<str>,
+}
+
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn checked_record_construction(&self, id: ExprId) -> Option<CheckedRecordConstruction> {
+        let instance = self.bodies.resolved_type_expressions.instantiations.get(&id)?;
+        let definition = instance.instance.definition;
+        let schema = self.declarations.record_constructors.instantiate_checked(
+            &self.program.arena, definition, &instance.instance.arguments,
+        ).ok()?;
+        if self.bodies.expr_types.get(&id) != Some(&schema) || !matches!(schema.unvalidated(), Type::Record(_)) { return None; }
+        let schema_definition = match self.program.arena.type_def(definition).body {
+            crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
+            crate::syntax::arena::ArenaTypeDefBody::Alias(ty) => self.declarations.record_constructors.resolve_annotation(
+                &self.program.arena, ty, self.declarations.record_constructors.namespace(definition),
+            )?,
+            crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
+            | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
+        };
+        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr(id).kind else { return None; };
+        let name = match self.program.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => name.to_string(),
+            ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind {
+                ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
+                _ => return None,
+            },
+            _ => return None,
+        }.into();
+        Some(CheckedRecordConstruction {
+            schema,
+            defaults: self.declarations.record_constructors.defaults(schema_definition).cloned().unwrap_or_default(),
+            positional_fields: self.bodies.record_constructor_fields.get(&id).cloned().unwrap_or_default(),
+            name,
+        })
+    }
+
     pub(super) fn lower_range_values(&mut self, start: Option<BuildExprId>, end: BuildExprId, span: Span) -> (BuildExprId, Option<BuildExprId>) {
         let (start, implicit_start) = match start {
             Some(start) => (start, None),
@@ -758,42 +797,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.sig.op, args: arguments, span });
             return Some(self.wrap_argument_bindings(call, bindings, span));
         }
-        if let Some(instance) = self
-            .bodies
-            .resolved_type_expressions
-            .instantiations
-            .get(&id)
-        {
-            let definition = instance.instance.definition;
-            let schema_definition = match self.program.arena.type_def(definition).body {
-                crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
-                crate::syntax::arena::ArenaTypeDefBody::Alias(ty) => self
-                    .declarations
-                    .record_constructors
-                    .resolve_annotation(
-                        &self.program.arena,
-                        ty,
-                        self.declarations.record_constructors.namespace(definition),
-                    )?,
-                crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
-                | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
-            };
-            let defaults = self
-                .declarations
-                .record_constructors
-                .defaults(schema_definition)
-                .cloned()
-                .unwrap_or_default();
-            let schema = self.bodies.expr_types.get(&id).cloned()?;
+        if self.bodies.resolved_type_expressions.instantiations.contains_key(&id) {
+            let construction = self.checked_record_construction(id)?;
+            let schema = construction.schema;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for (index, arg) in args_vec.iter().enumerate() {
                 if arg.splice {
                     return None;
                 }
-                let name = arg.name.or_else(|| {
-                    self.bodies.record_constructor_fields.get(&id)?.get(index).copied()
-                })?;
+                let name = arg.name.or_else(|| construction.positional_fields.get(index).copied())?;
                 supplied.insert(name);
                 let literal = match arg.source {
                     crate::sema::arguments::ArgumentValueSource::Expression(value) => {
@@ -820,7 +833,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                 fields.push(LoweredRecordEntry::Field(name, lowered));
             }
-            for (name, value) in &defaults {
+            for (name, value) in &construction.defaults {
                 if !supplied.contains(name) {
                     fields.push(LoweredRecordEntry::Field(
                         *name,
@@ -835,16 +848,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let check = LoweredTypeCheck {
                 schema: None,
                 ty: schema,
-                name: match self.program.arena.expr(callee).kind {
-                    ArenaExprKind::Ident(name) => name.to_string(),
-                    ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind
-                    {
-                        ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
-                        _ => return None,
-                    },
-                    _ => return None,
-                }
-                .into(),
+                name: construction.name,
             };
             return Some(push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::Ground(check), span }));
         }

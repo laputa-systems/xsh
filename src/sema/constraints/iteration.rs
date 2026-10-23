@@ -1,5 +1,5 @@
 use super::{ConstraintChange, ConstraintConflict, ConstraintResolutionError, Generalization, SchemeOperationError, TypeConstraints, TypeVariableId, Variable, MAX_TYPE_DEPTH};
-use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind, SchemeType, SchemeTypeParameterId};
+use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind, SchemeType, SchemeTypeParameterId};
 use crate::sema::types::Type;
 use crate::source::Span;
 use std::collections::BTreeMap;
@@ -34,20 +34,29 @@ impl TypeConstraints {
             }
             Type::Validated(validated) => self.require_iteration_inner(validated.base(), required, origin, depth + 1, changes),
             Type::Stream(item) => {
-                let IterationFailure::Propagates(bound) = &required.failure else { return Err((required.item.clone(), source.clone(), None)); };
-                self.constrain_inner(bound, &Type::Error, origin, false, depth + 1, changes)?;
+                match &required.policy {
+                    IterationPolicy::IterablePropagates(bound) | IterationPolicy::PipelinePropagates(bound) => self.constrain_inner(bound, &Type::Error, origin, false, depth + 1, changes)?,
+                    IterationPolicy::PipelineTransport => {},
+                    _ => return Err((required.item.clone(), source.clone(), None)),
+                }
                 self.constrain_inner(&required.item, item, origin, true, depth + 1, changes)
             }
             Type::Result(ok, error) => {
                 if required.source_kind == IterationSourceKind::Direct { return Err((required.item.clone(), source.clone(), None)); }
-                let IterationFailure::Propagates(bound) = &required.failure else { return Err((required.item.clone(), source.clone(), None)); };
-                self.constrain_inner(bound, error, origin, false, depth + 1, changes)?;
+                match &required.policy {
+                    IterationPolicy::IterablePropagates(bound) | IterationPolicy::PipelinePropagates(bound) => self.constrain_inner(bound, error, origin, false, depth + 1, changes)?,
+                    IterationPolicy::PipelineTransport => {},
+                    _ => return Err((required.item.clone(), source.clone(), None)),
+                }
                 if matches!(ok.unvalidated(), Type::Result(_, _)) { return Err((required.item.clone(), source.clone(), None)); }
                 let mut direct = required.clone();
                 direct.source_kind = IterationSourceKind::Direct;
                 self.require_iteration_inner(ok, &direct, origin, depth + 1, changes)
             }
             _ => {
+                if required.policy.is_pipeline() && !matches!(source.unvalidated(), Type::List(_) | Type::Set(_)) {
+                    return Err((required.item.clone(), source.clone(), None));
+                }
                 let item = source.iteration_item_type().ok_or_else(|| (required.item.clone(), source.clone(), None))?;
                 self.constrain_inner(&required.item, &item, origin, true, depth + 1, changes)
             }
@@ -62,22 +71,24 @@ impl TypeConstraints {
 
     pub(super) fn merge_iteration(&mut self, first: &IterationRequirement<Type>, second: &IterationRequirement<Type>, origin: Span, depth: usize, changes: &mut Vec<ConstraintChange>) -> Result<IterationRequirement<Type>, IterationConflict> {
         self.constrain_inner(&first.item, &second.item, origin, true, depth, changes)?;
-        let failure = match (&first.failure, &second.failure) {
-            (IterationFailure::Propagates(first), IterationFailure::Propagates(second)) => {
+        let policy = match (&first.policy, &second.policy) {
+            (IterationPolicy::PipelineTransport, other) | (other, IterationPolicy::PipelineTransport) => other.clone(),
+            (IterationPolicy::IterablePropagates(first) | IterationPolicy::PipelinePropagates(first), IterationPolicy::IterablePropagates(second) | IterationPolicy::PipelinePropagates(second)) => {
                 let first = self.resolve_with_changes(first, depth, changes).map_err(|error| (first.clone(), second.clone(), Some(error)))?;
                 let second = self.resolve_with_changes(second, depth, changes).map_err(|error| (first.clone(), second.clone(), Some(error)))?;
-                if first.matches_expected(&second) { IterationFailure::Propagates(first) }
-                else if second.matches_expected(&first) { IterationFailure::Propagates(second) }
-                else if !first.contains_inference() && !second.contains_inference() { IterationFailure::Infallible }
+                if first.matches_expected(&second) { IterationPolicy::IterablePropagates(first) }
+                else if second.matches_expected(&first) { IterationPolicy::IterablePropagates(second) }
+                else if !first.contains_inference() && !second.contains_inference() { IterationPolicy::IterableInfallible }
                 else {
                     self.constrain_inner(&first, &second, origin, true, depth, changes)?;
-                    IterationFailure::Propagates(first)
+                    IterationPolicy::IterablePropagates(first)
                 }
             }
-            _ => IterationFailure::Infallible,
+            _ => IterationPolicy::IterableInfallible,
         };
         let source_kind = if matches!((first.source_kind, second.source_kind), (IterationSourceKind::DirectOrResult, IterationSourceKind::DirectOrResult)) { IterationSourceKind::DirectOrResult } else { IterationSourceKind::Direct };
-        Ok(IterationRequirement { item: first.item.clone(), failure, source_kind })
+        let policy = if first.policy.is_pipeline() || second.policy.is_pipeline() { policy.into_pipeline() } else { policy };
+        Ok(IterationRequirement { item: first.item.clone(), policy, source_kind })
     }
 
     pub(super) fn generalized_iterations(&self, environment_level: u32, generalization: &mut Generalization) -> Result<BTreeMap<SchemeTypeParameterId, IterationRequirement<SchemeType>>, SchemeOperationError> {
@@ -88,11 +99,8 @@ impl TypeConstraints {
             for (variable, parameter) in pending {
                 if let Some(iteration) = self.iteration_requirement(variable)? {
                     let item = self.generalize_type(&iteration.item, environment_level, generalization, 0)?;
-                    let failure = match iteration.failure {
-                        IterationFailure::Infallible => IterationFailure::Infallible,
-                        IterationFailure::Propagates(error) => IterationFailure::Propagates(self.generalize_type(&error, environment_level, generalization, 0)?),
-                    };
-                    iterations.insert(parameter, IterationRequirement { item, failure, source_kind: iteration.source_kind });
+                    let policy = iteration.policy.try_map(|error| self.generalize_type(error, environment_level, generalization, 0))?;
+                    iterations.insert(parameter, IterationRequirement { item, policy, source_kind: iteration.source_kind });
                 }
             }
             if generalization.type_ids.len() == before { return Ok(iterations); }
@@ -108,7 +116,49 @@ mod tests {
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
 
     fn require(constraints: &mut TypeConstraints, source: &Type, item: Type) {
-        constraints.require_iteration(source, &IterationRequirement { item, failure: IterationFailure::Infallible, source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+        constraints.require_iteration(source, &IterationRequirement { item, policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+    }
+
+    #[test]
+    fn pipeline_iteration_domain_intersects_without_selecting_a_container() {
+        for source_type in [Type::List(Box::new(Type::Int)), Type::Set(Box::new(Type::Int)), Type::Stream(Box::new(Type::Int))] {
+            let mut constraints = TypeConstraints::default();
+            let source = constraints.fresh(span());
+            let item = constraints.fresh(span());
+            let mut required = IterationRequirement { item: item.clone(), policy: IterationPolicy::IterablePropagates(Type::Error), source_kind: IterationSourceKind::DirectOrResult };
+            constraints.require_iteration(&source, &required, span()).unwrap();
+            required.policy = IterationPolicy::PipelineTransport;
+            constraints.require_iteration(&source, &required, span()).unwrap();
+            assert_eq!(constraints.resolve(&source).unwrap(), source);
+            for rejected in [Type::Str, Type::Bytes, Type::Map(Box::new(Type::Str), Box::new(Type::Int))] {
+                assert!(constraints.constrain(&source, &rejected, span()).is_err());
+                assert_eq!(constraints.resolve(&source).unwrap(), source);
+                assert_eq!(constraints.resolve(&item).unwrap(), item);
+            }
+            constraints.constrain(&source, &Type::Any, span()).unwrap();
+            assert_eq!(constraints.resolve(&source).unwrap(), source);
+            assert_eq!(constraints.resolve(&item).unwrap(), item);
+            assert!(constraints.require_iteration(&Type::Any, &required, span()).is_err());
+            constraints.constrain(&source, &source_type, span()).unwrap();
+            assert_eq!(constraints.resolve(&item).unwrap(), Type::Int);
+        }
+    }
+
+    #[test]
+    fn pipeline_transport_intersection_retains_for_error_restrictions() {
+        for initial in [IterationPolicy::IterableInfallible, IterationPolicy::IterablePropagates(Type::Str)] {
+            let mut constraints = TypeConstraints::default();
+            let source = constraints.fresh(span());
+            let item = constraints.fresh(span());
+            constraints.require_iteration(&source, &IterationRequirement { item: item.clone(), policy: initial.clone(), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+            constraints.require_iteration(&source, &IterationRequirement { item: item.clone(), policy: IterationPolicy::PipelineTransport, source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+            assert!(constraints.constrain(&source, &Type::Stream(Box::new(Type::Int)), span()).is_err());
+            assert!(constraints.constrain(&source, &Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Error)), span()).is_err());
+            assert_eq!(constraints.resolve(&source).unwrap(), source);
+            let accepted = if matches!(initial, IterationPolicy::IterableInfallible) { Type::List(Box::new(Type::Int)) } else { Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Str)) };
+            constraints.constrain(&source, &accepted, span()).unwrap();
+            assert_eq!(constraints.resolve(&item).unwrap(), Type::Int);
+        }
     }
 
     #[test]
@@ -131,7 +181,7 @@ mod tests {
             (&first_source, first_item.clone(), first_error.clone()),
             (&second_source, second_item.clone(), Type::Bool),
         ] {
-            constraints.require_iteration(source, &IterationRequirement { item, failure: IterationFailure::Propagates(error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+            constraints.require_iteration(source, &IterationRequirement { item, policy: IterationPolicy::IterablePropagates(error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
         }
         let original_error = constraints.resolve(&first_error).unwrap();
         assert!(constraints.constrain(&first_source, &second_source, span()).is_err());
@@ -186,11 +236,11 @@ mod tests {
         let mut constraints = TypeConstraints::default();
         let source = constraints.fresh(span());
         let item = constraints.fresh(span());
-        assert_eq!(constraints.trial(|candidate| candidate.require_iteration(&source, &IterationRequirement { item: item.clone(), failure: IterationFailure::Infallible, source_kind: IterationSourceKind::DirectOrResult }, span())), Ok(true));
+        assert_eq!(constraints.trial(|candidate| candidate.require_iteration(&source, &IterationRequirement { item: item.clone(), policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::DirectOrResult }, span())), Ok(true));
         constraints.constrain(&source, &Type::Int, span()).unwrap();
         let source = constraints.fresh(span());
         let foreign = TypeConstraints::default().fresh(span());
-        assert!(constraints.require_iteration(&source, &IterationRequirement { item: foreign, failure: IterationFailure::Infallible, source_kind: IterationSourceKind::DirectOrResult }, span()).is_err());
+        assert!(constraints.require_iteration(&source, &IterationRequirement { item: foreign, policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::DirectOrResult }, span()).is_err());
         constraints.constrain(&source, &Type::Bool, span()).unwrap();
     }
 
@@ -199,7 +249,7 @@ mod tests {
         let mut constraints = TypeConstraints::default();
         let source = constraints.fresh(span());
         let item = constraints.fresh(span());
-        constraints.require_iteration(&source, &IterationRequirement { item: item.clone(), failure: IterationFailure::Propagates(Type::Str), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+        constraints.require_iteration(&source, &IterationRequirement { item: item.clone(), policy: IterationPolicy::IterablePropagates(Type::Str), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
         assert!(constraints.constrain(&source, &Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Error)), span()).is_err());
         assert_eq!(constraints.resolve(&item).unwrap(), item);
         constraints.constrain(&source, &Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Str)), span()).unwrap();
@@ -210,14 +260,14 @@ mod tests {
         constraints.constrain(&recursive, &Type::Str, span()).unwrap();
         let source = constraints.fresh(span());
         let pending = constraints.fresh(span());
-        constraints.require_iteration(&source, &IterationRequirement { item: Type::Int, failure: IterationFailure::Propagates(Type::Error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+        constraints.require_iteration(&source, &IterationRequirement { item: Type::Int, policy: IterationPolicy::IterablePropagates(Type::Error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
         constraints.constrain(&source, &Type::Result(Box::new(pending.clone()), Box::new(Type::Error)), span()).unwrap();
         assert!(constraints.constrain(&pending, &Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Error)), span()).is_err());
         constraints.constrain(&pending, &Type::List(Box::new(Type::Int)), span()).unwrap();
         let first = constraints.fresh(span());
         let second = constraints.fresh(span());
         for (source, error) in [(&first, Type::Str), (&second, Type::Bool)] {
-            constraints.require_iteration(source, &IterationRequirement { item: Type::Int, failure: IterationFailure::Propagates(error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
+            constraints.require_iteration(source, &IterationRequirement { item: Type::Int, policy: IterationPolicy::IterablePropagates(error), source_kind: IterationSourceKind::DirectOrResult }, span()).unwrap();
         }
         constraints.constrain(&first, &second, span()).unwrap();
         assert!(constraints.constrain(&first, &Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(Type::Str)), span()).is_err());

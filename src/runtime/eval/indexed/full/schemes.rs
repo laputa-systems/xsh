@@ -238,6 +238,40 @@ pub(super) struct FullSchemeApplicationReturn {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum FullIterationPolicy {
+    IterableInfallible,
+    IterablePropagates,
+    PipelineInfallible,
+    PipelinePropagates,
+    PipelineTransport,
+}
+
+impl FullIterationPolicy {
+    fn from_raw(raw: u8) -> Result<Self, super::IrVerifyError> {
+        match raw {
+            0 => Ok(Self::IterableInfallible),
+            1 => Ok(Self::IterablePropagates),
+            2 => Ok(Self::PipelineInfallible),
+            3 => Ok(Self::PipelinePropagates),
+            4 => Ok(Self::PipelineTransport),
+            _ => Err(super::IrVerifyError::new("scheme iteration policy is invalid")),
+        }
+    }
+
+    fn from_policy<T>(policy: &crate::sema::schemes::IterationPolicy<T>) -> Self {
+        use crate::sema::schemes::IterationPolicy;
+        match policy {
+            IterationPolicy::IterableInfallible => Self::IterableInfallible,
+            IterationPolicy::IterablePropagates(_) => Self::IterablePropagates,
+            IterationPolicy::PipelineInfallible => Self::PipelineInfallible,
+            IterationPolicy::PipelinePropagates(_) => Self::PipelinePropagates,
+            IterationPolicy::PipelineTransport => Self::PipelineTransport,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub(super) struct FullSchemeTypeParameter {
     pub(super) id: u32,
@@ -247,22 +281,34 @@ pub(super) struct FullSchemeTypeParameter {
     pub(super) map_key: bool,
     pub(super) conversions: u8,
     pub(super) iteration_source_kind: crate::sema::schemes::IterationSourceKind,
-    pub(super) reserved: [u8; 1],
+    pub(super) iteration_policy: u8,
 }
 
 impl FullSchemeTypeParameter {
     pub(super) fn iteration(self) -> Result<Option<crate::sema::schemes::IterationRequirement<SchemeTypeId>>, super::IrVerifyError> {
-        use crate::sema::schemes::{IterationFailure, IterationRequirement, IterationSourceKind};
+        use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
+        let kind = FullIterationPolicy::from_raw(self.iteration_policy)?;
         if self.iteration_item == IR_NONE {
-            if self.iteration_error != IR_NONE || self.iteration_source_kind != IterationSourceKind::Direct {
+            if self.iteration_error != IR_NONE || self.iteration_source_kind != IterationSourceKind::Direct || kind != FullIterationPolicy::IterableInfallible {
                 return Err(super::IrVerifyError::new("scheme iteration requirement has no source item"));
             }
             return Ok(None);
         }
         let item = SchemeTypeId::from_raw(self.iteration_item)?;
-        let failure = if self.iteration_error == IR_NONE { IterationFailure::Infallible }
-            else { IterationFailure::Propagates(SchemeTypeId::from_raw(self.iteration_error)?) };
-        Ok(Some(IterationRequirement { item, failure, source_kind: self.iteration_source_kind }))
+        let policy = match kind {
+            FullIterationPolicy::IterablePropagates => IterationPolicy::IterablePropagates(SchemeTypeId::from_raw(self.iteration_error)?),
+            FullIterationPolicy::PipelinePropagates => IterationPolicy::PipelinePropagates(SchemeTypeId::from_raw(self.iteration_error)?),
+            kind => {
+                if self.iteration_error != IR_NONE { return Err(super::IrVerifyError::new("scheme iteration policy has an unexpected error bound")); }
+                match kind {
+                    FullIterationPolicy::IterableInfallible => IterationPolicy::IterableInfallible,
+                    FullIterationPolicy::PipelineInfallible => IterationPolicy::PipelineInfallible,
+                    FullIterationPolicy::PipelineTransport => IterationPolicy::PipelineTransport,
+                    _ => unreachable!(),
+                }
+            }
+        };
+        Ok(Some(IterationRequirement { item, policy, source_kind: self.iteration_source_kind }))
     }
 }
 
@@ -735,11 +781,8 @@ impl FullBuilder {
         for (binder, id) in scheme.type_parameters().iter().copied().enumerate() {
             let iteration = scheme.callable().requirements().iteration_parameters.get(&id).map(|iteration| {
                 let item = self.intern_scheme_type(&iteration.item, &type_parameters, &row_parameters, &effect_parameters)?;
-                let failure = match &iteration.failure {
-                    crate::sema::schemes::IterationFailure::Infallible => crate::sema::schemes::IterationFailure::Infallible,
-                    crate::sema::schemes::IterationFailure::Propagates(error) => crate::sema::schemes::IterationFailure::Propagates(self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters)?),
-                };
-                Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, failure, source_kind: iteration.source_kind })
+                let policy = iteration.policy.try_map(|error| self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters))?;
+                Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind })
             }).transpose()?;
             self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
                 id: id.0,
@@ -747,14 +790,11 @@ impl FullBuilder {
                     IrBuildError::format("scheme_type_binder_overflow", None, 0, 0)
                 })?,
                 iteration_item: iteration.map_or(IR_NONE, |iteration| iteration.item.raw()),
-                iteration_error: iteration.map_or(IR_NONE, |iteration| match iteration.failure {
-                    crate::sema::schemes::IterationFailure::Infallible => IR_NONE,
-                    crate::sema::schemes::IterationFailure::Propagates(error) => error.raw(),
-                }),
-                iteration_source_kind: iteration.map_or(crate::sema::schemes::IterationSourceKind::Direct, |iteration| iteration.source_kind),
+                iteration_error: iteration.as_ref().and_then(|iteration| iteration.policy.error()).map_or(IR_NONE, |error| error.raw()),
+                iteration_source_kind: iteration.as_ref().map_or(crate::sema::schemes::IterationSourceKind::Direct, |iteration| iteration.source_kind),
+                iteration_policy: iteration.as_ref().map_or(FullIterationPolicy::IterableInfallible, |iteration| FullIterationPolicy::from_policy(&iteration.policy)) as u8,
                 map_key: scheme.callable().requirements().map_key_parameters.contains(&id),
                 conversions: scheme.callable().requirements().conversion_parameters.get(&id).copied().unwrap_or_default().bits(),
-                reserved: [0; 1],
             });
         }
         let type_parameters_range = super::table_range(

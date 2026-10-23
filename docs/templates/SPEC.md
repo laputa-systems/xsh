@@ -3149,6 +3149,11 @@ and `value` fields; text yields `Str` items, and bytes yield `Int` items.
 Source and stream errors must fit the enclosing error boundary and effect
 contract. An explicit empty effect clause still excludes fallible iteration.
 Nested `Result` sources are not supported.
+An inferred structured-pipeline input retains its item relationship across
+independent `List`, `Set`, and `Stream` calls, including one outer `Result`.
+It excludes the other iteration domains. Sources keep their ordinary order,
+lazy pulls, error transport, and cleanup; a pipeline does not impose a `for`
+loop's enclosing Result error bound on those inputs.
 List and map comprehensions retain the item or value relationship to quantified
 parameters. Set comprehensions require a checked scalar key domain. Qualifiers
 keep their ordinary sequential scope, lazy source evaluation, filter behavior,

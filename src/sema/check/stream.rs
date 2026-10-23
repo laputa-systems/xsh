@@ -38,7 +38,7 @@ impl Checker {
             );
             output
         } else {
-            match stream_type_from_input(input_ty) {
+            match self.check_pipeline_input_type(input_ty, arena.arena.expr(input).span) {
                 Err(Type::Any) => {
                     self.reject_dynamic_use("a pipeline source", None, arena.arena.expr(input).span);
                     Type::Stream(Box::new(Type::Unknown))
@@ -79,6 +79,30 @@ impl Checker {
         match current {
             Type::Stream(item) => Type::List(item),
             other => other,
+        }
+    }
+
+    fn check_pipeline_input_type(&mut self, ty: Type, span: Span) -> Result<Type, Type> {
+        let ty = match self.type_constraints.resolve(&ty) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.error(span, &format!("pipeline source type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return Err(Type::Invalid);
+            }
+        };
+        if !ty.contains_inference() { return stream_type_from_input(ty); }
+        let item = self.type_constraints.fresh_at_level(span, self.wrapper_solver_level());
+        let required = crate::sema::schemes::IterationRequirement {
+            item: item.clone(),
+            policy: crate::sema::schemes::IterationPolicy::PipelineTransport,
+            source_kind: crate::sema::schemes::IterationSourceKind::DirectOrResult,
+        };
+        match self.type_constraints.require_iteration(&ty, &required, span) {
+            Ok(()) => Ok(Type::Stream(Box::new(item))),
+            Err(conflict) => {
+                self.report_inferred_type_conflict(conflict);
+                Err(Type::Invalid)
+            }
         }
     }
 
@@ -386,7 +410,7 @@ impl Checker {
                     .and_then(Option::as_ref)
                     .map(|argument| argument.ty.clone())
                     .unwrap_or(Type::Unknown);
-                let other_item = match stream_type_from_input(other_ty) {
+                let other_item = match self.check_pipeline_input_type(other_ty, stage_span) {
                     Ok(Type::Stream(item)) => *item,
                     Err(Type::Any) => {
                         self.reject_dynamic_use("a zip source", None, arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span));
@@ -1441,5 +1465,63 @@ mod static_namespace_identity_tests {
 
             assert!(!checker.stage_callable_is_static(program, field));
         });
+    }
+}
+
+#[cfg(test)]
+mod pipeline_input_inference_tests {
+    fn accepts_collect(definition: &str, argument: &str) {
+        let source = format!("{definition}\nlet observed: List[Int] = collect_values({argument})\nassert observed == [1, 2]\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn typed_list_pipeline_input_preserves_collected_items() {
+        accepts_collect("pure collect_values(values: List[Int]) -> List[Int] { values |> collect }", "[1, 2]");
+    }
+
+    #[test]
+    fn inferred_pipeline_input_preserves_collected_items() {
+        accepts_collect("pure collect_values(values) { values |> collect }", "[1, 2]");
+    }
+
+    #[test]
+    fn inferred_pipeline_input_rejects_non_pipeline_iteration_domains() {
+        for source_type in ["Map[Str, Int]", "Str", "Bytes", "Any"] {
+            let source = format!("pure collect_values(values) {{ values |> collect }}\npure rejected(values: {source_type}) {{ collect_values(values) }}\n");
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, &source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{source}");
+        }
+    }
+
+    #[test]
+    fn inferred_pipeline_input_preserves_result_error_payload_domains() {
+        accepts_collect("pure collect_values(values) { values |> collect }\npure source_values() -> Result[List[Int], Str] { Ok([1, 2]) }", "source_values()");
+    }
+
+    #[test]
+    fn typed_set_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("pure collect_values(values: Set[Int]) -> List[Int] { values |> collect }", "{1, 2}");
+    }
+
+    #[test]
+    fn typed_result_list_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("pure collect_values(values: Result[List[Int]]) -> List[Int] { values |> collect }", "Ok([1, 2])");
+    }
+
+    #[test]
+    fn typed_stream_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("stream source_values() [] -> Stream[Int] { yield 1; yield 2 }\npure collect_values(values: Stream[Int]) -> List[Int] { values |> collect }", "source_values()");
+    }
+
+    #[test]
+    fn typed_result_stream_pipeline_input_keeps_its_existing_domain() {
+        accepts_collect("stream source_values() [] -> Stream[Int] { yield 1; yield 2 }\npure collect_values(values: Result[Stream[Int]]) -> List[Int] { values |> collect }", "Ok(source_values())");
     }
 }

@@ -513,9 +513,12 @@ impl BoundEquivalence<'_> {
             && left.iteration_parameters.iter().all(|(source, iteration)| {
                 let Some(mapped) = self.types.get(source) else { return false };
                 let Some(other) = right.iteration_parameters.get(mapped) else { return false };
-                iteration.source_kind == other.source_kind && self.ty(&iteration.item, &other.item) && match (&iteration.failure, &other.failure) {
-                    (crate::sema::schemes::IterationFailure::Infallible, crate::sema::schemes::IterationFailure::Infallible) => true,
-                    (crate::sema::schemes::IterationFailure::Propagates(left), crate::sema::schemes::IterationFailure::Propagates(right)) => self.ty(left, right),
+                iteration.source_kind == other.source_kind && self.ty(&iteration.item, &other.item) && match (&iteration.policy, &other.policy) {
+                    (crate::sema::schemes::IterationPolicy::IterableInfallible, crate::sema::schemes::IterationPolicy::IterableInfallible)
+                    | (crate::sema::schemes::IterationPolicy::PipelineInfallible, crate::sema::schemes::IterationPolicy::PipelineInfallible)
+                    | (crate::sema::schemes::IterationPolicy::PipelineTransport, crate::sema::schemes::IterationPolicy::PipelineTransport) => true,
+                    (crate::sema::schemes::IterationPolicy::IterablePropagates(left), crate::sema::schemes::IterationPolicy::IterablePropagates(right))
+                    | (crate::sema::schemes::IterationPolicy::PipelinePropagates(left), crate::sema::schemes::IterationPolicy::PipelinePropagates(right)) => self.ty(left, right),
                     _ => false,
                 }
             })
@@ -1153,6 +1156,19 @@ mod tests {
         assert!(first.to_string().contains("iterable("), "{first}");
         assert_eq!(first.to_string(), renamed.to_string());
         assert!(first.equivalent_to(&renamed));
+    }
+
+    #[test]
+    fn checked_callable_contract_retains_pipeline_policy_across_binder_renaming() {
+        let pipeline = root_schema_contract("pure describe(values) { values |> collect }\n");
+        let shifted = root_schema_contract("pure unrelated(value) { value }\npure describe(values) { values |> collect }\n");
+        let iterable = root_schema_contract("pure describe(values) { [value for value in values] }\n");
+        assert!(pipeline.equivalent_to(&shifted));
+        assert_eq!(pipeline.to_string(), shifted.to_string());
+        assert!(!pipeline.equivalent_to(&iterable));
+        assert_ne!(pipeline.to_string(), iterable.to_string());
+        assert!(pipeline.to_string().contains("pipeline-transport"));
+        assert!(pipeline.source_annotation().is_none());
     }
 
     #[test]

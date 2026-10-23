@@ -117,6 +117,15 @@ analysis supplies reachable loop exits, including bare `Unit` exits, even
 when ordinary producer demand is absent. Preparation retains no frontend tree
 for execution and performs no runtime type solving.
 
+Named record constructors in generic bodies reuse ordinary lowering's checked
+instance identity, field order, and defaults. Supplied source entries evaluate
+before defaults. A prepared constructor schema must match its exact checked type;
+cold proof independently derives every physical record field before accepting
+the result or its nominal identity. A body result annotation cannot supply that
+source evidence or authorize a constructor from another function.
+Only checker-selected constructor callees use a static namespace role. Their
+arguments and independent module-value reads retain ordinary capture rules.
+
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed
 record. The existing binding map selects destination slots; lowering reads a
@@ -162,6 +171,14 @@ actual operand, including overwritten fields, before accepting the final
 ordered fields or collection payload. Display and map-key domains come from
 the checked operand types. Generated set conversion retains the canonical
 selected registry method and uses the same native-call proof as a source call.
+
+Inferred pipeline inputs use the existing iteration relationship with a narrowed
+container policy. Its five states distinguish ordinary iterable error bounds,
+pipeline error bounds, and pipeline error transport. Intersections retain both
+the pipeline domain and any enclosing iteration restriction. Full stores the
+policy in the existing parameter row and rejects unknown tags or mismatched
+error payloads. Pipeline stream transport retains actual source-owner and
+producer proofs derived from the physical pipeline instruction.
 
 Generic comprehensions reuse the ordinary qualifier rows and iterable adaptation.
 Every source must establish its actual item type before its immutable target
