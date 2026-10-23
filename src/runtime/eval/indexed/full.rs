@@ -52593,6 +52593,78 @@ proc capture_hash_failure(file: Path) [fs] {
     }
 
     #[test]
+    fn generic_optional_returns_preserve_payloads_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/xsh/generic-optional-returns.xsh");
+            let program = Arc::new(fixture("generic-optional-returns.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+                let result = evaluator.eval_installed_test_call_inner(Span::at(program.store.source_id, 0), "generic_optional_returns_preserve_payloads_and_absence", Value::Unit);
+                assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+                assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+                assert!(matches!(&result.result, Some(Value::Unit))
+                    || matches!(&result.result, Some(Value::Result(crate::runtime::value::ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit)), "force_frames={force_frames}: {:?}", result.result);
+            }
+        });
+    }
+
+    #[test]
+    fn generic_optional_return_proofs_reject_foreign_binders_owners_and_nonnull_branches() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/xsh/generic-optional-returns.xsh");
+            let program = fixture("generic-optional-return-proofs.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "optional_choice");
+            let other = scheme_fixture_root_function(&program, "optional_other");
+            let function = IrFunctionId::new(owner).unwrap();
+            let decoder = function_view_decoder(&program.store, owner);
+            let parameter = |slot| decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+            let value = parameter(1);
+            let condition = parameter(0);
+            let null = decoder.instruction_range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Null))).unwrap();
+            let fact = |instruction| program.store.scheme_body_facts.iter().position(|fact| fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("optional_choice has a quantified payload") };
+            let params = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+            let marker_type = program.store.scheme_params[params.start + 2].ty;
+            assert_eq!(program.store.scheme_types[marker_type.index()].tag, FullSchemeTypeTag::Parameter);
+            let mut wrong_binder = program.clone();
+            let payload = wrong_binder.store.data[value].range().bounds(wrong_binder.store.extra.len()).unwrap();
+            wrong_binder.store.extra[payload.start] = 2;
+            let value_type = program.store.scheme_body_facts[fact(value)].ty().unwrap();
+            wrong_binder.store.scheme_types[value_type.index()] = program.store.scheme_types[marker_type.index()];
+            let error = FullVerifier::verify(&wrong_binder).unwrap_err();
+            assert!(error.message.contains("return does not match its scheme return"), "{error:?}");
+            let mut foreign_owner = program.clone();
+            foreign_owner.store.scheme_body_facts[fact(value)].function = IrFunctionId::new(other).unwrap();
+            let error = FullVerifier::verify(&foreign_owner).unwrap_err();
+            assert!(error.message.contains("ownership"), "{error:?}");
+            let mut changed_null = program.clone();
+            changed_null.store.tags[null] = program.store.tags[condition];
+            changed_null.store.data[null] = program.store.data[condition];
+            let null_type = program.store.scheme_body_facts[fact(null)].ty().unwrap();
+            let condition_type = program.store.scheme_body_facts[fact(condition)].ty().unwrap();
+            changed_null.store.scheme_types[null_type.index()] = program.store.scheme_types[condition_type.index()];
+            let (null_declaration, null_slot) = decoder.instruction_range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == null => Some((instruction, slot)),
+                _ => None,
+            }).unwrap();
+            let declaration_type = program.store.scheme_body_facts.iter().find(|fact| fact.function == function && fact.instruction as usize == null_declaration && fact.kind() == schemes::FullSchemeBodyFactKind::LocalImmutable).unwrap().ty().unwrap();
+            let read_type = program.store.scheme_body_facts[fact(parameter(null_slot))].ty().unwrap();
+            changed_null.store.scheme_types[declaration_type.index()] = program.store.scheme_types[condition_type.index()];
+            changed_null.store.scheme_types[read_type.index()] = program.store.scheme_types[condition_type.index()];
+            let error = FullVerifier::verify(&changed_null).unwrap_err();
+            assert!(error.message.contains("return does not match its scheme return"), "{error:?}");
+        });
+    }
+
+    #[test]
     fn inferred_failure_only_result_successes_retain_checked_shapes() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture(

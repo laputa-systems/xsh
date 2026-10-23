@@ -286,6 +286,8 @@ type and independently verifies every actual arm. Closed nullable returns
 serialize as ground types; unresolved nullable scheme returns use the existing
 erased return boundary so a Result payload stays data without runtime type
 inspection.
+Generic lowering and cold verification share `T` and `null` assignability to
+`Optional[T]` with the payload's exact binder identity.
 
 `execution::evaluator::checked_body_contracts` consumes one check, captures its
 semantic selections, and prepares the program once without running initialization.
