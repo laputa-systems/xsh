@@ -397,6 +397,7 @@ impl TypeConstraints {
                 let operation = match operation {
                     SealedOperation::TypePredicate { domain, subject: key, .. } => {
                         let key = this.resolve_with_changes(&key, 0, changes)?;
+                        #[cfg(test)] if domain == crate::sema::sealed_operation::TypeDomain::MinMaxItem { eprintln!("aggregate predicate key={key:?}"); }
                         if !domain.may_accept(&key) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }); }
                         if let Type::Inference(variable) = key.unvalidated() {
                             if let Some(record) = this.record_binding(*variable)? {
@@ -407,7 +408,7 @@ impl TypeConstraints {
                                             if !domain.may_accept(ty) { return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: ty.clone() }); }
                                         }
                                     }
-                                    crate::sema::sealed_operation::TypeDomain::CollectItem => {},
+                                    crate::sema::sealed_operation::TypeDomain::CollectItem | crate::sema::sealed_operation::TypeDomain::MinMaxItem => {},
                                     crate::sema::sealed_operation::TypeDomain::CountKey => return Err(SealedOperationError::UnsupportedTypePredicate { domain, subject: key }),
                                 }
                             }

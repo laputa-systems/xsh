@@ -6697,6 +6697,9 @@ impl<'a> ProducerProof<'a> {
             S::First | S::Last | S::Min | S::Max => {
                 let Type::Result(item, error) = expected.unvalidated() else { return Err(IrVerifyError::new("pipeline selection has no result contract")) };
                 if !Type::Error.matches_expected(error) { return Err(IrVerifyError::new("pipeline selection has an incompatible error contract")); }
+                if matches!(last, S::Min | S::Max) && !crate::sema::sealed_operation::TypeDomain::MinMaxItem.accepts(item) {
+                    return Err(IrVerifyError::new("pipeline min/max item has an unsupported canonical domain"));
+                }
                 self.pipeline_prefix(owner, pipeline, position, Arc::new((**item).clone()));
                 Ok(())
             }

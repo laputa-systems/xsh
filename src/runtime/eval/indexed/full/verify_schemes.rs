@@ -3953,6 +3953,7 @@ fn verify_symbolic_argument_evidence(
         if !body_types_equal(actual, &substitution.types[binder]) {
             if source == SymbolicEvidenceSource::Projection { return Ok(()); }
             if source == SymbolicEvidenceSource::Iteration && !scheme_type_contains_any(&substitution.types[binder], budget)? && body_type_matches(actual, &substitution.types[binder], budget)? { return Ok(()); }
+            #[cfg(test)] eprintln!("aggregate symbolic binder={binder} actual={actual:?} substituted={:?}", substitution.types[binder]);
             return Err(IrVerifyError::new("generic type binder disagrees with the checked argument"));
         }
         evidence.insert(binder);
@@ -5611,6 +5612,7 @@ fn verify_scheme_argument_evidence(
                 return Err(IrVerifyError::new("scheme type parameter is out of scope"));
             }
             if substitution.types.get(binder) != Some(actual) {
+                #[cfg(test)] eprintln!("aggregate ground binder={binder} actual={actual:?} substituted={:?}", substitution.types.get(binder));
                 return Err(IrVerifyError::new(
                     "generic type binder disagrees with the checked argument",
                 ));
