@@ -4784,6 +4784,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         RuntimeOp::FsRead => Some("read_bytes"),
                         RuntimeOp::FsExists => Some("exists"),
                         RuntimeOp::FsExecutable => Some("executable"),
+                        RuntimeOp::FsWrite => Some("write"),
+                        RuntimeOp::FsWriteAtomic => Some("write_atomic"),
                         _ => None,
                     };
                     if let (Some(receiver), Some(name), Some(crate::modules::MethodReceiver::Path)) = (receiver, path_operation, plan.receiver) {

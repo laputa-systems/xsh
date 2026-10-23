@@ -35028,6 +35028,107 @@ proc driver() [fs, env, error] -> Bool {
     }
 
     #[test]
+    fn generic_closed_path_writes_preserve_native_abi_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc save_text(token, file: Path) [fs, error] -> Result[Unit] { let _ = token; file.write("text")?; Ok() }
+proc save_bytes(token, file: Path) [fs, error] -> Result[Unit] { let _ = token; file.write(b"\xff\x00")?; Ok() }
+proc save_mode(token, file: Path) [fs, error] -> Result[Unit] { let _ = token; file.write(mode: 0o640, data: b"mode")?; Ok() }
+proc save_atomic(token, file: Path) [fs, error] -> Result[Unit] { let _ = token; file.write_atomic("atomic")?; Ok() }
+proc save_relative(token, file: RelPath) [fs, error] -> Result[Unit] { let _ = token; file.write(data: "relative", mode: 0o600)?; Ok() }
+proc receiver(file: Path, log: Path) [fs, error] -> Result[Path] { log.write("receiver")?; Ok(file) }
+proc data(log: Path) [fs, error] -> Result[Str] { log.write(log.read_text()? + "-data")?; Ok("ordered") }
+proc mode(log: Path) [fs, error] -> Result[Int] { log.write(log.read_text()? + "-mode")?; Ok(0o700) }
+proc save_ordered(token, file: Path, log: Path) [fs, error] -> Result[Unit] {
+  let _ = token
+  (receiver(file, log)?).write(mode: mode(log)?, data: data(log)?)?
+  Ok()
+}
+proc driver() [fs, env, error] -> Bool {
+  tempdir directory {
+    let file = fp"{directory}/payload"
+    save_text(1, file)?
+    assert file.read_text()? == "text"
+    save_text("one", file)?
+    assert file.read_text()? == "text"
+    save_bytes(2, file)?
+    assert file.read_bytes()? == b"\xff\x00"
+    save_bytes("two", file)?
+    assert file.read_bytes()? == b"\xff\x00"
+    let mode_file = fp"{directory}/mode"
+    save_mode(3, mode_file)?
+    assert mode_file.read_bytes()? == b"mode"
+    assert mode_file.metadata()?.mode % 512 == 0o640
+    save_mode("three", mode_file)?
+    let atomic = fp"{directory}/atomic"
+    save_atomic(4, atomic)?
+    assert atomic.read_text()? == "atomic"
+    save_atomic("four", atomic)?
+    let log = fp"{directory}/log"
+    let ordered = fp"{directory}/ordered"
+    save_ordered(5, ordered, log)?
+    assert ordered.read_text()? == "ordered"
+    assert ordered.metadata()?.mode % 512 == 0o700
+    assert log.read_text()? == "receiver-mode-data"
+    save_ordered("five", ordered, log)?
+    assert log.read_text()? == "receiver-mode-data"
+    cd directory {
+      let relative: RelPath = "relative"
+      save_relative(6, relative)?
+      assert relative.read_text()? == "relative"
+      assert relative.metadata()?.mode % 512 == 0o600
+      save_relative("six", relative)?
+    }
+    let missing = fp"{directory}/absent/file"
+    let failure = save_text("missing", missing)
+    let ordinary = missing.write("text")
+    let message = match failure { Err(problem) => problem.message; Ok(_) => "" }
+    assert message != ""
+    assert message == (match ordinary { Err(problem) => problem.message; Ok(_) => "" })
+  }
+  true
+}
+"#;
+            let program = Arc::new(fixture("generic-closed-path-writes.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let decoder = return_analysis_decoder(&program, "save_mode");
+            let instruction = function_instruction_indices(&program, "save_mode", FullTag::ExprModuleCall)[0];
+            let schema::ExprView::ModuleCall { op, args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+            assert_eq!(op, RuntimeOp::FsWrite);
+            let arguments = args.map(|argument| argument.unwrap().unwrap().raw() as usize).collect::<Vec<_>>();
+            assert_eq!(arguments.len(), 3);
+            assert!(!program.store.registered_calls.contains_key(&(instruction as u32)));
+            let operation = program.store.extra[payload_start(&program, instruction)] as usize;
+            for wrong in [RuntimeOp::FsRead, RuntimeOp::FsWriteAtomic] {
+                let mut forged = (*program).clone();
+                forged.store.runtime_ops[operation] = wrong;
+                assert!(FullVerifier::verify(&forged).is_err());
+            }
+            let mut wrong_operands = (*program).clone();
+            wrong_operands.store.data.swap(arguments[1], arguments[2]);
+            assert!(FullVerifier::verify(&wrong_operands).is_err());
+            let mut wrong_plan = (*program).clone();
+            let signature = &crate::modules::api_spec().method_overloads(crate::modules::MethodReceiver::Path, "write").unwrap().iter()
+                .find(|method| method.sig.params.len() == 2 && method.sig.params[0].ty == Type::Bytes).unwrap().sig;
+            wrong_plan.store.registered_calls.insert(instruction as u32, Arc::new(crate::sema::schemes::RegisteredCallPlan {
+                receiver: Some(crate::modules::MethodReceiver::Path), name: Arc::from("write"), signature,
+                argument_slots: Arc::from([1, 0]), argument_checks: Arc::from([None, None]),
+            }));
+            assert!(FullVerifier::verify(&wrong_plan).is_err());
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "driver")),
+                    CallableKind::Proc, &[], Span::at(program.store.source_id, 0),
+                ).expect("write driver exists").unwrap();
+                assert_eq!(result, Value::Bool(true));
+            }
+        });
+    }
+
+    #[test]
     fn generic_path_io_methods_reject_forged_native_contracts() {
         run_with_large_stack(|| {
             let program = fixture("generic-path-io-contracts.xsh", r#"
