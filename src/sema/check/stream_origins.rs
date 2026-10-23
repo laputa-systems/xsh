@@ -676,6 +676,40 @@ mod tests {
     }
 
     #[test]
+    fn same_signature_callback_selection_keeps_the_selected_stream_projection() {
+        use crate::sema::check::Checker;
+        use crate::source::SourceId;
+        use crate::syntax::parser::Parser;
+
+        let source = "type Pair = {left: Stream[Int], right: Stream[Int]}\n\
+            pure left(value: Pair) -> Stream[Int] { value.left }\n\
+            pure right(value: Pair) -> Stream[Int] { value.right }\n\
+            pure select(first, second, value) { second(value) }\n\
+            pure relay(value: Pair) -> Stream[Int] { select(left, right, value) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let declaration = checked.checked_declarations.functions.values()
+            .find(|declaration| declaration.name.as_str().as_str() == "relay")
+            .expect("the forwarding declaration is checked");
+        let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+        let right = crate::symbol::Name::intern("right");
+        let summary = &checked.stream_origin_summaries.declarations[&owner];
+        let expected = [(
+            super::ProjectionPath::default(),
+            super::StreamOrigin::Formal {
+                owner,
+                parameter: 0,
+                projection: super::ProjectionPath(vec![StreamProjection::Field(right)]),
+            },
+        )].into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(summary.returned.0, expected, "the second same-signature callback selects only Pair.right");
+    }
+
+    #[test]
     fn recursive_valueless_procs_keep_their_unit_boundary() {
         for (inferred, authored) in [
             ("proc again() [error, io] { if false { again() } }", "proc again() [error, io] -> Result[Unit] { if false { again() } }"),

@@ -700,6 +700,30 @@ fn record_form_program(source: &str) -> (Arc<crate::runtime::eval::FullProgram>,
 }
 
 #[test]
+fn selected_same_signature_stream_callback_runs_after_frontend_disposal() {
+    let source = r#"
+type Pair = {left: Stream[Int], right: Stream[Int]}
+pure left(value: Pair) -> Stream[Int] { value.left }
+pure right(value: Pair) -> Stream[Int] { value.right }
+pure select(first, second, value) { second(value) }
+pure relay(value: Pair) -> Stream[Int] { select(left, right, value) }
+stream left_values() [] -> Stream[Int] { yield 11 }
+stream right_values() [] -> Stream[Int] { yield 22 }
+let selected = relay({left: left_values(), right: right_values()})
+assert selected.collect() == [22]
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() {
+            evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap_or_else(|error| panic!("frames={force_frames}: {error:?}"));
+        }
+    }
+}
+
+#[test]
 fn materialized_named_callable_arguments_execute_after_frontend_disposal() {
     let source = r#"
 pure identity(payload) { payload }
