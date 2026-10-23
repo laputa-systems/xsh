@@ -5805,9 +5805,6 @@ impl<'a> ProducerProof<'a> {
             self.expression(decoder.owner, value, Arc::new(checked.clone()), false);
             return Ok(true);
         }
-        if super::runtime_complete_storage_check_type(checked, &mut self.budget)?
-            && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
-        { return Ok(true); }
         if let Type::Optional(payload) = actual
             && decoder.checked_type_fits(payload, expected)
         {
@@ -5818,6 +5815,9 @@ impl<'a> ProducerProof<'a> {
                 if result { return Ok(true); }
             }
         }
+        if super::runtime_complete_storage_check_type(checked, &mut self.budget)?
+            && super::initializer_type_matches_annotation(actual, checked, &mut self.budget, 0)?
+        { return Ok(true); }
         Ok(false)
     }
 
