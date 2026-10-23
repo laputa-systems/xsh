@@ -573,9 +573,17 @@ allocations once within that pool.
 
 Prepared applications retain their actual callee, ordered argument domains,
 result, kind, effects, argument layout, and Proc return relationships. A selected
-application must match the actual callable contract. A forwarded application
+layout can still have pending argument constraints. The solver revisits those
+constraints after type or row changes and resolves composite actual arguments
+before constraining them. Publication forwards pending relationships through
+the caller's existing requirement ordinal. Settled applications retain selected
+layouts and must match the actual callable contract. A forwarded application
 must match the caller-owned requirement under the same substitution, including
 its ordinal and all domains. Argument producers establish binder evidence first.
+For a structural callable, an independently supported actual argument can also
+establish its matching parameter binders through the canonical argument layout.
+The existing argument-evidence rules exclude Null, Any and missing defaults
+when they do not establish a payload type.
 An application can then establish result binders only after its callee and input
 binders are established; cyclic requirements cannot establish themselves.
 Fresh empty collection arguments receive a transient closed-domain obligation
@@ -583,6 +591,10 @@ from that proof. The existing producer verifier checks the exact physical call
 operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
+Named callable values materialized inside generic bodies retain their actual
+target, owned value instantiation and symbolic expression type. Their physical
+function reference does not fabricate a ground callable signature. Cold
+verification authenticates the selected target and complete substituted contract.
 Ground and driver Capture/Retry instructions retain required checked Result
 contracts, including explicit Any payloads. Scheme instructions use their owned
 body facts and prepared substitution. Cold verification joins the actual error

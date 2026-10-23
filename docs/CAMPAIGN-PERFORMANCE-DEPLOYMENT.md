@@ -12,7 +12,7 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
-Current combined source `2da01f69b` completes the full Rust library run:
+The latest combined replay uses source `2da01f69b` and completes the full Rust library run:
 2,183 pass, one fails, and three remain ignored. Its log is
 `.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
 The sole failure is the known UInt-map error-contract control. The earlier
@@ -58,8 +58,19 @@ Comparison memoizes completed relationship pairs. Rendering expands each
 relationship once and uses local labels for later references. Nine XSH library
 controls and two XSHT comparison controls pass. Independent comparison review
 and parent rendering review are clear. `docs/XSHT.md` documents the new
-declaration accessor and diagnostic labels. Separately reproduced named-callable
-argument admission and pure-forwarding provenance gaps remain open.
+declaration accessor and diagnostic labels.
+
+Materialized callable repair `2675cfb92`, integrated as `dce4fed2c`, passes
+twelve focused controls and the unchanged pure-forwarding regression. Named
+references retain actual value-instantiation proof, pending application
+relationships forward until settled, and independently supported inputs establish
+dependent callback binders. Runtime controls execute nested Results on both
+routes after frontend disposal. Cold ownership, target, substitution, cycle,
+Null, Any and phantom-binder mutations reject. Independent review is clear.
+The corrected forwarding proof also closes the provenance failure without a
+new stream-origin mechanism. This later integration needs a combined replay.
+A pristine system-report fixture now exposes a separate record-field proof
+failure before execution. Its new orchestration test has no behavior credit.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
