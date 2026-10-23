@@ -30,8 +30,13 @@ catalog selectors pass. Their logs and detail directories are under that
 checkout's `.work/tmp/parameter-context-native-{normal,forced,api}`. These
 results establish this capability boundary, not corpus or final qualification.
 
-The original corpus now passes the require-target check, then its first
-system-report selector stops at a missing ground RecordUpdate proof. The
+The original corpus passes the require-target check. Ground RecordUpdate
+repair `3d62c73c2`, integrated as `b1c26aeb3`, proves the actual base and every
+replacement against existing field paths. Eight focused controls pass and
+independent review is clear. The original system-report module then reaches
+a separate checked-field mismatch: a List of records preserves its nominal
+tag but changes a Null field to its declared Optional type. That repair is
+in progress. Neither result qualifies the complete original module. The
 historical 1,040-removal cohort alone also fails on the preceding `f87c6d69a`
 products with seven diagnostics: one list splice, one arithmetic generalization,
 two sort keys and three cold generic-argument builds. Additional Proc/effect
