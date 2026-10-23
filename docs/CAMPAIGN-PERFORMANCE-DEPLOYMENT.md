@@ -133,6 +133,47 @@ mechanical module-index adaptations at that source distinguish ordinary keys
 from negative literal operands. Matching verification products and complete
 native/API replay remain pending; this is not global compiler qualification.
 
+Matching `30d36decd` products subsequently execute 140 native selectors in
+each mode: 135 pass, five fail, none skip, and both failure sets match. All
+prior 138 selectors remain, with two new Index/Slice positives. Five of six
+API selectors pass. The remaining API inventory omits the already integrated
+`crypto.ed25519_verify` and `net.validate_root_bundle`; `669396bf9` refreshes
+only those entries and their counts against the matching tool's exact output.
+The five native failures concern optional empty-list fallback composition,
+generic guards/loops, open-record overrides, an Index diagnostic code, and
+returned mutable-callable inference. New matching-product replay remains
+required after their repairs.
+
+Inferred Proc returns at `a1d299c7c`, integrated as `8da279d6e`, preserve
+callable values when the expected type is only an inference placeholder.
+Authored annotations and constructor error contexts remain binding. A checker
+control and expanded Full IR control pass; the latter executes returned
+captured Procs, both generic return branches and explicit contracts on both
+routes. Independent source review is clear. The mutable-capture fixture now
+supplies its monomorphic element type from actual initial state and explicitly
+returns the Proc, avoiding an unrelated empty-cell and command-syntax failure.
+The SPEC template is updated; combined generation and native replay remain.
+
+Open-record overrides at `4fd5c2400`, integrated as `5be8c8cd6`, pass all ten
+focused controls with independent review clear. The existing operation authority
+retains ordered replacements and a distinct output remainder, preserving unknown
+fields and changed-type collisions without restricting input labels. Cold proof
+derives known fields and exact closed results independently. A coordinated
+uncalled-body forgery was accepted before that proof repair and now rejects.
+Full rebuilds and duplicate/shorthand evaluation order pass on both routes.
+The private operation enum and physical rows retain their previous maximum
+sizes; owned field arrays are included in solver and scheme memory accounting.
+SPEC-template and Architecture changes are integrated. Full gates remain open.
+
+The full Rust library attempt at `30d36decd` selects 2,157 tests but aborts on
+a test-thread stack overflow after reporting twelve failures; it has no completed
+suite result. Fixture repair `71a743b79`, integrated as `ab4fc9aa9`, passes its
+eleven focused corruption controls across bounded runs. They target the actual
+type payload after the check discriminator, preserve canonical table ordering,
+and reject real source/contract mutations. The aborting fixture passes with the
+suite's existing scoped stack helper. No production policy is relaxed. The
+separate valid imported-function fixture and a complete library run remain open.
+
 Generic Index and Slice at `48b66343f`, integrated as `8cfbceb34`, pass all
 twenty focused controls with independent review clear. Inputs select List,
 Map, constant Record/Module and slice domains; negative literals retain their
