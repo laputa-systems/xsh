@@ -10583,12 +10583,12 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_index_result_type(&self, base: usize, index: Option<usize>) -> Result<Type, IrVerifyError> {
-        let Some(base_type) = self.expression_checked_type_id(base)? else {
-            return Err(IrVerifyError::new(
-                "callable index producer is missing its checked base type",
-            ));
+        let base_type = match self.expression_checked_type_id(base)? {
+            Some(base_type) => self.store.semantic.to_type(base_type)?,
+            None => self.derive_checked_expression_type(base)?.ok_or_else(|| {
+                IrVerifyError::new("callable index producer is missing its checked base type")
+            })?,
         };
-        let base_type = self.store.semantic.to_type(base_type)?;
         if base_type == Type::Any
             && let Some(prefix) = &self.producer_prefix
             && let Some(narrowed) = prefix.runtime_list_read_type(self, base)?
@@ -22693,6 +22693,100 @@ pure keep(value, state: State) {
             payload.store.blocks[block.index()].instructions = IrRange::new(start, 2);
             for step in &mut payload.store.driver_steps { step.instruction_start = end + 1; }
             assert_eq!(FullVerifier::verify(&payload).unwrap_err().message, "generic nullary tag producer has payload fields");
+        });
+    }
+
+    #[test]
+    fn nested_index_writers_authenticate_derived_collection_bases() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("nested-index-writers.xsh", r#"
+pure first() -> Int {
+    let _ = "wrong"
+    var values: List[List[List[Int]]] = [[[7]]]
+    if values[0].is_empty() or values[0][0].len() >= 2 {
+        values[0] = [[9], @values[0]]
+    } else {
+        values[0][0] = [@values[0][0], 8]
+    }
+    identity(values[0][0][0]) + values[0][0].len()
+}
+pure identity(value) { value }
+pure triple(input: List[List[List[Int]]]) -> Int { input[0][0][0] }
+assert first() == 9
+assert triple([[[7]]]) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let owner = scheme_fixture_root_function(&program, "first");
+            let decoder = function_view_decoder(&program.store, owner);
+            let text = function_instruction_indices(&program, "first", FullTag::ExprStr)[0];
+            let key = function_instruction_indices(&program, "first", FullTag::ExprIndex).into_iter().find_map(|instruction| {
+                let schema::ExprView::Index { index, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                index.ordinary().map(|key| key.raw() as usize)
+            }).unwrap();
+            let mut wrong_key = (*program).clone();
+            wrong_key.store.tags[key] = program.store.tags[text];
+            wrong_key.store.data[key] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_key).is_err());
+            let value = function_instruction_indices(&program, "first", FullTag::ExprInt).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Int(7))
+            }).unwrap();
+            let mut wrong_source = (*program).clone();
+            wrong_source.store.tags[value] = program.store.tags[text];
+            wrong_source.store.data[value] = program.store.data[text];
+            wrong_source.store.in_place.take();
+            FullVerifier::verify(&wrong_source).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::new(wrong_source.clone()));
+                let error = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "first")), CallableKind::Pure,
+                    &[], Span::at(program.store.source_id, 0),
+                ).unwrap().unwrap_err();
+                assert_eq!(error.kind, "type-error");
+            }
+            let checked = decoder.instruction_range.clone().find_map(|instruction| {
+                let Ok(schema::StmtView::Let { value, annotation: Some(_), .. }) = decoder.statement_view(instruction) else { return None };
+                let root = value.raw() as usize;
+                let schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(_), span } = decoder.expression_view(root).unwrap() else { return None };
+                Some((root, value, span))
+            }).unwrap();
+            let mut leaf = checked.1.raw() as usize;
+            for _ in 0..3 {
+                let schema::ExprView::List(mut children) = decoder.expression_view(leaf).unwrap() else { panic!("initializer must retain its physical nested lists") };
+                leaf = children.next().unwrap().unwrap().raw() as usize;
+            }
+            assert_eq!(leaf, value);
+            let mut builder = FullBuilder::new(wrong_source.store.source_id);
+            builder.store = wrong_source.store;
+            let mut payload = Vec::new();
+            payload.push(checked.1.raw());
+            Option::<BuildExprId>::None.encode(&mut builder, &mut payload).unwrap();
+            Option::<BuildExprId>::None.encode(&mut builder, &mut payload).unwrap();
+            checked.2.encode(&mut builder, &mut payload).unwrap();
+            builder.store.tags[checked.0] = FullTag::ExprSlice;
+            builder.store.data[checked.0] = IrData::from_range(builder.push_extra(&payload).unwrap());
+            let mut unchecked_source = (*program).clone();
+            unchecked_source.store = builder.store;
+            unchecked_source.store.in_place.take();
+            let failure = FullVerifier::verify(&unchecked_source).unwrap_err();
+            assert_eq!(failure.message, "ground producer value disagrees with its checked contract");
+            let mut wrong_storage = (*program).clone();
+            let stored = program.store.functions[owner].slot_type_facts.bounds(program.store.slot_type_facts.len()).unwrap();
+            let slot = stored.clone().find(|&slot| TypeId::from_raw(program.store.slot_type_facts[slot]).is_some_and(|id| {
+                program.store.semantic.to_type(id).unwrap() == Type::List(Box::new(Type::List(Box::new(Type::List(Box::new(Type::Int))))))
+            })).unwrap();
+            let false_type = SemanticPoolBuilder::default().intern_type(&mut wrong_storage.store.semantic, &Type::List(Box::new(Type::List(Box::new(Type::List(Box::new(Type::Str))))))).unwrap();
+            wrong_storage.store.slot_type_facts[slot] = false_type.raw();
+            assert!(FullVerifier::verify(&wrong_storage).is_err());
         });
     }
 
