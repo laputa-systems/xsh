@@ -2085,6 +2085,7 @@ tempdir site { assert publish(site)? == 4 }
 fn tempdir_cleanup_propagation_requires_error_unless_captured() {
     on_large_stack(|| {
         let source = r#"
+let incorrect_payload: Str = "wrong"
 proc declared_at(target: Path) [fs, error] -> Result[Int] {
     tempdir scratch at target { 1 }
 }
@@ -2171,7 +2172,21 @@ tempdir parent {
 
         let mut missing = program.clone();
         missing.store.checked_expr_types.retain(|fact| fact.instruction as usize != propagated_tempdir);
-        assert!(FullVerifier::verify(&missing).unwrap_err().message.contains("captured propagation"));
+        FullVerifier::verify(&missing).unwrap();
+        execute_both(&missing);
+
+        let payload = program.store.function_instruction_range(retried).unwrap().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(1)))
+        }).unwrap();
+        let wrong_payload = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
+        let mut wrong_producer = missing.clone();
+        wrong_producer.store.tags[payload] = FullTag::ExprStr;
+        wrong_producer.store.data[payload] = program.store.data[wrong_payload];
+        let error = FullVerifier::verify(&wrong_producer).unwrap_err();
+        assert!(error.message.contains("producer") || error.message.contains("contract"), "{error:?}");
+
+        let missing_effect = without_effect(&missing, function(&missing, "declared_at"), Effect::Error);
+        assert!(FullVerifier::verify(&missing_effect).unwrap_err().message.contains("requires effect error"));
 
         let mut forged = program.clone();
         let wrong_result = SemanticPoolBuilder::default().intern_type(
