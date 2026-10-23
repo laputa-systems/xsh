@@ -3379,6 +3379,12 @@ and defaulted schema obligations remain constrained. Removing a return
 annotation that selects `UInt` conversion or `Result` wrapping changes source
 meaning and does not qualify as an equivalent erasure.
 
+A candidate `Result` return can have a narrower error under the existing
+callable return rule after the same parameter instance resolves its exact
+success type. This does not admit a different success domain, an unresolved
+error, a bare `Error` return, or a removed `Result` wrapper. Body comparison
+retains each error constructor's canonical family and variant identity.
+
 Local initializer comparison can project a redundant implicit structural check
 when both views independently establish the same stored type and initializer
 type, and all checked operations and effects remain unchanged. A canonical

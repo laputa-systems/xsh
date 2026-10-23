@@ -359,7 +359,7 @@ struct NodeSelection {
     arguments: Option<(Option<usize>, Vec<usize>)>,
     variant: Option<InferredVariant>,
     pattern_variant: Option<InferredVariantPattern>,
-    error_constructor: Option<CheckedErrorConstructor>,
+    error_constructor: Option<(CheckedErrorConstructor, Type)>,
     from_end: Option<u32>,
     stage: Option<(Type, Type)>,
     stage_kind: Option<StreamStageKind>,
@@ -1013,7 +1013,12 @@ impl Capture<'_> {
             projection: checked.projections.get(&span).cloned(), typed_call: checked.typed_callable_calls.get(&span).cloned(), user_call, alias,
             arguments: checked.argument_bindings.get(&span).map(|binding| (binding.callable_entry, binding.argument_slots.clone())),
             variant: checked.inferred_variants.get(&span).cloned(), pattern_variant: checked.inferred_variant_patterns.get(&span).cloned(),
-            error_constructor: checked.error_constructors.get(&span).cloned(), from_end: checked.from_end_indexes.get(&span).copied(),
+            error_constructor: checked.error_constructors.get(&span).map(|constructor| {
+                let identity = checked.expr_types.get(&span)
+                    .filter(|ty| matches!(ty, Type::ErrorVariant { .. }))
+                    .ok_or(BodyContractError::UnsupportedSelection(span))?;
+                Ok((constructor.clone(), identity.clone()))
+            }).transpose()?, from_end: checked.from_end_indexes.get(&span).copied(),
             stage: checked.stream_stage_types.get(&(namespace, span)).map(|stage| (stage.input.clone(), stage.output.clone())),
             stage_kind: None,
             handler_input: checked.handler_input_types.get(&span).cloned(), position: checked.statement_positions.get(&span).copied(), control,

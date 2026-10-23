@@ -302,8 +302,9 @@ impl CheckedCallableContract {
             && equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
     }
 
-    /// Tests whether this concrete contract is an exact instance of the given
-    /// scheme, preserving labels, layout, schema identities, and effects.
+    /// Tests whether this concrete contract is an instance of the given scheme,
+    /// preserving labels, layout, schemas, parameter and success types, and
+    /// effects. A resolved Result error may narrow under callable return rules.
     /// Returns an error when the original is generic or the comparison cannot
     /// establish a resolved instance. An error does not establish a mismatch.
     pub fn is_instance_of(&self, generalized: &Self) -> Result<bool, ContractComparisonError> {
@@ -345,11 +346,19 @@ impl CheckedCallableContract {
         let origin = Span::at(SourceId::new(0), 0);
         let instance = constraints.instantiate_callable(generalized.scheme.callable(), 1, origin, crate::sema::constraints::CallableApplicationScope::Invocation)
             .map_err(|_| ContractComparisonError::UnsupportedContract)?;
-        let instantiated = instance.params.iter().chain(std::iter::once(&instance.return_type));
-        for (expected, actual) in instantiated.clone().zip(&ground) {
+        for (expected, actual) in instance.params.iter().zip(&ground) {
             constraints.constrain_annotation(expected, actual, origin)
                 .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         }
+        let original_return = ground.last().ok_or(ContractComparisonError::UnsupportedContract)?;
+        let constrained_return = constraints.resolve(&instance.return_type).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        let (expected_return, actual_return) = match (&constrained_return, original_return) {
+            (Type::Result(expected_success, _), Type::Result(actual_success, _)) =>
+                (expected_success.as_ref(), actual_success.as_ref()),
+            (expected, actual) => (expected, actual),
+        };
+        constraints.constrain_annotation(expected_return, actual_return, origin)
+            .map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         constraints.solve_callable_applications().map_err(|_| ContractComparisonError::CannotEstablishConstraints)?;
         let expected_effects = constraints.instantiate_effect_contract(generalized.scheme.effects(), &instance)
             .map_err(|_| ContractComparisonError::UnresolvedInstance)?;
@@ -361,10 +370,19 @@ impl CheckedCallableContract {
         }
         constraints.finish_effect_constraints().map_err(|_| ContractComparisonError::UnresolvedInstance)?;
         if constraints.resolve_effect(expected_effects.contract()).map_err(|_| ContractComparisonError::UnresolvedInstance)? != actual_effects { return Ok(None); }
-        for (expected, actual) in instantiated.zip(&ground) {
+        for (expected, actual) in instance.params.iter().zip(&ground) {
             let resolved = constraints.resolve(expected).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
             if &resolved != actual { return Ok(None); }
         }
+        let resolved_return = constraints.resolve(&instance.return_type).map_err(|_| ContractComparisonError::UnresolvedInstance)?;
+        if resolved_return.contains_recovery() || resolved_return.contains_inference() {
+            return Err(ContractComparisonError::UnresolvedInstance);
+        }
+        if resolved_return != *original_return && !matches!((&resolved_return, original_return),
+            (Type::Result(actual_success, _), Type::Result(expected_success, _))
+                if actual_success == expected_success
+                    && crate::sema::types::callable_return_fits(&resolved_return, original_return))
+        { return Ok(None); }
         Ok(Some(CallableInstanceEvidence { constraints, instance, scheme: Arc::clone(&generalized.scheme), origin }))
     }
 
@@ -868,6 +886,61 @@ mod tests {
         assert!(original.is_instance_of(&inferred).unwrap());
         assert!(!original.equivalent_to(&other));
         assert!(!original.is_instance_of(&other).unwrap_or(false));
+    }
+
+    #[test]
+    fn result_return_instance_preserves_existing_callable_error_compatibility() {
+        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        let original = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) -> Result[Str] {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
+        let inferred = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
+        assert!(original.is_instance_of(&inferred).unwrap());
+        let owner = SymbolOwner::new();
+        owner.with_current(|| {
+            let binder = SchemeTypeParameterId(7);
+            let original = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Ground(Type::Str))],
+                SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error))),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            let inferred = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Ground(Type::ErrorVariant {
+                    family: Name::intern("Failure"), variant: Name::intern("Bad"),
+                }))), vec![binder], Vec::new(), Some(Vec::new()));
+            assert!(inferred.is_generic());
+            assert!(original.is_instance_of(&inferred).unwrap());
+            let narrow = Type::Result(Box::new(Type::Str), Box::new(Type::ErrorVariant {
+                family: Name::intern("Failure"), variant: Name::intern("Bad"),
+            }));
+            let original_identity = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Ground(narrow))],
+                SchemeType::Result(Box::new(SchemeType::Ground(Type::Str)), Box::new(SchemeType::Ground(Type::Error))),
+                Vec::new(), Vec::new(), Some(Vec::new()));
+            let generic_identity = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))], SchemeType::Parameter(binder),
+                vec![binder], Vec::new(), Some(Vec::new()));
+            assert!(original_identity.is_instance_of(&generic_identity).unwrap());
+            let error = SchemeTypeParameterId(8);
+            let unresolved = instance_contract(&owner,
+                vec![instance_parameter(SchemeType::Parameter(binder))],
+                SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Parameter(error))),
+                vec![binder, error], Vec::new(), Some(Vec::new()));
+            assert_eq!(original.is_instance_of(&unresolved), Err(ContractComparisonError::UnresolvedInstance));
+        });
+    }
+
+    #[test]
+    fn result_error_compatibility_retains_bare_errors_families_and_wrapping() {
+        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        for (original, candidate) in [
+            ("pure describe() -> Error { Failure.Bad(\"bad\") }\n", "pure describe() { Failure.Bad(\"bad\") }\n"),
+            ("pure describe(ok: Bool) -> Result[Str, Failure] { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n", "pure describe(ok: Bool) { guard ok else { return Err(Other.Wrong(\"bad\")) }; \"yes\" }\n"),
+            ("pure describe(ok: Bool) -> Result[Any] { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n", "pure describe(ok: Bool) { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n"),
+            ("pure describe() -> Result[Str] { \"yes\" }\n", "pure describe() { \"yes\" }\n"),
+        ] {
+            let original = root_schema_contract(&format!("{declarations}{original}"));
+            let candidate = root_schema_contract(&format!("{declarations}{candidate}"));
+            assert!(!original.is_instance_of(&candidate).unwrap_or(false));
+        }
     }
 
     #[test]
