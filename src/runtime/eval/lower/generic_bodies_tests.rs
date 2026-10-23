@@ -700,6 +700,28 @@ fn record_form_program(source: &str) -> (Arc<crate::runtime::eval::FullProgram>,
 }
 
 #[test]
+fn materialized_named_callable_arguments_execute_after_frontend_disposal() {
+    let source = r#"
+pure identity(payload) { payload }
+proc keep(action, value) { let _ = action(value); value }
+proc nested(value) { let wrapped = Ok(value); keep(identity, wrapped) }
+proc explicit(value) { let wrapped = Ok(value); return keep(identity, wrapped) }
+proc formal(action, value) { let wrapped = Ok(value); keep(action, wrapped) }
+assert (nested(7)?)? == 7
+assert (nested("value")?)? == "value"
+assert (explicit(8)?)? == 8
+assert (formal(identity, "formal")?)? == "formal"
+"#;
+    let (program, sources, source_id) = record_form_program(source);
+    for force_frames in [false, true] {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator.force_frames = force_frames;
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(source_id, 0)).unwrap().unwrap(); }
+    }
+}
+
+#[test]
 fn generic_optional_row_empty_fallbacks_execute_after_frontend_disposal() {
     let source = r#"
 type IntRow = {items: List[Int]}

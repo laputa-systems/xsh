@@ -1447,6 +1447,41 @@ mod tests {
     }
 
     #[test]
+    fn materialized_named_callable_values_require_owned_instances_and_targets() {
+        let program = prepare("pure identity(payload) { payload }\npure other(payload) { [payload] }\nproc keep(action, value) { let _ = action(value); value }\nproc relay(value) { let wrapped = Ok(value); keep(identity, wrapped) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "relay").unwrap();
+        let other = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "other").unwrap();
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        let instruction = range.find(|&instruction| program.store.tags[instruction] == super::super::super::FullTag::ExprFunctionRef).unwrap();
+        let instance = program.store.call_instantiations.iter().position(|instance| instance.instruction as usize == instruction).unwrap();
+        let target = program.store.checked_call_targets.iter().position(|target| target.instruction as usize == instruction).unwrap();
+        let fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == instruction && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut missing_instance = program.clone();
+        missing_instance.store.call_instantiations.remove(instance);
+        assert!(FullVerifier::verify(&missing_instance).is_err());
+        let mut missing_target = program.clone();
+        missing_target.store.checked_call_targets.remove(target);
+        assert!(FullVerifier::verify(&missing_target).is_err());
+        let mut foreign_owner = program.clone();
+        foreign_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(other).unwrap();
+        assert!(FullVerifier::verify(&foreign_owner).is_err());
+        let mut missing_fact = program.clone();
+        remove_scheme_body_fact(&mut missing_fact, fact);
+        assert!(FullVerifier::verify(&missing_fact).is_err());
+        let mut wrong_target = program.clone();
+        wrong_target.store.extra[program.store.data[instruction].range().start as usize] = IrFunctionId::new(other).unwrap().raw();
+        assert!(FullVerifier::verify(&wrong_target).is_err());
+        let mut coordinated_target = wrong_target;
+        coordinated_target.store.checked_call_targets[target].function = IrFunctionId::new(other).unwrap();
+        assert!(FullVerifier::verify(&coordinated_target).is_err());
+        let argument = program.store.call_instantiations[instance].arguments.type_arguments.start as usize;
+        let ty = program.store.call_type_arguments[argument].ty;
+        let mut foreign_substitution = program.clone();
+        foreign_substitution.store.scheme_types[ty.index()].first = u32::MAX;
+        assert!(FullVerifier::verify(&foreign_substitution).is_err());
+    }
+
+    #[test]
     fn generic_scheme_value_calls_authenticate_owned_sources_and_bindings() {
         let program = prepare("pure items(maybe) { maybe?.items ?? [] }\npure other(maybe) { maybe?.other ?? [] }\npure relay(maybe) { let lookup = items; lookup(maybe) }\npure foreign(maybe) { let lookup = other; lookup(maybe) }\npure direct(maybe, wrong) { items(maybe) }\n");
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "relay").unwrap();

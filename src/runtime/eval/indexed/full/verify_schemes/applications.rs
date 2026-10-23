@@ -236,6 +236,55 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
+    if let ApplicationSubstitution::Ground(substitution) = substitution {
+        for application in applications {
+            budget.charge(1)?;
+            let node = store.scheme_type(application.callee)?;
+            if node.tag != FullSchemeTypeTag::Callable { continue; }
+            let callable = store.scheme_callable_monotype(node.first)?;
+            let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
+            let arguments = bounded(application.arguments, &store.scheme_application_arguments, "scheme application argument range is invalid")?;
+            budget.charge(parameters.len() + arguments.len())?;
+            let layout = parameters.iter().map(|parameter| Ok(ArgumentParameterLayout {
+                name: Name::intern(store.string(parameter.name)?), defaulted: parameter.flags & 2 != 0, rest: parameter.flags & 1 != 0,
+            })).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            let span = crate::source::Span::at(store.source_id, 0);
+            let kinds = arguments.iter().map(|argument| Ok(match argument.kind {
+                FullApplicationArgumentKind::Positional => StaticArgumentKind::Positional,
+                FullApplicationArgumentKind::Named(name) => StaticArgumentKind::Named(Name::intern(store.string(name)?)),
+                FullApplicationArgumentKind::Splice => StaticArgumentKind::Splice,
+            })).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            let binding = crate::sema::arguments::bind_parameter_layout(&layout, kinds.iter().map(|&kind| (kind, span)))
+                .map_err(|_| IrVerifyError::new("application input evidence has an invalid argument layout"))?;
+            for ((argument, kind), slot) in arguments.iter().zip(kinds).zip(binding.argument_slots) {
+                budget.charge(1)?;
+                let parameter = &parameters[slot];
+                let expected = if parameter.flags & 1 != 0 && kind != StaticArgumentKind::Splice {
+                    match scheme_list_item(store, parameter.ty, &mut budget.semantic_types)? {
+                        SchemeTypeExpectation::Encoded(item) => item,
+                        SchemeTypeExpectation::Ground(_) => continue,
+                    }
+                } else { parameter.ty };
+                let actual = instantiate_scheme_type(store, scope, argument.ty, substitution, budget, 0)?;
+                let mut projected = SchemeBinderEvidence::default();
+                verify_scheme_argument_evidence(store, scope, expected, &actual, substitution, &mut projected, budget, 0)?;
+                let output = projected.types.into_iter().map(|binder| (false, binder)).chain(projected.rows.into_iter().map(|binder| (true, binder))).collect::<BTreeSet<_>>();
+                if output.is_empty() { continue; }
+                let (types, rows) = scheme_type_binders(store, argument.ty, budget)?;
+                let ordinal = outputs.len();
+                let mut missing = 0;
+                for key @ (row, binder) in types.into_iter().map(|binder| (false, binder)).chain(rows.into_iter().map(|binder| (true, binder))) {
+                    budget.charge(1)?;
+                    if if row { evidence.rows.contains(&binder) } else { evidence.types.contains(&binder) } { continue; }
+                    watchers.entry(key).or_default().push(ordinal);
+                    missing += 1;
+                }
+                remaining.push(missing);
+                outputs.push(output);
+                if missing == 0 { ready.push(ordinal); }
+            }
+        }
+    }
     for parameter in bounded(scheme.type_parameters, &store.scheme_type_parameters, "scheme type parameter range is invalid")?.iter().filter(|_| selected_sources) {
         let Some(iteration) = parameter.iteration()? else { continue };
         budget.charge(1)?;
@@ -464,6 +513,45 @@ mod tests {
             let mut evidence = initial();
             extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Identity, &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
             assert_eq!(evidence.types, BTreeSet::from([0, 1]));
+        });
+    }
+
+    #[test]
+    fn prepared_structural_applications_require_rooted_argument_evidence() {
+        SymbolOwner::new().with_current(|| {
+            let input = SchemeType::Parameter(SchemeTypeParameterId(10));
+            let payload = SchemeType::Parameter(SchemeTypeParameterId(11));
+            let infer = |parameter: SchemeType, actual: SchemeType, result: SchemeType, types: Vec<Type>, initial: BTreeSet<usize>| {
+                let span = Span::at(SourceId::new(0), 0);
+                let application = CallableApplication {
+                    callee: SchemeType::Callable { kind: CallableKind::Pure, monotype: Arc::new(CallableMonotype::new(vec![SchemeParameter {
+                        name: Name::intern("payload"), ty: parameter, schema_expectation: None, defaulted: false, rest: false,
+                    }], result.clone(), None)), effects: EffectContract::finite(EffectSet::default()) },
+                    arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: actual, span }].into(),
+                    result: result.clone(), effects: EffectContract::finite(EffectSet::default()), proc_returns: Arc::from([]), kind: CallableKindRequirement::Pure, span,
+                };
+                let callable = CallableScheme::new((10..10 + types.len() as u32).map(SchemeTypeParameterId).collect(), Vec::new(), vec![SchemeParameter {
+                    name: Name::intern("value"), ty: input.clone(), schema_expectation: None, defaulted: false, rest: false,
+                }], result, None, false, CallableRequirements { applications: vec![application], ..CallableRequirements::default() }).unwrap();
+                let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
+                let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
+                let id = builder.intern_scheme(&scheme).unwrap();
+                let scheme = *builder.store.scheme(id).unwrap();
+                let substitution = CallSubstitution { types, rows: Vec::new(), effects: Vec::new() };
+                let mut evidence = SchemeBinderEvidence { types: initial, rows: BTreeSet::new() };
+                extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+                evidence.types
+            };
+            let wrapped = SchemeType::Result(Box::new(input.clone()), Box::new(SchemeType::Ground(Type::Error)));
+            for item in [Type::Int, Type::Str] {
+                let types = vec![item.clone(), Type::Result(Box::new(item), Box::new(Type::Error))];
+                assert_eq!(infer(payload.clone(), wrapped.clone(), payload.clone(), types.clone(), BTreeSet::from([0])), BTreeSet::from([0, 1]));
+                assert!(infer(payload.clone(), wrapped.clone(), payload.clone(), types, BTreeSet::new()).is_empty());
+            }
+            assert_eq!(infer(SchemeType::Optional(Box::new(payload.clone())), SchemeType::Ground(Type::Null), payload.clone(), vec![Type::Int, Type::Int], BTreeSet::from([0])), BTreeSet::from([0]));
+            assert_eq!(infer(SchemeType::List(Box::new(payload.clone())), SchemeType::Ground(Type::Any), payload.clone(), vec![Type::Int, Type::Int], BTreeSet::from([0])), BTreeSet::from([0]));
+            assert_eq!(infer(payload.clone(), payload.clone(), payload.clone(), vec![Type::Int, Type::Int], BTreeSet::from([0])), BTreeSet::from([0]));
+            assert_eq!(infer(payload, wrapped, SchemeType::Parameter(SchemeTypeParameterId(12)), vec![Type::Int, Type::Result(Box::new(Type::Int), Box::new(Type::Error)), Type::Str], BTreeSet::from([0])), BTreeSet::from([0, 1]));
         });
     }
 

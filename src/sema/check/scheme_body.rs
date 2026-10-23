@@ -445,10 +445,11 @@ pub(super) fn is_body_expression(
         }
         match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(_) | ArenaExprKind::Item => {
-                let named_scheme = matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(_))
+                let named_callable = matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(_))
                     && checked_operations.contains(&program.arena.expr(expression).span)
-                    && matches!(types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::SchemeCallable(_)));
-                if !named_scheme && !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
+                    && types.get(&expression).is_some_and(|ty| matches!(ty, crate::sema::schemes::SchemeType::Callable { .. })
+                        || matches!(ty.closed_ground_type(), Some(crate::sema::types::Type::SchemeCallable(_) | crate::sema::types::Type::Callable(_))));
+                if !named_callable && !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {
@@ -973,6 +974,36 @@ mod ordinary_body_tests {
         let calls = "let failed: Result[Int, Str] = Err(\"kept\")\nlet present: Result[Int, Str]? = failed\nlet kept: Result[Int, Str] = optional_fallback(present, Ok(0))\nlet recovered: Int = result_fallback(failed, 0)";
         accepts("pure optional_fallback(value: Result[Int, Str]?, backup: Result[Int, Str]) -> Result[Int, Str] { value ?? backup }\npure result_fallback(value: Result[Int, Str], backup: Int) -> Int { value ?? backup }", calls);
         accepts("pure fallback(value, backup) { value ?? backup }", "let failed: Result[Int, Str] = Err(\"kept\")\nlet present: Result[Int, Str]? = failed\nlet kept: Result[Int, Str] = fallback(present, Ok(0))\nlet recovered: Int = fallback(failed, 0)");
+    }
+
+    #[test]
+    fn materialized_named_callable_pure_forwarders_preserve_origin_boundaries() {
+        let definition = "pure identity(payload) { payload }\npure apply(action, value) { action(value) }";
+        for body in ["apply(identity, value)", "return apply(identity, value)"] {
+            accepts(&format!("{definition}\npure relay(value) {{ {body} }}"), "let number: Int = relay(7)\nlet text: Str = relay(\"value\")");
+        }
+    }
+
+    #[test]
+    fn materialized_named_callable_arguments_preserve_generic_body_admission() {
+        let definition = "pure identity(payload) { payload }\nproc keep(action, value) { let _ = action(value); value }";
+        for body in ["keep(identity, wrapped)", "return keep(identity, wrapped)"] {
+            accepts(&format!("{definition}\nproc relay(value) {{ let wrapped = Ok(value); {body} }}"), "let number: Result[Result[Int]] = relay(7)\nlet text: Result[Result[Str]] = relay(\"value\")");
+        }
+        accepts(&format!("{definition}\nproc relay(action, value) {{ let wrapped = Ok(value); keep(action, wrapped) }}"), "let number: Result[Result[Int]] = relay(identity, 7)\nlet text: Result[Result[Str]] = relay(identity, \"value\")");
+    }
+
+    #[test]
+    fn materialized_named_callable_arguments_preserve_effect_and_dynamic_rejections() {
+        for source in [
+            "proc effect(payload) [env] { let home = env.get(\"HOME\"); payload }\npure apply(action, value) { action(value) }\npure relay(value) { apply(effect, value) }\nlet number = relay(7)\n",
+            "pure apply(action, value) { action(value) }\npure relay(action: Any, value) { apply(action, value) }\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error), "{source}");
+        }
     }
 
     #[test]

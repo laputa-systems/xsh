@@ -417,6 +417,7 @@ impl Checker {
                 })
                 .collect::<super::FxHashSet<_>>();
             let mut checked_operations = generalized_body_types.keys().filter_map(|&expression| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
@@ -435,6 +436,27 @@ impl Checker {
                     && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_))
+                    || self.resolved_bindings.expressions.contains_key(&expression)
+                { return None; }
+                let span = program.arena.expr(expression).span;
+                if !self.selected_function_value_references.contains(&span) { return None; }
+                let target = self.selected_function_calls.get(&span)?;
+                generalized_calls.get(&crate::sema::schemes::InstantiationSite::value(span))?.invocation()?;
+                let (kind, known_effects) = match ty {
+                    crate::sema::schemes::SchemeType::Callable { kind, effects, .. } => (*kind, matches!(effects, crate::sema::effects::EffectContract::Known(_))),
+                    crate::sema::schemes::SchemeType::Ground(Type::Callable(callable)) => (callable.kind, matches!(callable.sig.effects.contract(), crate::sema::effects::EffectContract::Known(_))),
+                    _ => return None,
+                };
+                let definition = program.arena.function_def(target.definition);
+                let owner = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace,
+                    body: program.arena.span(program.arena.block(definition.body).span),
+                });
+                let signature = self.local_function_signature(owner)?;
+                (signature.definition_target() == Some(*target) && signature.scheme().kind() == kind && known_effects).then_some(span)
+            }));
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {
                 let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None; };
                 let span = program.arena.expr(expression).span;

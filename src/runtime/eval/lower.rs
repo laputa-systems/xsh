@@ -4349,7 +4349,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
             }
             ArenaExprKind::Ident(name) => {
-                if let Some(Type::SchemeCallable(relationship)) = ty.closed_ground_type()
+                if let SchemeType::Callable { kind, .. } = &ty
+                    && self.expression_binding(expression).is_none()
+                {
+                    let target = *self.bodies.selected_function_calls.get(&expression)?;
+                    let instantiation = self.checked_invocation(&crate::sema::schemes::InstantiationSite::value(expression))?.clone();
+                    let key = self.function_index().checked_target_key(target)?;
+                    let value = self.lower_selected_function_ref(target, name, &Type::Function(*kind), None)?;
+                    let mut scratch = self.scratch.borrow_mut();
+                    if !scratch.record_checked_call_target(value, key) || !scratch.record_call_instantiation(value, instantiation) { return None; }
+                    value
+                } else if let Some(Type::SchemeCallable(relationship)) = ty.closed_ground_type()
                     && self.expression_binding(expression).is_none()
                 {
                     let target = *self.bodies.selected_function_calls.get(&expression)?;

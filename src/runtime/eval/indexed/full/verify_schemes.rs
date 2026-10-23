@@ -1719,6 +1719,19 @@ fn verify_body_expression(
                     }
                     ty.clone()
                 }
+                SchemeType::Callable { kind: expected_kind, .. }
+                    if *expected_kind == kind && target_kind == kind && metadata_kind == kind && matches!(contract, FullCallableContract::Scheme(_)) =>
+                {
+                    let mut comparisons = 0;
+                    let checked_target = store.checked_call_targets.binary_search_by_key(&(instruction as u32), |fact| { comparisons += 1; fact.instruction })
+                        .ok().map(|index| store.checked_call_targets[index].function);
+                    let instance = store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| { comparisons += 1; instance.instruction });
+                    budget.charge(comparisons)?;
+                    if checked_target != Some(target) || instance.is_err() {
+                        return Err(IrVerifyError::new("generic callable value has no authenticated target and fresh instance"));
+                    }
+                    ty.clone()
+                }
                 _ => return Err(IrVerifyError::new("generic function value disagrees with its ground executable target")),
             }
         }

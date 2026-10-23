@@ -548,6 +548,34 @@ mod tests {
     }
 
     #[test]
+    fn callable_application_arguments_bind_resolved_composite_inputs() {
+        SymbolOwner::new().with_current(|| {
+            for item in [Type::Int, Type::Str] {
+                let mut constraints = TypeConstraints::default();
+                let selected = Arc::new(generic_application_scheme(&mut constraints));
+                let caller = EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 2, 3) };
+                let instance = constraints.instantiate_callable(&selected, 1, span(), CallableApplicationScope::Declaration(caller)).unwrap();
+                let input = constraints.fresh_at_level(span(), 1);
+                let payload = constraints.fresh_at_level(span(), 1);
+                let actual = Type::Result(Box::new(input.clone()), Box::new(Type::Error));
+                constraints.constrain(&instance.params[0], &callback(true, "payload", payload.clone(), false, false), span()).unwrap();
+                constraints.constrain(&instance.params[1], &actual, span()).unwrap();
+                constraints.solve_callable_applications().unwrap();
+                assert!(matches!(constraints.resolve_call_instantiation(&selected, &instance), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
+                let calls = BTreeMap::from([(span(), crate::sema::value_materialization::InstantiationEvidence::Invocation((Arc::clone(&selected), instance.clone())))]);
+                let (_, _, _, published) = constraints.generalize_callable_body_with_calls(&[input.clone()], &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller).unwrap();
+                assert_eq!(published[&span()].invocation().unwrap().application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0)]);
+                constraints.constrain(&input, &item, span()).unwrap();
+                constraints.solve_callable_applications().unwrap();
+                let expected = Type::Result(Box::new(item), Box::new(Type::Error));
+                assert_eq!(constraints.resolve(&payload).unwrap(), expected);
+                let resolved = constraints.resolve_call_instantiation(&selected, &instance).unwrap();
+                assert_eq!(resolved.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Selected(StaticArgumentBinding { argument_slots: vec![0], omitted_slots: vec![] })]);
+            }
+        });
+    }
+
+    #[test]
     fn callable_application_constraints_share_one_monomorphic_callee_and_rollback_failure() {
         SymbolOwner::new().with_current(|| {
             let mut constraints = TypeConstraints::default();
@@ -855,8 +883,8 @@ impl TypeConstraints {
 
     pub(super) fn callable_application_bindings(&self, instance: &super::InstantiatedScheme, generalization: Option<&super::Generalization>) -> Result<Vec<crate::sema::schemes::CallableApplicationBinding>, super::SchemeOperationError> {
         instance.applications.iter().map(|id| {
-            if let Some(binding) = self.applications.entries.get(id).and_then(|entry| entry.binding.as_ref()) {
-                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding.layout().clone()));
+            if let Some(CallableApplicationBinding::Settled(binding)) = self.applications.entries.get(id).and_then(|entry| entry.binding.as_ref()) {
+                return Ok(crate::sema::schemes::CallableApplicationBinding::Selected(binding.clone()));
             }
             generalization.and_then(|generalization| generalization.applications.get(id)).copied()
                 .map(crate::sema::schemes::CallableApplicationBinding::Forwarded)
@@ -1017,7 +1045,8 @@ impl TypeConstraints {
                         let Type::List(item) = &parameter.ty else { return Err(CallableApplicationError::NotCallable(Type::Callable(callable.clone()))); };
                         item.as_ref()
                     } else { &parameter.ty };
-                    this.constrain_inner(required, &argument.ty, argument.span, true, 0, changes)
+                    let actual = this.resolve(&argument.ty)?;
+                    this.constrain_inner(required, &actual, argument.span, true, 0, changes)
                         .map_err(|(expected, actual, resolution_error)| CallableApplicationError::Constraint(ConstraintConflict {
                             expected, actual, contribution: argument.span, initializer: None, established: None, resolution_error,
                         }))?;
