@@ -494,6 +494,68 @@ mod inferred_callable_tests {
     }
 
     #[test]
+    fn checked_module_call_parameters_supply_contextual_require_targets() {
+        accepts(r#"
+type Observation = {target: Path?}
+type Collector = module {
+    export pure current() -> Observation
+    export pure consume(target: Path) -> Str?
+}
+proc inspect() [fs, error] -> Str? {
+    let collector = module.load(p"collector.xsh")?.require(Collector)?
+    let fallback = collector.current()
+    collector.consume(fallback.target.require()?)
+}
+"#);
+    }
+
+    #[test]
+    fn checked_call_parameter_contexts_cover_aliases_named_and_rest_arguments() {
+        accepts(r#"
+type Collector = module { export pure consume(target: Path) -> Str? }
+type Action = pure(target: Path) -> Str?
+pure count_paths(...targets: List[Path]) -> Int { targets.len() }
+proc call_alias(collector: Collector, raw: Any) [error] -> Str? {
+    let consume = collector.consume
+    consume(raw.require()?)
+}
+proc call_named(action: Action, raw: Any) [error] -> Str? {
+    action(target: raw.require()?)
+}
+proc call_rest(raw: Any) [error] -> Int {
+    let action = count_paths
+    action(raw.require()?)
+}
+"#);
+    }
+
+    #[test]
+    fn checked_call_parameter_contexts_reject_unresolved_and_uncheckable_targets() {
+        for source in [
+            "type Action = pure(value: Any) -> Int\nproc inspect(action: Action, raw: Any) [error] -> Int { action(raw.require()?) }\n",
+            "type Action = pure(value: Int) -> Int\ntype Consumer = pure(action: Action) -> Int\nproc inspect(consume: Consumer, raw: Any) [error] -> Int { consume(raw.require()?) }\n",
+            "pure ignore(value) { 0 }\nproc inspect(raw: Any) [error] -> Int { ignore(raw.require()?) }\n",
+        ] {
+            let output = checked(source);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRequireTarget)), "{source}\n{:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
+    fn checked_call_parameter_contexts_retain_nominal_schema_instances() {
+        let source = "type Box[T] = {value: Int}\npure consume(value: Box[Str]) -> Int { value.value }\nlet incoming: Any = {value: 7}\nlet _ = consume(incoming.require()?)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let output = Checker::check_arena(&parsed.arena, source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let target = output.requirement_targets.iter().find(|(span, _)| &source[span.range()] == "incoming.require()").unwrap().1;
+        assert_eq!(target.context.instances.len(), 1);
+        assert_eq!(target.context.instances[0].arguments, [crate::sema::types::Type::Str]);
+        assert_eq!(parsed.arena.arena.type_def(target.context.instances[0].definition).name.as_str().as_str(), "Box");
+    }
+
+    #[test]
     fn inferred_callable_application_source_identity_survives_constraint_probes() {
         let source = "pure apply(action, value) { action(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

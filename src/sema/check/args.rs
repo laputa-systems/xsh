@@ -570,7 +570,7 @@ impl Checker {
         } else {
             parameter.schema_expectation.clone()
         };
-        let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
+        let previous = std::mem::replace(&mut self.boundary.expected_schema, Some(schema.unwrap_or_default()));
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
         self.boundary.expected_schema = previous;
         actual
