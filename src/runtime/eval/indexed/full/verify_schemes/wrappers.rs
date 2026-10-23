@@ -156,7 +156,7 @@ fn resolve_index_validation(
         .then_some(C::IndexValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal))))
 }
 
-fn map_forwarded_index_contributions(
+fn map_forwarded_index_references(
     store: &FullStore,
     scope: &SchemeScope,
     caller_scope: &SchemeScope,
@@ -166,6 +166,21 @@ fn map_forwarded_index_contributions(
     wrapper_bindings: &[FullWrapperBinding],
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
+    if let K::IndexValidation { operation, .. } = &mut requirement.kind {
+        budget.charge(1)?;
+        let crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal) = operation else {
+            return Err(IrVerifyError::new("forwarded index wrapper contains a source operation identity"));
+        };
+        let binding = operation_bindings.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("index wrapper operation binding is out of scope"))?;
+        let FullOperationBinding::Forwarded(caller_ordinal) = *binding else {
+            return Err(IrVerifyError::new("forwarded index wrapper has no caller operation"));
+        };
+        let caller_operation = bounded(caller_scope.operations, &store.scheme_operations, "caller operation range is invalid")?
+            .get(caller_ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded index wrapper operation is out of scope"))?;
+        if !matches!(caller_operation, FullSealedOperation::Index { .. }) { return Err(IrVerifyError::new("forwarded index wrapper names another operation")); }
+        *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal);
+        return Ok(());
+    }
     let K::Capture { contributions, .. } = &mut requirement.kind else { return Ok(()) };
     let mut mapped = Vec::with_capacity(contributions.len());
     for contribution in contributions.iter() {
@@ -618,7 +633,7 @@ pub(super) fn verify_bindings(store: &FullStore, callee: &FullScheme, scope: &Sc
                 let required = bounded(caller.wrappers, &store.scheme_wrappers, "caller wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded wrapper ordinal is out of scope"))?;
                 let required = decode(store, caller_scope, *required, &ApplicationSubstitution::Identity, budget)?;
                 let mut requirement = requirement;
-                map_forwarded_index_contributions(store, scope, caller_scope, &mut requirement, &substitution, operation_bindings, bindings, budget)?;
+                map_forwarded_index_references(store, scope, caller_scope, &mut requirement, &substitution, operation_bindings, bindings, budget)?;
                 crate::sema::wrapper_operation::map_wrapper_groups(&mut requirement, |group| match group {
                     crate::sema::wrapper_operation::WrapperGroupRef::Ordinal(callee_group) => group_forwarding.get(&callee_group).copied()
                         .map(crate::sema::wrapper_operation::WrapperGroupRef::Ordinal)

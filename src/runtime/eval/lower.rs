@@ -4239,7 +4239,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
-        if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none() {
+        if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none_or(|ordinal| {
+            facts.scheme().callable().requirements().wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::IndexValidation { .. }))
+        }) {
             let base = match self.program.arena.expr(expression).kind {
                 ArenaExprKind::NullSafeField { base, .. }
                 | ArenaExprKind::Index { base, guarded: true, .. }

@@ -1076,8 +1076,12 @@ impl TypeConstraints {
         }).collect::<Result<BTreeMap<_, _>, SchemeOperationError>>()?;
         let bindings = self.callable_application_bindings(instantiated, Some(generalization))?;
         let method_bindings = self.sealed_method_bindings(instantiated, generalization, caller_methods)?;
+        let ground_scope = Generalization::default();
+        let forwarding_scope = if generalization.type_parameters.is_empty() && generalization.row_parameters.is_empty() && generalization.effect_parameters.is_empty() {
+            &ground_scope
+        } else { &*generalization };
         CallInstantiation::with_method_bindings(
-            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, generalization)?, method_bindings, self.wrapper_bindings(instantiated, generalization)?,
+            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
             caller_applications, caller_operations, caller_methods, caller_wrappers, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)

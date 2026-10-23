@@ -915,6 +915,44 @@ mod tests {
     use crate::symbol::{Name, SymbolOwner};
 
     #[test]
+    fn wrapper_bindings_follow_the_callers_published_scope() {
+        let source = concat!(
+            "pure keep(marker, items: Map[UInt, Int]?, key: Int) { let _ = items?[key]; marker }\n",
+            "pure number(items: Map[UInt, Int]?, key: Int) -> Int { keep(7, items, key) }\n",
+            "pure text(items: Map[UInt, Int]?, key: Int) -> Str { keep(\"value\", items, key) }\n",
+            "pure relay(marker, items: Map[UInt, Int]?, key: Int) { keep(marker, items, key) }\n",
+        );
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            for (name, call, quantified) in [
+                ("number", "keep(7, items, key)", false),
+                ("text", "keep(\"value\", items, key)", false),
+                ("relay", "keep(marker, items, key)", true),
+            ] {
+                let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == Name::intern(name)).unwrap();
+                let scheme = declaration.scheme.as_ref().unwrap();
+                assert_eq!(scheme.callable().is_quantified(), quantified);
+                assert_eq!(declaration.scheme_body_facts.is_some(), quantified);
+                assert_eq!(scheme.callable().requirements().operations.len(), 1);
+                assert_eq!(scheme.callable().requirements().wrappers.len(), 1);
+                let evidence = checked.call_instantiations.iter().find(|(site, _)| site.role == crate::sema::schemes::InstantiationRole::Call && &source[site.source.range()] == call).unwrap().1;
+                let instances = evidence.instances().collect::<Vec<_>>();
+                assert_eq!(instances.len(), 1);
+                if quantified {
+                    assert_eq!(instances[0].operation_bindings(), &[crate::sema::schemes::SealedOperationBinding::Forwarded(0)]);
+                    assert_eq!(instances[0].wrapper_bindings(), &[WrapperBinding::Forwarded(0)]);
+                } else {
+                    assert_eq!(instances[0].operation_bindings(), &[crate::sema::schemes::SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::IndexMap)]);
+                    assert_eq!(instances[0].wrapper_bindings(), &[WrapperBinding::Selected(WrapperSelection::IndexValidation)]);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn wrapper_sources_keep_envelope_ambiguity_and_journal_descendant_failures() {
         SymbolOwner::new().with_current(|| {
             let span = Span::at(crate::source::SourceId::new(0), 0);
