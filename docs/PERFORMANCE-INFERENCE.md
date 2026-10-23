@@ -764,6 +764,90 @@ retained eligible sites. The 17 source-context records and 713
 diagnostic-family records remain pending; none is excluded from future
 capability rechecks.
 
+### Private effect ceiling source classes
+
+This source review keeps the exact 202 effect sites and the existing
+`all-202-effect-clauses` proof group. It assigns no removal credit. The
+historical evidence partitions into 142 individual lint candidates and 60
+without a suggestion. Those 60 comprise ten Laputa helpers, 38
+`compare_live_*` helpers, and twelve other sites. Of the 38 comparisons, 37
+share the required set `[error,fs,process,time]`; site 8277,
+`compare_live_processes`, also requires `env`. Site 8274,
+`compare_live_cpu_sets`, belongs to the 142 historical candidates.
+
+The frozen source supports these more specific relationships:
+
+- Sites 3640, 3644, 3652, 3656, 3660, and 3671 are the six private tour renderers.
+  `item_html` calls `blocks_html`, which calls `block_html`, which calls
+  `item_html`. This three-function cycle also reaches `code_html` and then
+  `xsh_html`. The latter writes a source file, invokes the highlighter, and
+  propagates errors. `page_html` calls `block_html`. The `Highlighter` fields
+  are paths, and these calls refer to the same-file declarations without
+  local callable substitutions. Their filesystem, process, and error
+  relationships have body operations that anchor them; a generic callback
+  ceiling does not account for this group. These source calls supplement the
+  incomplete spelling graph above. Joint inference and interface comparison
+  remain required.
+- Laputa sites 439, 8311, 8337, 8350, 8376, 8414, 8460, 8508, 9071, and 9145
+  transform typed data, sort or hash in-memory bytes, or construct returned
+  errors. Their bodies contain no host operation or `?` propagation. For
+  example, `absolute_recipe_package` constructs a path without accessing the
+  filesystem; `require_supported_target` returns an error as data. These are
+  fixed-body effect-summary candidates with surplus declared permissions,
+  not evidence of an unknown callback effect. Keep the Proc kind and Result
+  behavior in their comparisons.
+- The 38 comparison helpers call concrete filesystem, process, and clock
+  operations and return through `validate_and_run`'s explicit exported
+  contract. Their printed diagnostics alone do not require `io`. The R6
+  facts have no unknown call chain. A decision about their surplus `io`
+  permission needs a joint interface comparison; an absent lint suggestion
+  does not establish a missing inference relationship or an intentional
+  generic capability restriction.
+
+The remaining twelve sites need the following distinctions:
+
+| Sites | Source relationship and remaining question |
+|---|---|
+| 96, 2552, 6434, 6486 | Filesystem results are handled or returned as data; the R6 body requirements contain `fs` without outward `error`. Distinguish returned failure data from propagation before deciding whether the extra declared permission is intentional. |
+| 120, 124 | `io` covers the differing `env` and `process` entries. Compare permission coverage as well as written sets; this difference alone is not an effect-inference failure. |
+| 592 | `size_is_reached` actually calls file-backed `bytes.read_at`. The old empty R6 requirement is a mapping defect, not a pure-body witness. Current `Effect::from_module_call` maps that operation to `fs`; transfer to the combined product still needs checking. |
+| 668 | `tab_error` calls the `[process]` `gnu.error` and exits. The extra `env` has no direct body source in this helper; retain the declared-contract comparison as migration work. |
+| 2564 | `collect_network` uses `linux.network_dump` and rooted filesystem collection. The R6 set is `[error,fs,process]`; the extra declared `env` needs contract review, not a guessed generic-effect explanation. |
+| 3259 | `execute_with` consumes command data and calls `process.run`. Its public wrappers and `StageRunner` module contract retain their explicit bounds. That separate interface promise does not classify this private ceiling as a generic callable restriction. |
+| 8044, 8300 | JSON propagation or fixture filesystem/process work accounts for the listed body effects; printing alone does not explain the extra `io`. Keep their permission and failure behavior in the joint comparison. |
+
+Effect site 2421, `collect_cpu`, has a separate body-publication prerequisite.
+A focused checker diagnostic at source `075882e1d`, using a byte-confirmed
+copy of the frozen reduced source, finds its first unsupported child at
+`system_report_live.xsh:2879`:
+`root.children(cpu_path, max_entries: 256)`. The result is already a closed
+Result of the directory-listing record and Error, but the call has neither
+checked-operation nor registered-call evidence. The later `linked_cpus`
+collector is not the observed first failure. This witness directs review to
+the known FsRoot call's publication authority; it does not demonstrate a
+missing effect summary or a necessary effect ceiling. It remains diagnostic
+evidence pending the combined compiler qualification.
+
+A genuine generic ceiling constrains a callable effect parameter. The existing
+`explicit_recursive_effect_bounds_accept_pure_and_empty_proc_callbacks`
+control has a recursive `left`/`right` pair whose explicit `[]` accepts pure
+and empty-effect callbacks and rejects an `io` callback. This review identifies
+no such restriction at a site in the frozen 202. The concrete `StageRunner`
+and `SystemReportModelEncoder` module contracts remain interface or schema
+annotations outside this class; their meaning cannot be assigned to an
+adjacent private clause. Opaque invocation, missing resolved effect evidence,
+and migration failures remain open wherever an actual witness establishes
+one.
+
+These source classes do not change the accepted 1,040-site boundary, the 149
+empty-Map selectors, or the 39 Proc return-wrapper selectors. In particular,
+effect site 96 and `number_width`'s explicit return site 97 are different
+contracts. Historical lint equality and the two-root effect-only checks above
+are not current joint qualification of the nullable-target and collector
+changes. Reuse the existing joint checker, lowering, interface, and native
+owners with their next matching source/product pair; no new solver or effect
+registry follows from this review.
+
 ### Build source witness records
 
 `dev/performance/corpus/frozen_witnesses.py` reads the eligibility, retained,
