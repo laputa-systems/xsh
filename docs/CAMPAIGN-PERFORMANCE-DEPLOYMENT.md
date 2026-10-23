@@ -77,6 +77,24 @@ traceback, authored-return and cleanup controls remain. The ten compatible
 passes and this two-test receipt cover the affected group; an unfiltered replay
 and matching native products remain required.
 
+Ordinary-body repair `b60f64f8b`, integrated as `b5989a1e7`, passes four focused
+controls with independent review clear. Successful `error.failure` calls publish
+checked argument evidence for generalized bodies. Explicit-return Procs use
+their actual checked Error permission for cleanup propagation, including
+arbitrary authenticated error payloads and independently checked callback
+effects. Captured generic calls substitute the exact invocation's effects;
+Ground script calls retain their existing signature authority. Missing effect
+or invocation evidence and a retargeted script call reject. The worktree was
+moved onto the current integration base before the final check; an earlier
+mixed-capture failure came from its old base and earns no regression claim.
+Source `b5989a1e7` completes the unfiltered Rust library run: 2,083 selected,
+2,073 pass, seven fail and three are ignored. All fourteen failures from the
+previous full run pass. Four mutation controls encounter earlier rejection
+diagnostics; a stream owner-boundary mutation unexpectedly accepts. Two wrapper
+fixtures disagree with the inferred error types. These seven cases require
+diagnosis and focused repair before another full replay. Matching native
+qualification remains open.
+
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
 named mode/data arguments reproduce a cold-verifier failure before the repair;

@@ -528,6 +528,13 @@ envelope rule: nonempty propagated errors determine the error type; an empty
 set retains the default Error. Execution uses the prepared error substitution.
 Proc cleanup uses the ordinary deferred-action rows and failure policy; inferred
 return envelopes include errors from actual statement and cleanup propagation.
+A quantified Proc with an explicit plain or Any return can propagate through
+its checked direct Error permission. Cold proof binds that boundary to the
+actual owner and scheme, and independently proves the Result operand. Other
+callback effect terms retain their separate permission checks. Captured direct
+generic calls use the instruction's checked invocation substitution to classify
+error flow; Ground calls retain their verified signature authority, including
+embedded script calls without an auxiliary target row.
 A terminal Proc command completes with Unit through the ordinary Result envelope.
 With initializers see only preceding success bindings. Its handler sees the
 outer scope and its failure binding. A Guard handler must diverge before success

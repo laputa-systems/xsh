@@ -3232,8 +3232,8 @@ declaration's operations. Unsigned argument and map-key contracts keep the
 ordinary checked conversions and failure propagation.
 
 Unsupported quantified body shapes still produce a checking or preparation
-diagnostic, including dynamically selected calls and captured mutable or
-resource state. Compile-time constant bindings and registered calls with specialized
+diagnostic, including calls without a checked callable relationship and
+resource-bearing captures. Compile-time constant bindings and registered calls with specialized
 argument rules, script implementations, or resource receiver domains are not
 yet supported in these bodies. A registered method may omit only trailing
 defaulted parameters. Their named spreads retain the selected argument layout
@@ -3324,8 +3324,10 @@ An inferred proc can quantify body-owned type and row variables when its checked
 effect contract is finite. `proc wrap(value) { value }` has the relation
 `forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
 always constructs `Ok`; passing `Ok(7)` therefore returns `Ok(Ok(7))`.
-Exported and statically imported procs keep the same relation. Mutable or
-resource-bearing captures and unknown effect contracts cannot enter this
+Exported and statically imported procs keep the same relation. Independent
+formal variables may generalize alongside mutable captures whose storage has
+one grounded type. Every assignment retains that storage contract across calls.
+Resource-bearing captures and unknown effect contracts cannot enter this
 quantified body contract. Checked callback applications retain their effect
 relationships through generic forwarders. Each invocation substitutes the
 selected callback's finite checked effects. An inferred proc's checked
