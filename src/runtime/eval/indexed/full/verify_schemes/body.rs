@@ -1,4 +1,3 @@
-use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -1186,6 +1185,7 @@ pub(super) fn verify_body(
 
 #[cfg(test)]
 mod tests {
+    use crate::runtime::eval::indexed::full::decode::ValueCheckView;
     use super::*;
     use super::super::super::{FullBuilder, FullProgram, FullVerifier};
     use crate::sema::check::Checker;

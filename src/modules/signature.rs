@@ -218,6 +218,7 @@ impl ApiSpec {
         registry::api_spec().method_family_id(receiver, name, overload)
     }
 
+    #[cfg(test)]
     pub(crate) fn registered_method_id(
         &self,
         receiver: MethodReceiver,

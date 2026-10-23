@@ -1,7 +1,9 @@
 use super::{Binding, CallableApplicationScope, ConstraintChange, ConstraintConflict, ConstraintResolutionError, EffectConstraintError, EffectVariableId, RowTail, SchemeOperationError, TypeConstraints, Variable, MAX_TYPE_DEPTH};
 use crate::sema::effects::{EffectContract, EffectPredicate, EffectSet};
 use crate::sema::types::Type;
-use crate::sema::wrapper_operation::{WrapperBinding, WrapperBoundary, WrapperErrorContribution, WrapperProjection, WrapperRequirement, WrapperRequirementKind, WrapperSelection, FallbackKind, fallback_projection, guarded_field_projection};
+use crate::sema::wrapper_operation::{WrapperBinding, WrapperBoundary, WrapperProjection, WrapperRequirement, WrapperRequirementKind, WrapperSelection, FallbackKind, fallback_projection, guarded_field_projection};
+#[cfg(test)]
+use crate::sema::wrapper_operation::WrapperErrorContribution;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::num::NonZeroU64;

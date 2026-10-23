@@ -169,6 +169,7 @@ impl SchemeCallableTable {
         bytes
     }
 
+    #[cfg(test)]
     pub(crate) fn owner(&self) -> SchemeCallableOwner { self.owner }
 
     pub(crate) fn get(&self, id: SchemeCallableId) -> Result<&SchemeCallableRelationship, SchemeCallableError> {
@@ -179,6 +180,7 @@ impl SchemeCallableTable {
         self.relationships.get(id.index_in(self.owner)? as usize).cloned().ok_or(SchemeCallableError::UnknownRelationship)
     }
 
+    #[cfg(test)]
     pub(crate) fn insert(&mut self, targets: Vec<(CheckedFunctionTarget, CheckedCallableContract)>) -> Result<SchemeCallableId, SchemeCallableError> {
         let relationship = Arc::new(SchemeCallableRelationship::new(targets)?);
         let (id, actual) = self.intern_prepared(Arc::clone(&relationship))?;

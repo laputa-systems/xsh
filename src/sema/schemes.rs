@@ -797,6 +797,7 @@ impl CallableMonotype {
 }
 
 impl CallInstantiation {
+    #[cfg(test)]
     pub(crate) fn new(
         callable: &CallableScheme,
         type_arguments: BTreeMap<SchemeTypeParameterId, SchemeType>,
