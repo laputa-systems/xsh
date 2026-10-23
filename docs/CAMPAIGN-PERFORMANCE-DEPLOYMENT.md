@@ -40,8 +40,21 @@ reject. Both execution routes retain invocation bindings, and unchanged shared
 containers keep their storage. Independent source reviews are clear. Combined
 source `a7900d1f1` passes 26 focused aggregate, ownership, Path, TempDir, tail
 and defer controls with no failures or ignored tests. Matching verification
-products and native qualification remain open; these results do not qualify
-every container, capture or returned-callable case.
+products build successfully at `96a932e04`, including the XSHT static API
+catalog consumer. The catalog rejects owned callable relationships because
+its registry signatures cannot contain them. The native boundary replay is
+next. These focused results do not qualify every container, capture or
+returned-callable case. Test-only import and helper scoping at `27aed9509`
+follows the product freeze and has not yet received a production rebuild.
+
+The provisional Proc completion and effect repair executes ten focused
+selectors: six pass and four fail. Remaining failures concern authored Err
+source authentication, inferred effect ownership, and an application-return
+mutation fixture. No completion or effect acceptance follows from this run.
+Fresh diagnosis owns the effect failure while the implementation owner
+investigates the two source-proof cases. Generic index and slice inference
+is the next independent compiler tranche. Its tests must distinguish List
+from Map indexing, including their different negative-literal semantics.
 
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
