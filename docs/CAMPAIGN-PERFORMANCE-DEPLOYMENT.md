@@ -15,7 +15,7 @@ expert lanes and one shared two-build limit. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
-Provisional inference source `2ac49b2ef` integrates scoped mutable argument
+Provisional inference source `a1fa6bcb2` integrates scoped mutable argument
 proofs, deferred sort-key checks, closed Null returns and pure-return validation.
 Focused controls pass. The actual historical system-report checker goes from
 two sort errors to zero. The mutable argument repair passes twelve controls
@@ -30,8 +30,25 @@ matching Optional scheme while rejecting foreign binders. Arithmetic call
 arguments derive evidence from their physical operands through the existing
 producer proof. Its twelve focused controls pass; the exact historical gates
 and internal modules prepare and verify; the exact historical `wc` module also
-prepares and verifies. Returned arithmetic and broader joint corpus checks
-remain open.
+prepares and verifies. The shared Result return relation now preserves symbolic
+success binders while applying existing error-family widening; ten focused
+controls and independent review pass. A scoped integer producer bridge reuses
+the already verified same-owner arithmetic result, with fifteen focused
+controls. The exact historical date-parser module now fully prepares and
+verifies. Broader joint corpus checks remain open.
+
+List compound assignment now relates an unresolved target to a known List
+right operand through the existing constraints. Eight focused controls pass,
+including both execution routes and retained unsigned checks. On the actual
+broader system-report candidate, all compound-operator errors disappear; five
+generic-body eligibility errors remain. Those identify missing nominal variant
+producer evidence and are not a module pass or new removal credit.
+
+Matching verification products for frozen `a1fa6bcb2`, tree
+`ec65b4deec4eadffc83d062e11bae93609c0ea20`, are building in
+`.work/wt/full-inference-historical-product-qualification/` for the next corpus
+replay. No result is accepted until that owned command terminates and its
+source/products are checked.
 
 Frozen source `f1a8e1a4c`, tree
 `faba8d431c89c211076b5e8155ff21b2ba280b91`, passes the complete library command:
