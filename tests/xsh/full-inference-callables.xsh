@@ -524,3 +524,37 @@ assert handled(text_failure, "backup") == "backup"
     status: 0,
   )?
 }
+
+test test_full_inference_dynamic_return_cleanup_with_monomorphic_capture { |ctx|
+  test.expect(
+    ctx,
+    r"""var errors = 0
+var cleanups = 0
+proc keep(marker, value: Any, fail_cleanup: Bool) [error] -> Any {
+  let _ = marker
+  errdefer { errors += 1 }
+  defer {
+    cleanups += 1
+    if fail_cleanup {
+      let failure: Result[Unit, Error] = Err(error.failure("cleanup"))
+      let _ = failure?
+    }
+  }
+  return value
+}
+let opaque: Result[Int, Error] = Err(error.failure("opaque"))
+let preserved: Result[Any, Error] = try { keep(1, opaque, false) }
+let cleanup_failed: Result[Any, Error] = try { keep("marker", opaque, true) }
+let expected: Result[Any, Error] = Ok(opaque)
+assert preserved == expected
+let cleanup_message = match cleanup_failed {
+  Err(failure) => failure.message
+  Ok(_) => ""
+}
+assert cleanup_message == "cleanup"
+assert errors == 1
+assert cleanups == 2
+""",
+    status: 0,
+  )?
+}
