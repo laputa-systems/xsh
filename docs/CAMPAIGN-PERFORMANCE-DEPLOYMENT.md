@@ -29,17 +29,29 @@ pass; shell syntax and diff checks pass. No annotations were removed and no
 new corpus equivalence result is claimed. Product-bound corpus runs wait for
 the combined compiler.
 
+Aggregate callable storage at `ffeb2a0c9` and sharing correction `40fd5264f`,
+integrated through `c75deec72`, passes eleven focused controls. The private
+value-evidence contract now carries owned structural conversions; mutable
+record fields retain one monotype, while independent fields and opaque generic
+siblings preserve their contracts. Actual source paths, target substitutions,
+mutable writers and complete evidence ownership remain cold-verified.
+Missing/foreign/shared evidence, changed signatures and noncanonical facts
+reject. Both execution routes retain invocation bindings, and unchanged shared
+containers keep their storage. Independent source reviews are clear. Combined
+Path/TempDir/body compatibility and matching native qualification remain open;
+these results do not qualify every container, capture or returned-callable case.
+
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
 Record and conditional values instantiate independently; mutable bindings
 retain one concrete instance. Factory calls retain separate invocation and
 value evidence at the same span. Both execution routes pass after frontend
 disposal. Independent review finds no demonstrated false acceptance in the
-checked target, effect, binder mapping or runtime paths. This is provisional:
-module owner transport and retained-table accounting are missing, nested
-mutable record replacement needs reproduction, and generic composition and the
-remaining storage families still require coverage. No full-library or native
-qualification is claimed for these checkpoints.
+checked target, effect, binder mapping or runtime paths. These initial
+checkpoints lacked module transport, complete retained accounting and nested
+mutable storage; the subsequent focused repairs cover those gaps. Generic
+composition and the remaining storage families still require coverage. No
+full-library or native qualification is claimed for these checkpoints.
 
 Module ownership repair `5b5fb951f`, integrated as `25cba55dc`, passes its
 module-execution and retained-table controls. Four additional controls at
@@ -48,7 +60,7 @@ probe snapshots, shared allocation accounting, and nested cached imports into
 independent entry roots. Source review is clear. Imported signatures and outputs
 rebase into one fresh final relationship owner before publication. Cached
 sources stay unchanged, and the new relationship pool participates in retained
-accounting. Nested mutable aggregate materialization remains open.
+accounting. Aggregate materialization is covered by the later focused repair.
 
 Path execution repairs `9525dbc69` and `dd253674b`, integrated as `cc26cd72a`
 and `af9e56aae`, pass three focused controls. Checked generic Path and RelPath

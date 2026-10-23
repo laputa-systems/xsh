@@ -1773,7 +1773,11 @@ print $absolute $escaping $text $glued $above $plain $widened
 Inference is local and predictable. A `let` or `var` without an annotation
 takes its initializer's type. An unannotated `var` initialized from a
 statically resolved pure or proc function, local or exported, keeps one
-inferred callable instance, which later assignments must fit. An annotation supplies
+inferred callable instance, which later assignments must fit. Callable fields
+inside a mutable record likewise retain one instance per field. Replacing the
+record or a field must preserve that field's contract; independent fields may
+infer different instances. Other fields retain their contracts, including
+quantified fields. An annotation supplies
 the expected type, and the initializer must fit it. Annotations never convert
 or validate data: they only state what the checker must prove. A pure function
 may infer required parameter

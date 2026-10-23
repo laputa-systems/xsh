@@ -505,14 +505,20 @@ Stored generic callable values retain a finite set of actual function targets
 and one complete checked contract. Relationship identities belong to their
 semantic table. Full IR maps each target's type, row and effect binders to the
 canonical contract and authenticates the physical producer's target set.
+Aggregate storage retains an owned conversion plan with source and destination
+contracts. Cold proof validates actual structural paths, callable relationships,
+substitutions and complete evidence ownership. Scoped field producers reuse
+the completed body proof without grounding opaque sibling fields. Unchanged
+subtrees remain shared; conversion visits only affected branches. Checks that
+need invocation bindings use scheduled execution on both evaluator routes.
 Invocation and value materialization retain distinct checked evidence, including
 when a factory expression needs both at the same source span. Both execution
 routes use the same checked materialization operation. Dynamic value calls have
 their own effect authority; direct calls retain their physical target checks.
 Imported signatures retain their immutable relationship snapshot. Each checker
 rebases imported handles into its own table, and final module publication maps
-all checked outputs into one fresh owner. Type, scheme, schema and invocation
-evidence move together. Cached source snapshots keep their original identities.
+all checked outputs into one fresh owner. Type, scheme, schema, invocation and
+value evidence move together. Cached source snapshots keep their original identities.
 Retained-byte accounting includes the relationship pool and counts shared
 allocations once within that pool.
 
