@@ -93,7 +93,7 @@ use super::lowered_ops::{
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
     lowered_slice_value, lowered_sort_key_orderable, lowered_str_byte_at_value,
     lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
-    lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
+    lowered_str_arg, lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, lowered_value_matches,
     push_lowered_display,
@@ -4962,6 +4962,20 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            callable; RuntimeOp::FsDu | RuntimeOp::PathResolve | RuntimeOp::FsReadlink
+                | RuntimeOp::FsReadLines | RuntimeOp::FsStreamLines | RuntimeOp::FsBytesLines
+                | RuntimeOp::FsRemoveDir | RuntimeOp::FsUnlink if values.len() == 1 =>
+            {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
+            callable; RuntimeOp::FsGlob | RuntimeOp::FsRglob | RuntimeOp::FsWriteLines
+                | RuntimeOp::FsTouchFrom if values.len() == 2 =>
+            {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
+            callable; RuntimeOp::FsTouch if values.len() == 1 || values.len() == 2 => {
+                self.eval_lowered_path_host_call(op, values, span)?
+            }
             callable; RuntimeOp::FsRead if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -8074,184 +8088,101 @@ impl Evaluator {
         }
     }
 
+    fn eval_lowered_path_host_call(
+        &mut self,
+        op: RuntimeOp,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let path = lowered_path_arg(values.remove(0), "Path", span)?;
+        match op {
+            RuntimeOp::FsDu => Ok(match fs_module::disk_usage(self.host_path(&path), span) {
+                Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::PathResolve => Ok(match fs_module::resolve_path(self.host_path(&path), span) {
+                Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsReadlink => Ok(match fs_module::readlink(self.host_path(&path), span) {
+                Ok(value) => lowered_value_from_runtime_any(&value).map(lowered_result_ok).ok_or_else(|| {
+                    RuntimeError::new("type-error", format!("readlink produced unsupported {}", value.type_name())).with_span(span)
+                })?,
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsStreamLines | RuntimeOp::FsBytesLines => {
+                let result = self.path_lines_stream(path, op == RuntimeOp::FsBytesLines, span);
+                lowered_runtime_value(result, span)
+            }
+            RuntimeOp::FsGlob | RuntimeOp::FsRglob => {
+                let pattern = lowered_str_arg(&values.remove(0), "Path.glob", span)?.to_owned();
+                let found = super::expand_glob_below(&self.host_path(&path), &path, &pattern, op == RuntimeOp::FsRglob, span)
+                    .and_then(|matches| matches.into_iter().map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
+                        .collect::<Result<Vec<_>, _>>().map_err(|error| error.with_span(span)));
+                Ok(match found {
+                    Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
+                    Err(error) => lowered_result_err_value(error),
+                })
+            }
+            RuntimeOp::FsReadLines => Ok(match read_host_path_text(&self.host_path(&path), span) {
+                Ok(text) => lowered_result_ok(LoweredValue::List(text.lines().map(|line| LoweredValue::Str(line.into())).collect())),
+                Err(error) => lowered_result_err_value(error),
+            }),
+            RuntimeOp::FsWriteLines => {
+                let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", span)?;
+                let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
+                for line in &lines {
+                    data.extend_from_slice(line.as_bytes());
+                    data.push(b'\n');
+                }
+                Ok(lowered_unit_result(fs_module::write_path(self.host_path(&path), &data, span)))
+            }
+            RuntimeOp::FsRemoveDir => Ok(lowered_unit_result(fs_module::remove_dir(self.host_path(&path), span))),
+            RuntimeOp::FsUnlink => Ok(lowered_unit_result(fs_module::unlink(self.host_path(&path), span))),
+            RuntimeOp::FsTouch => {
+                let create = lowered_bool_arg_or(values.pop(), true, "Path.touch", span)?;
+                Ok(lowered_unit_result(fs_module::touch_path(self.host_path(&path), create, span)))
+            }
+            RuntimeOp::FsTouchFrom => {
+                let reference = lowered_path_arg(values.pop().expect("checked value length"), "Path.touch_from", span)?;
+                Ok(lowered_unit_result(fs_module::touch_path_from(self.host_path(&path), &self.host_path(&reference), span)))
+            }
+            _ => Err(RuntimeError::new("unsupported-call", "unsupported native Path host operation").with_span(span)),
+        }
+    }
+
     fn eval_lowered_method_dispatch(
         &mut self,
         receiver: LoweredValue,
         name: &str,
-        mut values: Vec<LoweredValue>,
+        values: Vec<LoweredValue>,
         span: &Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if let LoweredValue::Path(path) = &receiver
-            && (name == "lines" || name == "bytes_lines")
-            && values.is_empty()
+        if matches!(&receiver, LoweredValue::Path(_))
+            && let Some(methods) = api_spec().method_overloads(crate::modules::MethodReceiver::Path, name)
+            && methods.iter().any(|method| !method.sig.pure)
         {
-            let result = self.path_lines_stream(path.clone(), name == "bytes_lines", *span);
-            let value = lowered_runtime_value(result, *span)?;
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(root) = &receiver
-            && (name == "glob" || name == "rglob")
-            && values.len() == 1
-        {
-            let Some(pattern) = lowered_str_value(&values[0]) else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("{name} expected Str, found {}", values[0].type_name()),
-                )
-                .with_span(*span));
-            };
-            let found = super::expand_glob_below(
-                &self.host_path(root),
-                root,
-                pattern,
-                name == "rglob",
-                *span,
-            )
-            .and_then(|matches| {
-                matches
-                    .into_iter()
-                    .map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| error.with_span(*span))
+            let mut candidates = methods.iter().filter(|method| {
+                values.len() <= method.sig.params.len()
+                    && method.sig.params.iter().enumerate().all(|(slot, parameter)| match values.get(slot) {
+                        Some(value) => value_matches_static_type(ValueView::Lowered(value), &parameter.ty),
+                        None => parameter.defaulted,
+                    })
             });
-            let value = match found {
-                Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
-                Err(error) => lowered_result_err_value(error),
+            let Some(method) = candidates.next() else {
+                return Err(RuntimeError::new("type-error", "Path host method arguments disagree with its canonical signature").with_span(*span));
             };
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "read_lines"
-            && values.is_empty()
-        {
-            // `str::lines` is the split behind `Str.lines`, so this is
-            // `read_text()?.lines()` in one call.
-            let value = match read_host_path_text(&self.host_path(path), *span) {
-                Ok(text) => lowered_result_ok(LoweredValue::List(
-                    text.lines()
-                        .map(|line| LoweredValue::Str(line.into()))
-                        .collect(),
-                )),
-                Err(error) => lowered_result_err_value(error),
-            };
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "write_lines"
-            && values.len() == 1
-        {
-            let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", *span)?;
-            let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
-            for line in &lines {
-                data.extend_from_slice(line.as_bytes());
-                data.push(b'\n');
+            if candidates.next().is_some() || method.sig.pure
+                || method.sig.binding != crate::modules::signature::ImplBinding::Native
+                || !method.sig.effects.contains(&crate::syntax::node::Effect::Fs)
+                || !Self::lowered_module_op_executable(method.sig.op)
+            {
+                return Err(RuntimeError::new("unsupported-call", "Path host method has no unique executable native contract").with_span(*span));
             }
-            // The same write as `Path.write`, so creation, replacement, mode,
-            // and failures cannot drift from it.
-            let value =
-                lowered_unit_result(fs_module::write_path(self.host_path(path), &data, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "copy"
-            && (values.len() == 1 || values.len() == 2)
-        {
-            let overwrite = lowered_bool_arg_or(values.get(1).cloned(), false, "Path.copy", *span)?;
-            let dest = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.copy",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::copy_file(
-                self.host_path(source),
-                self.host_path(&dest),
-                overwrite,
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "rename"
-            && (values.len() == 1 || values.len() == 2)
-        {
-            let overwrite =
-                lowered_bool_arg_or(values.get(1).cloned(), false, "Path.rename", *span)?;
-            let dest = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.rename",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::rename_path(
-                self.host_path(source),
-                self.host_path(&dest),
-                overwrite,
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "remove_dir"
-            && values.is_empty()
-        {
-            let value = lowered_unit_result(fs_module::remove_dir(self.host_path(path), *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "touch"
-            && values.len() <= 1
-        {
-            let create = lowered_bool_arg_or(values.first().cloned(), true, "Path.touch", *span)?;
-            let value =
-                lowered_unit_result(fs_module::touch_path(self.host_path(path), create, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "touch_from"
-            && values.len() == 1
-        {
-            let reference = lowered_path_arg(
-                values.first().cloned().expect("checked value length"),
-                "Path.touch_from",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::touch_path_from(
-                self.host_path(path),
-                &self.host_path(&reference),
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "truncate"
-            && values.len() == 1
-        {
-            let size = lowered_int_arg(values.pop(), "Path.truncate", *span)?;
-            let value =
-                lowered_unit_result(fs_module::truncate_path(self.host_path(path), size, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(source) = &receiver
-            && name == "hardlink"
-            && values.len() == 1
-        {
-            let path = lowered_path_arg(
-                values.pop().expect("checked value length"),
-                "Path.hardlink",
-                *span,
-            )?;
-            let value = lowered_unit_result(fs_module::hardlink(
-                self.host_path(source),
-                self.host_path(&path),
-                *span,
-            ));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "unlink"
-            && values.is_empty()
-        {
-            let value = lowered_unit_result(fs_module::unlink(self.host_path(path), *span));
-            return Ok(ControlFlow::Continue(value));
+            let mut arguments = Vec::with_capacity(values.len() + 1);
+            arguments.push(Some(receiver));
+            arguments.extend(values.into_iter().map(Some));
+            return self.eval_lowered_module_call_values(method.sig.op, NativeArgumentValues::new(arguments), *span, None);
         }
         if let LoweredValue::ProcessHandle(handle) = &receiver
             && name == "cancel"

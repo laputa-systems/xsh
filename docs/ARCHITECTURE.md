@@ -203,6 +203,14 @@ substitution and host operation path. It performs no runtime type solving or
 value-based overload selection. Lowering evaluates arguments in written order
 before arranging their temporary reads in parameter order.
 
+Checked native `Path` host methods lower to `ModuleCall` with the receiver in
+the first argument slot. The selected registry method must match the source
+name, checked receiver, ordered operands, and result. The executable operation
+catalog and canonical native contracts authenticate that physical ABI. Ordinary
+method rows validate a unique closed registry signature before forwarding to the
+same host operation. Pure Path transforms retain method rows. Path line streams
+keep the existing reader, resource registration, and cancellation path.
+
 Nullable scheme types use the ordinary boxed physical representation while
 retaining their explicit Optional contract and parameter validation. Guarded
 postfix lowering evaluates the receiver once and places operand elaboration in

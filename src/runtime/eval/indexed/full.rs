@@ -35129,6 +35129,154 @@ proc driver() [fs, env, error] -> Bool {
     }
 
     #[test]
+    fn generic_path_host_methods_share_canonical_native_transport() {
+        run_with_large_stack(|| {
+            let source = r#"proc exercise(token, root: Path) [fs, error] {
+  let directory = fp"{root}/child"
+  directory.mkdir(parents: false)?
+  let file = fp"{directory}/payload"
+  file.touch()?
+  file.write_lines(["alpha", "beta"])?
+  let lines = file.read_lines()?
+  file.chmod(0o640, follow_symlinks: false)?
+  let metadata = file.metadata()?
+  let usage = file.du()?
+  let resolved = file.resolve()?
+  let copied = fp"{directory}/copied"
+  file.copy(to: copied)?
+  file.copy(to: copied, overwrite: true)?
+  let moved = fp"{directory}/moved"
+  copied.rename(to: moved)?
+  let hard = fp"{directory}/hard"
+  file.hardlink(at: hard)?
+  let link = fp"{directory}/link"
+  link.symlink(to: resolved)?
+  let target = link.readlink()?
+  let symbolic = link.is_symlink()?
+  let matches = directory.glob("*")?
+  let recursive = directory.rglob("*")?
+  let stamped = fp"{directory}/stamped"
+  stamped.touch(create: true)?
+  stamped.touch(create: false)?
+  stamped.touch_from(file)?
+  stamped.truncate(2)?
+  let stamped_metadata = stamped.metadata()?
+  let is_file = file.is_file()?
+  let is_directory = directory.is_dir()?
+  link.unlink()?
+  hard.unlink()?
+  moved.remove()?
+  stamped.remove()?
+  file.remove(missing_ok: false)?
+  file.remove(missing_ok: true)?
+  directory.remove_dir()?
+  {token, lines, mode: metadata.mode, size: metadata.size, usage, resolved, target, symbolic, matches, recursive, stamped_size: stamped_metadata.size, is_file, is_directory}
+}
+proc text_stream(token, file: Path) [fs, error] { let _ = token; file.lines()? }
+proc byte_stream(token, file: Path) [fs, error] { let _ = token; file.bytes_lines()? }
+proc abandon(token, file: Path) [fs, error] -> Result[Unit] { let _ = token; let pending = file.lines()?; Ok() }
+proc create(token, directory: Path) [fs, error] -> Result[Unit] { let _ = token; directory.mkdir()?; Ok() }
+proc no_parents(token, directory: Path) [fs, error] -> Result[Unit] { let _ = token; directory.mkdir(parents: false)?; Ok() }
+proc remove(token, target: Path) [fs, error] -> Result[Unit] { let _ = token; target.remove()?; Ok() }
+proc driver() [fs, env, error] -> Bool {
+  tempdir root {
+    let integer = exercise(1, root)?
+    let reference = ground(1, root)?
+    assert integer == reference
+    let text = exercise("one", root)?
+    assert integer.token == 1
+    assert text.token == "one"
+    assert integer.lines == ["alpha", "beta"]
+    assert text.lines == ["alpha", "beta"]
+    assert integer.mode % 512 == 0o640
+    assert text.mode % 512 == 0o640
+    assert integer.size == 11
+    assert text.size == 11
+    assert integer.usage >= 0
+    assert text.usage >= 0
+    assert integer.is_file
+    assert text.is_directory
+    assert integer.symbolic
+    assert text.symbolic
+    assert integer.stamped_size == 2
+    assert text.stamped_size == 2
+    let expected = fp"{root}/child/payload"
+    assert integer.resolved == expected
+    assert text.target == expected
+    assert expected in integer.matches
+    assert expected in text.recursive
+    cd root {
+      let relative = exercise(2, p".")?
+      let relative_reference = ground(2, p".")?
+      assert relative == relative_reference
+      assert relative.resolved == expected
+    }
+    let directory = fp"{root}/defaults"
+    create("created", directory)?
+    remove("removed", directory)?
+    remove("already removed", directory)?
+    let deep = fp"{root}/defaults/nested"
+    create(3, deep)?
+    assert deep.is_dir()?
+    let absent = fp"{root}/absent/nested"
+    let mkdir_failure = no_parents("no parents", absent)
+    let ordinary = absent.mkdir(parents: false)
+    let message = match mkdir_failure { Err(problem) => problem.message; Ok(_) => "" }
+    assert message != ""
+    assert message == (match ordinary { Err(problem) => problem.message; Ok(_) => "" })
+    let file = fp"{root}/stream"
+    file.write("old\n")?
+    let deferred = text_stream(2, file)?
+    file.write("new\n")?
+    assert deferred.collect() == ["new"]
+    file.write(b"old\n")?
+    let byte_deferred = byte_stream("two", file)?
+    file.write(b"\xff\x00\n")?
+    assert byte_deferred.collect() == [b"\xff\x00"]
+    let short = byte_stream(3, file)?
+    assert short |> first()? == b"\xff\x00"
+    let invalid = text_stream("three", file)?
+    let failure = try { invalid.collect() }
+    assert match failure { Err(_) => true; Ok(_) => false }
+    file.write("unconsumed\n")?
+    abandon("abandoned", file)?
+  }
+  true
+}
+"#;
+            let ground = source.split("proc text_stream").next().unwrap()
+                .replace("proc exercise(token, root: Path)", "proc ground(token: Int, root: Path)");
+            let source = format!("{ground}\n{source}");
+            let program = Arc::new(fixture("generic-path-host-transport.xsh", &source));
+            FullVerifier::verify(&program).unwrap();
+            for (function, operation, wrong) in [
+                ("text_stream", RuntimeOp::FsStreamLines, RuntimeOp::FsBytesLines),
+                ("exercise", RuntimeOp::FsGlob, RuntimeOp::FsReadText),
+            ] {
+                let decoder = return_analysis_decoder(&program, function);
+                let instruction = function_instruction_indices(&program, function, FullTag::ExprModuleCall).into_iter()
+                    .find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op, .. }) if op == operation)).unwrap();
+                let operation = program.store.extra[payload_start(&program, instruction)] as usize;
+                let mut forged = (*program).clone();
+                forged.store.runtime_ops[operation] = wrong;
+                assert!(FullVerifier::verify(&forged).is_err());
+            }
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "driver")),
+                    CallableKind::Proc, &[], Span::at(program.store.source_id, 0),
+                ).expect("host method driver exists").unwrap();
+                assert_eq!(result, Value::Bool(true));
+                assert!(evaluator.owned_streams.is_empty());
+            }
+        });
+    }
+
+    #[test]
     fn generic_path_io_methods_reject_forged_native_contracts() {
         run_with_large_stack(|| {
             let program = fixture("generic-path-io-contracts.xsh", r#"

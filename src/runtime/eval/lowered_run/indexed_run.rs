@@ -1331,38 +1331,16 @@ pub(super) fn indexed_frame_apply_value(
                 _ => unreachable!(),
             };
             let path = lowered_path_arg(path, operation, span)?;
-            if matches!(tag, FullTag::ExprPathExists | FullTag::ExprPathExecutable | FullTag::ExprPathMetadata) {
-                let op = match tag {
-                    FullTag::ExprPathExists => RuntimeOp::FsExists,
-                    FullTag::ExprPathExecutable => RuntimeOp::FsExecutable,
-                    FullTag::ExprPathMetadata => RuntimeOp::FsMetadata,
-                    _ => unreachable!(),
-                };
-                return indexed_frame_apply_module_call(
-                    evaluator,
-                    op,
-                    vec![Some(LoweredValue::Path(path))],
-                    span,
-                );
-            }
-            let host_path = evaluator.host_path(&path);
-            Ok(match tag {
-                FullTag::ExprPathDu => match fs_module::disk_usage(host_path, span) {
-                    Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
-                    Err(error) => lowered_result_err_value(error),
-                },
-                FullTag::ExprPathReadlink => match fs_module::readlink(host_path, span) {
-                    Ok(value) => lowered_value_from_runtime_any(&value).map(lowered_result_ok).ok_or_else(|| {
-                        RuntimeError::new("type-error", format!("readlink produced unsupported {}", value.type_name())).with_span(span)
-                    })?,
-                    Err(error) => lowered_result_err_value(error),
-                },
-                FullTag::ExprPathResolve => match fs_module::resolve_path(host_path, span) {
-                    Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
-                    Err(error) => lowered_result_err_value(error),
-                },
+            let op = match tag {
+                FullTag::ExprPathExists => RuntimeOp::FsExists,
+                FullTag::ExprPathExecutable => RuntimeOp::FsExecutable,
+                FullTag::ExprPathMetadata => RuntimeOp::FsMetadata,
+                FullTag::ExprPathDu => RuntimeOp::FsDu,
+                FullTag::ExprPathReadlink => RuntimeOp::FsReadlink,
+                FullTag::ExprPathResolve => RuntimeOp::PathResolve,
                 _ => unreachable!(),
-            })
+            };
+            indexed_frame_apply_module_call(evaluator, op, vec![Some(LoweredValue::Path(path))], span)
         }
         ExprView::Abort { .. } | ExprView::Fail { .. } | ExprView::Error(_) => {
             unreachable!("error and abort values are applied before generic operands")

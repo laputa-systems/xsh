@@ -4783,21 +4783,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
                         ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments)?;
                     }
-                    let path_operation = match plan.signature.op {
-                        RuntimeOp::FsReadText => Some("read_text"),
-                        RuntimeOp::FsRead => Some("read_bytes"),
-                        RuntimeOp::FsExists => Some("exists"),
-                        RuntimeOp::FsExecutable => Some("executable"),
-                        RuntimeOp::FsWrite => Some("write"),
-                        RuntimeOp::FsWriteAtomic => Some("write_atomic"),
-                        _ => None,
-                    };
-                    if let (Some(receiver), Some(name), Some(crate::modules::MethodReceiver::Path)) = (receiver, path_operation, plan.receiver) {
+                    if let (Some(receiver), Some(crate::modules::MethodReceiver::Path)) = (receiver, plan.receiver)
+                        && !plan.signature.pure
+                        && plan.signature.effects.contains(&crate::syntax::node::Effect::Fs)
+                    {
                         let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
                         let receiver_type = lowered_types.get(&receiver)?;
-                        if plan.name.as_ref() != name
+                        if !super::Evaluator::lowered_module_op_executable(plan.signature.op)
                             || receiver_type.closed_ground_type().as_ref().map(Type::unvalidated) != Some(&Type::Path)
-                            || !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { name: selected, .. } | ArenaExprKind::NullSafeField { name: selected, .. } if selected.as_str().as_str() == name)
+                            || !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { name: selected, .. } | ArenaExprKind::NullSafeField { name: selected, .. } if selected.as_str().as_str() == plan.name.as_ref())
                             || !crate::sema::builtin_templates::verify_registered_call(&plan, Some(receiver_type), &arguments, &ty)
                         { return self.block_scheme_lowering_expr(expression); }
                         ordered.insert(0, Some(receiver));
