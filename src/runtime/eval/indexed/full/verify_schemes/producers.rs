@@ -4813,24 +4813,42 @@ impl<'a> ProducerProof<'a> {
                 .application_may_error(function_index(decoder.owner)?, instruction, &mut self.budget)?;
             return Ok(if may_error { crate::sema::types::CalleeErrorFlow::Immediate } else { crate::sema::types::CalleeErrorFlow::None });
         }
-        let effects = match decoder.expression_view(instruction)? {
-            schema::ExprView::Call { .. } | schema::ExprView::DirectPureCall { .. } | schema::ExprView::SelfCall { .. } => {
-                let (function, _) = call_parts(decoder, instruction)?;
-                super::super::verify_effects::function_effects(self.store, function)?
+        let may_error = match decoder.expression_view(instruction)? {
+            schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => {
+                self.direct_callee_may_error(decoder, instruction, function.id.index())?
+            }
+            schema::ExprView::SelfCall { .. } => {
+                self.direct_callee_may_error(decoder, instruction, function_index(decoder.owner)?)?
             }
             schema::ExprView::TypedCall { signature, kind, .. } => {
                 let signature = self.store.semantic.typed_callable_signature(signature.id)?;
                 let effects = self.store.semantic.signature_effects(signature)?;
-                if kind == crate::sema::types::CallableKind::Pure { Some(effects.unwrap_or_default()) } else { effects }
+                self.budget.charge(1 + effects.as_ref().map_or(0, Vec::len))?;
+                if kind == crate::sema::types::CallableKind::Pure {
+                    effects.unwrap_or_default().contains(&crate::syntax::node::Effect::Error)
+                } else {
+                    effects.is_none_or(|effects| effects.contains(&crate::syntax::node::Effect::Error))
+                }
             }
             _ => return Ok(crate::sema::types::CalleeErrorFlow::None),
         };
-        let effects = effects.as_deref().unwrap_or(&crate::syntax::node::Effect::ALL);
-        self.budget.charge(1 + effects.len())?;
+        self.budget.charge(1)?;
         let ty = self.need_context(decoder, instruction)?.ok_or_else(|| IrVerifyError::new("captured callee has no executable return contract"))?;
+        let effects = if may_error { &[crate::syntax::node::Effect::Error][..] } else { &[] };
         let flow = ty.callee_error_flow(Some(effects));
         self.expression(decoder.owner, instruction, ty, false);
         Ok(flow)
+    }
+
+    fn direct_callee_may_error(&mut self, decoder: &FullDecoder<'a>, instruction: usize, target: usize) -> Result<bool, IrVerifyError> {
+        let function = self.store.functions.get(target).ok_or_else(|| IrVerifyError::new("captured call target is out of bounds"))?;
+        if matches!(function.contract, super::super::FullCallableContract::Scheme(_)) {
+            return super::ScopedEffectProof::new(self.store, self.index.scheme_scopes(self.store)?)
+                .call_may_error(decoder, instruction, target, &mut self.budget);
+        }
+        let effects = super::super::verify_effects::function_effects(self.store, target)?;
+        self.budget.charge(1 + effects.as_ref().map_or(0, Vec::len))?;
+        Ok(effects.as_ref().is_none_or(|effects| effects.contains(&crate::syntax::node::Effect::Error)))
     }
 
     fn verify_host_stream_projection(&mut self, decoder: &FullDecoder<'a>, instruction: usize, projection: &[FunctionProjection]) -> Result<(), IrVerifyError> {

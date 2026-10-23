@@ -152,7 +152,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => require(instruction, None, false, &mut captured)?,
                     None => {
-                        let effects = proof.call_contract(index, instruction, target, &mut budget.borrow_mut())?;
+                        let effects = proof.call_contract(decoder, instruction, target, &mut budget.borrow_mut())?;
                         let target = OwnerEffects::for_function(decoder.store, target)?;
                         match effects.concrete() {
                             Ok(effects) => require(instruction, effects.as_deref(), target.kind == CallableKind::Pure, &mut captured)?,

@@ -4601,6 +4601,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } => {
+                if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::ErrorFailure) {
+                    let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if name != "failure" || !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "error") {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let [argument] = arguments.as_slice() else { return self.block_scheme_lowering_expr(expression) };
+                    if argument.splice || argument.name.is_some() && self.call_argument_slots(expression)? != [0] {
+                        return self.block_scheme_lowering_expr(expression);
+                    }
+                    let message = argument.lowered?;
+                    let value = push_build_row!(self, expr, BuildExprRow::ModuleCall {
+                        call_plan: None,
+                        op: RuntimeOp::ErrorFailure,
+                        args: vec![Some(message)],
+                        span,
+                    });
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
                 if let Some(kind @ (crate::sema::check::CheckedBuiltinCall::Path | crate::sema::check::CheckedBuiltinCall::Environment)) = self.bodies.checked_control_flow.builtin_calls.get(&span).copied() {
                     let expected_name = match kind { crate::sema::check::CheckedBuiltinCall::Path => "Path", _ => "env" };
                     if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == expected_name) { return self.block_scheme_lowering_expr(expression); }

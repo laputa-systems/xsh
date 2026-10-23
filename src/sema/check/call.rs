@@ -564,6 +564,8 @@ impl Checker {
                 // wraps. Like it, the call names the module function even
                 // where `error` is bound, as it is in an `Err(error)` arm.
                 if module.as_str() == "error" && name.as_str() == "failure" {
+                    self.builtin_calls.remove(&span);
+                    let reported = self.diagnostics.len();
                     let params = [super::FunctionParamSig {
                         name: Name::intern("message"),
                         ty: Type::Str,
@@ -574,6 +576,13 @@ impl Checker {
                     self.check_function_call_arguments_arena(
                         arena, source, args, &params, span, checked_argument,
                     );
+                    if !self.diagnostics[reported..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+                    {
+                        self.builtin_calls
+                            .insert(span, super::CheckedBuiltinCall::ErrorFailure);
+                    }
                     return Type::Error;
                 }
                 if self.error_families.contains_key(&module) {

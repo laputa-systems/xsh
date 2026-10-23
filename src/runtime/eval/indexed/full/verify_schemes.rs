@@ -1311,6 +1311,7 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
 #[derive(Clone)]
 enum PropagationBoundary {
     ResultError(Arc<SchemeType>),
+    ProcErrorEffect { owner: IrFunctionId, scheme: FullSchemeId },
     InferredProcError {
         owner: IrFunctionId,
         scheme: FullSchemeId,
@@ -1364,8 +1365,14 @@ impl PropagationBoundary {
         if metadata.callable_kind != crate::sema::types::CallableKind::Proc { return Ok(Self::Unavailable); }
         let FullCallableContract::Scheme(id) = declaration.contract else { return Ok(Self::Unavailable) };
         let scheme = store.scheme(id)?;
+        if scheme.callable_kind != crate::sema::types::CallableKind::Proc {
+            return Err(IrVerifyError::new("propagation boundary kind disagrees with its actual scheme"));
+        }
         let returned = decode_scheme_type(store, scope, scheme.return_type, budget, 0)?;
         if !body_types_equal(&returned, ty) { return Err(IrVerifyError::new("application propagation boundary disagrees with its owner return")); }
+        if scheme.explicit_return && scheme_has_known_direct_error_effect(store, scheme)? {
+            return Ok(Self::ProcErrorEffect { owner: function_id, scheme: id });
+        }
         let instruction_range = store.function_instruction_range(function_id.index())?;
         let first_return = store.scheme_application_returns
             .partition_point(|site| (site.instruction as usize) < instruction_range.start);
@@ -1433,6 +1440,23 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
             }
             true
         }
+        PropagationBoundary::ProcErrorEffect { owner, scheme: expected_scheme } => {
+            let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("Proc error-effect boundary owner is out of bounds"))?;
+            let metadata = store.function_metadata.get(owner.index()).ok_or_else(|| IrVerifyError::new("Proc error-effect boundary owner has no metadata"))?;
+            let FullCallableContract::Scheme(scheme_id) = function.contract else {
+                return Err(IrVerifyError::new("Proc error-effect boundary has no scheme owner"));
+            };
+            let scheme = store.scheme(scheme_id)?;
+            if scheme_id != *expected_scheme
+                || metadata.callable_kind != crate::sema::types::CallableKind::Proc
+                || scheme.callable_kind != crate::sema::types::CallableKind::Proc
+                || !scheme.explicit_return
+                || !scheme_has_known_direct_error_effect(store, scheme)?
+            {
+                return Err(IrVerifyError::new("Proc error-effect boundary disagrees with its checked owner"));
+            }
+            true
+        }
         PropagationBoundary::CaptureRelationship { .. } => true,
         PropagationBoundary::StreamProducer(owner) => {
             if !store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.callable_kind == crate::sema::types::CallableKind::Stream) {
@@ -1456,6 +1480,14 @@ fn body_propagated_error_matches_owner(store: &FullStore, error: &SchemeType, bo
     };
     if !compatible { return Err(IrVerifyError::new("generic propagated error disagrees with its owner boundary")); }
     Ok(())
+}
+
+fn scheme_has_known_direct_error_effect(store: &FullStore, scheme: &FullScheme) -> Result<bool, IrVerifyError> {
+    if !scheme.effects.known {
+        return Ok(false);
+    }
+    let direct = bounded(scheme.effects.direct, &store.scheme_effects, "scheme direct effect range is invalid")?;
+    Ok(direct.contains(&crate::syntax::node::Effect::Error))
 }
 
 fn body_ordering_matches(left: &SchemeType, right: &SchemeType) -> Result<(), IrVerifyError> {

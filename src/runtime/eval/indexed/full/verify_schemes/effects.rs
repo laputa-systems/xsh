@@ -317,16 +317,59 @@ impl<'a> ScopedEffectProof<'a> {
         })
     }
 
-    pub(in crate::runtime::eval::indexed::full) fn call_contract(&self, owner: usize, instruction: usize, target: usize, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
-        let Some(target_id) = self.function_scope(target)? else { return Ok(self.function_contract(target)?.into_owned()); };
+    pub(in crate::runtime::eval::indexed::full) fn call_contract(&self, decoder: &super::super::FullDecoder<'_>, instruction: usize, target: usize, budget: &mut SchemeInstantiationBudget) -> Result<EffectContract<SchemeEffectParameterId>, IrVerifyError> {
+        let owner = super::super::ExecutableOwner::from_raw(decoder.owner)?;
+        let range = match owner {
+            super::super::ExecutableOwner::Function(function) => self.store.function_instruction_range(function.index())?,
+            super::super::ExecutableOwner::Driver(step) => self.store.driver_instruction_range(step)?,
+        };
+        if decoder.instruction_range != range || !range.contains(&instruction) {
+            return Err(IrVerifyError::new("generic invocation effect site belongs to another executable owner"));
+        }
+        let actual_target = match decoder.expression_view(instruction)? {
+            super::super::schema::ExprView::Call { function, .. }
+            | super::super::schema::ExprView::DirectPureCall { function, .. } => function.id.index(),
+            super::super::schema::ExprView::SelfCall { .. } => match owner {
+                super::super::ExecutableOwner::Function(function) => function.index(),
+                super::super::ExecutableOwner::Driver(_) => return Err(IrVerifyError::new("driver invocation cannot be a self call")),
+            },
+            _ => return Err(IrVerifyError::new("generic invocation effect site is not a direct call")),
+        };
+        let target_fact = self.store.checked_call_targets
+            .binary_search_by_key(&(instruction as u32), |fact| fact.instruction)
+            .ok().map(|index| self.store.checked_call_targets[index].function.index());
+        if actual_target != target || target_fact.is_some_and(|fact| fact != target) {
+            return Err(IrVerifyError::new("generic invocation effect target disagrees with its checked call"));
+        }
+        let Some(target_id) = self.function_scope(target)? else {
+            return Ok(self.function_contract(target)?.into_owned());
+        };
+        if target_fact != Some(target) {
+            return Err(IrVerifyError::new("generic invocation effect target has no checked call"));
+        }
         let scope = self.scopes.get(target_id)?;
-        let caller = self.function_scope(owner)?.map(|id| self.scopes.get(id)).transpose()?;
+        let caller = match owner {
+            super::super::ExecutableOwner::Function(function) => self.function_scope(function.index())?,
+            super::super::ExecutableOwner::Driver(_) => None,
+        }.map(|id| self.scopes.get(id)).transpose()?;
         let index = self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction)
             .map_err(|_| IrVerifyError::new("generic invocation effects have no call substitution"))?;
         let instance = &self.store.call_instantiations[index];
         let arguments = bounded(instance.effect_arguments, &self.store.call_effect_arguments, "generic invocation effect argument range is invalid")?;
         let substitutions = build_substitution(self.store, scope, caller, arguments, budget)?;
         substitute_contract(self.function_contract(target)?.as_ref(), scope, &substitutions, budget)
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn call_may_error(&self, decoder: &super::super::FullDecoder<'_>, instruction: usize, target: usize, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+        let contract = self.call_contract(decoder, instruction, target, budget)?;
+        Ok(match contract {
+            EffectContract::Unknown => true,
+            EffectContract::Known(expression) => {
+                budget.charge(expression.direct().bits().count_ones() as usize + expression.variables().count())?;
+                expression.direct().iter().any(|effect| effect == crate::syntax::node::Effect::Error)
+                    || expression.variables().any(|(_, mask)| mask.iter().any(|effect| effect == crate::syntax::node::Effect::Error))
+            }
+        })
     }
 
     pub(in crate::runtime::eval::indexed::full) fn application_may_error(&self, owner: usize, instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {

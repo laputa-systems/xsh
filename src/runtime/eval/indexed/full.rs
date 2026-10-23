@@ -48502,6 +48502,298 @@ let cleanup_failed = try { explicit(opaque, true) }
     }
 
     #[test]
+    fn inferred_body_error_failure_requires_a_checked_string_argument() {
+        let check = |name: &str, source: &str| {
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                name,
+                crate::loader::entry_source_from_text(name, source.to_string()),
+                Vec::new(),
+            );
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files().first().unwrap().id();
+            Checker::check_arena_with_sources_and_options(
+                &parsed.arena,
+                &sources,
+                source_id,
+                CheckOptions {
+                    reveal_types: true,
+                    embedded_bodies: true,
+                    ..CheckOptions::default()
+                },
+            )
+        };
+
+        let valid = check(
+            "inferred-error-failure-valid.xsh",
+            "pure make_failure(message: Str) { error.failure(message) }\n",
+        );
+        assert!(valid.diagnostics.is_empty(), "{:?}", valid.diagnostics);
+        assert_eq!(
+            valid
+                .checked_control_flow
+                .builtin_calls
+                .values()
+                .filter(|&&kind| kind == crate::sema::check::CheckedBuiltinCall::ErrorFailure)
+                .count(),
+            1,
+        );
+
+        let invalid = check(
+            "inferred-error-failure-invalid.xsh",
+            "pure make_failure(message: Int) { error.failure(message) }\n",
+        );
+        assert!(invalid.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+        }), "{:?}", invalid.diagnostics);
+        assert!(!invalid
+            .checked_control_flow
+            .builtin_calls
+            .values()
+            .any(|&kind| kind == crate::sema::check::CheckedBuiltinCall::ErrorFailure));
+    }
+
+    #[test]
+    fn inferred_capture_accepts_rowless_ground_script_call() {
+        let program = fixture(
+            "inferred-capture-rowless-script-call.xsh",
+            r#"
+use hash
+pure wrong_target(first, second, third) { first }
+proc capture_hash_failure(file: Path) [fs] {
+  let _ = try { hash.verify_file(file, sha256: "00") }
+}
+"#,
+        );
+        let owner = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "capture_hash_failure")
+            .expect("the ordinary concrete caller is lowered");
+        assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Ground(_)));
+        let decoder = function_view_decoder(&program.store, owner);
+        let call = decoder
+            .instruction_range
+            .clone()
+            .find(|&instruction| {
+                let schema::ExprView::Call { function, .. } = decoder.expression_view(instruction).unwrap() else {
+                    return false;
+                };
+                program.store.string(program.store.functions[function.id.index()].name).unwrap() == "verify_file"
+                    && program.store.string(program.store.function_metadata[function.id.index()].owner).unwrap() == "<xsh-stdlib:hash>"
+            })
+            .expect("the captured call targets the embedded hash implementation");
+        let schema::ExprView::Call { function, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let script_target = function.id.index();
+        assert!(matches!(program.store.functions[script_target].contract, FullCallableContract::Ground(_)));
+        assert!(program.store.checked_call_targets.binary_search_by_key(&(call as u32), |fact| fact.instruction).is_err());
+        FullVerifier::verify(&program).unwrap();
+
+        let wrong_target = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "wrong_target")
+            .expect("the wrong target is a generic function");
+        assert!(matches!(program.store.functions[wrong_target].contract, FullCallableContract::Scheme(_)));
+        let mut misdirected = program.clone();
+        misdirected.store.extra[misdirected.store.data[call].range().start as usize] =
+            IrFunctionId::new(wrong_target).unwrap().raw();
+        let error = FullVerifier::verify(&misdirected).expect_err("a changed target cannot be accepted without scheme call evidence");
+        assert!(error.message.contains("checked call"), "{error:?}");
+    }
+
+    #[test]
+    fn inferred_dynamic_return_cleanup_runs_with_monomorphic_capture() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "inferred-dynamic-return-cleanup.xsh",
+                r#"
+var errors = 0
+var cleanups = 0
+type RecordPayload = {detail: Str}
+pure identity_int(value: Int) -> Int { value }
+proc environment_int(value: Int) [env] -> Int {
+  let _ = env.get("HOME")
+  value
+}
+proc run_then_keep(action, marker, value: Result[Unit, Int]) -> Any {
+  let _ = action(marker)
+  let _ = value?
+  null
+}
+proc generic_integer_failure(marker, value: Result[Unit, Int]) [error] -> Any {
+  let _ = marker
+  let _ = value?
+  null
+}
+proc integer_failure(marker: Any, value: Result[Unit, Int]) [error] -> Any {
+  let _ = marker
+  let _ = value?
+  null
+}
+proc generic_record_failure(marker, value: Result[Unit, RecordPayload]) [error] -> Any {
+  let _ = marker
+  let _ = value?
+  null
+}
+proc record_failure(marker: Any, value: Result[Unit, RecordPayload]) [error] -> Any {
+  let _ = marker
+  let _ = value?
+  null
+}
+proc keep(marker, value: Any, fail_cleanup: Bool) [error] -> Any {
+  let _ = marker
+  errdefer { errors += 1 }
+  defer {
+    cleanups += 1
+    if fail_cleanup {
+      let failure: Result[Unit, Error] = Err(error.failure("cleanup"))
+      let _ = failure?
+    }
+  }
+  return value
+}
+let opaque: Result[Int, Error] = Err(error.failure("opaque"))
+let preserved: Result[Any, Error] = try { keep(1, opaque, false) }
+let cleanup_failed: Result[Any, Error] = try { keep("marker", opaque, true) }
+let expected: Result[Any, Error] = Ok(opaque)
+assert preserved == expected
+let cleanup_message = match cleanup_failed {
+  Err(failure) => failure.message
+  Ok(_) => ""
+}
+assert cleanup_message == "cleanup"
+assert errors == 1
+assert cleanups == 2
+let integer_result: Result[Unit, Int] = Err(42)
+let callback_result: Result[Unit, Int] = Err(42)
+let pure_callback: Result[Any, Error] = try { run_then_keep(identity_int, 7, callback_result) }
+let environment_callback: Result[Any, Error] = try { run_then_keep(environment_int, 7, callback_result) }
+let pure_callback_message = match pure_callback { Err(problem) => problem.message; Ok(_) => "" }
+let environment_callback_message = match environment_callback { Err(problem) => problem.message; Ok(_) => "" }
+assert pure_callback_message != ""
+assert pure_callback_message == environment_callback_message
+let generic_integer: Result[Any, Error] = try { generic_integer_failure(1, integer_result) }
+let generic_text_marker: Result[Any, Error] = try { generic_integer_failure("marker", integer_result) }
+let plain_integer: Result[Any, Error] = try { integer_failure(1, integer_result) }
+let generic_integer_message = match generic_integer { Err(problem) => problem.message; Ok(_) => "" }
+let plain_integer_message = match plain_integer { Err(problem) => problem.message; Ok(_) => "" }
+let generic_text_marker_message = match generic_text_marker { Err(problem) => problem.message; Ok(_) => "" }
+assert generic_integer_message != ""
+assert generic_integer_message == generic_text_marker_message
+assert generic_integer_message == plain_integer_message
+let record_result: Result[Unit, RecordPayload] = Err({detail: "record"})
+let generic_record: Result[Any, Error] = try { generic_record_failure("marker", record_result) }
+let plain_record: Result[Any, Error] = try { record_failure("marker", record_result) }
+let generic_record_message = match generic_record { Err(problem) => problem.message; Ok(_) => "" }
+let plain_record_message = match plain_record { Err(problem) => problem.message; Ok(_) => "" }
+assert generic_record_message != ""
+assert generic_record_message == plain_record_message
+"#,
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let owner = program
+                .store
+                .functions
+                .iter()
+                .position(|function| program.store.string(function.name).unwrap() == "generic_integer_failure")
+                .unwrap();
+            let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract
+            else {
+                panic!("generic Proc has a scheme contract");
+            };
+            let direct = program.store.schemes[scheme_id.index()]
+                .effects
+                .direct
+                .bounds(program.store.scheme_effects.len())
+                .unwrap();
+            let declared_effects = &program.store.scheme_effects[direct.clone()];
+            let error_offset = declared_effects
+                .iter()
+                .position(|effect| *effect == crate::syntax::node::Effect::Error)
+                .expect("explicit Proc declares its checked error effect");
+            let replacement = crate::syntax::node::Effect::ALL
+                .into_iter()
+                .find(|effect| {
+                    *effect != crate::syntax::node::Effect::Error
+                        && !declared_effects.contains(effect)
+                })
+                .expect("an effect other than error is absent from the finite contract");
+            let mut missing_error_effect = program.as_ref().clone();
+            missing_error_effect.store.scheme_effects[direct.start + error_offset] = replacement;
+            let missing_error = FullVerifier::verify(&missing_error_effect).unwrap_err();
+            assert!(missing_error.message.contains("effect"), "{missing_error:?}");
+
+            let callback_owner = program
+                .store
+                .functions
+                .iter()
+                .position(|function| program.store.string(function.name).unwrap() == "run_then_keep")
+                .unwrap();
+            let FullCallableContract::Scheme(callback_scheme_id) = program.store.functions[callback_owner].contract
+            else {
+                panic!("callback Proc has a scheme contract");
+            };
+            let callback_scheme = &program.store.schemes[callback_scheme_id.index()];
+            let callback_direct = callback_scheme
+                .effects
+                .direct
+                .bounds(program.store.scheme_effects.len())
+                .unwrap();
+            assert!(program.store.scheme_effects[callback_direct.clone()]
+                .contains(&crate::syntax::node::Effect::Error));
+            let callback_terms = callback_scheme
+                .effects
+                .terms
+                .bounds(program.store.scheme_effect_terms.len())
+                .unwrap();
+            assert!(!callback_terms.is_empty());
+            let callback_error_offset = program.store.scheme_effects[callback_direct.clone()]
+                .iter()
+                .position(|effect| *effect == crate::syntax::node::Effect::Error)
+                .unwrap();
+            let callback_effects = &program.store.scheme_effects[callback_direct.clone()];
+            let callback_replacement = crate::syntax::node::Effect::ALL
+                .into_iter()
+                .find(|effect| !callback_effects.contains(effect))
+                .expect("an effect absent from the direct contract");
+            let mut missing_direct_error = program.as_ref().clone();
+            missing_direct_error.store.scheme_effects[callback_direct.start + callback_error_offset] = callback_replacement;
+            let missing_direct_error = FullVerifier::verify(&missing_direct_error).unwrap_err();
+            assert!(!missing_direct_error.message.is_empty());
+
+            let callback_call = program.store.call_instantiations.iter().find(|instance| {
+                matches!(program.store.tags[instance.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall)
+                    && program.store.checked_call_targets.iter().any(|fact| fact.instruction == instance.instruction && fact.function.index() == callback_owner)
+            }).expect("the direct callback invocation has a checked call substitution").instruction;
+            let mut missing_invocation = program.as_ref().clone();
+            let invocation = missing_invocation.store.call_instantiations.binary_search_by_key(&callback_call, |instance| instance.instruction).unwrap();
+            missing_invocation.store.call_instantiations.remove(invocation);
+            assert!(FullVerifier::verify(&missing_invocation).is_err(), "the checked callback invocation requires its exact substitution");
+
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(
+                    Vec::new(),
+                    (*program.sources).clone(),
+                );
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator
+                        .eval_indexed_driver_step(step, Span::at(program.store.source_id, 0))
+                        .unwrap()
+                        .unwrap();
+                }
+                let errors = evaluator.lookup(Name::intern("errors")).unwrap().value.clone();
+                let cleanups = evaluator.lookup(Name::intern("cleanups")).unwrap().value.clone();
+                assert_eq!((errors, cleanups), (Value::Int(1), Value::Int(2)));
+            }
+        });
+    }
+
+    #[test]
     fn generic_driver_aliases_verify_incomplete_annotation_producers() {
         run_with_large_stack(|| {
             let path_source = r#"pure paths(values) -> List[Path] { [value for value in values] }
