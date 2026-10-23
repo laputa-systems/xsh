@@ -2620,6 +2620,8 @@ impl<'a> ProducerProof<'a> {
             match (&*initial, &statement) {
                 (Type::Int, schema::StmtView::AssignInt { slot: written, .. })
                 | (Type::Bool, schema::StmtView::AssignBool { slot: written, .. }) if *written == slot => continue,
+                (Type::Bool, schema::StmtView::Assign { slot: written, value, op: super::super::AssignOp::Set, check: None, .. })
+                    if *written == slot && matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Bool(_)) => continue,
                 (Type::Int, schema::StmtView::Assign { slot: written, value, check: None, .. }) if *written == slot => {
                     if matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Param(_)
                         | schema::ExprView::Binary { op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, .. })
@@ -3039,6 +3041,11 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Glob { .. } => Some(Type::List(Box::new(Type::Path))),
             schema::ExprView::LastStatus { .. } => Some(Type::Status),
             schema::ExprView::Range { .. } => Some(Type::Stream(Box::new(Type::Int))),
+            schema::ExprView::Ok(value) => {
+                let Some(payload) = self.need_context(decoder, value.raw() as usize)? else { return Ok(None) };
+                self.budget.charge_clone(&payload)?;
+                Some(Type::Result(Box::new((*payload).clone()), Box::new(Type::Error)))
+            }
             schema::ExprView::Record(mut fields) => {
                 let writers = decoder.checked_record_field_writers(&mut fields, |source| self.need_context(decoder, source)?.ok_or_else(|| IrVerifyError::new("record spread derivation has no input contract")))?;
                 let mut fields = BTreeMap::new();

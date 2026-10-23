@@ -33460,6 +33460,32 @@ assert labels([{text: "x"}, {text: "y"}]) == ["x"]
     }
 
     #[test]
+    fn generated_resource_boolean_producers_reject_non_boolean_writers() {
+        run_with_large_stack(|| {
+            let program = fixture("generated-resource-boolean-writers.xsh",
+                "let numbers: List[Int] = [1]\ntempdir site { with root = fs.open_root(site)? { let ready: Bool = true; assert ready } }\n");
+            let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+            let mut writers = Vec::new();
+            for step in 0..program.store.driver_steps.len() {
+                let decoder = verify_schemes::decoder_for_driver_step(&program.store, step).unwrap();
+                for instruction in decoder.instruction_range.clone() {
+                    if let Ok(schema::StmtView::Assign { value, .. }) = decoder.statement_view(instruction)
+                        && program.store.tags[value.raw() as usize] == FullTag::ExprBool
+                    { writers.push(value.raw() as usize); }
+                }
+            }
+            assert!(!writers.is_empty());
+            for writer in writers {
+                let mut forged = program.clone();
+                forged.store.tags[writer] = FullTag::ExprInt;
+                forged.store.data[writer] = program.store.data[integer];
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains("condition producer has no checked contract"), "{error:?}");
+            }
+        });
+    }
+
+    #[test]
     fn strict_result_producers_preserve_unsigned_set_comparison() {
         let program = Arc::new(fixture("unsigned-set-membership.xsh", r#"
 pure has(values: Set[UInt], needle: Int, wrong: Str) -> Bool { let _ = wrong; if needle in values { return true }; false }

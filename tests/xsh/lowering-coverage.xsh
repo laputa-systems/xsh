@@ -1,3 +1,24 @@
+test test_root_resource_scopes_preserve_typed_boolean_producers { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""let ready: Bool = true
+assert ready
+tempdir site {
+  let waiting: Bool = false
+  assert ! waiting
+  with root = fs.open_root(site)? {
+    let active: Bool = true
+    assert active
+    print "active"
+  }
+  print "released"
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "active\nreleased\n"
+}
+
 test test_top_level_record_bindings_feed_generic_calls { |ctx|
   let output = test.expect(
     ctx,
