@@ -4662,6 +4662,14 @@ including `take(0)`. JSON parsing skips whitespace-only lines and rejects a
 malformed line even when a later stage would discard it. The source expression
 finishes, including its defers, before chunk-size evaluation.
 
+`table.print(columns: ...)` requires record items, including records with opaque
+`Any` fields. It adds no display requirement to individual fields. Columns are
+an optional `List[Str]`; without it, columns come from the records' field names.
+A selected field that is absent renders as an empty cell. Configuration is
+evaluated before pulling a live source. The stage materializes and closes that
+source before rendering; a failed pull produces no partial table. Its result
+is `Unit`.
+
 ### 13.4 Callbacks and errors
 
 Callback parameters may shadow enclosing bindings; names within one parameter

@@ -5015,7 +5015,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         lowered_stages.push(if stage.kind == StreamStageKind::Each { LoweredPipelineStage::Each { slot, body } } else { LoweredPipelineStage::Tee { slot, body } });
                         continue;
                     }
-                    if matches!(stage.kind, StreamStageKind::Batch | StreamStageKind::Zip | StreamStageKind::Repeat | StreamStageKind::Range | StreamStageKind::Shuffle) {
+                    if matches!(stage.kind, StreamStageKind::Batch | StreamStageKind::Zip | StreamStageKind::Repeat | StreamStageKind::Range | StreamStageKind::Shuffle | StreamStageKind::TablePrint) {
                         let (lowered, output) = self.lower_scheme_pipeline_shape_stage(expression, &stage, item_type, slots, current_function, facts, visited, lowered_types)?;
                         item_type = output;
                         lowered_stages.push(lowered);

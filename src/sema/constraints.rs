@@ -2125,6 +2125,28 @@ impl TypeConstraints {
         self.resolve_row_inner(row, 0, &mut access)
     }
 
+    pub(crate) fn require_record_head(
+        &mut self, receiver: &Type, level: u32, contribution: Span,
+    ) -> Result<(), ConstraintConflict> {
+        let provenance = self.provenance(receiver);
+        self.apply_journaled(|constraints, changes| {
+            let row = RowShape {
+                fields: BTreeMap::new(),
+                tail: RowTail::Variable(constraints.fresh_row_inner(contribution, level, BTreeSet::new(), changes)),
+            };
+            constraints.counters.generated_constraints.fetch_add(1, Ordering::Relaxed);
+            let result = match receiver {
+                Type::Inference(id) => constraints.bind_record_inner(*id, &row, contribution, changes),
+                Type::Record(fields) => constraints.unify_rows_inner(&row, &RowShape { fields: fields.as_ref().clone(), tail: RowTail::Closed }, contribution, 0, changes),
+                _ => Err((row_type(&row), receiver.clone(), None)),
+            };
+            result.map_err(|(expected, actual, resolution_error)| ConstraintConflict {
+                expected, actual, initializer: provenance.map(|value| value.0),
+                established: provenance.and_then(|value| value.1), contribution, resolution_error,
+            })
+        })
+    }
+
     pub(crate) fn project_record_field(
         &mut self,
         receiver: &Type,

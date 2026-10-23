@@ -1354,6 +1354,14 @@ pub(super) fn verify_body(
                                     }
                                     pending.push(Obligation::Expression(value.raw() as usize, scope));
                                 }
+                                super::super::StageView::TablePrint { .. } | super::super::StageView::TablePrintConfigured { .. } => {
+                                    if !BodyTypeRef::Scheme(&item).is_record() { return Err(IrVerifyError::new("generic table print item is not a record")); }
+                                    if let super::super::StageView::TablePrintConfigured { columns } = stage.view {
+                                        if !body_type_matches(&expression_type(types, columns.raw() as usize, budget)?, &SchemeType::Ground(Type::List(Box::new(Type::Str))), budget)? { return Err(IrVerifyError::new("generic table columns are not List[Str]")); }
+                                        pending.push(Obligation::Expression(columns.raw() as usize, scope));
+                                    }
+                                    terminal = Some(SchemeType::Ground(Type::Unit));
+                                }
                                 super::super::StageView::Collect => {
                                     budget.charge_scheme_clone(&item)?;
                                     terminal = Some(SchemeType::List(Box::new(item.clone())));
@@ -5161,6 +5169,29 @@ mod structured_pipeline_tests {
         let mut wrong_size = program.clone();
         wrong_size.store.extra[program.store.data[size].range().start as usize] = 3;
         assert!(FullVerifier::verify(&wrong_size).is_err());
+        let mut wrong_owner = program.clone();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == input).unwrap();
+        fact.function = super::super::super::IrFunctionId::new(foreign).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
+    fn generic_pipeline_table_rejects_forged_row_configuration_and_owner_facts() {
+        let program = prepare("proc display(marker, row, columns: List[Str], wrong: Bool) [] -> Unit { let _ = marker; [row] |> table.print(columns: columns) }\nproc foreign(marker, row, columns: List[Str], wrong: Bool) [] -> Unit { let _ = marker; [row] |> table.print(columns: columns) }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "display").unwrap();
+        let foreign = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "foreign").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        for slot in [1, 2] {
+            let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.extra[program.store.data[read].range().start as usize] = 3;
+            assert!(FullVerifier::verify(&wrong).is_err(), "forged slot {slot}");
+        }
+        let input = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { input, .. }) => Some(input.raw() as usize),
+            _ => None,
+        }).unwrap();
         let mut wrong_owner = program.clone();
         let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && fact.instruction as usize == input).unwrap();
         fact.function = super::super::super::IrFunctionId::new(foreign).unwrap();

@@ -40,6 +40,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 SchemeType::Record { fields: BTreeMap::from([(Name::intern("left"), item), (Name::intern("right"), right)]), tail: crate::sema::schemes::SchemeRowTail::Closed }
             }
             StreamStageKind::Range => SchemeType::Ground(Type::Int),
+            StreamStageKind::TablePrint => SchemeType::Ground(Type::Unit),
             _ => item,
         };
         let lowered = match stage.kind {
@@ -58,6 +59,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             StreamStageKind::Repeat => LoweredPipelineStage::Repeat { count: wrap(self, values[0]?, lowered_types)? },
             StreamStageKind::Range => LoweredPipelineStage::Range { start: wrap(self, values[0]?, lowered_types)?, end: values[1]? },
             StreamStageKind::BytesChunks => LoweredPipelineStage::BytesChunks { size: wrap(self, values[0]?, lowered_types)? },
+            StreamStageKind::TablePrint => match values[0] {
+                Some(value) => LoweredPipelineStage::TablePrintConfigured { columns: wrap(self, value, lowered_types)? },
+                None => LoweredPipelineStage::TablePrint { columns: None },
+            },
             StreamStageKind::Shuffle => LoweredPipelineStage::Shuffle { seed: match values[0] { Some(value) => Some(wrap(self, value, lowered_types)?), None => None } },
             _ => return None,
         };
