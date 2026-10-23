@@ -1549,7 +1549,6 @@ impl Checker {
         expected_context: Option<&Type>,
         span: Span,
     ) -> Type {
-        let expression_start = self.unresolved_expression_boundary();
         let inference = match self.record_constructors.begin_constructor_inference(
             &arena.arena,
             callee,
@@ -1598,7 +1597,6 @@ impl Checker {
                 Err(error) => self.error(call_span, &error.message, error.code),
             }
         }
-        self.publish_unresolved_expr_types(expression_start);
         self.record_constructor_instances
             .get(&span)
             .map_or(Type::Invalid, |fact| fact.ty.clone())

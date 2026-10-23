@@ -2895,15 +2895,17 @@ mod imported_pure_tests {
 
     #[test]
     fn checked_record_constructor_callees_do_not_capture_static_namespaces() {
-        let (program, output, body, namespace) = checked_imported_call("", "", "api.Row(value: 7).value");
-        let _symbols = program.symbol_owner().enter();
-        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
-        assert!(!facts.read_bindings().contains(&namespace));
-        let bindings = super::super::ResolvedBindings::collect(&program);
-        let (_, _, _, missing_constructor_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
-            |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
-        assert!(missing_constructor_reads.contains(&namespace));
+        for argument in ["api.Row(value: 7).value", "api.Row(value: row.value).value"] {
+            let (program, output, body, namespace) = checked_imported_call("", "", argument);
+            let _symbols = program.symbol_owner().enter();
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
+            assert!(!facts.read_bindings().contains(&namespace));
+            let bindings = super::super::ResolvedBindings::collect(&program);
+            let (_, _, _, missing_constructor_reads, _, _) = collect_body_type_facts(&program, body, &output.expr_types, &output.prepared_constants, &bindings,
+                |expression| output.selected_function_calls.contains_key(&program.arena.expr(expression).span), |_| false, &BTreeMap::new(), &[]);
+            assert!(missing_constructor_reads.contains(&namespace));
+        }
     }
 
     #[test]

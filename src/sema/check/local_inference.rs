@@ -20,9 +20,6 @@ pub(super) struct LocalInference {
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
-    /// Expression facts recorded with inference identities since the last
-    /// record-constructor publication; every other fact is already canonical.
-    unresolved_expr_types: Vec<Span>,
 }
 
 #[derive(Clone)]
@@ -82,8 +79,7 @@ impl LocalInference {
                 && other.sort_key_checks.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
-                && other.checked_bindings.is_empty()
-                && other.unresolved_expr_types.is_empty(),
+                && other.checked_bindings.is_empty(),
             "module owner preparation must contain only local-inference seeds"
         );
         self.seeds.extend(other.seeds.iter().copied());
@@ -119,29 +115,7 @@ impl LocalInference {
 
 impl Checker {
     pub(super) fn record_expr_type(&mut self, span: Span, ty: Type) {
-        if ty.contains_inference() {
-            self.local_inference.unresolved_expr_types.push(span);
-        }
         self.expr_types.insert(span, ty);
-    }
-
-    pub(super) fn unresolved_expression_boundary(&self) -> usize {
-        self.local_inference.unresolved_expr_types.len()
-    }
-
-    pub(super) fn publish_unresolved_expr_types(&mut self, start: usize) {
-        for span in self.local_inference.unresolved_expr_types.drain(start..) {
-            if let Some(ty) = self.expr_types.get_mut(&span)
-                && ty.contains_inference()
-            {
-                *ty = self
-                    .type_constraints
-                    .resolve(ty)
-                    .ok()
-                    .filter(|resolved| !resolved.contains_inference())
-                    .unwrap_or(Type::Invalid);
-            }
-        }
     }
 
     pub(super) fn resolve_checked_types(&mut self) {
@@ -1350,6 +1324,41 @@ mod tests {
                 assert_eq!(checker.type_constraints.resolve(&inference.ty), Ok(expected));
             }
         }
+    }
+
+    #[test]
+    fn constructor_arguments_retain_open_row_facts_until_body_generalization() {
+        let source = "type Row = {value: Int}\npure sample(row) -> Row { Row(value: row.value) }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let definition = parsed.arena.arena.stmt_ids(parsed.arena.statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
+            ArenaStmtKind::PureDef(definition) => Some(definition), _ => None,
+        }).unwrap();
+        let definition = parsed.arena.arena.function_def(definition);
+        let mut checker = Checker::new(super::super::CheckOptions::default());
+        checker.resolved_bindings = Arc::new(super::super::ResolvedBindings::collect(&parsed.arena));
+        let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+        checker.record_constructors = super::super::RecordConstructors::collect_declarations_bundle(&view);
+        checker.collect_definitions_arena(&parsed.arena, Arc::new(parsed.arena.clone()), source, parsed.arena.arena.stmt_ids(parsed.arena.statements));
+        checker.local_inference = LocalInference::prepare(&view);
+        checker.check_function_arena(&parsed.arena, source, definition, true);
+        assert!(checker.diagnostics.is_empty(), "{:?}", checker.diagnostics);
+        let (projection, base, name) = (0..parsed.arena.arena.expr_tags.len()).find_map(|index| {
+            let expression = ExprId::from_index(index);
+            match parsed.arena.arena.expr(expression).kind {
+                ArenaExprKind::Field { base, name } if &source[parsed.arena.arena.expr(expression).span.range()] == "row.value" => Some((expression, base, name)),
+                _ => None,
+            }
+        }).unwrap();
+        let projected = &checker.expr_types[&parsed.arena.arena.expr(projection).span];
+        assert_eq!(checker.type_constraints.resolve(projected), Ok(Type::Int));
+        let row = checker.expr_types[&parsed.arena.arena.expr(base).span].clone();
+        assert!(row.contains_inference(), "{row:?}");
+        let field = checker.type_constraints.project_record_field(&row, name, 1, parsed.arena.arena.expr(projection).span).unwrap();
+        assert_eq!(checker.type_constraints.resolve(&field), Ok(Type::Int));
+        assert_eq!(checker.record_constructor_instances.len(), 1);
+        assert!(checker.record_constructor_instances.values().all(|constructor| constructor.ty == Type::Record(BTreeMap::from([(name, Type::Int)]).into())));
     }
 
     #[test]

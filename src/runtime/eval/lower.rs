@@ -9953,6 +9953,24 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
     }
 
     #[test]
+    fn generic_record_constructor_formals_constrain_open_field_producers() {
+        let source = "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet first = sample({value: 7, extra: \"kept\"})\nlet second = sample({value: 9, extra: false})\nassert first.value == 7\nassert second.value == 9\n";
+        let checked = CheckedSource::new("generic-record-constructor-field-context.xsh", source, Vec::new());
+        let result = checked.build(&checked.declarations);
+        assert!(result.is_ok(), "{result:?}");
+        for rejected in [
+            "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet result = sample({value: \"wrong\"})\n",
+            "type Row = {value: Int}\npure sample(row) { Row(value: row.value) }\nlet result = sample({missing: 7})\n",
+            "type Box[T] = {value: T}\nlet result = Box(value: [])\n",
+        ] {
+            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), rejected);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = crate::sema::check::Checker::check_arena(&parsed.arena, rejected);
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "{rejected}: {:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
     fn generic_record_constructors_keep_imported_schema_ownership() {
         let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
         std::fs::create_dir_all(&work).unwrap();

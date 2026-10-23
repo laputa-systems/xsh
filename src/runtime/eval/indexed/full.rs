@@ -39520,9 +39520,12 @@ pure make(payload, count: Int) {
     let brand = Brand(value: count)
     {payload, counts, brand}
 }
+pure from_row(row) { Counts(value: row.value) }
 let integer = make(7, 3)
 let text = make("kept", 4)
 let nested = zero("nested")
+let open_text = from_row({value: 5, extra: "kept"})
+let open_bool = from_row({value: 6, extra: true})
 assert integer.payload == 7
 assert integer.counts.value == 3
 assert integer.counts.extra == 9
@@ -39534,6 +39537,10 @@ assert text.brand.value == 4
 assert nested.payload == "nested"
 assert nested.counts.bytes.high == 0
 assert nested.counts.bytes.low == 0
+assert open_text.value == 5
+assert open_text.extra == 9
+assert open_bool.value == 6
+assert open_bool.extra == 9
 "#));
             FullVerifier::verify(&program).unwrap();
             for force_frames in [false, true] {

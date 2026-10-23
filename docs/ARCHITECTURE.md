@@ -125,6 +125,9 @@ the result or its nominal identity. A body result annotation cannot supply that
 source evidence or authorize a constructor from another function.
 Only checker-selected constructor callees use a static namespace role. Their
 arguments and independent module-value reads retain ordinary capture rules.
+Constructor instance completion closes schema arguments; surrounding callable
+generalization and final fact resolution own the supplied expressions. A closed
+constructor field does not close the open row from which its value was projected.
 
 Argument expansion shares one source-entry traversal for ordinary `Type` facts
 and generalized `SchemeType` facts. Each spread requires a checked finite closed
