@@ -13,6 +13,9 @@ use crate::syntax::arena::{
 };
 use crate::syntax::literal;
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ResultHandlerContext<'a> { Projected, Relational(&'a Type) }
+
 pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
@@ -2656,7 +2659,7 @@ impl Checker {
         self.push_scope();
         self.begin_error_boundary();
         let body = self.check_tail_block_arena(arena, source, block, expected_ok);
-        let error = self.end_error_boundary(expected_error);
+        let error = self.end_error_boundary(expected_error, span);
         self.pop_scope();
         let body = if let Some(expected_ok) = expected_ok {
             if capture_success_underconstrained(&body) && body.matches_expected(expected_ok) {
@@ -2727,7 +2730,7 @@ impl Checker {
         };
         let body_ty = self.check_tail_block_arena(arena, source, block, expected_ok);
         self.boundary.retry_block_depth -= 1;
-        let error_ty = self.end_error_boundary(expected_error);
+        let error_ty = self.end_error_boundary(expected_error, span);
         self.pop_scope();
 
         let body_ty = if let Some(expected_ok) = expected_ok {
@@ -3097,6 +3100,7 @@ impl Checker {
         expression: ExprId,
         block: BlockId,
         result_ty: &Type,
+        context: ResultHandlerContext<'_>,
         left_span: Span,
         expected: Option<&Type>,
     ) -> Type {
@@ -3141,7 +3145,6 @@ impl Checker {
                 arena.arena.span(param.span),
             );
         }
-        // A handler without `|name|` receives the error as its item `.`.
         if params.is_empty() {
             self.define(
                 super::item_binding(),
@@ -3164,10 +3167,11 @@ impl Checker {
                 stage: false,
             },
         });
-        // Every handler tail is a value; Unit-success handlers still require Unit.
-        let context =
-            (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);
-        let actual = self.check_tail_block_contents_arena(arena, source, block, context);
+        let expected = match context {
+            ResultHandlerContext::Projected => (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty),
+            ResultHandlerContext::Relational(handler) => Some(handler),
+        };
+        let actual = self.check_tail_block_contents_arena(arena, source, block, expected);
         self.publish_value_block_exit_arena(arena, expression);
         if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.boundary.item_frames.pop() {
             self.error(
@@ -3176,7 +3180,7 @@ impl Checker {
                 DiagnosticCode::CheckFallbackBlockParams,
             );
         }
-        if !matches!(actual, Type::Unknown) {
+        if context == ResultHandlerContext::Projected && !matches!(actual, Type::Unknown) {
             self.expect_type(&value_ty, &actual, arena.arena.expr(expression).span);
         }
         self.pop_scope();
@@ -3248,9 +3252,28 @@ impl Checker {
         match op {
             BinaryOp::ResultFallback => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
+                if left_ty.contains_inference() {
+                    use crate::sema::wrapper_operation::WrapperRequirementKind;
+                    let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
+                    let result = self.wrapper_result_type(span);
+                    if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(right).kind {
+                        let error = self.fresh_wrapper_type(left_span);
+                        let shape = Type::Result(Box::new(result.clone()), Box::new(error.clone()));
+                        self.expect_type(&shape, &left_ty, left_span);
+                        let handler = self.fresh_wrapper_type(right_span);
+                        self.check_wrapper_requirement(WrapperRequirementKind::Handler { source: left_ty.clone(), error: error.clone(), handler: handler.clone(), result: result.clone() }, span, DiagnosticCode::CheckFallbackBlockResult, result.clone());
+                        self.check_result_fallback_block_arena(arena, source, right, block, &shape, ResultHandlerContext::Relational(&handler), left_span, expected);
+                        let handler = self.expr_types.get(&right_span).cloned().unwrap_or(Type::Invalid);
+                        return self.check_wrapper_requirement(WrapperRequirementKind::Handler { source: left_ty, error, handler, result: result.clone() }, span, DiagnosticCode::CheckFallbackBlockResult, result);
+                    }
+                    let fallback = self.fresh_wrapper_type(right_span);
+                    self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty.clone(), fallback: fallback.clone(), result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result.clone());
+                    let fallback = self.check_expr_arena(arena, source, right, Some(&fallback));
+                    return self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty, fallback, result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result);
+                }
                 if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(right).kind {
                     return self.check_result_fallback_block_arena(
-                        arena, source, right, block, &left_ty, left_span, expected,
+                        arena, source, right, block, &left_ty, ResultHandlerContext::Projected, left_span, expected,
                     );
                 }
                 let value_ty = if let Some(ok_ty) = left_ty.result_ok().cloned() {
@@ -3942,6 +3965,29 @@ impl Checker {
         }
     }
 
+    pub(super) fn wrapper_solver_level(&self) -> u32 {
+        self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level())
+    }
+
+    pub(super) fn fresh_wrapper_type(&mut self, span: Span) -> Type {
+        self.type_constraints.fresh_at_level(span, self.wrapper_solver_level())
+    }
+
+    fn wrapper_result_type(&mut self, span: Span) -> Type {
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        self.type_constraints.wrapper_result_at(owner, span).cloned().unwrap_or_else(|| self.fresh_wrapper_type(span))
+    }
+
+    pub(super) fn check_wrapper_requirement(&mut self, kind: crate::sema::wrapper_operation::WrapperRequirementKind<Type, crate::sema::constraints::EffectVariableId>, span: Span, code: DiagnosticCode, result: Type) -> Type {
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let requirement = crate::sema::wrapper_operation::WrapperRequirement { kind, span };
+        if let Err(error) = self.type_constraints.register_source_wrapper(owner, requirement).and_then(|_| self.type_constraints.solve_wrapper_operations()) {
+            self.error(span, &error.to_string(), code);
+            return Type::Invalid;
+        }
+        self.type_constraints.resolve(&result).unwrap_or(Type::Invalid)
+    }
+
     fn check_null_safe_field_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -3953,6 +3999,30 @@ impl Checker {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
+        }
+        if base_ty.contains_inference() {
+            use crate::sema::wrapper_operation::{WrapperBoundary, WrapperRequirementKind};
+            let result = self.wrapper_result_type(span);
+            let boundary = if self.boundary.retry_attempt_depth > 0 {
+                self.boundary.error_boundary_errors.last_mut().expect("wrapper capture owns error sources").push((crate::sema::wrapper_operation::WrapperErrorContribution::Source(base_ty.clone()), span));
+                WrapperBoundary::Captured
+            } else {
+                match &self.boundary.current_return {
+                    Some(super::ReturnContext::Function(ty)) => {
+                        let returned = if *ty == Type::Unknown { self.fresh_wrapper_type(span) } else { ty.clone() };
+                        if self.boundary.effect_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                            .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
+                        { WrapperBoundary::ProcCompletion(returned) }
+                        else if self.propagation_effect_is_permitted() { WrapperBoundary::ErrorReturn(returned) } else { WrapperBoundary::Return(returned) }
+                    },
+                    Some(super::ReturnContext::Producer) => WrapperBoundary::Producer,
+                    None => WrapperBoundary::TopLevel,
+                }
+            };
+            let level = self.wrapper_solver_level();
+            let effects = crate::sema::effects::EffectContract::variable(self.type_constraints.fresh_effect_at_level(span, level));
+            self.check_wrapper_effect_contract(&effects, span);
+            return self.check_wrapper_requirement(WrapperRequirementKind::Field { source: base_ty, name, result: result.clone(), boundary, effects }, span, DiagnosticCode::CheckNullSafeField, result);
         }
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),

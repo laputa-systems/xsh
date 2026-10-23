@@ -2072,6 +2072,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     Field {
+        mode: Option<crate::sema::wrapper_operation::WrapperMode>,
         name: String,
         span: Span,
         next: Box<FrameContinuation>,
@@ -2390,6 +2391,7 @@ enum FrameContinuation {
     },
     ResultFallback {
         right: u32,
+        mode: crate::sema::wrapper_operation::WrapperMode,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -7143,6 +7145,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                     FrameContinuation::ResultFallback {
                         right: right.raw(),
+                        mode: self.calls[index].execution.wrapper_mode(instruction, &self.calls[index].applications).map_err(|error| indexed_error(error, span))?.unwrap_or(crate::sema::wrapper_operation::WrapperMode::Result),
                         span,
                         next: Box::new(next),
                     },
@@ -7362,7 +7365,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 let base = base.raw();
                 let name = name.to_string();
-                if !self.evaluator.force_frames
+                let mode = self.calls[index].execution.wrapper_mode(instruction, &self.calls[index].applications).map_err(|error| indexed_error(error, span))?;
+                if mode.is_none() && !self.evaluator.force_frames
                     && let Some(base) = Evaluator::indexed_field_chain_ref(
                         execution,
                         base,
@@ -7379,6 +7383,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     value_span,
                     FrameContinuation::Field {
+                        mode,
                         name,
                         span: value_span,
                         next: Box::new(next),
@@ -7919,8 +7924,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
         }
         match next {
-            FrameContinuation::Field { name, span, next } => match value {
+            FrameContinuation::Field { mode, name, span, next } => match value {
                 FrameValue::Value(base) => {
+                    let base = match mode {
+                        Some(crate::sema::wrapper_operation::WrapperMode::Optional) if matches!(base, LoweredValue::Null) => {
+                            self.push_value(index, FrameValue::Value(LoweredValue::Null), *next);
+                            return Ok(());
+                        }
+                        Some(crate::sema::wrapper_operation::WrapperMode::Result) => match self.evaluator.indexed_question_value(base, span)? {
+                            Ok(base) => base,
+                            Err(value) => {
+                                let ControlFlow::Break(value) = self.evaluator.preserve_lexical_expression_flow::<()>(StmtFlow::Propagate(value)) else { unreachable!("propagation crosses an expression boundary") };
+                                self.push_value(index, FrameValue::Break(value), *next);
+                                return Ok(());
+                            }
+                        },
+                        _ => base,
+                    };
                     let value = self.evaluator.indexed_field_value(base, &name, span)?;
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
@@ -9736,15 +9756,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ResultFallback { right, span, next } => match value {
-                FrameValue::Value(value) => match lowered_fallback_value(value) {
-                    Some(value) => self.push_value(index, FrameValue::Value(value), *next),
-                    None => {
-                        // Taking the fallback handles the left side's `Err`:
-                        // its traceback describes nothing the fallback
-                        // produces, even an equal error.
-                        self.evaluator.pending_traceback = None;
-                        self.push_expr(index, right, span, *next)
+            FrameContinuation::ResultFallback { right, mode, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let selected = match mode {
+                        crate::sema::wrapper_operation::WrapperMode::Optional => if matches!(value, LoweredValue::Null) { None } else { Some(value) },
+                        crate::sema::wrapper_operation::WrapperMode::Result => lowered_fallback_value(value),
+                    };
+                    match selected {
+                        Some(value) => self.push_value(index, FrameValue::Value(value), *next),
+                        None => {
+                            if mode == crate::sema::wrapper_operation::WrapperMode::Result { self.evaluator.pending_traceback = None; }
+                            self.push_expr(index, right, span, *next)
+                        }
                     }
                 },
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),

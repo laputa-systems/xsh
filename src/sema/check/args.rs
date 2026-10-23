@@ -216,7 +216,15 @@ impl Checker {
             Err(error) => {
                 let code = if matches!(error, crate::sema::constraints::CallableApplicationError::Effects(crate::sema::constraints::EffectConstraintError::Mismatch)) {
                     DiagnosticCode::CheckEffectViolation
-                } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType } else { DiagnosticCode::CheckCallableMismatch };
+                } else if matches!(error, crate::sema::constraints::CallableApplicationError::Operation(_)) { DiagnosticCode::CheckOperatorType }
+                else if let crate::sema::constraints::CallableApplicationError::Wrapper(crate::sema::constraints::WrapperConstraintError::Invalid { operation, .. }) = &error {
+                    match operation {
+                        crate::sema::wrapper_operation::WrapperOperationKind::Field => DiagnosticCode::CheckNullSafeField,
+                        crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
+                        crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
+                        crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                    }
+                } else { DiagnosticCode::CheckCallableMismatch };
                 self.error(span, &format!("callable application requirement failed: {error}"), code);
                 false
             }
@@ -230,16 +238,30 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) {
-        let Some(instance) = instance.filter(|_| actual.contains_any()) else {
-            self.expect_type(expected, actual, span);
-            return;
-        };
-        if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
-            if conflict.resolution_error.is_some() {
-                self.report_inferred_type_conflict(conflict);
-            } else {
-                self.reject_dynamic_use("a generic function argument", None, span);
+        if let Some(instance) = instance.filter(|_| actual.contains_any()) {
+            if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(instance, expected, actual, span) {
+                if conflict.resolution_error.is_some() {
+                    self.report_inferred_type_conflict(conflict);
+                } else {
+                    self.reject_dynamic_use("a generic function argument", None, span);
+                }
+                return;
             }
+        } else {
+            self.expect_type(expected, actual, span);
+        }
+        if let Err(error) = self.type_constraints.solve_wrapper_operations() {
+            let code = match &error {
+                crate::sema::constraints::WrapperConstraintError::Invalid { operation, .. } => match operation {
+                    crate::sema::wrapper_operation::WrapperOperationKind::Field => DiagnosticCode::CheckNullSafeField,
+                    crate::sema::wrapper_operation::WrapperOperationKind::Fallback => DiagnosticCode::CheckResultFallback,
+                    crate::sema::wrapper_operation::WrapperOperationKind::Handler => DiagnosticCode::CheckFallbackBlockResult,
+                    crate::sema::wrapper_operation::WrapperOperationKind::Capture => DiagnosticCode::CheckTryError,
+                },
+                crate::sema::constraints::WrapperConstraintError::Effects(_) => DiagnosticCode::CheckEffectViolation,
+                _ => DiagnosticCode::CheckCallableMismatch,
+            };
+            self.error(span, &format!("wrapper argument relationship failed: {error}"), code);
         }
     }
 

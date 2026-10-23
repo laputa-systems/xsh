@@ -3418,7 +3418,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let saved = slots.enter();
         let block_data = self.program.arena.block(block);
-        if !block_data.params.is_empty() { return None; }
+        if !self.program.arena.block_params(block_data.params).iter().all(|parameter| is_discard_name(parameter.name)
+            || self.declaration_binding(self.program.arena.span(parameter.span), parameter.name).is_some_and(|binding| slots.resolve_binding(binding).is_some())) { return None; }
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
         let (&tail, prefix) = statements.split_last()?;
         let mut body = Vec::new();
@@ -4130,7 +4131,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
-        if !slots.guarded_postfixes.contains(&expression) {
+        if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none() {
             let base = match self.program.arena.expr(expression).kind {
                 ArenaExprKind::NullSafeField { base, .. }
                 | ArenaExprKind::Index { base, guarded: true, .. }
@@ -4227,6 +4228,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
             }
             ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
+            ArenaExprKind::Item => self.lower_bare_ident(expression, crate::sema::check::item_binding(), slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
             ArenaExprKind::EnvString(name) => {
                 let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
@@ -4252,15 +4254,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
-                let mut source = lowered_types.get(&base)?;
-                while let SchemeType::Validated(_, inner) = source { source = inner; }
-                ty = match source {
-                    SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
-                    _ => match source.closed_ground_type()?.unvalidated() {
-                        Type::Record(fields) => SchemeType::Ground(fields.get(&name)?.clone()),
-                        _ => return self.block_scheme_lowering_expr(expression),
-                    },
-                };
+                if facts.wrapper_site(expression).is_none() {
+                    let mut source = lowered_types.get(&base)?;
+                    while let SchemeType::Validated(_, inner) = source { source = inner; }
+                    ty = match source {
+                        SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
+                        _ => match source.closed_ground_type()?.unvalidated() {
+                            Type::Record(fields) => SchemeType::Ground(fields.get(&name)?.clone()),
+                            _ => return self.block_scheme_lowering_expr(expression),
+                        },
+                    };
+                }
                 push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span })
             }
             ArenaExprKind::Index { base, index, .. } => {
@@ -4345,6 +4349,41 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowered.push((op, right, self.program.arena.expr(pair).span));
                 }
                 push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered })
+            }
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } if facts.wrapper_site(expression).is_some()
+                && matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
+                let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind else { unreachable!() };
+                let (ok, error) = match facts.expression_types().get(&left)? {
+                    SchemeType::Result(ok, error) => ((**ok).clone(), (**error).clone()),
+                    SchemeType::Ground(Type::Result(ok, error)) => (SchemeType::Ground((**ok).clone()), SchemeType::Ground((**error).clone())),
+                    _ => return self.block_scheme_lowering_expr(expression),
+                };
+                let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let saved = slots.enter();
+                let parameters = self.program.arena.block_params(self.program.arena.block(block).params);
+                let error_slot = match parameters {
+                    [] => {
+                        let name = crate::sema::check::item_binding();
+                        slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(self.program.arena.block(block).span), name)?, name, error)
+                    }
+                    [parameter] if !is_discard_name(parameter.name) => slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, error),
+                    [_] => slots.reserve("fallback.error"),
+                    _ => return self.block_scheme_lowering_expr(expression),
+                };
+                visited.insert(right);
+                let handler = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+                slots.exit(saved);
+                let success_slot = slots.reserve("fallback.success");
+                let success = push_build_row!(self, expr, BuildExprRow::Param(success_slot));
+                lowered_types.insert(success, ok);
+                let success_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: Some(success_slot), unit_only: false });
+                let error_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultErr { slot: Some(error_slot), unit_only: false });
+                push_build_row!(self, expr, BuildExprRow::MatchExpr { value: left, arms: vec![(success_pattern, None, success), (error_pattern, None, handler)], span })
+            }
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } if facts.wrapper_site(expression).is_some() && !matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
+                let left = self.lower_scheme_expression(left, slots, current_function, facts, visited, lowered_types, body)?;
+                let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
+                push_build_row!(self, expr, BuildExprRow::ResultFallback { left, right })
             }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let left_type = facts.expression_types().get(&left).and_then(SchemeType::closed_ground_type);
@@ -4709,6 +4748,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
+        if let Some(ordinal) = facts.wrapper_site(expression) { self.scratch.borrow_mut().scheme_wrappers.insert(lowered.index(), ordinal); }
         Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body))
     }
 

@@ -547,10 +547,65 @@ pub(super) struct StreamIteration {
     pub(super) boundary: super::PropagationBoundary,
 }
 
+fn charged_capture_event_sort<T>(events: &mut [(usize, T)], budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let len = events.len();
+    budget.charge(len.saturating_mul(2))?;
+    let mut order = (0..len).collect::<Vec<_>>();
+    let mut merged = vec![0; len];
+    let mut width = 1usize;
+    while width < len {
+        for start in (0..len).step_by(width.saturating_mul(2)) {
+            let middle = start.saturating_add(width).min(len);
+            let end = middle.saturating_add(width).min(len);
+            let (mut left, mut right) = (start, middle);
+            for output in &mut merged[start..end] {
+                budget.charge(1)?;
+                let take_left = if left == middle { false }
+                    else if right == end { true }
+                    else {
+                        budget.charge(1)?;
+                        events[order[left]].0 <= events[order[right]].0
+                    };
+                *output = if take_left { let value = order[left]; left += 1; value }
+                    else { let value = order[right]; right += 1; value };
+            }
+        }
+        std::mem::swap(&mut order, &mut merged);
+        width = width.saturating_mul(2);
+    }
+    budget.charge(len)?;
+    for (target, source) in order.into_iter().enumerate() { merged[source] = target; }
+    for index in 0..len {
+        while merged[index] != index {
+            budget.charge(1)?;
+            let target = merged[index];
+            events.swap(index, target);
+            merged.swap(index, target);
+        }
+    }
+    Ok(())
+}
+
+fn charged_capture_transfer_contains(transfers: &[usize], instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let (mut start, mut end) = (0, transfers.len());
+    while start < end {
+        budget.charge(1)?;
+        let middle = start + (end - start) / 2;
+        match transfers[middle].cmp(&instruction) {
+            std::cmp::Ordering::Less => start = middle + 1,
+            std::cmp::Ordering::Greater => end = middle,
+            std::cmp::Ordering::Equal => return Ok(true),
+        }
+    }
+    Ok(false)
+}
+
 pub(super) struct CaptureErrorRequest {
     pub(super) owner: u32,
     pub(super) instruction: usize,
     pub(super) expected_error: crate::sema::schemes::SchemeType,
+    pub(super) wrapper: Option<u32>,
+    pub(super) transfers: Vec<(usize, crate::sema::wrapper_operation::WrapperErrorContribution<crate::sema::schemes::SchemeType>)>,
 }
 
 pub(super) struct GroundArgumentRequest {
@@ -1943,6 +1998,32 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let decoder = proof.owner(request.owner)?;
         if !matches!(store.tags.get(request.instruction), Some(FullTag::ExprCapture | FullTag::ExprRetry)) {
             return Err(IrVerifyError::new("generic captured-error request has no capture instruction"));
+        }
+        if let Some(ordinal) = request.wrapper {
+            let function = store.functions.get(function_index(request.owner)?).ok_or_else(|| IrVerifyError::new("capture relationship has no function owner"))?;
+            let FullCallableContract::Scheme(id) = function.contract else { return Err(IrVerifyError::new("capture relationship has no scheme owner")); };
+            let scope = proof.index.scheme_scopes(store)?.get(id)?;
+            let encoded = *super::bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("capture relationship ordinal is out of bounds"))?;
+            let expected = super::wrappers::decode(store, scope, encoded, &super::applications::ApplicationSubstitution::Identity, &mut proof.budget)?;
+            let crate::sema::wrapper_operation::WrapperRequirementKind::Capture { contributions: expected, result, .. } = expected.kind else { return Err(IrVerifyError::new("capture has another wrapper relationship")); };
+            if !super::body_types_equal(&result, &request.expected_error) { return Err(IrVerifyError::new("capture error result disagrees with its actual body")); }
+            proof.budget.charge(request.transfers.len())?;
+            let mut actual = request.transfers;
+            charged_capture_event_sort(&mut actual, &mut proof.budget)?;
+            let transfers = actual.iter().map(|(instruction, _)| *instruction).collect::<Vec<_>>();
+            proof.budget.charge(transfers.len())?;
+            if transfers.windows(2).any(|pair| pair[0] == pair[1]) { return Err(IrVerifyError::new("capture transfer is authenticated more than once")); }
+            for (instruction, error) in proof.derive_captured_error_events(&decoder, request.instruction, &transfers)? {
+                actual.push((instruction, crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(crate::sema::schemes::SchemeType::Ground(error))));
+            }
+            charged_capture_event_sort(&mut actual, &mut proof.budget)?;
+            proof.budget.charge(actual.len() + expected.len())?;
+            if actual.len() != expected.len() || !actual.iter().zip(expected.iter()).all(|((_, actual), expected)| match (actual, expected) {
+                (crate::sema::wrapper_operation::WrapperErrorContribution::Source(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Source(expected))
+                | (crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(actual), crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(expected)) => super::body_types_equal(actual, expected),
+                _ => false,
+            }) { return Err(IrVerifyError::new("capture contributions disagree with its actual body")); }
+            continue;
         }
         for actual in proof.captured_error_types(&decoder, request.instruction)?.iter() {
             proof.budget.charge_clone(actual)?;
@@ -4886,17 +4967,22 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn derive_captured_error_types(&mut self, decoder: &FullDecoder<'a>, capture: usize) -> Result<Vec<Type>, IrVerifyError> {
-        let mut errors = Vec::new();
+        Ok(self.derive_captured_error_events(decoder, capture, &[])?.into_iter().map(|(_, error)| error).collect())
+    }
+
+    fn derive_captured_error_events(&mut self, decoder: &FullDecoder<'a>, capture: usize, transfers: &[usize]) -> Result<Vec<(usize, Type)>, IrVerifyError> {
+        let mut events = Vec::new();
         let mut skipped = BTreeSet::new();
         let mut recorded_transfers = BTreeSet::new();
         let mut pending = vec![capture];
         while let Some(instruction) = pending.pop() {
             self.budget.charge(1)?;
             if skipped.contains(&instruction) || self.index.owners[&decoder.owner].unreachable_roots.contains(&instruction) { continue; }
+            let mut errors = Vec::new();
             if self.store.tags[instruction] == FullTag::ExprPipeline {
                 self.captured_pipeline_errors(decoder, instruction, &mut errors, &mut skipped)?;
             }
-            if instruction != capture {
+            if instruction != capture && !charged_capture_transfer_contains(transfers, instruction, &mut self.budget)? {
                 if self.store.tags[instruction].kind() == schema::InstructionKind::Expr
                     && self.callee_error_flow(decoder, instruction)? == crate::sema::types::CalleeErrorFlow::Immediate
                 { errors.push(Type::Error); }
@@ -4916,7 +5002,8 @@ impl<'a> ProducerProof<'a> {
                     FullTag::StmtExpr => {
                         let schema::StmtView::Expr { value, .. } = decoder.statement_view(instruction)? else { unreachable!() };
                         let value = value.raw() as usize;
-                        if self.store.tags[value] == FullTag::ExprTry
+                        if charged_capture_transfer_contains(transfers, value, &mut self.budget)? { None }
+                        else if self.store.tags[value] == FullTag::ExprTry
                             && let Some(error) = self.prove_error_transfer(decoder, value)?
                         {
                             self.budget.charge_clone(&error)?;
@@ -5015,6 +5102,7 @@ impl<'a> ProducerProof<'a> {
                     }
                 }
             }
+            events.extend(errors.into_iter().map(|error| (instruction, error)));
             let owner = &self.index.owners[&decoder.owner];
             let mut child = owner.children[instruction - owner.range.start];
             while child != IR_NONE {
@@ -5026,7 +5114,7 @@ impl<'a> ProducerProof<'a> {
                 child = owner.siblings[next - owner.range.start];
             }
         }
-        Ok(errors)
+        Ok(events)
     }
 
     fn verify_block_value<'view>(&mut self, decoder: &FullDecoder<'view>, mut body: super::super::decode::ListView<'view, super::super::BuildStmtId>, expected: Arc<Type>, returned: bool) -> Result<(), IrVerifyError> {

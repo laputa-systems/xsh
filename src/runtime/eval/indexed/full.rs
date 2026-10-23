@@ -753,6 +753,12 @@ struct FullStore {
     scheme_method_arguments: Vec<SchemeTypeId>,
     call_operation_bindings: Vec<schemes::FullOperationBinding>,
     call_method_bindings: Vec<schemes::FullMethodBinding>,
+    call_wrapper_bindings: Vec<schemes::FullWrapperBinding>,
+    wrapper_contributions: Vec<schemes::FullWrapperContribution>,
+    wrapper_captures: Vec<schemes::FullWrapperCapture>,
+    wrapper_handlers: Vec<schemes::FullWrapperHandler>,
+    wrapper_fields: Vec<schemes::FullWrapperField>,
+    scheme_wrappers: Vec<schemes::FullWrapper>,
     scheme_application_arguments: Vec<schemes::FullApplicationArgument>,
     scheme_proc_returns: Vec<schemes::FullProcReturnEnvelope>,
     call_application_bindings: Vec<schemes::FullApplicationBinding>,
@@ -849,6 +855,12 @@ impl Default for FullStore {
             scheme_method_arguments: Vec::new(),
             call_operation_bindings: Vec::new(),
             call_method_bindings: Vec::new(),
+            call_wrapper_bindings: Vec::new(),
+            wrapper_contributions: Vec::new(),
+            wrapper_captures: Vec::new(),
+            wrapper_handlers: Vec::new(),
+            wrapper_fields: Vec::new(),
+            scheme_wrappers: Vec::new(),
             scheme_application_arguments: Vec::new(),
             scheme_proc_returns: Vec::new(),
             call_application_bindings: Vec::new(),
@@ -1088,6 +1100,12 @@ impl FullStore {
             + self.scheme_method_arguments.capacity() * size_of::<SchemeTypeId>()
             + self.call_operation_bindings.capacity() * size_of::<schemes::FullOperationBinding>()
             + self.call_method_bindings.capacity() * size_of::<schemes::FullMethodBinding>()
+            + self.call_wrapper_bindings.capacity() * size_of::<schemes::FullWrapperBinding>()
+            + self.wrapper_contributions.capacity() * size_of::<schemes::FullWrapperContribution>()
+            + self.wrapper_captures.capacity() * size_of::<schemes::FullWrapperCapture>()
+            + self.wrapper_handlers.capacity() * size_of::<schemes::FullWrapperHandler>()
+            + self.wrapper_fields.capacity() * size_of::<schemes::FullWrapperField>()
+            + self.scheme_wrappers.capacity() * size_of::<schemes::FullWrapper>()
             + self.scheme_application_arguments.capacity() * size_of::<schemes::FullApplicationArgument>()
             + self.scheme_proc_returns.capacity() * size_of::<schemes::FullProcReturnEnvelope>()
             + self.call_application_bindings.capacity() * size_of::<schemes::FullApplicationBinding>()
@@ -1202,6 +1220,12 @@ impl FullStore {
         self.scheme_method_arguments.shrink_to_fit();
         self.call_operation_bindings.shrink_to_fit();
         self.call_method_bindings.shrink_to_fit();
+        self.call_wrapper_bindings.shrink_to_fit();
+        self.wrapper_contributions.shrink_to_fit();
+        self.wrapper_captures.shrink_to_fit();
+        self.wrapper_handlers.shrink_to_fit();
+        self.wrapper_fields.shrink_to_fit();
+        self.scheme_wrappers.shrink_to_fit();
         self.scheme_application_arguments.shrink_to_fit();
         self.scheme_proc_returns.shrink_to_fit();
         self.call_application_bindings.shrink_to_fit();
@@ -1269,7 +1293,7 @@ pub(in crate::runtime::eval) struct FullProgram {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PreparedTypeConstructor { Result, Other }
+enum PreparedTypeConstructor { Optional, Result, Other }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum PreparedProcReturn { Wrap, Preserve }
@@ -1291,6 +1315,22 @@ pub(in crate::runtime::eval) struct FullFunctionView<'a> {
 pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
     program: &'a FullProgram,
     index: usize,
+}
+
+impl FullStore {
+    fn wrapper_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullWrapper>, IrVerifyError> {
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
+        let FullCallableContract::Scheme(id) = self.functions[function.index()].contract else { return Ok(None); };
+        let scheme = self.scheme(id)?;
+        let range = scheme.body_facts.bounds(self.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("wrapper body fact range is invalid"))?;
+        let facts = &self.scheme_body_facts[range];
+        let key = (instruction, schemes::FullSchemeBodyFactKind::Wrapper as u8);
+        let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
+        if facts[index].function != function { return Err(IrVerifyError::new("wrapper body fact belongs to another function")); }
+        let schemes::FullSchemeBodyFactValue::Wrapper(ordinal) = facts[index].value else { return Err(IrVerifyError::new("wrapper body fact has no relationship")); };
+        let range = scheme.wrappers.bounds(self.scheme_wrappers.len()).ok_or_else(|| IrVerifyError::new("wrapper relationship range is invalid"))?;
+        self.scheme_wrappers[range].get(ordinal as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("wrapper relationship ordinal is out of bounds"))
+    }
 }
 
 impl FullProgram {
@@ -1474,14 +1514,28 @@ impl FullProgram {
         match node.tag {
             schema::FullSchemeTypeTag::Ground => {
                 let id = TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("invocation ground type is invalid"))?;
-                Ok(if self.store.semantic.type_tag(id)? == super::semantic::TypeTag::Result { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
+                Ok(match self.store.semantic.type_tag(id)? { super::semantic::TypeTag::Optional => PreparedTypeConstructor::Optional, super::semantic::TypeTag::Result => PreparedTypeConstructor::Result, _ => PreparedTypeConstructor::Other })
             }
             schema::FullSchemeTypeTag::Parameter => invocation.substitution.types.get(node.first as usize)
-                .map(|ty| if matches!(ty, Type::Result(..)) { PreparedTypeConstructor::Result } else { PreparedTypeConstructor::Other })
+                .map(|ty| match ty { Type::Optional(_) => PreparedTypeConstructor::Optional, Type::Result(..) => PreparedTypeConstructor::Result, _ => PreparedTypeConstructor::Other })
                 .ok_or_else(|| IrVerifyError::new("invocation type parameter has no actual binding")),
+            schema::FullSchemeTypeTag::Optional => Ok(PreparedTypeConstructor::Optional),
             schema::FullSchemeTypeTag::Result => Ok(PreparedTypeConstructor::Result),
             _ => Ok(PreparedTypeConstructor::Other),
         }
+    }
+
+    fn invocation_wrapper_mode(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<crate::sema::wrapper_operation::WrapperMode>, IrVerifyError> {
+        let Some(wrapper) = self.store.wrapper_site(owner, instruction)? else { return Ok(None); };
+        let source = match &wrapper {
+            schemes::FullWrapper::Field { source, .. } | schemes::FullWrapper::Fallback { source, .. } | schemes::FullWrapper::Handler { source, .. } => *source,
+            schemes::FullWrapper::Capture { .. } => return Err(IrVerifyError::new("capture relationship has no source mode")),
+        };
+        Ok(Some(match self.invocation_type_constructor(source, invocation)? {
+            PreparedTypeConstructor::Optional => crate::sema::wrapper_operation::WrapperMode::Optional,
+            PreparedTypeConstructor::Result => crate::sema::wrapper_operation::WrapperMode::Result,
+            PreparedTypeConstructor::Other => return Err(IrVerifyError::new("wrapper relationship has no substituted source envelope")),
+        }))
     }
 
     pub(in crate::runtime::eval) fn invocation_returns_result(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<bool, IrVerifyError> {
@@ -1502,7 +1556,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("application return ordinal is out of scope"))?;
         Ok(Some(match self.invocation_type_constructor(application.result, invocation)? {
             PreparedTypeConstructor::Result => PreparedProcReturn::Preserve,
-            PreparedTypeConstructor::Other => PreparedProcReturn::Wrap,
+            PreparedTypeConstructor::Optional | PreparedTypeConstructor::Other => PreparedProcReturn::Wrap,
         }))
     }
 
@@ -3274,6 +3328,12 @@ struct FullCheckpoint {
     scheme_method_arguments: usize,
     call_operation_bindings: usize,
     call_method_bindings: usize,
+    call_wrapper_bindings: usize,
+    wrapper_contributions: usize,
+    wrapper_captures: usize,
+    wrapper_handlers: usize,
+    wrapper_fields: usize,
+    scheme_wrappers: usize,
     scheme_application_arguments: usize,
     scheme_proc_returns: usize,
     call_application_bindings: usize,
@@ -5076,6 +5136,12 @@ impl FullBuilder {
             scheme_method_arguments: self.store.scheme_method_arguments.len(),
             call_operation_bindings: self.store.call_operation_bindings.len(),
             call_method_bindings: self.store.call_method_bindings.len(),
+            call_wrapper_bindings: self.store.call_wrapper_bindings.len(),
+            wrapper_contributions: self.store.wrapper_contributions.len(),
+            wrapper_captures: self.store.wrapper_captures.len(),
+            wrapper_handlers: self.store.wrapper_handlers.len(),
+            wrapper_fields: self.store.wrapper_fields.len(),
+            scheme_wrappers: self.store.scheme_wrappers.len(),
             scheme_application_arguments: self.store.scheme_application_arguments.len(),
             scheme_proc_returns: self.store.scheme_proc_returns.len(),
             call_application_bindings: self.store.call_application_bindings.len(),
@@ -5170,6 +5236,12 @@ impl FullBuilder {
         self.store.scheme_method_arguments.truncate(checkpoint.scheme_method_arguments);
         self.store.call_operation_bindings.truncate(checkpoint.call_operation_bindings);
         self.store.call_method_bindings.truncate(checkpoint.call_method_bindings);
+        self.store.call_wrapper_bindings.truncate(checkpoint.call_wrapper_bindings);
+        self.store.wrapper_contributions.truncate(checkpoint.wrapper_contributions);
+        self.store.wrapper_captures.truncate(checkpoint.wrapper_captures);
+        self.store.wrapper_handlers.truncate(checkpoint.wrapper_handlers);
+        self.store.wrapper_fields.truncate(checkpoint.wrapper_fields);
+        self.store.scheme_wrappers.truncate(checkpoint.scheme_wrappers);
         self.store.scheme_application_arguments.truncate(checkpoint.scheme_application_arguments);
         self.store.scheme_proc_returns.truncate(checkpoint.scheme_proc_returns);
         self.store.call_application_bindings.truncate(checkpoint.call_application_bindings);
@@ -5940,6 +6012,10 @@ impl<'p> FullExecution<'p> {
         FullExecution::<'static>::for_function(ProgramOwner::Shared(program), index)
     }
 
+    pub(in crate::runtime::eval) fn wrapper_mode(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<crate::sema::wrapper_operation::WrapperMode>, IrVerifyError> {
+        self.program().invocation_wrapper_mode(self.owner, instruction, invocation)
+    }
+
     pub(in crate::runtime::eval) fn program(&self) -> &FullProgram {
         self.program.program()
     }
@@ -6652,6 +6728,7 @@ impl<'a> FullDecoder<'a> {
         if let Some(proof) = &self.instruction_proof {
             let class = if tag == FullTag::ExprParam
                 && self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok()
+                || tag == FullTag::ExprField && self.store.wrapper_site(self.owner, index as u32)?.is_some()
             { schema::InPlaceClass::Scheduled } else { tag.in_place_class() };
             proof.borrow_mut().enter(index, tag.kind(), class);
         }
@@ -20497,6 +20574,7 @@ macro_rules! impl_build_id_codec {
                 } else { None };
                 let operation = if $checked_expr_type { scratch.scheme_operations.get(&self.index()).copied() } else { None };
                 let method = if $checked_expr_type { scratch.scheme_methods.get(&self.index()).copied() } else { None };
+                let wrapper = if $checked_expr_type { scratch.scheme_wrappers.get(&self.index()).copied() } else { None };
                 let application_call = if $checked_expr_type {
                     scratch.scheme_application_calls.get(self.index()).copied().flatten()
                 } else { None };
@@ -20663,6 +20741,12 @@ macro_rules! impl_build_id_codec {
                         function,
                         value: schemes::FullSchemeBodyFactValue::Method(method),
                     });
+                }
+                if let Some(wrapper) = wrapper {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("wrapper_instruction", None, 0, self.index()))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("wrapper_owner", None, 0, instruction))?;
+                    if builder.active_scheme.is_none() { return Err(IrBuildError::format("wrapper_owner", None, 0, instruction)); }
+                    builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("wrapper_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Wrapper(wrapper) });
                 }
                 if let Some(application) = application_call {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_application_instruction", None, 0, self.index()))?;
@@ -26550,7 +26634,7 @@ assert observed.scoped == Ok(8)
             match &mut fact.value {
                 schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
                 | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
-                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) => {},
+                schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_) => {},
             }
         }
         for node in &mut program.store.scheme_types {
@@ -34404,8 +34488,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         run_with_large_stack(|| {
             assert_eq!(std::mem::size_of::<schemes::FullSchemeMethod>(), 28);
             assert_eq!(std::mem::size_of::<schemes::FullMethodBinding>(), 8);
-            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 112);
-            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 52);
+            assert_eq!(std::mem::size_of::<schemes::FullScheme>(), 120);
+            assert_eq!(std::mem::size_of::<schemes::FullCallInstantiation>(), 60);
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system time should be after epoch")
@@ -41259,6 +41343,400 @@ proc configured() [] -> Int {
                 )
                 .expect("proof function exists");
             assert_eq!(result.unwrap(), Value::Str("ready".into()));
+        });
+    }
+
+    #[test]
+    fn wrapper_stored_callable_boundaries_retain_source_modes_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-stored-callables.xsh", r#"
+type TextRow = {name: Str}
+pure fallback(value, backup) { value ?? backup }
+pure name(value) { try { value?.name } }
+let stored_fallback = fallback
+let stored_name = name
+let failure: Result[Int, Str] = Err("kept")
+let present: Result[Int, Str]? = failure
+let backup: Result[Int, Str] = Ok(0)
+assert stored_fallback(present, backup) == failure
+assert stored_fallback(failure, 7) == 7
+let text: TextRow? = {name: "demo"}
+let missing: TextRow? = null
+let success: Result[TextRow, Str] = Ok({name: "demo"})
+let failed: Result[TextRow, Str] = Err("failed")
+assert stored_name(text) == name(text)
+assert stored_name(missing) == name(missing)
+assert stored_name(success) == name(success)
+assert stored_name(failed) == name(failed)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_projection_binders_reject_dynamic_results_without_source_evidence() {
+        let program = fixture("wrapper-forged-dynamic-output.xsh", "pure fallback(value, backup, spare: Any) { let _ = spare; value ?? backup }\nlet source: Int? = 7\nlet spare: Any = \"opaque\"\nlet selected: Any = fallback(source, 0, spare)\n");
+        FullVerifier::verify(&program).unwrap();
+        let callee = scheme_fixture_root_function(&program, "fallback");
+        let FullCallableContract::Scheme(id) = program.store.functions[callee].contract else { unreachable!() };
+        let scheme = program.store.scheme(id).unwrap();
+        let result = program.store.scheme_types[scheme.return_type.index()];
+        assert_eq!(result.tag, schema::FullSchemeTypeTag::Parameter);
+        let parameters = scheme.type_parameters.bounds(program.store.scheme_type_parameters.len()).unwrap();
+        let binder = program.store.scheme_type_parameters[parameters.start + result.first as usize].id;
+        let instruction = scheme_fixture_root_call(&program, "fallback");
+        let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == instruction).unwrap();
+        let arguments = instance.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let argument = program.store.call_type_arguments[arguments].iter().find(|argument| argument.binder == binder).unwrap();
+        let node = program.store.scheme_types[argument.ty.index()];
+        assert_eq!(node.tag, schema::FullSchemeTypeTag::Ground);
+        assert_eq!(program.store.semantic.to_type(TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Int);
+        let any = scheme_fixture_any_type(&program);
+        let mut changed = program.clone();
+        changed.store.scheme_types[argument.ty.index()].first = any.raw();
+        changed.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == instruction).unwrap().type_id = any;
+        FullVerifier::verify(&changed).expect_err("a wrapper output Any binder must be justified by its actual source projection");
+    }
+
+    #[test]
+    fn wrapper_projections_derive_dynamic_binders_from_checked_sources() {
+        let program = fixture("wrapper-dynamic-projections.xsh", "type DynamicName = {name: Any}\npure name(value) { try { value?.name } }\npure fallback(value, backup) { value ?? backup }\npure symbolic_name(marker, value: DynamicName?) -> Result[Any?] { let _ = marker; name(value) }\npure symbolic_fallback(marker, value: Any?, backup: Any) -> List[Any] { let _ = marker; [fallback(value, backup)] }\npure concrete_name(value: DynamicName?) -> Result[Any?] { symbolic_name(true, value) }\npure concrete_fallback(value: Any?, backup: Any) -> List[Any] { symbolic_fallback(true, value, backup) }\n");
+        FullVerifier::verify(&program).unwrap();
+        for owner in ["symbolic_name", "symbolic_fallback"] {
+            let owner = scheme_fixture_root_function(&program, owner);
+            assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
+            let range = program.store.function_instruction_range(owner).unwrap();
+            assert!(program.store.call_instantiations.iter().any(|instance| range.contains(&(instance.instruction as usize)) && instance.type_arguments.len > 0));
+        }
+    }
+
+    #[test]
+    fn checked_result_constructor_aliases_retain_argument_depth_bounds() {
+        run_with_large_stack(|| {
+            let mut source = "pure retained(marker, value: Result[Any, Str]) -> List[Any] { let _ = marker; [value] }\nlet nested0: Result[Any, Str] = Ok(0)\n".to_string();
+            for depth in 1..=130 {
+                source.push_str(&format!("let nested{depth}: Result[Any, Str] = Ok(nested{})\n", depth - 1));
+            }
+            source.push_str("let selected = retained(true, nested130)\n");
+            let error = fixture_result("checked-result-constructor-depth.xsh", &source).expect_err("shallow declared types must not bypass the argument producer depth bound");
+            assert_eq!(error.detail.as_deref(), Some("generic call argument nesting is too deep"));
+        });
+    }
+
+    #[test]
+    fn checked_result_arguments_authenticate_actual_constructor_payloads() {
+        let program = fixture("checked-result-arguments.xsh", "pure retained(marker, value: Result[Int, Str]) -> Result[Int, Str] { let _ = marker; value }\nlet payload = 7\nlet text = \"incompatible\"\nlet wrapped: Result[Int, Str] = Ok(payload)\nlet selected = retained(true, wrapped)\n");
+        FullVerifier::verify(&program).unwrap();
+        let integer = program.store.tags.iter().position(|tag| *tag == FullTag::ExprInt).unwrap();
+        let text = program.store.tags.iter().position(|tag| *tag == FullTag::ExprStr).unwrap();
+        let mut changed = program.clone();
+        changed.store.tags[integer] = program.store.tags[text];
+        changed.store.data[integer] = program.store.data[text];
+        let mut semantic = SemanticPoolBuilder::default();
+        let text_type = semantic.intern_type(&mut changed.store.semantic, &Type::Str).unwrap();
+        if let Some(fact) = changed.store.checked_expr_types.iter_mut().find(|fact| fact.instruction as usize == integer) { fact.type_id = text_type; }
+        FullVerifier::verify(&changed).expect_err("a Result annotation must not authenticate an incompatible actual payload");
+    }
+
+    #[test]
+    fn wrapper_handler_constructor_context_survives_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-handler-constructor.xsh", r#"
+pure grounded(value: Result[Result[Int, Str], Bool]) -> Result[Int, Str] { value ?? { |error| Ok(0) } }
+pure handled(value) { value ?? { |error| Ok(0) } }
+pure relay(value) { handled(value) }
+pure identity(value) { value }
+let inner_failure: Result[Int, Str] = Err("kept")
+let success: Result[Result[Int, Str], Bool] = Ok(inner_failure)
+let failure: Result[Result[Int, Str], Bool] = Err(true)
+let expected: Result[Int, Str] = Ok(0)
+assert handled(success) == grounded(success)
+assert handled(success) == inner_failure
+assert relay(success) == inner_failure
+assert handled(failure) == grounded(failure)
+assert handled(failure) == expected
+assert relay(failure) == expected
+let ordinary: Result[Int] = identity(Ok(0))
+let ordinary_expected: Result[Int] = Ok(0)
+assert ordinary == ordinary_expected
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_dynamic_payload_modes_survive_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-dynamic-payloads.xsh", r#"
+type DynamicName = {name: Any}
+pure name(value) { try { value?.name } }
+pure fallback(value, backup) { value ?? backup }
+pure symbolic_name(marker, value: DynamicName?) -> Result[Any?] { let _ = marker; name(value) }
+pure symbolic_fallback(marker, value: Any?, backup: Any) -> List[Any] { let _ = marker; [fallback(value, backup)] }
+pure symbolic_result(marker, value: Result[Any, Str], backup: Any) -> List[Any] { let _ = marker; [fallback(value, backup)] }
+pure grounded_optional(value: Any?, backup: Any) -> List[Any] { [value ?? backup] }
+pure grounded_result(value: Result[Any, Str], backup: Any) -> List[Any] { [value ?? backup] }
+let failure: Result[Int, Str] = Err("payload")
+let success: Result[Int, Str] = Ok(7)
+let raw_failure: Any = failure
+let raw_success: Any = success
+let backup: Any = "backup"
+let present_failure: Any? = failure
+let present_success: Any? = success
+let missing: Any? = null
+assert symbolic_fallback(true, present_failure, backup) == grounded_optional(present_failure, backup)
+assert symbolic_fallback(true, present_failure, backup) == [raw_failure]
+assert symbolic_fallback(true, present_success, backup) == [raw_success]
+assert symbolic_fallback(true, missing, backup) == [backup]
+let result_success: Result[Any, Str] = Ok(raw_failure)
+let result_failure: Result[Any, Str] = Err("outer")
+assert symbolic_result(true, result_success, backup) == grounded_result(result_success, backup)
+assert symbolic_result(true, result_success, backup) == [raw_failure]
+assert symbolic_result(true, result_failure, backup) == grounded_result(result_failure, backup)
+assert symbolic_result(true, result_failure, backup) == [backup]
+let row: DynamicName? = {name: raw_failure}
+let no_row: DynamicName? = null
+let expected_name: Result[Any?] = Ok(present_failure)
+let expected_missing: Result[Any?] = Ok(missing)
+assert symbolic_name(true, row) == expected_name
+assert symbolic_name(true, no_row) == expected_missing
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_handlers_preserve_lazy_unsigned_validation_on_both_routes() {
+        run_with_large_stack(|| {
+            for definition in ["pure choose(value: Result[UInt, Str], backup: Int) -> UInt { value ?? { |error| backup } }", "pure choose(value, backup) { value ?? { |error| backup } }"] {
+                for failed in [false, true] {
+                    let source = format!("{definition}\nlet selected: Result[UInt, Str] = {}\nlet negative: Int = -1\nlet _ = choose(selected, negative)\n", if failed { "Err(\"failed\")" } else { "Ok(1)" });
+                    let program = Arc::new(fixture("wrapper-handler-unsigned.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        let result = (0..program.driver_step_count().unwrap()).try_for_each(|step| evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().map(|_| ()));
+                        if failed { assert_eq!(result.expect_err("selected handler retains its UInt validation").kind, "type-error", "{definition}"); }
+                        else { result.unwrap_or_else(|error| panic!("unused negative handler must remain lazy: {definition}: {error:?}")); }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_handlers_preserve_named_and_implicit_error_values_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-handlers.xsh", r#"
+pure grounded(value: Result[Int, Str], backup: Int) { value ?? { |error| backup } }
+pure handled(value, backup) { value ?? { |error| backup } }
+pure relay(value, backup) { handled(value, backup) }
+pure item(value) { value ?? { . } }
+let success: Result[Int, Str] = Ok(3)
+let failure: Result[Int, Str] = Err("failure")
+assert handled(success, 9) == grounded(success, 9)
+assert handled(failure, 9) == grounded(failure, 9)
+assert relay(success, 9) == 3
+assert relay(failure, 9) == 9
+let text_success: Result[Str, Str] = Ok("kept")
+let text_failure: Result[Str, Str] = Err("recovered")
+assert item(text_success) == "kept"
+assert item(text_failure) == "recovered"
+assert handled(text_success, "backup") == "kept"
+assert handled(text_failure, "backup") == "backup"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn grounded_capture_preserves_mixed_string_and_outer_error_join() {
+        let program = fixture("grounded-mixed-capture-errors.xsh", "type TextRow = {name: Str}\nproc outer(value: Int) [error] -> Int { value }\nproc grounded(value: TextRow?, inner: Result[Int, Str]) [] { try { let _ = outer(inner?); value?.name } }");
+        FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn wrapper_captures_preserve_conditional_failures_and_cleanup_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-captured-errors.xsh", r#"
+type TextRow = {name: Str}
+pure grounded_optional(value: TextRow?) { try { value?.name } }
+pure grounded_result(value: Result[TextRow, Str]) { try { value?.name } }
+pure captured(value) { try { value?.name } }
+pure captured_twice(value) { [try { value?.name }, try { value?.name }] }
+pure result_name(value) -> Result[Str, Str] { Ok(value?.name) }
+var order = ""
+proc checked(value: Result[TextRow, Str]) [error] -> Result[Str, Str] {
+  defer { order = order + "D" }
+  Ok(result_name(value)?)
+}
+let text: TextRow? = {name: "demo"}
+let missing: TextRow? = null
+let success: Result[TextRow, Str] = Ok({name: "demo"})
+let failure: Result[TextRow, Str] = Err("kept")
+assert captured(text) == grounded_optional(text)
+assert captured(missing) == grounded_optional(missing)
+assert captured(success) == grounded_result(success)
+assert captured(failure) == grounded_result(failure)
+assert captured_twice(text) == [grounded_optional(text), grounded_optional(text)]
+assert captured_twice(missing) == [grounded_optional(missing), grounded_optional(missing)]
+assert captured_twice(success) == [grounded_result(success), grounded_result(success)]
+assert captured_twice(failure) == [grounded_result(failure), grounded_result(failure)]
+let expected_success: Result[Str, Str] = Ok("demo")
+let expected_failure: Result[Str, Str] = Err("kept")
+assert checked(success) == expected_success
+assert order == "D"
+assert checked(failure) == expected_failure
+assert order == "DD"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_fields_preserve_defaulted_proc_success_and_error_envelopes_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-proc-completion.xsh", r#"
+type TextRow = {name: Str}
+proc grounded(value: Result[TextRow, Str]) { value?.name }
+proc projected(value) { value?.name }
+let success: Result[TextRow, Str] = Ok({name: "demo"})
+let failure: Result[TextRow, Str] = Err("kept")
+assert grounded(success) == Ok("demo")
+assert projected(success) == Ok("demo")
+assert match grounded(failure) { Err(error) => error.message == "kept", else => false }
+assert match projected(failure) { Err(error) => error.message == "kept", else => false }
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_fields_preserve_optional_values_and_result_errors_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-field-values.xsh", r#"
+type TextRow = {name: Str}
+type IntRow = {name: Int}
+type MaybeRow = {name: Str?}
+pure grounded_optional(value: TextRow?) -> Str? { value?.name }
+pure optional_name(value) { value?.name }
+pure grounded_result(value: Result[TextRow, Str]) -> Result[Str, Str] { Ok(value?.name) }
+pure result_name(value) -> Result[Str, Str] { Ok(value?.name) }
+let text: TextRow? = {name: "demo"}
+let number: IntRow? = {name: 7}
+let missing: TextRow? = null
+let nested: MaybeRow? = {name: null}
+assert optional_name(text) == grounded_optional(text)
+assert optional_name(number) == 7
+assert optional_name(missing) == grounded_optional(missing)
+assert optional_name(nested) == null
+let success: Result[TextRow, Str] = Ok({name: "demo"})
+let failure: Result[TextRow, Str] = Err("kept")
+assert result_name(success) == grounded_result(success)
+assert result_name(failure) == grounded_result(failure)
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_fallback_preserves_lazy_unsigned_validation_on_both_routes() {
+        run_with_large_stack(|| {
+            for definition in ["pure choose(value: UInt?, backup: Int) -> UInt { value ?? backup }", "pure choose(value, backup) { value ?? backup }"] {
+                for missing in [false, true] {
+                    let source = format!("{definition}\nlet selected: UInt? = {}\nlet negative: Int = -1\nlet _ = choose(selected, negative)\n", if missing { "null" } else { "1" });
+                    let program = Arc::new(fixture("wrapper-fallback-unsigned.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        let result = (0..program.driver_step_count().unwrap()).try_for_each(|step| evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().map(|_| ()));
+                        if missing { assert_eq!(result.expect_err("selected fallback retains its UInt validation").kind, "type-error", "{definition}"); }
+                        else { result.unwrap_or_else(|error| panic!("unused negative fallback must remain lazy: {definition}: {error:?}")); }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn wrapper_fallback_preserves_payload_modes_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("wrapper-fallback-modes.xsh", r#"
+pure optional_fallback(value: Result[Int, Str]?, backup: Result[Int, Str]) -> Result[Int, Str] { value ?? backup }
+pure result_fallback(value: Result[Int, Str], backup: Int) -> Int { value ?? backup }
+pure fallback(value, backup) { value ?? backup }
+pure relay(value, backup) { fallback(value, backup) }
+let failed: Result[Int, Str] = Err("kept")
+let present: Result[Int, Str]? = failed
+assert optional_fallback(present, Ok(0)) == failed
+assert result_fallback(failed, 0) == 0
+assert relay(present, Ok(0)) == failed
+assert relay(failed, 0) == 0
+let successful: Result[Int, Str] = Ok(7)
+let held_success: Result[Int, Str]? = successful
+assert relay(held_success, Ok(0)) == successful
+assert relay(successful, 0) == 7
+let missing: Result[Int, Str]? = null
+let backup: Result[Int, Str] = Ok(0)
+assert relay(missing, backup) == backup
+let nullable: Result[Int?, Str] = Ok(null)
+assert relay(nullable, 3) == null
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
         });
     }
 

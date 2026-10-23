@@ -27,6 +27,7 @@ fn call_instantiation_error_message(
         SchemeOperationError::Application(error) => format!("callable application requirement failed: {error:?}"),
         SchemeOperationError::Effects(error) => format!("callable effect requirement failed: {error:?}"),
         SchemeOperationError::Operation(error) => format!("sealed operation requirement failed: {error}"),
+        SchemeOperationError::Wrapper(error) => format!("wrapper requirement failed: {error}"),
         SchemeOperationError::Resolution(error) => {
             format!("generic call inference resolution failed: {error:?}")
         }
@@ -54,6 +55,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::UnresolvedMethodFamily => "generic method family remains unresolved",
                 SchemeBuildError::UnsupportedMethodFamily => "generic method has no registered member for its input",
                 SchemeBuildError::AmbiguousMethodFamily => "generic method inputs select multiple registered family members",
+                SchemeBuildError::UnresolvedWrapper => "wrapper relationship has no complete call evidence",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::MapKey => "type argument does not satisfy the MapKey requirement",
@@ -1716,7 +1718,15 @@ impl Checker {
                 self.boundary.expected_schema = previous;
                 let error = match expected_context {
                     Some(Type::Result(_, error)) => error.as_ref().clone(),
-                    _ => Type::Error,
+                    Some(expected) => match self.type_constraints.wrapper_constructor_context_is_deferred(expected) {
+                        Ok(true) => self.fresh_wrapper_type(span),
+                        Ok(false) => Type::Error,
+                        Err(error) => {
+                            self.error(span, &format!("wrapper constructor context is not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+                            Type::Invalid
+                        }
+                    },
+                    None => Type::Error,
                 };
                 Type::Result(Box::new(ty), Box::new(error))
             }

@@ -1650,10 +1650,7 @@ enum NamedItem {
     Accumulated,
 }
 
-/// The scope binding that holds an implicit callback item, so `.` narrows
-/// like a named parameter (`if .health != null { use(.health) }`). No source
-/// spelling can name it.
-fn item_binding() -> Name {
+pub(crate) fn item_binding() -> Name {
     Name::intern(".")
 }
 
@@ -1729,7 +1726,7 @@ struct BoundaryContext {
     collect_scope: Option<collect::CollectScope>,
     // Only propagation evaluated while initializing the current With reaches its handler.
     with_initializer_errors: Option<Vec<Type>>,
-    error_boundary_errors: Vec<Vec<(Type, Span)>>,
+    error_boundary_errors: Vec<Vec<(super::wrapper_operation::WrapperErrorContribution<Type>, Span)>>,
     retry_attempt_depth: usize,
     /// `retry` attempts are a subset of the error boundaries.
     retry_block_depth: usize,

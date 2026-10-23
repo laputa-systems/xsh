@@ -37,6 +37,7 @@ impl TypeConstraints {
         let mut supported = self.unresolved_input_variables(formals)?;
         let mut visited = BTreeSet::new();
         let mut operations = BTreeSet::new();
+        let mut wrappers = BTreeSet::new();
         loop {
             let mut changed = false;
             for (&id, entry) in &self.operations.entries {
@@ -45,6 +46,23 @@ impl TypeConstraints {
                 if !inputs.is_subset(&supported) { continue; }
                 operations.insert(id);
                 supported.extend(self.unresolved_input_variables(std::slice::from_ref(&entry.operation.result))?);
+                changed = true;
+            }
+            for (&id, entry) in &self.wrappers.entries {
+                if wrappers.contains(&id) || !matches!(entry.owner, CallableApplicationScope::Declaration(source) if component.contains(&source)) { continue; }
+                use crate::sema::wrapper_operation::{WrapperRequirementKind, WrapperErrorContribution};
+                let (inputs, outputs) = match &entry.requirement.kind {
+                    WrapperRequirementKind::Field { source, result, .. } => (vec![source.clone()], vec![result.clone()]),
+                    WrapperRequirementKind::Fallback { source, fallback, result } => (vec![source.clone()], vec![result.clone(), fallback.clone()]),
+                    WrapperRequirementKind::Handler { source, result, error, handler } => (vec![source.clone()], vec![result.clone(), error.clone(), handler.clone()]),
+                    WrapperRequirementKind::Capture { contributions, result, .. } => (contributions.iter().map(|term| match term { WrapperErrorContribution::Explicit(ty) | WrapperErrorContribution::Source(ty) => ty.clone() }).collect(), vec![result.clone()]),
+                };
+                if !self.unresolved_input_variables(&inputs)?.is_subset(&supported) { continue; }
+                wrappers.insert(id);
+                supported.extend(self.unresolved_input_variables(&outputs)?);
+                if let WrapperRequirementKind::Field { effects, .. } = &entry.requirement.kind {
+                    if let EffectContract::Known(expression) = self.resolve_effect(effects)? { supported.effects.extend(expression.variables().map(|(id, _)| *id)); }
+                }
                 changed = true;
             }
             for (&id, entry) in &self.applications.entries {

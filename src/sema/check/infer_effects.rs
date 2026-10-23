@@ -637,13 +637,14 @@ mod joint_effect_tests {
                 map_key_parameters: Vec::new(),
                 iteration_parameters: BTreeMap::new(), operations: Vec::new(),
                 methods: Vec::new(),
+                wrappers: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![parameter],
                 effect_predicates: vec![crate::sema::effects::EffectPredicate::Equal(EffectContract::variable(parameter), EffectContract::variable(parameter))],
                 applications: Vec::new(),
             },
         ).unwrap();
-        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), Vec::new(), &[], &[], caller, &[], &[], &[], &BTreeMap::new()).unwrap()
+        CallInstantiation::new(&callable, BTreeMap::new(), BTreeMap::new(), BTreeMap::from([(parameter, argument)]), Vec::new(), Vec::new(), Vec::new(), &[], &[], caller, &[], &[], &[], &[], &BTreeMap::new()).unwrap()
     }
 
     fn symbolic_owner(graph: &mut EffectGraph, owner: EffectDeclarationId, parameter: SchemeEffectParameterId) {
@@ -1651,6 +1652,22 @@ impl Checker {
                 self.validate_symbolic_callable_effect_exclusions(&resolved, span);
             }
         }
+    }
+
+    pub(super) fn check_wrapper_effect_contract(&mut self, effects: &EffectContract<EffectVariableId>, span: Span) {
+        let captures = self.boundary.retry_attempt_depth > 0 || self.boundary.in_pure;
+        if self.record_effects || self.collecting_effects {
+            if let Err(error) = self.effect_graph.require_contract(self.boundary.effect_owner, effects, captures, "guarded field") {
+                self.error(span, &format!("guarded field effects are not scoped: {error:?}"), DiagnosticCode::CheckLocalInference);
+            }
+        }
+        let outward = if captures { effects.clone().capture_error() } else { effects.clone() };
+        if self.boundary.in_pure {
+            if let Err(error) = self.type_constraints.constrain_effect(crate::sema::effects::EffectPredicate::Covered(outward.clone(), EffectContract::finite(EffectSet::default()))) {
+                self.error(span, &format!("guarded field exceeds its pure effect contract: {error:?}"), DiagnosticCode::CheckEffectViolation);
+            }
+        }
+        self.constrain_callable_effects(&crate::sema::types::CallableEffects::from_contract(outward), "guarded field", span);
     }
 
     pub(super) fn check_callable_invocation_contract(&mut self, effects: &crate::sema::types::CallableEffects, name: &str, span: Span) {

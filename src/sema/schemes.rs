@@ -95,6 +95,7 @@ pub(crate) struct CallableRequirements {
     pub(crate) applications: Vec<CallableApplication<SchemeType, SchemeEffectParameterId>>,
     pub(crate) operations: Vec<super::sealed_operation::SealedBinaryOperation<SchemeType>>,
     pub(crate) methods: Vec<MethodFamilyRequirement<SchemeType>>,
+    pub(crate) wrappers: Vec<super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -202,6 +203,7 @@ pub(crate) struct CallInstantiation {
     application_bindings: Vec<CallableApplicationBinding>,
     operation_bindings: Vec<SealedOperationBinding>,
     method_bindings: Vec<SealedMethodBinding>,
+    wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -273,6 +275,7 @@ pub(crate) struct SchemeBodyFacts {
     proc_return_sites: BTreeMap<Span, SchemeProcReturnSite>,
     operation_sites: BTreeMap<ExprId, u32>,
     method_sites: BTreeMap<ExprId, u32>,
+    wrapper_sites: BTreeMap<ExprId, u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -281,6 +284,7 @@ pub(crate) enum SchemeBuildError {
     UnresolvedMethodFamily,
     UnsupportedMethodFamily,
     AmbiguousMethodFamily,
+    UnresolvedWrapper,
     RecoveryType,
     UnresolvedType,
     UnresolvedRow,
@@ -486,6 +490,10 @@ impl CallableScheme {
             }
             validate_effect_contract(&application.effects, &effect_ids, &mut used_effects)?;
         }
+        for wrapper in &requirements.wrappers {
+            for ty in wrapper.types() { ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?; }
+            if let super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } = &wrapper.kind { validate_effect_contract(effects, &effect_ids, &mut used_effects)?; }
+        }
         for operation in &requirements.operations {
             for ty in operation.types() {
                 ty.validate(&type_ids, &row_ids, &effect_ids, &mut used_effects, &mut used_types, &mut used_rows, &mut row_requirements)?;
@@ -641,6 +649,15 @@ impl CallableRequirements {
                 bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>()));
             }
         }
+        bytes = bytes.saturating_add(self.wrappers.capacity() * size_of::<super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>>());
+        for wrapper in &self.wrappers {
+            for ty in wrapper.types() { bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<SchemeType>())); }
+            match &wrapper.kind {
+                super::wrapper_operation::WrapperRequirementKind::Field { effects, .. } => bytes = bytes.saturating_add(effects.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>())),
+                super::wrapper_operation::WrapperRequirementKind::Capture { contributions, .. } => bytes = bytes.saturating_add(contributions.len() * size_of::<super::wrapper_operation::WrapperErrorContribution<SchemeType>>()),
+                _ => {}
+            }
+        }
         for predicate in &self.effect_predicates {
             for contract in predicate.contracts() {
                 bytes = bytes.saturating_add(contract.retained_bytes().saturating_sub(size_of::<EffectContract<SchemeEffectParameterId>>()));
@@ -674,6 +691,9 @@ impl CallableRequirements {
             method.result.map_ground_types(map);
             for argument in &mut method.arguments { argument.map_ground_types(map); }
         }
+        mapped.wrappers = self.wrappers.iter().map(|wrapper| wrapper.try_map(map, |map, ty| {
+            let mut ty = ty.clone(); ty.map_ground_types(map); Ok::<_, std::convert::Infallible>(ty)
+        }, |_, contract| Ok(contract.clone())).unwrap()).collect();
         for iteration in mapped.iteration_parameters.values_mut() {
             iteration.item.map_ground_types(map);
             if let IterationFailure::Propagates(error) = &mut iteration.failure { error.map_ground_types(map); }
@@ -773,17 +793,19 @@ impl CallInstantiation {
         effect_arguments: BTreeMap<SchemeEffectParameterId, EffectContract<SchemeEffectParameterId>>,
         application_bindings: Vec<CallableApplicationBinding>,
         operation_bindings: Vec<SealedOperationBinding>,
+        wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
         caller_types: &[SchemeTypeParameterId],
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
         caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
+        caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
         caller_map_keys: &[SchemeTypeParameterId],
         caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     ) -> Result<Self, SchemeBuildError> {
         Self::with_method_bindings(
             callable, type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings,
-            Vec::new(), caller_types, caller_rows, caller_effects, caller_applications, caller_operations, &[], caller_map_keys, caller_conversions,
+            Vec::new(), wrapper_bindings, caller_types, caller_rows, caller_effects, caller_applications, caller_operations, &[], caller_wrappers, caller_map_keys, caller_conversions,
         )
     }
 
@@ -795,12 +817,14 @@ impl CallInstantiation {
         application_bindings: Vec<CallableApplicationBinding>,
         operation_bindings: Vec<SealedOperationBinding>,
         method_bindings: Vec<SealedMethodBinding>,
+        wrapper_bindings: Vec<super::wrapper_operation::WrapperBinding>,
         caller_types: &[SchemeTypeParameterId],
         caller_rows: &[SchemeRowParameter],
         caller_effects: &[SchemeEffectParameterId],
         caller_applications: &[CallableApplication<SchemeType, SchemeEffectParameterId>],
         caller_operations: &[super::sealed_operation::SealedBinaryOperation<SchemeType>],
         caller_methods: &[MethodFamilyRequirement<SchemeType>],
+        caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
         caller_map_keys: &[SchemeTypeParameterId],
         caller_conversions: &BTreeMap<SchemeTypeParameterId, ValueConversionSet>,
     ) -> Result<Self, SchemeBuildError> {
@@ -850,6 +874,9 @@ impl CallInstantiation {
                         .method_family_id(receiver, name, overload) != Some(method.family)),
             })
         { return Err(SchemeBuildError::UnresolvedMethodFamily); }
+        if wrapper_bindings.len() != callable.requirements.wrappers.len()
+            || wrapper_bindings.iter().any(|binding| matches!(binding, super::wrapper_operation::WrapperBinding::Forwarded(ordinal) if caller_wrappers.get(*ordinal as usize).is_none()))
+        { return Err(SchemeBuildError::UnresolvedWrapper); }
         let caller_effect_ids = caller_effects.iter().copied().collect::<BTreeSet<_>>();
         let mut used_effects = BTreeSet::new();
         for contract in effect_arguments.values() {
@@ -920,7 +947,7 @@ impl CallInstantiation {
             return Err(SchemeBuildError::RowLacksMismatch);
         }
         Ok(Self {
-            type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings, method_bindings,
+            type_arguments, row_arguments, effect_arguments, application_bindings, operation_bindings, method_bindings, wrapper_bindings,
         })
     }
 
@@ -934,6 +961,7 @@ impl CallInstantiation {
 
     pub(crate) fn operation_bindings(&self) -> &[SealedOperationBinding] { &self.operation_bindings }
     pub(crate) fn method_bindings(&self) -> &[SealedMethodBinding] { &self.method_bindings }
+    pub(crate) fn wrapper_bindings(&self) -> &[super::wrapper_operation::WrapperBinding] { &self.wrapper_bindings }
 
     pub(crate) fn type_arguments(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeType> {
         &self.type_arguments
@@ -950,6 +978,7 @@ impl CallInstantiation {
             .saturating_add(self.effect_arguments.values().map(EffectContract::retained_bytes).sum::<usize>())
             .saturating_add(self.operation_bindings.capacity() * size_of::<SealedOperationBinding>())
             .saturating_add(self.method_bindings.capacity() * size_of::<SealedMethodBinding>())
+            .saturating_add(self.wrapper_bindings.capacity() * size_of::<super::wrapper_operation::WrapperBinding>())
             .saturating_add(self.application_bindings.capacity() * size_of::<CallableApplicationBinding>())
             .saturating_add(self.application_bindings.iter().map(|binding| {
                 match binding {
@@ -1042,6 +1071,7 @@ impl SchemeBodyFacts {
             proc_return_sites: BTreeMap::new(),
             operation_sites: BTreeMap::new(),
             method_sites: BTreeMap::new(),
+            wrapper_sites: BTreeMap::new(),
         })
     }
 
@@ -1071,6 +1101,13 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn operation_site(&self, expression: ExprId) -> Option<u32> { self.operation_sites.get(&expression).copied() }
+    pub(crate) fn with_wrapper_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().wrappers.get(*ordinal as usize).is_none()) { return Err(SchemeBuildError::UnresolvedWrapper); }
+        self.wrapper_sites = sites;
+        Ok(self)
+    }
+    pub(crate) fn wrapper_site(&self, expression: ExprId) -> Option<u32> { self.wrapper_sites.get(&expression).copied() }
+
 
     pub(crate) fn with_method_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
         if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.scheme.callable().requirements().methods.get(*ordinal as usize).is_none()) {
@@ -1137,6 +1174,7 @@ impl SchemeBodyFacts {
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.registered_calls.len() * size_of::<(ExprId, Arc<RegisteredCallPlan>)>())
             .saturating_add(self.registered_calls.values().map(|plan| plan.retained_bytes()).sum::<usize>())
             .saturating_add(self.tail_types.len() * size_of::<(StmtId, SchemeType)>())
@@ -1595,7 +1633,7 @@ mod tests {
                 map_key_parameters: Vec::new(),
                 conversion_parameters: BTreeMap::new(),
                 effect_parameters: vec![effect],
-                iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(),
+                iteration_parameters: BTreeMap::new(), operations: Vec::new(), methods: Vec::new(), wrappers: Vec::new(),
                 effect_predicates: vec![EffectPredicate::Covered(EffectContract::variable(effect), EffectContract::finite(EffectSet::all()))],
                 applications: vec![CallableApplication {
                     callee: SchemeType::Parameter(f),
@@ -2033,11 +2071,11 @@ mod tests {
             assert!(CallInstantiation::new(
                 &callable,
                 BTreeMap::new(),
-                BTreeMap::from([(row_id, evidence)]), BTreeMap::new(), Vec::new(), Vec::new(),
+                BTreeMap::from([(row_id, evidence)]), BTreeMap::new(), Vec::new(), Vec::new(), Vec::new(),
                 &[],
                 &[],
                 &[],
-            &[], &[], &[], &BTreeMap::new())
+            &[], &[], &[], &[], &BTreeMap::new())
             .is_ok());
             assert!(TypeScheme::new(
                 crate::sema::types::CallableKind::Pure,
@@ -2085,14 +2123,14 @@ mod tests {
                 CallInstantiation::new(
                     &callable,
                     BTreeMap::from([(type_id, type_argument)]),
-                    BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(),
+                    BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(), Vec::new(),
                     &[],
                     &[SchemeRowParameter {
                         id: row_id,
                         lacks: BTreeSet::new(),
                     }],
                     &[],
-                &[], &[], &[], &BTreeMap::new()),
+                &[], &[], &[], &[], &BTreeMap::new()),
                 Err(SchemeBuildError::RowLacksMismatch),
             );
         });
@@ -2201,11 +2239,11 @@ mod tests {
             let instantiation = CallInstantiation::new(
                 &callable,
                 BTreeMap::from([(type_id, SchemeType::Ground(type_argument.clone()))]),
-                BTreeMap::from([(row_id, row_evidence)]), BTreeMap::new(), Vec::new(), Vec::new(),
+                BTreeMap::from([(row_id, row_evidence)]), BTreeMap::new(), Vec::new(), Vec::new(), Vec::new(),
                 &[],
                 &[],
                 &[],
-                &[], &[], &[], &BTreeMap::new())
+                &[], &[], &[], &[], &BTreeMap::new())
             .unwrap();
 
             let required_bytes = std::mem::size_of::<CallInstantiation>()

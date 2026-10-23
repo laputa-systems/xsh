@@ -28,6 +28,9 @@ impl BinderNames {
             names.visit_scheme_type(&parameter.ty);
         }
         names.visit_scheme_type(scheme.return_type());
+        for wrapper in &scheme.callable().requirements().wrappers {
+            for ty in wrapper.types() { names.visit_scheme_type(ty); }
+        }
         for operation in &scheme.callable().requirements().operations {
             for ty in operation.types() { names.visit_scheme_type(ty); }
         }
@@ -181,6 +184,14 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames, identities: &BTreeMap
     parts.push(format!("effects={}", render_bound_effects(scheme.effects().contract(), names)));
     for operation in &scheme.callable().requirements().operations {
         parts.push(format!("arithmetic({:?}, {}, {}) -> {}", operation.operator, render_scheme_type(&operation.left, names, identities), render_scheme_type(&operation.right, names, identities), render_scheme_type(&operation.result, names, identities)));
+    }
+    for wrapper in &scheme.callable().requirements().wrappers {
+        let types = wrapper.types().into_iter().map(|ty| render_scheme_type(ty, names, identities)).collect::<Vec<_>>().join(", ");
+        let effects = match &wrapper.kind {
+            crate::sema::wrapper_operation::WrapperRequirementKind::Field { effects, .. } => format!(", effects={}", render_bound_effects(effects, names)),
+            _ => String::new(),
+        };
+        parts.push(format!("wrapper({:?}, {types}{effects})", wrapper.shape()));
     }
     parts.join(" ")
 }

@@ -35,6 +35,7 @@ pub(crate) enum CallableApplicationError {
     SourceShape(crate::source::Span),
     Effects(super::EffectConstraintError),
     Operation(super::SealedOperationError),
+    Wrapper(super::WrapperConstraintError),
 }
 
 impl From<ConstraintResolutionError> for CallableApplicationError {
@@ -63,6 +64,7 @@ impl std::fmt::Display for CallableApplicationError {
                 super::EffectConstraintError::Unresolved => formatter.write_str("application effect relationship remains unresolved"),
             },
             Self::Operation(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Wrapper(error) => std::fmt::Display::fmt(error, formatter),
         }
     }
 }
@@ -414,8 +416,8 @@ mod tests {
                 (crate::sema::schemes::CallableApplicationBinding::Forwarded(1), generalized.requirements.applications.as_slice()),
             ] {
                 assert_eq!(crate::sema::schemes::CallInstantiation::new(
-                    &selected, evidence.type_arguments().clone(), evidence.row_arguments().clone(), evidence.effect_arguments().clone(), vec![binding], Vec::new(),
-                    &generalized.type_parameters, &generalized.row_parameters, &generalized.requirements.effect_parameters, requirements, &[], &[], &BTreeMap::new()), Err(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
+                    &selected, evidence.type_arguments().clone(), evidence.row_arguments().clone(), evidence.effect_arguments().clone(), vec![binding], Vec::new(), Vec::new(),
+                    &generalized.type_parameters, &generalized.row_parameters, &generalized.requirements.effect_parameters, requirements, &[], &[], &[], &BTreeMap::new()), Err(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication));
             }
         });
     }
@@ -497,7 +499,7 @@ mod tests {
                 Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))));
             let mut constraints = TypeConstraints::default();
             let scheme = generic_application_scheme(&mut constraints);
-            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(), &[], &[], &[], &[], &[], &[], &BTreeMap::new()),
+            assert!(matches!(crate::sema::schemes::CallInstantiation::new(&scheme, BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), Vec::new(), Vec::new(), Vec::new(), &[], &[], &[], &[], &[], &[], &[], &BTreeMap::new()),
                 Err(crate::sema::schemes::SchemeBuildError::UnboundTypeParameter)));
             let instance = constraints.instantiate_callable(&scheme, 1, span(), CallableApplicationScope::Invocation).unwrap();
             assert!(matches!(constraints.resolve_call_instantiation(&scheme, &instance), Err(super::super::SchemeOperationError::Build(_))));
@@ -680,7 +682,7 @@ impl CallableApplications {
         let dependencies = changes[from..].iter().filter_map(|change| match change {
             ConstraintChange::Type(id, _) | ConstraintChange::FreshType(id) => Some(ApplicationDependency::Type(*id)),
             ConstraintChange::Row(id, _) => Some(ApplicationDependency::Row(*id)),
-            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) | ConstraintChange::Method(_) => None,
+            ConstraintChange::Effect(_) | ConstraintChange::Application(_) | ConstraintChange::Operation(_) | ConstraintChange::Method(_) | ConstraintChange::Wrapper(_) => None,
         }).collect::<BTreeSet<_>>();
         for dependency in dependencies {
             let watchers = self.watchers.get(&dependency).into_iter().flatten().copied().collect::<Vec<_>>();
@@ -848,10 +850,11 @@ impl TypeConstraints {
         }
         let operations = self.generalize_sealed_operations(owners, environment_level, generalization)?;
         let methods = self.generalize_method_families(owners, environment_level, generalization)?;
+        let wrappers = self.generalize_wrappers(owners, environment_level, generalization)?;
         let iteration_parameters = self.generalized_iterations(environment_level, generalization)?;
         let effect_predicates = self.generalize_effect_predicates(environment_level, generalization)?;
         Ok(crate::sema::schemes::CallableRequirements {
-            iteration_parameters, applications, operations, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
+            iteration_parameters, applications, operations, wrappers, effect_predicates, effect_parameters: generalization.effect_parameters.clone(),
             map_key_parameters: self.generalized_map_keys(generalization)?,
             conversion_parameters: self.generalized_conversions(generalization)?, methods,
         })
@@ -950,7 +953,8 @@ impl TypeConstraints {
             loop {
                 this.solve_pending_callable_applications()?;
                 this.solve_sealed_operations().map_err(CallableApplicationError::Operation)?;
-                if this.applications.pending.is_empty() && !this.operations.is_pending() { return Ok(()); }
+                this.solve_wrapper_operations().map_err(CallableApplicationError::Wrapper)?;
+                if this.applications.pending.is_empty() && !this.operations.is_pending() && !this.wrappers.is_pending() { return Ok(()); }
             }
         })
     }

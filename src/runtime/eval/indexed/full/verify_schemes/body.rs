@@ -30,6 +30,8 @@ pub(super) struct LexicalScopes {
 }
 
 impl LexicalScope {
+    pub(super) fn captures_error(&self) -> bool { self.error_boundary.is_some() }
+
     fn binding<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a LocalBinding>, IrVerifyError> {
         let mut frame = Some(self.frame);
         while let Some(index) = frame {
@@ -487,7 +489,7 @@ pub(super) struct BodyProof {
     pub(super) writers: BTreeMap<usize, SchemeType>,
     pub(super) statements: BTreeSet<usize>,
     pub(super) streams: Vec<(super::producers::StreamProducer, PropagationBoundary)>,
-    pub(super) captures: Vec<(usize, SchemeType)>,
+    pub(super) captures: Vec<producers::CaptureErrorRequest>,
     pub(super) applications: BTreeSet<usize>,
 }
 
@@ -536,6 +538,7 @@ pub(super) fn verify_body(
     constructors: &super::constructors::ConstructorFacts,
     operation_sites: &BTreeMap<usize, u32>,
     method_sites: &BTreeMap<usize, u32>,
+    wrapper_sites: &BTreeMap<usize, u32>,
     tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
@@ -607,7 +610,7 @@ pub(super) fn verify_body(
                         let ok = ok.materialize(budget)?;
                         let error = error.materialize(budget)?;
                         budget.charge(1)?;
-                        captures.push((instruction, error));
+                        captures.push(producers::CaptureErrorRequest { owner: decoder.owner, instruction, expected_error: error.clone(), wrapper: wrapper_sites.get(&instruction).copied(), transfers: Vec::new() });
                         let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
                         budget.charge(statements.len())?;
                         let value = if statements.last().is_some_and(|statement| store.tags[*statement] == FullTag::StmtValue) { Some(ok) }
@@ -619,7 +622,7 @@ pub(super) fn verify_body(
                             };
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
                         inner.error_boundary = Some(scopes.error_boundaries.len());
-                        scopes.error_boundaries.push(PropagationBoundary::for_result(&claimed, budget)?);
+                        scopes.error_boundaries.push(wrappers::capture_boundary(store, scheme_scope, wrapper_sites.get(&instruction).copied(), instruction, captures.len().checked_sub(1), &error, budget)?);
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
                     }
                     schema::ExprView::ErrorContext { message, body, .. } => {
@@ -664,7 +667,7 @@ pub(super) fn verify_body(
                                     }
                                     pending.push(Obligation::Expression(delay, scope));
                                 }
-                                captures.push((instruction, error));
+                                captures.push(producers::CaptureErrorRequest { owner: decoder.owner, instruction, expected_error: error.clone(), wrapper: wrapper_sites.get(&instruction).copied(), transfers: Vec::new() });
                                 (body, true)
                             }
                             _ => unreachable!(),
@@ -684,7 +687,7 @@ pub(super) fn verify_body(
                         let value = scoped_block_value(store, &statements, payload, budget)?;
                         let mut inner = branch_scope(&scope, &mut scopes, budget)?;
                         inner.error_boundary = Some(scopes.error_boundaries.len());
-                        scopes.error_boundaries.push(PropagationBoundary::for_result(&claimed, budget)?);
+                        scopes.error_boundaries.push(wrappers::capture_boundary(store, scheme_scope, wrapper_sites.get(&instruction).copied(), instruction, if retry { captures.len().checked_sub(1) } else { None }, &error, budget)?);
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value });
                     }
                     schema::ExprView::ValueBlock { body, .. } => {
@@ -729,25 +732,34 @@ pub(super) fn verify_body(
                         inner.loop_depth += 1;
                         pending.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
                     }
-                    schema::ExprView::MatchExpr { value, mut arms, .. } => {
+                    schema::ExprView::MatchExpr { value, arms, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
                         let mut subject = expression_type(types, value.raw() as usize, budget)?;
-                        for arm in &mut arms {
-                            let (pattern, guard, value) = arm?;
-                            let inner = pattern_scope(decoder, pattern.raw(), &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
-                            if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
-                            pending.push(Obligation::Expression(value.raw() as usize, inner.clone()));
+                        let arms = arms.map(|arm| arm.map(|(pattern, guard, value)| (pattern.raw(), guard.map(|guard| guard.raw()), value.raw()))).collect::<Result<Vec<_>, _>>()?;
+                        budget.charge(arms.len())?;
+                        if let Some(ordinal) = wrapper_sites.get(&instruction) { wrappers::verify_handler_site(store, decoder, scheme_scope, *ordinal, &subject, &claimed, &arms, types, budget)?; }
+                        for (arm, (pattern, guard, value)) in arms.into_iter().enumerate() {
+                            let inner = pattern_scope(decoder, pattern, &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
+                            if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !body_type_matches(&expression_type(types, value as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
+                            pending.push(Obligation::Expression(value as usize, inner.clone()));
                             if let Some(guard) = guard {
-                                condition(types, guard.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
-                                pending.push(Obligation::Expression(guard.raw() as usize, inner));
+                                condition(types, guard as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
+                                pending.push(Obligation::Expression(guard as usize, inner));
                             }
-                            subject = subject_after_pattern(decoder, pattern.raw(), guard.is_some(), subject, budget)?;
+                            subject = subject_after_pattern(decoder, pattern, guard.is_some(), subject, budget)?;
                         }
                         pending.push(Obligation::Expression(value.raw() as usize, scope));
                     }
                     _ => {
                         let mut children = Vec::new();
-                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, scheme_scope, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        verify_body_expression(store, decoder, instruction, types, constructors, operation_sites, method_sites, wrapper_sites, scheme_scope, effect_scopes, &scope, &scopes, &mut children, &mut visited, registered, propagation_boundary(&scope, &scopes), budget, constant_budget)?;
+                        if let PropagationBoundary::CaptureRelationship { instruction: capture, request, .. } = propagation_boundary(&scope, &scopes)
+                            && let Some(transfer) = wrappers::actual_transfer(store, scheme_scope, wrapper_sites.get(&instruction).copied(), decoder.expression_view(instruction)?, types, budget)?
+                        {
+                            let request = captures.get_mut(*request).filter(|request| request.instruction == *capture && request.owner == decoder.owner).ok_or_else(|| IrVerifyError::new("captured transfer has no actual capture owner"))?;
+                            budget.charge(1)?;
+                            request.transfers.push((instruction, transfer));
+                        }
                         for instruction in children { pending.push(Obligation::Expression(instruction, scope)); }
                     }
                 }
@@ -2534,6 +2546,92 @@ mod tests {
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, source, 0, 1);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn wrapper_handlers_authenticate_the_actual_success_projection() {
+        let program = prepare("pure handled(value, backup) { value ?? { |error| backup } }");
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|instruction| program.store.tags[*instruction] == FullTag::ExprMatch).unwrap();
+        let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        let (_, _, success) = arms.next().unwrap().unwrap();
+        let (_, _, handler) = arms.next().unwrap().unwrap();
+        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(handler.raw() as usize).unwrap() else { unreachable!() };
+        let statement = body.next().unwrap().unwrap();
+        let schema::StmtView::Value { value } = decoder.statement_view(statement.raw() as usize).unwrap() else { unreachable!() };
+        let schema::ExprView::Param(backup) = decoder.expression_view(value.raw() as usize).unwrap() else { unreachable!() };
+        let mut changed = program.clone();
+        let payload = changed.store.data[success.raw() as usize].range().bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(payload.len(), 1);
+        changed.store.extra[payload.start] = backup as u32;
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "wrapper handler changes its success payload");
+    }
+
+    #[test]
+    fn wrapper_capture_preserves_nested_argument_and_call_error_order() {
+        let program = prepare("type TextRow = {name: Str}\nerror InnerFailure = Bad\nproc outer(value: Int) [error] -> Int { value }\nproc grounded(value: TextRow?, inner: Result[Int, InnerFailure]) [] -> Result[Str?] { try { let _ = outer(inner?); value?.name } }\nproc captured(value, inner: Result[Int, InnerFailure]) [] -> Result[Str?] { try { let _ = outer(inner?); value?.name } }");
+        let capture = program.store.wrapper_captures.iter().find(|capture| capture.contributions.len == 3).unwrap();
+        let contributions = capture.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        let mut changed = program.clone();
+        changed.store.wrapper_contributions.swap(contributions.start, contributions.start + 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "capture contributions disagree with its actual body");
+    }
+
+    #[test]
+    fn wrapper_capture_authenticates_explicit_and_conditional_contribution_order() {
+        let program = prepare("type TextRow = {name: Str}\npure captured(value) { try { let _ = Ok(0)?; value?.name } }\npure from_optional(value: TextRow?) -> Result[Str?] { captured(value) }\npure from_result(value: Result[TextRow, Str]) -> Result[Str] { captured(value) }");
+        let capture = program.store.wrapper_captures.iter().find(|capture| capture.contributions.len == 2).unwrap();
+        let contributions = capture.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        let mut changed = program.clone();
+        changed.store.wrapper_contributions.swap(contributions.start, contributions.start + 1);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "capture contributions disagree with its actual body");
+    }
+
+    #[test]
+    fn wrapper_capture_authenticates_actual_conditional_error_sources() {
+        for calls in ["\npure result(value: Result[TextRow, Str]) -> Result[Str, Str] { captured(value, null) }\npure optional(value: TextRow?) -> Result[Str?] { captured(value, null) }", ""] {
+        let program = prepare(&format!("type TextRow = {{name: Str}}\npure captured(value, spare: TextRow?) {{ try {{ value?.name }} }}{calls}"));
+        let owner = program.store.functions.iter().position(|function| match function.contract {
+            FullCallableContract::Scheme(id) => bounded(program.store.scheme(id).unwrap().wrappers, &program.store.scheme_wrappers, "wrappers").unwrap().iter().any(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::Capture { .. })),
+            _ => false,
+        }).unwrap();
+        let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
+        let scheme = program.store.scheme(id).unwrap();
+        let spare = bounded(scheme.params, &program.store.scheme_params, "parameters").unwrap()[1].ty;
+        let mut changed = program.clone();
+        for wrapper in bounded(scheme.wrappers, &program.store.scheme_wrappers, "wrappers").unwrap() {
+            if let super::super::super::schemes::FullWrapper::Capture { detail, .. } = wrapper {
+                let capture = &mut changed.store.wrapper_captures[*detail as usize];
+                capture.expected = true;
+                let contributions = capture.contributions.bounds(changed.store.wrapper_contributions.len()).unwrap();
+                let super::super::super::schemes::FullWrapperContribution::Source(source) = changed.store.wrapper_contributions[contributions.start] else { unreachable!() };
+                assert_eq!(changed.store.scheme_types[source.index()].tag, FullSchemeTypeTag::Parameter);
+                assert_eq!(changed.store.scheme_types[spare.index()].tag, FullSchemeTypeTag::Optional);
+                changed.store.scheme_types[source.index()] = changed.store.scheme_types[spare.index()];
+            }
+        }
+        assert!(FullVerifier::verify(&changed).is_err(), "capture error sources must come from its actual body, including uncalled definitions");
+        }
+    }
+
+    #[test]
+    fn wrapper_fields_authenticate_independent_optional_payloads() {
+        let program = prepare("type TextRow = {name: Str}\ntype IntRow = {name: Int}\npure name(value) { value?.name }\npure text(value: TextRow?) -> Str? { name(value) }\npure number(value: IntRow?) -> Int? { name(value) }");
+        let ordinal = program.store.scheme_wrappers.iter().position(|wrapper| matches!(wrapper, super::super::super::schemes::FullWrapper::Field { .. })).unwrap();
+        let mut changed = program.clone();
+        let super::super::super::schemes::FullWrapper::Field { source, result, .. } = &mut changed.store.scheme_wrappers[ordinal] else { unreachable!() };
+        std::mem::swap(source, result);
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
+    fn wrapper_fallback_sites_authenticate_optional_and_result_modes_through_relays() {
+        let program = prepare("pure fallback(value, backup) { value ?? backup }\npure relay(value, backup) { fallback(value, backup) }\npure keep(value: Result[Int, Str]?) -> Result[Int, Str] { relay(value, Ok(0)) }\npure recover(value: Result[Int, Str]) -> Int { relay(value, 0) }");
+        let selected = program.store.call_wrapper_bindings.iter().position(|binding| matches!(binding, crate::sema::wrapper_operation::WrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::Optional))).unwrap();
+        let mut changed = program.clone();
+        changed.store.call_wrapper_bindings[selected] = crate::sema::wrapper_operation::WrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::Result);
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "selected wrapper mode disagrees with its source envelope");
     }
 
     #[test]

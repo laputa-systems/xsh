@@ -6,6 +6,7 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::records::standard_record_type;
+use crate::sema::wrapper_operation::WrapperErrorContribution;
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
 use xsh_registry::types::BuiltinTypeName;
@@ -43,6 +44,13 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 }
 
 impl Checker {
+    pub(super) fn propagation_effect_is_permitted(&self) -> bool {
+        self.boundary.current_effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
+            || self.defer_effect_diagnostics && !self.boundary.in_pure && self.boundary.current_effects.is_none()
+                && self.boundary.effect_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
+                    .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc)
+    }
+
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
         let resolved;
         let ty = if ty.contains_inference() {
@@ -92,16 +100,7 @@ impl Checker {
             return Type::Unknown;
         };
         self.propagating_error_spans.insert(span);
-        let deferred_proc_failure = self.defer_effect_diagnostics
-            && !self.boundary.in_pure
-            && self.boundary.current_effects.is_none()
-            && self.boundary.effect_owner.and_then(|owner| {
-                self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))
-            }).is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc);
-        let allowed = deferred_proc_failure || self
-            .boundary.current_effects
-            .as_ref()
-            .is_some_and(|effects| effects.contains(&Effect::Error))
+        let allowed = self.propagation_effect_is_permitted()
             || self
                 .boundary.current_return
                 .as_ref()
@@ -152,7 +151,7 @@ impl Checker {
         };
         self.propagating_error_spans.insert(span);
         if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
-            errors.push((err, span));
+            errors.push((WrapperErrorContribution::Explicit(err), span));
         }
         ok
     }
@@ -162,17 +161,27 @@ impl Checker {
         self.boundary.error_boundary_errors.push(Vec::new());
     }
 
-    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
+    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>, span: Span) -> Type {
         self.boundary.retry_attempt_depth -= 1;
         let errors = self
             .boundary.error_boundary_errors
             .pop()
             .expect("checked error boundary");
+        if errors.iter().any(|(error, _)| match error { WrapperErrorContribution::Source(_) => true, WrapperErrorContribution::Explicit(ty) => ty.contains_inference() }) {
+            use crate::sema::wrapper_operation::WrapperRequirementKind;
+            let result = expected.cloned().unwrap_or_else(|| self.fresh_wrapper_type(span));
+            let contributions = errors.into_iter().map(|(term, _)| term).collect::<Vec<_>>();
+            return self.check_wrapper_requirement(WrapperRequirementKind::Capture { contributions: contributions.into(), result: result.clone(), expected: expected.is_some() }, span, DiagnosticCode::CheckTryError, result);
+        }
+        let errors = errors.into_iter().map(|(error, span)| match error {
+            WrapperErrorContribution::Explicit(error) => (error, span),
+            WrapperErrorContribution::Source(_) => unreachable!("deferred wrapper contributions retain their capture relationship"),
+        });
         if let Some(expected) = expected {
             for (error, span) in errors { self.expect_type(expected, &error, span); }
             expected.clone()
         } else {
-            Type::captured_error_type(errors.into_iter().map(|(error, _)| error))
+            Type::captured_error_type(errors.map(|(error, _)| error))
         }
     }
 
@@ -220,7 +229,7 @@ impl Checker {
                 if self.boundary.retry_attempt_depth > 0
                     && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
                 {
-                    errors.push((Type::Error, span));
+                    errors.push((WrapperErrorContribution::Explicit(Type::Error), span));
                 }
             }
         }
@@ -286,7 +295,7 @@ impl Checker {
             return;
         }
         if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
-            errors.push((error.as_ref().clone(), span));
+            errors.push((WrapperErrorContribution::Explicit(error.as_ref().clone()), span));
         }
     }
 

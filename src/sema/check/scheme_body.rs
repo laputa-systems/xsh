@@ -216,6 +216,9 @@ pub(super) fn supports_generalized_body(
 
 fn handler_bindings(program: &ArenaProgram, bindings: &ResolvedBindings, available: &FxHashSet<BindingId>, block: BlockId) -> Option<FxHashSet<BindingId>> {
     let mut available = available.clone();
+    if program.arena.block(block).params.is_empty()
+        && let Some(binding) = bindings.declaration_sites.get(&(program.arena.span(program.arena.block(block).span), super::item_binding()))
+    { available.insert(*binding); }
     for parameter in program.arena.block_params(program.arena.block(block).params) {
         if parameter.name.as_str() != "_" {
             available.insert(*bindings.declaration_sites.get(&(program.arena.span(parameter.span), parameter.name))?);
@@ -435,7 +438,7 @@ pub(super) fn is_body_expression(
             if kind != crate::sema::schemes::NonmaterialConstructor::Record { continue; }
         }
         match program.arena.expr(expression).kind {
-            ArenaExprKind::Ident(_) => {
+            ArenaExprKind::Ident(_) | ArenaExprKind::Item => {
                 if !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
@@ -459,6 +462,16 @@ pub(super) fn is_body_expression(
                 pending.push(base);
                 pending.extend(start);
                 pending.extend(end);
+            }
+            ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right }
+                if matches!(program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
+                if !types.contains_key(&expression) { return false; }
+                pending.push(left);
+                let ArenaExprKind::ValueBlock(block) = program.arena.expr(right).kind else { unreachable!() };
+                let Some(handler) = handler_bindings(program, bindings, available, block) else { return false };
+                if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, &handler, captures,
+                    tails, positions, checked_operations, registered_calls, types, constructor_producers, result_constructors, BodyCompletion::Value)
+                { return false; }
             }
             ArenaExprKind::Binary { left, right, .. } => {
                 if !types.contains_key(&expression) { return false; }
@@ -898,6 +911,108 @@ mod ordinary_body_tests {
     #[test]
     fn sealed_binary_arithmetic_retains_independent_input_and_result_domains() {
         accepts("pure combine(a, b) { a + b }", "let number: Int = combine(1, 2)\nlet text: Str = combine(\"one\", \" two\")");
+    }
+
+    #[test]
+    fn wrapper_fallback_retains_optional_result_payloads_and_result_failure_modes() {
+        let calls = "let failed: Result[Int, Str] = Err(\"kept\")\nlet present: Result[Int, Str]? = failed\nlet kept: Result[Int, Str] = optional_fallback(present, Ok(0))\nlet recovered: Int = result_fallback(failed, 0)";
+        accepts("pure optional_fallback(value: Result[Int, Str]?, backup: Result[Int, Str]) -> Result[Int, Str] { value ?? backup }\npure result_fallback(value: Result[Int, Str], backup: Int) -> Int { value ?? backup }", calls);
+        accepts("pure fallback(value, backup) { value ?? backup }", "let failed: Result[Int, Str] = Err(\"kept\")\nlet present: Result[Int, Str]? = failed\nlet kept: Result[Int, Str] = fallback(present, Ok(0))\nlet recovered: Int = fallback(failed, 0)");
+    }
+
+    #[test]
+    fn wrapper_fallback_constructor_context_preserves_result_error_payloads() {
+        let calls = "let source: Result[Int, Str]? = null\nlet selected: Result[Int, Str] = fallback(source)";
+        accepts("pure fallback(value: Result[Int, Str]?) -> Result[Int, Str] { value ?? Ok(0) }", calls);
+        accepts("pure fallback(value) { value ?? Ok(0) }", calls);
+        accepts("pure identity(value) { value }", "let ordinary: Result[Int] = identity(Ok(0))");
+    }
+
+    #[test]
+    fn wrapper_dynamic_return_boundaries_preserve_grounded_annotation_policy() {
+        for definition in [
+            "pure direct(value: Row?) { try { value?.name } }",
+            "pure name(value) { try { value?.name } }\npure direct(value: Row?) { name(value) }",
+            "pure direct(value: Any?, backup: Any) { value ?? backup }",
+            "pure fallback(value, backup) { value ?? backup }\npure direct(value: Any?, backup: Any) { fallback(value, backup) }",
+        ] {
+            let source = format!("type Row = {{name: Any}}\n{definition}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();
+            assert!(!errors.is_empty() && errors.iter().all(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckInferReturn)), "{source}\n{errors:?}");
+        }
+    }
+
+    #[test]
+    fn wrapper_handler_constructor_context_preserves_result_error_payloads() {
+        let calls = "let source: Result[Result[Int, Str], Bool] = Err(true)\nlet selected: Result[Int, Str] = handled(source)";
+        accepts("pure handled(value: Result[Result[Int, Str], Bool]) -> Result[Int, Str] { value ?? { |error| Ok(0) } }", calls);
+        accepts("pure handled(value) { value ?? { |error| Ok(0) } }", calls);
+        accepts("pure identity(value) { value }", "let ordinary: Result[Int] = identity(Ok(0))");
+    }
+
+    #[test]
+    fn wrapper_fallback_context_survives_reversed_named_argument_order() {
+        let calls = "let present: Result[Int, Str]? = Err(\"kept\")\nlet kept: Result[Int, Str] = optional_fallback(backup: Ok(0), value: present)";
+        accepts("pure optional_fallback(value: Result[Int, Str]?, backup: Result[Int, Str]) -> Result[Int, Str] { value ?? backup }", calls);
+        accepts("pure fallback(value, backup) { value ?? backup }", &calls.replace("optional_fallback(", "fallback("));
+        accepts("pure identity(value) { value }", "let ordinary: Result[Int] = identity(Ok(0))");
+    }
+
+    #[test]
+    fn wrapper_fields_retain_independent_optional_payloads_and_optional_field_idempotence() {
+        let calls = "type TextRow = {name: Str}\ntype IntRow = {name: Int}\ntype MaybeRow = {name: Str?}\nlet text: TextRow? = {name: \"demo\"}\nlet number: IntRow? = {name: 7}\nlet absent: TextRow? = null\nlet nested: MaybeRow? = {name: null}\nlet text_name: Str? = optional_name(text)\nlet number_name: Int? = optional_name(number)\nlet missing_name: Str? = optional_name(absent)\nlet nullable_name: Str? = optional_name(nested)";
+        accepts("pure optional_name(value) { value?.name }", calls);
+    }
+
+    #[test]
+    fn wrapper_fields_retain_result_errors_and_caught_optional_or_result_sources() {
+        accepts("type TextRow = {name: Str}\npure result_name(value: Result[TextRow, Str]) -> Result[Str, Str] { Ok(value?.name) }", "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet name: Result[Str, Str] = result_name(source)");
+        accepts("type TextRow = {name: Str}\npure captured_optional(value: TextRow?) { try { value?.name } }", "let source: TextRow? = {name: \"demo\"}\nlet name: Result[Str?] = captured_optional(source)");
+        accepts("type TextRow = {name: Str}\npure captured_result(value: Result[TextRow, Str]) { try { value?.name } }", "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet name: Result[Str, Str] = captured_result(source)");
+        accepts("type TextRow = {name: Str}\npure result_name(value) -> Result[Str, Str] { Ok(value?.name) }", "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet name: Result[Str, Str] = result_name(source)");
+        accepts("type TextRow = {name: Str}\npure captured_name(value) { try { value?.name } }", "let optional: TextRow? = {name: \"demo\"}\nlet source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet optional_name: Result[Str?] = captured_name(optional)\nlet result_name: Result[Str, Str] = captured_name(source)");
+    }
+
+    #[test]
+    fn wrapper_fields_preserve_inferred_proc_completion_for_result_sources() {
+        let calls = "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet projected: Result[Str] = project(source)";
+        accepts("type TextRow = {name: Str}\nproc project(value: Result[TextRow, Str]) { value?.name }", calls);
+        accepts("type TextRow = {name: Str}\nproc project(value) { value?.name }", calls);
+    }
+
+    #[test]
+    fn wrapper_fields_preserve_declared_error_permission_for_scalar_proc_returns() {
+        let calls = "let source: Result[TextRow, Str] = Ok({name: \"demo\"})\nlet name: Str = project(source)";
+        accepts("type TextRow = {name: Str}\nproc project(value: Result[TextRow, Str]) [error] -> Str { value?.name }", calls);
+        accepts("type TextRow = {name: Str}\nproc project(value) [error] -> Str { value?.name }", calls);
+        for declaration in [
+            "pure project(value) -> Str { value?.name }",
+            "proc project(value) [] -> Str { value?.name }",
+            "proc project(value) [error] -> Result[Str, Int] { Ok(value?.name) }",
+        ] {
+            let source = format!("type TextRow = {{name: Str}}\n{declaration}\nlet source: Result[TextRow, Str] = Ok({{name: \"demo\"}})\nlet _ = project(source)");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code, Some(crate::diagnostic::DiagnosticCode::CheckTryContext | crate::diagnostic::DiagnosticCode::CheckEffectViolation | crate::diagnostic::DiagnosticCode::CheckNullSafeField | crate::diagnostic::DiagnosticCode::CheckCallableMismatch))), "{source}\n{:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn wrapper_fields_reject_a_second_optional_hop_and_unsupported_receivers() {
+        for source in [
+            "type TextRow = {name: Str}\npure result_name(value: Result[TextRow?, Str]) -> Result[Str, Str] { Ok(value?.name) }",
+            "pure optional_name(value) { value?.name }\nlet invalid = optional_name(1)",
+            "pure optional_name(value) { value?.name }\nlet invalid = optional_name({name: \"demo\"})",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckNullSafeField)), "{source}\n{:?}", checked.diagnostics);
+        }
     }
 
     #[test]

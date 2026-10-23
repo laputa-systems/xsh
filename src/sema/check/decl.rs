@@ -727,6 +727,9 @@ impl Checker {
         let declaration = FunctionDeclarationId::new(
             self.effect_declaration_id(program, def.body),
         );
+        if let Err(error) = self.type_constraints.constrain_wrapper_returns(declaration.effect_declaration(), &ty, declaration.effect_declaration().body) {
+            self.error(declaration.effect_declaration().body, &error.to_string(), DiagnosticCode::CheckTryContext);
+        }
         if let Some(signature) = self.declaration_inference.pending_mut(declaration)
             && let Some(shape) = signature.provisional_mut()
         {
@@ -816,6 +819,24 @@ impl Checker {
                 }
             }
         }
+        let mut wrapper_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let checked = program.arena.expr(expression);
+            let span = match checked.kind {
+                crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, left, right } => Span::new(checked.span.source_id, program.arena.expr(left).span.start(), program.arena.expr(right).span.end()),
+                _ => checked.span,
+            };
+            if let Some(wrapper) = self.type_constraints.wrapper_at(crate::sema::constraints::CallableApplicationScope::Declaration(effect_declaration), span) {
+                match self.type_constraints.generalized_wrapper_ordinal(wrapper, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { wrapper_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("wrapper operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
         let mut proc_return_sites = BTreeMap::new();
         for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
             let mut representative = None;
@@ -841,7 +862,7 @@ impl Checker {
                 Arc::clone(&scheme),
                 pending.generalized_body_types()?.clone(),
                 pending.generalized_tail_types()?.clone(),
-            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)) {
+            ).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_constructor_producers(pending.generalized_constructor_producers()?.clone()).with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

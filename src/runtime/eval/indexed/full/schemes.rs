@@ -77,6 +77,7 @@ pub(super) enum FullCallableContract {
 pub(super) enum FullSchemeBodyFactKind {
     Operation,
     Method,
+    Wrapper,
     Expression,
     Tail,
     LocalImmutable,
@@ -100,6 +101,7 @@ pub(super) struct FullScheme {
     pub(super) applications: IrRange,
     pub(super) operations: IrRange,
     pub(super) methods: IrRange,
+    pub(super) wrappers: IrRange,
     pub(super) body_facts: IrRange,
     pub(super) callable_kind: crate::sema::types::CallableKind,
     pub(super) explicit_return: bool,
@@ -377,7 +379,57 @@ pub(super) struct FullCallInstantiation {
     pub(super) application_bindings: IrRange,
     pub(super) operation_bindings: IrRange,
     pub(super) method_bindings: IrRange,
+    pub(super) wrapper_bindings: IrRange,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullWrapper {
+    Field { source: SchemeTypeId, result: SchemeTypeId, detail: u32 },
+    Fallback { source: SchemeTypeId, result: SchemeTypeId, backup: SchemeTypeId },
+    Handler { source: SchemeTypeId, result: SchemeTypeId, detail: u32 },
+    Capture { result: SchemeTypeId, detail: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullWrapperBoundary {
+    Captured,
+    Return(SchemeTypeId),
+    ErrorReturn(SchemeTypeId),
+    ProcCompletion(SchemeTypeId),
+    Producer,
+    TopLevel,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullWrapperField {
+    pub(super) name: u32,
+    pub(super) boundary: FullWrapperBoundary,
+    pub(super) effects: FullEffectContract,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullWrapperHandler {
+    pub(super) error: SchemeTypeId,
+    pub(super) handler: SchemeTypeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullWrapperCapture {
+    pub(super) contributions: IrRange,
+    pub(super) expected: bool,
+    pub(super) reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C, u8)]
+pub(super) enum FullWrapperContribution { Explicit(SchemeTypeId), Source(SchemeTypeId) }
+
+pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBinding;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
@@ -445,6 +497,7 @@ pub(super) struct FullSchemeBodyFact {
 pub(super) enum FullSchemeBodyFactValue {
     Operation(u32),
     Method(u32),
+    Wrapper(u32),
     Expression(SchemeTypeId),
     Tail(SchemeTypeId),
     LocalImmutable(SchemeTypeId),
@@ -459,6 +512,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Operation(_) => FullSchemeBodyFactKind::Operation,
             FullSchemeBodyFactValue::Method(_) => FullSchemeBodyFactKind::Method,
+            FullSchemeBodyFactValue::Wrapper(_) => FullSchemeBodyFactKind::Wrapper,
             FullSchemeBodyFactValue::Expression(_) => FullSchemeBodyFactKind::Expression,
             FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
             FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
@@ -473,7 +527,7 @@ impl FullSchemeBodyFact {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
             | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
-            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) => None,
+            FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_) => None,
         }
     }
 }
@@ -753,6 +807,12 @@ impl FullBuilder {
             });
         }
         let methods = super::table_range(methods_start, self.store.scheme_methods.len())?;
+        let wrappers_start = self.store.scheme_wrappers.len();
+        for requirement in &scheme.callable().requirements().wrappers {
+            let encoded = self.intern_wrapper(requirement, &type_parameters, &row_parameters, &effect_parameters)?;
+            self.store.scheme_wrappers.push(encoded);
+        }
+        let wrappers = super::table_range(wrappers_start, self.store.scheme_wrappers.len())?;
         let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
@@ -764,7 +824,7 @@ impl FullBuilder {
             return_schema,
             effects,
             effect_predicates,
-            applications, operations, methods,
+            applications, operations, methods, wrappers,
             body_facts: IrRange::default(),
             callable_kind,
             explicit_return: scheme.explicit_return(),
@@ -873,13 +933,16 @@ impl FullBuilder {
         let method_bindings_start = self.store.call_method_bindings.len();
         self.store.call_method_bindings.extend(instantiation.method_bindings().iter().copied());
         let method_bindings = super::table_range(method_bindings_start, self.store.call_method_bindings.len())?;
+        let wrappers_start = self.store.call_wrapper_bindings.len();
+        self.store.call_wrapper_bindings.extend(instantiation.wrapper_bindings().iter().copied());
+        let wrapper_bindings = super::table_range(wrappers_start, self.store.call_wrapper_bindings.len())?;
         self.store.call_instantiations.push(FullCallInstantiation {
             instruction: u32::try_from(instruction)
                 .map_err(|_| IrBuildError::format("scheme_call_instruction", None, 0, instruction))?,
             type_arguments,
             row_arguments,
             effect_arguments,
-            application_bindings, operation_bindings, method_bindings,
+            application_bindings, operation_bindings, method_bindings, wrapper_bindings,
         });
         Ok(())
     }
@@ -905,7 +968,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
-                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
+                FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });
         Ok(())
@@ -988,6 +1051,62 @@ impl FullBuilder {
             purpose: super::FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
         });
         Ok(())
+    }
+
+    fn intern_wrapper(
+        &mut self,
+        requirement: &crate::sema::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>,
+        types: &BTreeMap<SchemeTypeParameterId, u32>, rows: &BTreeMap<SchemeRowParameterId, u32>, effects: &BTreeMap<SchemeEffectParameterId, u32>,
+    ) -> Result<FullWrapper, IrBuildError> {
+        use crate::sema::wrapper_operation::{WrapperRequirementKind as K, WrapperBoundary as B, WrapperErrorContribution as C};
+        let index = |value| u32::try_from(value).map_err(|_| IrBuildError::format("wrapper_detail_overflow", None, 0, value));
+        Ok(match &requirement.kind {
+            K::Field { source, result, name, boundary, effects: contract } => {
+                let source = self.intern_scheme_type(source, types, rows, effects)?;
+                let result = self.intern_scheme_type(result, types, rows, effects)?;
+                let name = self.intern_string(name.as_str().as_str())?.raw();
+                let boundary = match boundary {
+                    B::Captured => FullWrapperBoundary::Captured,
+                    B::Return(ty) => FullWrapperBoundary::Return(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::ErrorReturn(ty) => FullWrapperBoundary::ErrorReturn(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::ProcCompletion(ty) => FullWrapperBoundary::ProcCompletion(self.intern_scheme_type(ty, types, rows, effects)?),
+                    B::Producer => FullWrapperBoundary::Producer,
+                    B::TopLevel => FullWrapperBoundary::TopLevel,
+                };
+                let effects = self.intern_effect_contract(contract, effects)?;
+                let detail = index(self.store.wrapper_fields.len())?;
+                self.store.wrapper_fields.push(FullWrapperField { name, boundary, effects });
+                FullWrapper::Field { source, result, detail }
+            }
+            K::Fallback { source, result, fallback } => FullWrapper::Fallback {
+                source: self.intern_scheme_type(source, types, rows, effects)?, result: self.intern_scheme_type(result, types, rows, effects)?, backup: self.intern_scheme_type(fallback, types, rows, effects)?,
+            },
+            K::Handler { source, result, error, handler } => {
+                let source = self.intern_scheme_type(source, types, rows, effects)?;
+                let result = self.intern_scheme_type(result, types, rows, effects)?;
+                let error = self.intern_scheme_type(error, types, rows, effects)?;
+                let handler = self.intern_scheme_type(handler, types, rows, effects)?;
+                let detail = index(self.store.wrapper_handlers.len())?;
+                self.store.wrapper_handlers.push(FullWrapperHandler { error, handler });
+                FullWrapper::Handler { source, result, detail }
+            }
+            K::Capture { contributions, result, expected } => {
+                let result = self.intern_scheme_type(result, types, rows, effects)?;
+                let mut encoded = Vec::with_capacity(contributions.len());
+                for term in contributions.iter() {
+                    encoded.push(match term {
+                        C::Explicit(ty) => FullWrapperContribution::Explicit(self.intern_scheme_type(ty, types, rows, effects)?),
+                        C::Source(ty) => FullWrapperContribution::Source(self.intern_scheme_type(ty, types, rows, effects)?),
+                    });
+                }
+                let start = self.store.wrapper_contributions.len();
+                self.store.wrapper_contributions.extend(encoded);
+                let contributions = super::table_range(start, self.store.wrapper_contributions.len())?;
+                let detail = index(self.store.wrapper_captures.len())?;
+                self.store.wrapper_captures.push(FullWrapperCapture { contributions, expected: *expected, reserved: [0; 3] });
+                FullWrapper::Capture { result, detail }
+            }
+        })
     }
 
     fn intern_scheme_type(
@@ -1563,11 +1682,11 @@ mod tests {
             let instantiation = CallInstantiation::new(
                 scheme.callable(),
                 BTreeMap::from([(type_parameter, SchemeType::Ground(Type::Bool))]),
-                BTreeMap::from([(row_parameter, evidence)]), BTreeMap::new(), Vec::new(), Vec::new(),
+                BTreeMap::from([(row_parameter, evidence)]), BTreeMap::new(), Vec::new(), Vec::new(), Vec::new(),
                 &[],
                 &[],
                 &[],
-             &[], &[], &[], &BTreeMap::new())
+             &[], &[], &[], &[], &BTreeMap::new())
             .unwrap();
             let mut builder = super::super::FullBuilder::new(crate::source::SourceId::new(0));
             let scheme_id = builder.intern_scheme(&scheme).unwrap();

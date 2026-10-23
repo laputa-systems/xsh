@@ -405,3 +405,122 @@ assert filtered == {3, 4}
     status: 0,
   )?
 }
+
+test test_full_inference_wrapper_fallback_distinguishes_optional_results_from_result_failures { |ctx|
+  test.expect(
+    ctx,
+    r"""pure optional_fallback(value: Result[Int, Str]?, backup: Result[Int, Str]) -> Result[Int, Str] { value ?? backup }
+pure result_fallback(value: Result[Int, Str], backup: Int) -> Int { value ?? backup }
+let failed: Result[Int, Str] = Err("kept")
+let present: Result[Int, Str]? = failed
+assert optional_fallback(present, Ok(0)) == failed
+assert result_fallback(failed, 0) == 0
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""pure fallback(value, backup) { value ?? backup }
+pure relay(value, backup) { fallback(value, backup) }
+let failed: Result[Int, Str] = Err("kept")
+let present: Result[Int, Str]? = failed
+assert relay(present, Ok(0)) == failed
+assert relay(failed, 0) == 0
+let successful: Result[Int, Str] = Ok(7)
+let held_success: Result[Int, Str]? = successful
+assert relay(held_success, Ok(0)) == successful
+assert relay(successful, 0) == 7
+let missing: Result[Int, Str]? = null
+let backup: Result[Int, Str] = Ok(0)
+assert relay(missing, backup) == backup
+let nullable: Result[Int?, Str] = Ok(null)
+assert relay(nullable, 3) == null
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_wrapper_fields_preserve_null_and_optional_field_idempotence { |ctx|
+  test.expect(
+    ctx,
+    r"""pure optional_name(value) { value?.name }
+type TextRow = {name: Str}
+type IntRow = {name: Int}
+type MaybeRow = {name: Str?}
+let text: TextRow? = {name: "demo"}
+let number: IntRow? = {name: 7}
+let missing: TextRow? = null
+let nested: MaybeRow? = {name: null}
+let text_name: Str? = optional_name(text)
+let number_name: Int? = optional_name(number)
+let missing_name: Str? = optional_name(missing)
+let nullable_name: Str? = optional_name(nested)
+assert text_name == "demo"
+assert number_name == 7
+assert missing_name == null
+assert nullable_name == null
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_wrapper_fields_preserve_result_propagation_and_caught_errors { |ctx|
+  test.expect(
+    ctx,
+    r"""type TextRow = {name: Str}
+pure result_name(value) -> Result[Str, Str] { Ok(value?.name) }
+pure captured_name(value) { try { value?.name } }
+let source: Result[TextRow, Str] = Ok({name: "demo"})
+let failure: Result[TextRow, Str] = Err("kept")
+let expected_success: Result[Str, Str] = Ok("demo")
+let expected_failure: Result[Str, Str] = Err("kept")
+assert result_name(source) == expected_success
+assert result_name(failure) == expected_failure
+let optional: TextRow? = {name: "optional"}
+let absent: TextRow? = null
+let optional_name: Result[Str?] = captured_name(optional)
+let caught_result: Result[Str, Str] = captured_name(source)
+let expected_optional: Result[Str?] = Ok("optional")
+let expected_absent: Result[Str?] = Ok(null)
+assert optional_name == expected_optional
+assert caught_result == expected_success
+assert captured_name(absent) == expected_absent
+assert captured_name(failure) == expected_failure
+""",
+    status: 0,
+  )?
+}
+
+test test_full_inference_wrapper_fields_reject_a_second_optional_hop { |ctx|
+  test.expect(
+    ctx,
+    r"""type TextRow = {name: Str}
+pure result_name(value) -> Result[Str, Str] { Ok(value?.name) }
+let source: Result[TextRow?, Str] = Ok(null)
+let rejected = result_name(source)
+""",
+    status: 2,
+    stderr: ["[check.null-safe-field]"],
+  )?
+}
+
+test test_full_inference_wrapper_handlers_preserve_named_and_implicit_errors { |ctx|
+  test.expect(
+    ctx,
+    r"""pure handled(value, backup) { value ?? { |error| backup } }
+pure relay(value, backup) { handled(value, backup) }
+pure item(value) { value ?? { . } }
+let success: Result[Int, Str] = Ok(3)
+let failure: Result[Int, Str] = Err("failure")
+assert relay(success, 9) == 3
+assert relay(failure, 9) == 9
+let text_success: Result[Str, Str] = Ok("kept")
+let text_failure: Result[Str, Str] = Err("recovered")
+assert item(text_success) == "kept"
+assert item(text_failure) == "recovered"
+assert handled(text_success, "backup") == "kept"
+assert handled(text_failure, "backup") == "backup"
+""",
+    status: 0,
+  )?
+}
