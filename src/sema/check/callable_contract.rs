@@ -39,6 +39,19 @@ pub(crate) struct CallableInstanceEvidence {
     origin: crate::source::Span,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SchemeBinderCorrespondence {
+    types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
+    rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
+    effects: BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId>,
+}
+
+impl SchemeBinderCorrespondence {
+    pub(crate) fn types(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId> { &self.types }
+    pub(crate) fn rows(&self) -> &BTreeMap<SchemeRowParameterId, SchemeRowParameterId> { &self.rows }
+    pub(crate) fn effects(&self) -> &BTreeMap<SchemeEffectParameterId, SchemeEffectParameterId> { &self.effects }
+}
+
 impl CallableInstanceEvidence {
     pub(crate) fn specialize_effects(&self, effects: &crate::sema::effects::CheckedEffects, owner: &Arc<TypeScheme>) -> Option<crate::sema::effects::CheckedEffects> {
         if !Arc::ptr_eq(owner, &self.scheme) { return None; }
@@ -54,6 +67,14 @@ impl CallableInstanceEvidence {
 }
 
 impl Checker {
+    pub(super) fn scheme_value_contract(&self, program: &ArenaProgram, signature: &super::FunctionSig) -> CheckedCallableContract {
+        CheckedCallableContract {
+            scheme: Arc::clone(signature.scheme()),
+            symbol_owner: program.symbol_owner().clone(),
+            schema_identities: self.callable_schema_identities(program, signature.scheme()),
+        }
+    }
+
     pub(super) fn callable_schema_identities(&self, program: &ArenaProgram, scheme: &TypeScheme) -> Arc<BTreeMap<TypeDefId, SchemaIdentity>> {
         let mut types = scheme.params().iter().map(|parameter| &parameter.ty)
             .chain(std::iter::once(scheme.return_type())).collect::<Vec<_>>();
@@ -72,7 +93,7 @@ impl Checker {
                 SchemeType::Map(key, value) | SchemeType::Result(key, value) => { types.push(key); types.push(value); }
                 SchemeType::Record { fields, .. } => types.extend(fields.values()),
                 SchemeType::Union(members) => types.extend(members),
-                SchemeType::Ground(_) | SchemeType::Parameter(_) => {}
+                SchemeType::Ground(_) | SchemeType::Parameter(_) | SchemeType::SchemeCallable(_) => {}
             }
         }
         let mut definitions = BTreeSet::new();
@@ -126,6 +147,22 @@ pub(super) fn same_bound_operand(
 }
 
 impl CheckedCallableContract {
+    pub(crate) fn scheme(&self) -> &Arc<TypeScheme> { &self.scheme }
+
+    pub(crate) fn binder_correspondence(&self, other: &Self) -> Option<SchemeBinderCorrespondence> {
+        let mut equivalence = BoundEquivalence {
+            types: BTreeMap::new(), rows: BTreeMap::new(), effects: BTreeMap::new(),
+            left_schemas: &self.schema_identities, right_schemas: &other.schema_identities,
+        };
+        if !equivalence.scheme(&self.scheme, &other.scheme)
+            || !equivalence.effects(self.scheme.effects().contract(), other.scheme.effects().contract())
+            || equivalence.types.len() != self.scheme.type_parameters().len()
+            || equivalence.rows.len() != self.scheme.row_parameters().len()
+            || equivalence.effects.len() != self.scheme.callable().requirements().effect_parameters.len()
+        { return None; }
+        Some(SchemeBinderCorrespondence { types: equivalence.types, rows: equivalence.rows, effects: equivalence.effects })
+    }
+
     pub fn kind(&self) -> crate::sema::types::CallableKind {
         self.scheme.kind()
     }
@@ -344,6 +381,8 @@ impl BoundEquivalence<'_> {
     fn requirements(&mut self, left: &crate::sema::schemes::CallableRequirements, right: &crate::sema::schemes::CallableRequirements) -> bool {
         left.map_key_parameters.len() == right.map_key_parameters.len()
             && left.map_key_parameters.iter().all(|parameter| self.types.get(parameter).is_some_and(|mapped| right.map_key_parameters.contains(mapped)))
+            && left.conversion_parameters.len() == right.conversion_parameters.len()
+            && left.conversion_parameters.iter().all(|(parameter, conversions)| self.types.get(parameter).is_some_and(|mapped| right.conversion_parameters.get(mapped) == Some(conversions)))
             && left.applications.len() == right.applications.len()
             && left.effect_predicates.len() == right.effect_predicates.len()
             && left.wrappers.len() == right.wrappers.len()
@@ -659,6 +698,34 @@ mod tests {
         assert_ne!(first.to_string(), second.to_string());
         assert!(first.equivalent_to(&renamed));
         assert_eq!(first.to_string(), renamed.to_string());
+    }
+
+    #[test]
+    fn checked_callable_contract_preserves_exact_mapped_conversion_requirements() {
+        use crate::sema::schemes::{CallableScheme, ValueConversion, ValueConversionSet};
+        let owner = SymbolOwner::new();
+        let constrained = |binder, conversion| {
+            let mut contract = identity(&owner, binder, None);
+            let original = contract.scheme.callable();
+            let mut requirements = original.requirements().clone();
+            if let Some(conversion) = conversion {
+                let mut conversions = ValueConversionSet::default();
+                conversions.insert(conversion);
+                requirements.conversion_parameters.insert(SchemeTypeParameterId(binder), conversions);
+            }
+            let callable = CallableScheme::new(original.type_parameters().to_vec(), original.row_parameters().to_vec(), original.params().to_vec(), original.return_type().clone(), original.return_schema().cloned(), original.explicit_return(), requirements).unwrap();
+            contract.scheme = Arc::new(TypeScheme::with_callable(contract.scheme.kind(), Arc::new(callable), contract.scheme.effects().clone(), false).unwrap());
+            contract
+        };
+        let display = constrained(7, Some(ValueConversion::Display));
+        let renamed = constrained(91, Some(ValueConversion::Display));
+        assert!(display.equivalent_to(&renamed));
+        let correspondence = display.binder_correspondence(&renamed).unwrap();
+        assert_eq!(correspondence.types().get(&SchemeTypeParameterId(7)), Some(&SchemeTypeParameterId(91)));
+        for changed in [constrained(91, Some(ValueConversion::Argv)), constrained(91, None)] {
+            assert!(!display.equivalent_to(&changed));
+            assert!(display.binder_correspondence(&changed).is_none());
+        }
     }
 
     #[test]

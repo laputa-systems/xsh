@@ -283,7 +283,7 @@ fn reject_any_or_recovery<'a>(
             SchemeType::Map(key, value) | SchemeType::Result(key, value) => { pending.push(key); pending.push(value); }
             SchemeType::Record { fields, .. } => pending.extend(fields.values()),
             SchemeType::Union(members) => pending.extend(members),
-            SchemeType::Parameter(_) | SchemeType::Callable { .. } => {}
+            SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) | SchemeType::Callable { .. } => {}
         }
     }
     Ok(())

@@ -39,6 +39,7 @@ impl Type {
                 | Self::ErrorFacet(_)
                 | Self::ProcessError
                 | Self::Callable(_)
+                | Self::SchemeCallable(_)
                 | Self::BuiltinParameter(_)
                 | Self::Inference(_) => return true,
                 Self::Null

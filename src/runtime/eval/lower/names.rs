@@ -208,7 +208,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let binding = self.expression_binding(expression);
         if binding.is_some() {
             let lowered = self.lower_named_binding(binding, name, slots)?;
-            if let Some(instantiation) = self.bodies.call_instantiations.get(&expression) {
+            if !self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::value(expression))
+                && let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)) {
                 let target = *self.bodies.selected_function_calls.get(&expression)?;
                 let key = self.function_index().checked_target_key(target)?;
                 return self.record_materialized_function_value(lowered, key, self.bodies.expr_types.get(&expression)?, instantiation);
@@ -217,7 +218,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
             let checked_type = self.bodies.expr_types.get(&expression)?;
-            return self.lower_selected_function_ref(target, name, checked_type, self.bodies.call_instantiations.get(&expression));
+            return self.lower_selected_function_ref(target, name, checked_type, self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)));
         }
         if self.compact_tag_variant_arity(name) == Some(0) {
             return self.lower_nullary_tag_value(name);
@@ -246,7 +247,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         None
     }
 
-    fn lower_selected_function_ref(
+    pub(super) fn lower_selected_function_ref(
         &self,
         target: crate::sema::check::CheckedFunctionTarget,
         name: Name,
@@ -261,6 +262,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let definition = index.definition(key)?;
         let matches_checked_type = match checked_type {
             Type::Function(kind) => definition.kind == *kind,
+            Type::SchemeCallable(relationship) => {
+                let relationship = self.declarations.scheme_callables.get(*relationship).ok()?;
+                instantiation.is_none() && relationship.targets().iter().any(|member| member.target() == target) && relationship.canonical().scheme().kind() == definition.kind
+            }
             Type::Callable(expected) if instantiation.is_some() => expected.kind == definition.kind,
             Type::Callable(expected) => {
                 let signature = self.compact_function_sig_for_key(key)?;

@@ -142,10 +142,15 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     None => require(instruction, None, false, &mut captured)?,
                 }
             }
-            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall => {
+            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprDynamicCall
+                if tag != FullTag::ExprDynamicCall || decoder.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok() => {
                 let target = match decoder.expression_view(instruction)? {
                     schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => function.id.index(),
                     schema::ExprView::SelfCall { .. } => index,
+                    schema::ExprView::DynamicCall { .. } => {
+                        let call = decoder.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).map_err(|_| IrVerifyError::new("scheme callable effect proof has no value-call authority"))?;
+                        decoder.store.scheme_callable_values.get(decoder.store.scheme_callable_calls[call].relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable effect relationship is out of bounds"))?.canonical.index()
+                    }
                     _ => unreachable!(),
                 };
                 match script_implementation_rule(decoder.store, target)? {

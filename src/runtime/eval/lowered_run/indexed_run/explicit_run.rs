@@ -2354,6 +2354,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     CheckedValue {
+        instruction: u32,
         check: LoweredTypeCheck,
         span: Span,
         next: Box<FrameContinuation>,
@@ -4600,8 +4601,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let target = instance.program.function_view(instance.function, instance.kind)
             .map_err(|error| indexed_error(error, span))?
             .ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable owner is missing").with_span(span))?.index();
+        let applications = match &instance.state {
+            crate::runtime::eval::PreparedCallableState::Instance(bindings) => bindings.clone(),
+            crate::runtime::eval::PreparedCallableState::SchemeValue(relationship) => {
+                instance.program.validate_scheme_callable_target(*relationship, target, kind).map_err(|error| indexed_error(error, span))?;
+                PreparedInvocationBindings::default()
+            }
+        };
         Ok(ResolvedCall {
-            applications: instance.applications.clone(), program: ProgramOwner::Shared(Arc::clone(&instance.program)),
+            applications, program: ProgramOwner::Shared(Arc::clone(&instance.program)),
             function: instance.function, kind: instance.kind, index: target,
         })
     }
@@ -4989,7 +4997,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             resolved.applications = caller.invocation_applications(instruction, resolved.index, &self.calls[index].applications)
                 .map_err(|error| indexed_error(error, span))?;
         } else if resolved.program.program().function_requires_invocation(resolved.index).map_err(|error| indexed_error(error, span))?
-            && matches!(&callee, LoweredValue::Callable(callable) if callable.instance().is_none())
+            && matches!(&callee, LoweredValue::Callable(callable) if callable.instance().is_none_or(|instance| matches!(instance.state, crate::runtime::eval::PreparedCallableState::SchemeValue(_))))
         {
             return Err(RuntimeError::new("indexed-ir", "generic callable has no checked invocation instance").with_span(span));
         }
@@ -7247,6 +7255,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value.raw(),
                     value_span,
                     FrameContinuation::CheckedValue {
+                        instruction,
                         check,
                         span: value_span,
                         next: Box::new(next),
@@ -9678,8 +9687,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::CheckedValue { check, span, next } => match value {
-                FrameValue::Value(value) => {
+            FrameContinuation::CheckedValue { instruction, check, span, next } => match value {
+                FrameValue::Value(mut value) => {
+                    value = super::materialize_indexed_scheme_value(&self.calls[index].execution, &self.calls[index].applications, instruction, value, span)?;
                     super::super::checked_storage_value(self.evaluator, &value, &check, span)?;
                     let value = value.materialize_validated_list(&check.ty);
                     self.push_value(index, FrameValue::Value(value), *next);
@@ -11610,6 +11620,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop")
                 .with_span(call.call_span)),
         };
+        let value = value.and_then(|value| {
+            self.evaluator.validate_scheme_callable_return(program, view.index(), &call.applications, &value, call.call_span)?;
+            Ok(value)
+        });
         let write_back =
             self.evaluator
                 .write_back_lowered_captures(&header, &call.slots, call.call_span);

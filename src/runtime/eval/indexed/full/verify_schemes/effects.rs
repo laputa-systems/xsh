@@ -4,7 +4,7 @@ use crate::sema::effects::{EffectContract, EffectExpr, EffectPredicate, EffectSe
 use crate::sema::schemes::SchemeEffectParameterId;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct EffectScope {
     pub(super) parameters: Vec<FullEffectParameter>,
     pub(super) binders: BTreeMap<u32, usize>,

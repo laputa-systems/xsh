@@ -495,3 +495,9 @@ mod tests {
         });
     }
 }
+
+pub(super) fn equivalent_contracts(store: &FullStore, left_scope: &SchemeScope, left: FullSchemeApplication, right_scope: &SchemeScope, right: FullSchemeApplication, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let left = decode(store, left_scope, left, &ApplicationSubstitution::Identity, budget)?;
+    let right = decode(store, right_scope, right, &ApplicationSubstitution::Identity, budget)?;
+    same_application(&left, &right, budget)
+}

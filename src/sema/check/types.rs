@@ -360,6 +360,7 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if self.scheme_callable_types_compatible(expected, actual) { return; }
         if expected.contains_inference() || actual.contains_inference() {
             match self.constrain_inferred_expectation(expected, actual, span) {
                 Ok(()) => return,

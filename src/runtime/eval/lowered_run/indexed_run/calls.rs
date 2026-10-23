@@ -146,6 +146,7 @@ impl Evaluator {
             return Some(Err(error));
         }
         let slots = self.try_bind_lowered_runtime_args(&header, args, omitted)?;
+        if let Err(error) = self.validate_scheme_callable_slots(&program, view.index(), &PreparedInvocationBindings::default(), &slots, call_span) { self.recycle_lowered_slots(slots); return Some(Err(error)); }
         let frame_support = match self.indexed_frames_supported(view, call_span) {
             Ok(supported) => supported,
             Err(error) => return Some(Err(error)),
@@ -185,6 +186,9 @@ impl Evaluator {
                     &mut self.pending_traceback,
                     normalize_error_payload,
                 )
+            }).and_then(|value| {
+                self.validate_scheme_callable_return(&program, view.index(), &PreparedInvocationBindings::default(), &value, call_span)?;
+                Ok(value)
             })
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);

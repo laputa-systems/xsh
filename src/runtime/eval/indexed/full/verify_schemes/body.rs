@@ -519,7 +519,7 @@ fn context_scope_has_known_escape(ty: &SchemeType, budget: &mut SchemeInstantiat
             SchemeType::Result(ok, error) => { pending.push(ok); pending.push(error); }
             SchemeType::Record { fields, .. } => { budget.charge(fields.len())?; pending.extend(fields.values()); }
             SchemeType::Union(members) => { budget.charge(members.len())?; pending.extend(members); }
-            SchemeType::Parameter(_) | SchemeType::Callable { .. } | SchemeType::Set(_) => {},
+            SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) | SchemeType::Callable { .. } | SchemeType::Set(_) => {},
         }
     }
     Ok(false)
@@ -849,7 +849,7 @@ pub(super) fn verify_body(
                         let expected = scope.slot_type(&scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic default has no parameter contract"))?;
                         budget.charge_scheme_clone(expected)?;
                         let expected = expected.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic default requires a concrete parameter contract"))?;
-                        if super::super::lowered_type_from_type(&expected)? != super::super::lowered_type_from_type(&store.semantic.to_type_with_budget(kind.id, &mut budget.semantic_types)?)? { return Err(IrVerifyError::new("generic default representation disagrees with its parameter")); }
+                        if super::super::lowered_type_from_type(&expected)? != kind.materialize_lowered()? { return Err(IrVerifyError::new("generic default representation disagrees with its parameter")); }
                         let actual = expression_type(types, value.raw() as usize, budget)?;
                         if let Some(check) = check {
                             if check.ty.materialize()? != expected || !body_type_matches_ground(&actual, &expected) { return Err(IrVerifyError::new("generic default check disagrees with its parameter")); }

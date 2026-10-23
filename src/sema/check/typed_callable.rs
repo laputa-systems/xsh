@@ -25,6 +25,22 @@ impl Checker {
         actual: Type,
         expected: Option<&Type>,
     ) -> Type {
+        if matches!(actual, Type::SchemeCallable(_)) {
+            if let Some(target) = expected_typed_callable(expected) {
+                let materialized = self.materialize_callable_value(arena, id, actual);
+                if materialized == Type::Invalid { return materialized; }
+                let expected = Type::Callable(target);
+                let diagnostics = self.diagnostics.len();
+                self.expect_type(&expected, &materialized, arena.arena.expr(id).span);
+                if self.diagnostics.len() != diagnostics { return Type::Invalid; }
+                self.record_expr_type(arena.arena.expr(id).span, expected.clone());
+                return expected;
+            }
+            if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
+                return self.materialize_callable_value(arena, id, actual);
+            }
+            return actual;
+        }
         if !matches!(actual, Type::Function(_)) {
             return actual;
         }
@@ -32,6 +48,10 @@ impl Checker {
             if expected.is_some_and(|expected| matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))) {
                 return self.materialize_callable_value(arena, id, actual);
             }
+            if (expected.is_none() || matches!(expected, Some(Type::SchemeCallable(_))))
+                && let Some(named) = self.resolve_callable_alias_target(arena, id)
+                && let Some(retained) = self.retain_named_scheme_callable(arena, &named, arena.arena.expr(id).span)
+            { return retained; }
             return actual;
         };
         let span = arena.arena.expr(id).span;
@@ -40,9 +60,48 @@ impl Checker {
     }
 
     pub(super) fn materialize_callable_value(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type) -> Type {
-        let Some(named) = self.resolve_callable_alias_target(arena, id) else { return actual; };
         let span = arena.arena.expr(id).span;
-        self.materialize_named_callable(named, span)
+        if let Some(named) = self.resolve_callable_alias_target(arena, id) {
+            return self.materialize_named_callable(named, span);
+        }
+        if let Type::SchemeCallable(relationship) = actual {
+            return self.materialize_scheme_callable(relationship, span);
+        }
+        actual
+    }
+
+    fn materialize_scheme_callable(&mut self, relationship: crate::sema::types::SchemeCallableId, span: Span) -> Type {
+        let relationship_contract = match self.scheme_callable_relationship(relationship) {
+            Ok(relationship) => relationship,
+            Err(error) => {
+                self.error(span, &format!("callable value relationship is not owned: {error:?}"), DiagnosticCode::CheckCallableMismatch);
+                return Type::Invalid;
+            }
+        };
+        let scheme = relationship_contract.canonical().scheme();
+        let contract = self.fresh_scheme_call_contract(scheme, None, None, span);
+        let super::InvocationEffects::Checked(effects) = contract.effects else {
+            self.error(span, "callable value has no settled declaration effect contract", DiagnosticCode::CheckLocalInference);
+            return Type::Invalid;
+        };
+        let Some(instance) = contract.instantiation else {
+            self.error(span, "scheme callable value has no quantified contract", DiagnosticCode::CheckCallableMismatch);
+            return Type::Invalid;
+        };
+        self.record_pending_value_instantiation(span, instance);
+        let previous = self.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite::value(span), relationship);
+        assert!(previous.is_none(), "a scheme callable value instantiates once");
+        let ty = Type::Callable(Arc::new(TypedCallable {
+            kind: scheme.kind(),
+            sig: super::CallableType {
+                params: contract.params.into_iter().map(|parameter| super::CallableParamType {
+                    name: parameter.name, ty: parameter.ty, defaulted: parameter.defaulted, rest: parameter.rest,
+                }).collect(),
+                return_ty: Box::new(contract.return_ty), effects,
+            },
+        }));
+        self.record_expr_type(span, ty.clone());
+        ty
     }
 
     fn materialize_named_callable(&mut self, named: CallableAlias, span: Span) -> Type {
@@ -54,7 +113,7 @@ impl Checker {
                 return Type::Invalid;
             }
         };
-        if let Some(instance) = contract.instantiation.clone() { self.record_pending_call_instantiation(span, instance); }
+        if let Some(instance) = contract.instantiation.clone() { self.record_pending_value_instantiation(span, instance); }
         let callable = Type::Callable(Arc::new(TypedCallable {
             kind: named.kind,
             sig: super::CallableType {
@@ -112,7 +171,7 @@ impl Checker {
                     | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
                 };
                 let mut ty = self.check_expr_arena(arena, source, value, None);
-                if matches!(ty, Type::Function(_)) { ty = self.materialize_callable_value(arena, value, ty); }
+                if matches!(ty, Type::Function(_) | Type::SchemeCallable(_)) { ty = self.materialize_callable_value(arena, value, ty); }
                 checked.insert(value, ty);
             }
             match crate::sema::arguments::expand_named_arguments(arena, args, |value| Some(checked.get(&value).expect("every application source argument is checked").clone())) {
@@ -690,8 +749,8 @@ mod inferred_callable_tests {
         let assigned_target = declarations.bodies.selected_function_calls.get(&assigned).unwrap();
         assert_eq!(initial_target.name.as_str(), "identity");
         assert_eq!(assigned_target, initial_target);
-        let initial_instance = declarations.bodies.call_instantiations.get(&initial).unwrap();
-        let assigned_instance = declarations.bodies.call_instantiations.get(&assigned).unwrap();
+        let initial_instance = declarations.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(initial)).unwrap();
+        let assigned_instance = declarations.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(assigned)).unwrap();
         assert_eq!(initial_instance, assigned_instance);
         assert_eq!(initial_instance.type_arguments().len(), 1);
         assert_eq!(

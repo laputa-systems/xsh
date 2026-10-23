@@ -303,7 +303,27 @@ macro_rules! type_field {
         }
     )*};
 }
-type_field!(Type, LoweredType);
+type_field!(Type);
+
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) enum LoweredTypeRef<'a> { Semantic(TypeRef<'a>), SchemeCallable }
+
+impl LoweredTypeRef<'_> {
+    pub(in crate::runtime::eval) fn materialize_lowered(self) -> Result<LoweredType, IrVerifyError> {
+        match self { Self::Semantic(ty) => ty.materialize_lowered(), Self::SchemeCallable => Ok(LoweredType::SchemeCallable) }
+    }
+}
+
+impl BorrowCodec for LoweredType {
+    type View<'a> = LoweredTypeRef<'a>;
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>) -> Result<Self::View<'a>, IrVerifyError> {
+        let raw = input.raw()?;
+        if raw == super::IR_NONE { return Ok(LoweredTypeRef::SchemeCallable); }
+        let id = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("lowered type id is invalid"))?;
+        context.store.semantic.type_tag(id)?;
+        Ok(LoweredTypeRef::Semantic(TypeRef { id, store: context.store }))
+    }
+}
 
 impl BorrowCodec for LoweredModuleExport {
     type View<'a> = LoweredModuleExport;

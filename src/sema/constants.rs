@@ -4344,7 +4344,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         | Type::ErrorVariant { .. }
         | Type::ErrorFacet(_)
         | Type::ProcessError => ValueClass::Error,
-        Type::Function(_) | Type::Callable(_) => ValueClass::Callable,
+        Type::Function(_) | Type::Callable(_) | Type::SchemeCallable(_) => ValueClass::Callable,
         Type::Command => ValueClass::Command,
         Type::ProcessHandle => ValueClass::ProcessHandle,
         Type::NetJob => ValueClass::NetJob,

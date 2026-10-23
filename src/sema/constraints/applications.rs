@@ -131,7 +131,7 @@ mod tests {
         let application = application(constraints, callee.clone(), vec![(StaticArgumentKind::Positional, value.clone())], CallableKindRequirement::Effectful);
         constraints.register_callable_application(owner(), application).unwrap();
         let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
-        let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(
+        let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls::<crate::source::Span>(
             &[callee.clone(), value, callee], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration,
         ).unwrap();
         assert_eq!(generalized.type_parameters.len(), 3);
@@ -184,7 +184,7 @@ mod tests {
             let owners = BTreeSet::from([first_owner, second_owner]);
             let types = [first_callback, first_value, second_callback, second_value, Type::Int];
             let build = |constraints: &TypeConstraints, owner, types: &[Type]| {
-                let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls_in_component(
+                let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls_in_component::<crate::source::Span>(
                     types, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, owner, &owners,
                 ).unwrap();
                 let mut types = generalized.types;
@@ -322,7 +322,7 @@ mod tests {
             let envelope = constraints.defer_proc_application_return(application_id, &[], span(), 1).unwrap();
             assert_eq!(constraints.defer_proc_application_return(application_id, &[], span(), 1).unwrap(), envelope);
             assert_eq!(constraints.applications.entries[&application_id].application.proc_returns.len(), 1);
-            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(&[callee, value, envelope], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration).unwrap();
+            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls::<crate::source::Span>(&[callee, value, envelope], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration).unwrap();
             assert_eq!(generalized.type_parameters.len(), 4);
             let mut types = generalized.types.into_iter();
             let params = ["action", "value"].into_iter().map(|name| crate::sema::schemes::SchemeParameter {
@@ -352,7 +352,7 @@ mod tests {
             let Type::Callable(callable) = &mut actual else { unreachable!() };
             Arc::make_mut(callable).sig.effects = CallableEffects::from_contract(EffectContract::variable(effect));
             let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
-            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls(
+            let (generalized, _, _, _) = constraints.generalize_callable_body_with_calls::<crate::source::Span>(
                 &[actual.clone(), actual], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration,
             ).unwrap();
             assert_eq!(generalized.requirements.effect_parameters.len(), 1);
@@ -402,7 +402,7 @@ mod tests {
             let instance = constraints.instantiate_callable(&selected, 1, span(), CallableApplicationScope::Declaration(caller)).unwrap();
             assert!(constraints.applications.entries[&instance.applications[0]].binding.is_none());
             let calls = BTreeMap::from([(span(), (Arc::clone(&selected), instance.clone()))]);
-            let result = constraints.generalize_callable_body_with_calls(
+            let result = constraints.generalize_callable_body_with_calls::<crate::source::Span>(
                 &[instance.params[0].clone(), instance.params[1].clone(), instance.return_type.clone()],
                 &BTreeMap::new(), &BTreeMap::new(), &calls, 0, caller,
             );
@@ -495,7 +495,7 @@ mod tests {
             requirement.effects = EffectContract::variable(constraints.fresh_effect_at_level(span(), 0));
             constraints.register_callable_application(owner(), requirement).unwrap();
             let CallableApplicationScope::Declaration(declaration) = owner() else { unreachable!() };
-            assert!(matches!(constraints.generalize_callable_body_with_calls(&[callee.clone(), value, callee], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration),
+            assert!(matches!(constraints.generalize_callable_body_with_calls::<crate::source::Span>(&[callee.clone(), value, callee], &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new(), 0, declaration),
                 Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))));
             let mut constraints = TypeConstraints::default();
             let scheme = generic_application_scheme(&mut constraints);

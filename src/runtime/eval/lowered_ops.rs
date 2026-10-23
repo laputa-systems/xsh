@@ -1030,6 +1030,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
     matches!(
         (kind, value),
         (LoweredType::Any, _)
+            | (LoweredType::SchemeCallable, LoweredValue::Callable(_))
             | (LoweredType::Unit, LoweredValue::Unit)
             | (LoweredType::Int, LoweredValue::Int(_))
             | (LoweredType::Float, LoweredValue::Float(_))
@@ -1088,6 +1089,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::FsLock => "FsLock",
         LoweredType::Stream => "Stream",
         LoweredType::Function(kind) => kind.value_type_name(),
+        LoweredType::SchemeCallable => "callable",
         LoweredType::Error => "Error",
         LoweredType::Record => "Record",
         LoweredType::Module => "Module",
@@ -1136,6 +1138,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::FsLock, Value::FsLock(value)) => Some(LoweredValue::FsLock(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Function(kind), Value::Callable(value)) if kind == value.kind() => Some(LoweredValue::Callable(value.clone())),
+        (LoweredType::SchemeCallable, Value::Callable(value)) if value.instance().is_some_and(|instance| matches!(instance.state, super::PreparedCallableState::SchemeValue(_))) => Some(LoweredValue::Callable(value.clone())),
         (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),

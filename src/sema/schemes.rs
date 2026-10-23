@@ -10,6 +10,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum InstantiationRole { Call, Value }
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct InstantiationSite<S> { pub(crate) source: S, pub(crate) role: InstantiationRole }
+
+impl<S> InstantiationSite<S> {
+    pub(crate) fn call(source: S) -> Self { Self { source, role: InstantiationRole::Call } }
+    pub(crate) fn value(source: S) -> Self { Self { source, role: InstantiationRole::Value } }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SchemeTypeParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -110,6 +121,7 @@ pub(crate) struct MethodFamilyRequirement<T> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SchemeType {
     Ground(Type),
+    SchemeCallable(super::scheme_callable::SchemeCallableId),
     Parameter(SchemeTypeParameterId),
     Callable {
         kind: crate::sema::types::CallableKind,
@@ -1259,6 +1271,7 @@ impl SchemeType {
                     Some(ty.clone())
                 }
                 SchemeType::Ground(_) | SchemeType::Parameter(_) => None,
+                SchemeType::SchemeCallable(id) => Some(Type::SchemeCallable(*id)),
                 SchemeType::Callable { kind, monotype, effects } => {
                     if monotype.has_schema_contract() {
                         return None;
@@ -1369,7 +1382,7 @@ impl SchemeType {
                     || fields.values().any(Self::contains_parameter)
             }
             Self::Union(members) => members.iter().any(Self::contains_parameter),
-            Self::Ground(_) => false,
+            Self::Ground(_) | Self::SchemeCallable(_) => false,
         }
     }
 
@@ -1388,7 +1401,7 @@ impl SchemeType {
                 Self::Ground(ty) if ty.may_hold_resource() => return true,
                 Self::Ground(_) => {}
                 Self::Parameter(_) => return true,
-                Self::Callable { .. } => return true,
+                Self::Callable { .. } | Self::SchemeCallable(_) => return true,
                 Self::List(inner)
                 | Self::Set(inner)
                 | Self::Optional(inner)
@@ -1408,6 +1421,11 @@ impl SchemeType {
     fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
         match self {
             Self::Ground(ty) => map(ty),
+            Self::SchemeCallable(id) => {
+                let mut ty = Type::SchemeCallable(*id);
+                map(&mut ty);
+                *self = match ty { Type::SchemeCallable(id) => Self::SchemeCallable(id), ty => Self::Ground(ty) };
+            }
             Self::Callable { monotype, .. } => *monotype = Arc::new(monotype.map_ground_types(map)),
             Self::List(inner)
             | Self::Stream(inner)
@@ -1441,7 +1459,7 @@ impl SchemeType {
             Self::Ground(ty) if ty.contains_any() => Some(SchemeBuildError::DynamicType),
             Self::Ground(ty) if ty.contains_recovery() => Some(SchemeBuildError::RecoveryType),
             Self::Ground(ty) if ty.contains_inference() => Some(SchemeBuildError::UnresolvedType),
-            Self::Ground(_) | Self::Parameter(_) => None,
+            Self::Ground(_) | Self::Parameter(_) | Self::SchemeCallable(_) => None,
             Self::Callable { monotype, .. } => monotype.params().iter()
                 .find_map(|parameter| parameter.ty.body_build_error())
                 .or_else(|| monotype.return_type().body_build_error()),
@@ -1472,6 +1490,7 @@ impl SchemeType {
     ) -> Result<(), SchemeBuildError> {
         match self {
             Self::Ground(ty) => validate_ground(ty),
+            Self::SchemeCallable(_) => Ok(()),
             Self::Callable { monotype, effects, .. } => {
                 validate_effect_contract(effects, effect_ids, used_effects)?;
                 for parameter in monotype.params() {
@@ -1547,7 +1566,7 @@ impl SchemeType {
             Self::Ground(ty) => {
                 bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<Type>()));
             }
-            Self::Parameter(_) => {}
+            Self::Parameter(_) | Self::SchemeCallable(_) => {}
             Self::Callable { monotype, effects, .. } => {
                 bytes = bytes.saturating_add(monotype.retained_bytes())
                     .saturating_add(effects.retained_bytes());

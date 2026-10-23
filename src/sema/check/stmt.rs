@@ -5221,7 +5221,7 @@ impl Checker {
             && ty.is_none()
             && matches!(arena.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
             && let ArenaExprOrRun::Expr(expression) = initializer
-            && matches!(actual, Type::Function(_))
+            && matches!(actual, Type::Function(_) | Type::SchemeCallable(_))
         {
             self.materialize_callable_value(arena, expression, actual)
         } else {
@@ -7207,7 +7207,7 @@ impl Checker {
                                 {
                                     merge_list_literal_item_ty(previous, &actual)
                                 } else {
-                                    super::types::merge_checked_branches(
+                                    self.merge_checked_branches(
                                         branch_expectation,
                                         previous,
                                         &actual,
@@ -7270,7 +7270,7 @@ impl Checker {
                                 {
                                     merge_list_literal_item_ty(previous, &actual)
                                 } else {
-                                    super::types::merge_checked_branches(
+                                    self.merge_checked_branches(
                                         else_expectation,
                                         previous,
                                         &actual,
@@ -7404,7 +7404,7 @@ impl Checker {
                         {
                             merge_list_literal_item_ty(previous, &arm_ty)
                         } else {
-                            super::types::merge_checked_branches(arm_expectation, previous, &arm_ty)
+                            self.merge_checked_branches(arm_expectation, previous, &arm_ty)
                         }
                     })
                 } else { None };

@@ -387,7 +387,7 @@ impl EffectGraph {
         &mut self,
         mut bind: impl FnMut(EffectDeclarationId, &EffectContract<EffectVariableId>) -> Result<EffectContract<SchemeEffectParameterId>, SchemeOperationError>,
         mut parameters: impl FnMut(EffectDeclarationId) -> Arc<[SchemeEffectParameterId]>,
-        calls: &BTreeMap<Span, CallInstantiation>,
+        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, CallInstantiation>,
     ) -> Result<(), EffectScopeFailure> {
         let mut nodes = BTreeMap::new();
         for (&owner, node) in &self.nodes {
@@ -417,7 +417,7 @@ impl EffectGraph {
                     }) {
                         return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter));
                     }
-                    if let Some(instance) = calls.get(&site) { edge.instantiation = Some(Arc::new(instance.clone())); }
+                    if let Some(instance) = calls.get(&crate::sema::schemes::InstantiationSite::call(site)) { edge.instantiation = Some(Arc::new(instance.clone())); }
                 }
             }
             node.direct = EffectContributions::Checked(summary);
@@ -1152,7 +1152,7 @@ mod deferred_invocation_tests {
             assert!(declaration.scheme.as_ref().unwrap().callable().is_quantified());
             for (&span, target) in &checked.selected_function_calls {
                 if matches!(target.name.as_str().as_ref(), "left" | "right") && declaration.body.source_id == span.source_id && declaration.body.start() <= span.start() && span.end() <= declaration.body.end() {
-                    assert!(checked.call_instantiations.contains_key(&span));
+                    assert!(checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span)));
                 }
             }
         }
@@ -1184,7 +1184,7 @@ mod deferred_invocation_tests {
             matches!(parsed.arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "deny").then_some(node.span)
         }).unwrap();
         assert_eq!(checked.expr_types.get(&denied), Some(&Type::Invalid));
-        assert!(!checked.call_instantiations.contains_key(&denied));
+        assert!(!checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(denied)));
         assert!(!checked.checked_control_flow.propagating_error_spans.contains(&denied));
         assert!(!checked.checked_control_flow.latent_stream_error_spans.contains(&denied));
         let pure_mismatch = "pure identity(value: Int) -> Int { value }\nlet _ = identity(\"wrong\")?\n";
@@ -1261,7 +1261,7 @@ mod deferred_invocation_tests {
                 }));
             }
             assert_eq!(peer_calls.len(), 2);
-            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(span)
+            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(*span))
                 && checked.checked_control_flow.propagating_error_spans.contains(span)
                 && !checked.checked_control_flow.latent_stream_error_spans.contains(span)));
             let view = super::super::CheckBundleView::for_root(&parsed.arena, parsed.arena.statements, None, Some(SourceId::new(0)));
@@ -1272,7 +1272,7 @@ mod deferred_invocation_tests {
                     let ArenaExprKind::Ident(name) = parsed.arena.arena.expr(callee).kind else { return None; };
                     (name == callee_name && !peer_calls.contains(&expr.span)).then_some(expr.span)
                 }).next().expect("the source retains its actual root invocation");
-                assert!(checked.call_instantiations.contains_key(&span));
+                assert!(checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span)));
                 assert_eq!(checked.checked_control_flow.propagating_error_spans.contains(&span), propagates);
             }
         });
@@ -1425,7 +1425,7 @@ impl Checker {
     pub(super) fn prepare_recursive_stream_error_flows(
         &self,
         members: &BTreeMap<EffectDeclarationId, crate::syntax::arena::FunctionDefId>,
-        instances: &BTreeMap<Span, super::PendingCallInstantiation>,
+        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>,
     ) -> Result<BTreeSet<Span>, (Span, SchemeOperationError)> {
         let mut latent = BTreeSet::new();
         if self.collecting_effects { return Ok(latent); }
@@ -1436,7 +1436,7 @@ impl Checker {
             let invalid = || (check.span, SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects));
             let &(caller, callee) = self.provisional_function_calls.get(&check.span).ok_or_else(invalid)?;
             if check.context.owner != Some(caller) || callee.effect_declaration() != *target { return Err(invalid()); }
-            let instance = instances.get(&check.span).ok_or_else(invalid)?;
+            let instance = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span)).ok_or_else(invalid)?;
             let effects = self.resolve_invocation_effects(super::InvocationEffects::Pending(*target), Some(instance)).map_err(|error| (check.span, error))?;
             let flow = self.invocation_error_flow(&effects, return_ty).map_err(|error| (check.span, error.into()))?;
             if matches!(flow, crate::sema::types::CalleeErrorFlow::Latent) { latent.insert(check.span); }
@@ -1446,10 +1446,10 @@ impl Checker {
 
     pub(super) fn publish_recursive_invocation_instances(
         &mut self,
-        instances: &BTreeMap<Span, super::PendingCallInstantiation>,
+        instances: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>,
     ) {
         for check in &mut self.deferred_effect_checks {
-            if let Some(instantiation) = instances.get(&check.span)
+            if let Some(instantiation) = instances.get(&crate::sema::schemes::InstantiationSite::call(check.span))
                 && let DeferredEffectKind::Invocation { effects: super::InvocationEffects::Pending(owner), instance, .. } = &mut check.kind
             {
                 let (_, callee) = self.provisional_function_calls.get(&check.span)

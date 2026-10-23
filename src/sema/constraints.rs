@@ -873,19 +873,19 @@ impl TypeConstraints {
         })
     }
 
-    pub(crate) fn generalize_callable_body_with_calls(
+    pub(crate) fn generalize_callable_body_with_calls<K: Ord + Copy>(
         &self,
         callable_types: &[Type],
         body_types: &BTreeMap<ExprId, Type>,
         tail_types: &BTreeMap<StmtId, Type>,
-        calls: &BTreeMap<Span, (Arc<CallableScheme>, InstantiatedScheme)>,
+        calls: &BTreeMap<K, (Arc<CallableScheme>, InstantiatedScheme)>,
         environment_level: u32,
         owner: crate::sema::check::EffectDeclarationId,
     ) -> Result<(
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
         BTreeMap<StmtId, SchemeType>,
-        BTreeMap<Span, CallInstantiation>,
+        BTreeMap<K, CallInstantiation>,
     ), SchemeOperationError> {
         self.generalize_callable_body_with_calls_in_component(
             callable_types, body_types, tail_types, calls, environment_level, owner,
@@ -893,12 +893,12 @@ impl TypeConstraints {
         )
     }
 
-    pub(crate) fn generalize_callable_body_with_calls_in_component(
+    pub(crate) fn generalize_callable_body_with_calls_in_component<K: Ord + Copy>(
         &self,
         callable_types: &[Type],
         body_types: &BTreeMap<ExprId, Type>,
         tail_types: &BTreeMap<StmtId, Type>,
-        calls: &BTreeMap<Span, (Arc<CallableScheme>, InstantiatedScheme)>,
+        calls: &BTreeMap<K, (Arc<CallableScheme>, InstantiatedScheme)>,
         environment_level: u32,
         owner: crate::sema::check::EffectDeclarationId,
         component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
@@ -906,7 +906,7 @@ impl TypeConstraints {
         GeneralizedTypes,
         BTreeMap<ExprId, SchemeType>,
         BTreeMap<StmtId, SchemeType>,
-        BTreeMap<Span, CallInstantiation>,
+        BTreeMap<K, CallInstantiation>,
     ), SchemeOperationError> {
         if !component.contains(&owner) {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
@@ -1400,6 +1400,7 @@ impl TypeConstraints {
             ));
         }
         match ty {
+            Type::SchemeCallable(id) => Ok(SchemeType::SchemeCallable(*id)),
             Type::Callable(callable) => {
                 let effects = self.generalize_effect_contract(callable.sig.effects.contract(), environment_level, generalization)?;
                 let params = callable.sig.params.iter().map(|parameter| Ok(SchemeParameter {
@@ -1629,6 +1630,7 @@ impl TypeConstraints {
             )
         };
         match ty {
+            SchemeType::SchemeCallable(id) => Ok(Type::SchemeCallable(*id)),
             SchemeType::Callable { kind, monotype, effects } => {
                 if monotype.has_schema_contract() {
                     return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema));
@@ -5196,7 +5198,7 @@ mod tests {
         )]);
         let constraints = TypeConstraints::default();
         let (callable, body, tails, calls) = constraints
-            .generalize_callable_body_with_calls(
+            .generalize_callable_body_with_calls::<Span>(
                 std::slice::from_ref(&result),
                 &body,
                 &BTreeMap::new(),

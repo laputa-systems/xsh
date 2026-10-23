@@ -2061,7 +2061,7 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
         let instance = callable.instance().unwrap();
         let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
         program.symbol_owner().with_current(|| {
-            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            let parameters = program.invocation_parameter_types(target, instance.applications().expect("instantiated callable bindings")).unwrap().unwrap();
             assert!(matches!(&parameters[0], Type::Record(fields) if fields.len() == 1 && fields.values().all(|ty| ty == &Type::Function(crate::sema::types::CallableKind::Pure))));
         });
         for callback in [number.clone(), text.clone()] {
@@ -2079,7 +2079,7 @@ fn prepared_callable_host_call_checks_nested_callable_contracts() {
             let instance = callable.instance().expect("a prepared invocation retains its closed argument contract");
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
             program.symbol_owner().with_current(|| {
-                let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+                let parameters = program.invocation_parameter_types(target, instance.applications().expect("instantiated callable bindings")).unwrap().unwrap();
                 assert!(parameters[0].contains_typed_callable(), "{factory} must retain the actual nested signature: {parameters:?}");
             });
             let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), valid], Span::at(source_id, 0)).unwrap().unwrap();
@@ -2132,7 +2132,7 @@ fn prepared_callable_host_call_checks_module_export_signatures() {
         let instance = callable.instance().unwrap();
         program.symbol_owner().with_current(|| {
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
-            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            let parameters = program.invocation_parameter_types(target, instance.applications().expect("instantiated callable bindings")).unwrap().unwrap();
             let Type::Module(exports) = &parameters[0] else { panic!("the actual retained input is a typed module") };
             let Some(crate::sema::types::ModuleExportType::Callable { kind: crate::sema::types::CallableKind::Pure, sig, .. }) = exports.get(&Name::intern("item")) else { panic!("the module retains the actual Pure export contract") };
             assert_eq!(sig.params[0].ty, Type::Int);
@@ -2231,7 +2231,7 @@ fn prepared_callable_host_call_checks_stream_items_without_pulling() {
         let instance = callable.instance().unwrap();
         program.symbol_owner().with_current(|| {
             let target = program.function_view(instance.function, instance.kind).unwrap().unwrap().index();
-            let parameters = program.invocation_parameter_types(target, &instance.applications).unwrap().unwrap();
+            let parameters = program.invocation_parameter_types(target, instance.applications().expect("instantiated callable bindings")).unwrap().unwrap();
             assert_eq!(parameters[0], Type::Stream(Box::new(Type::Int)));
         });
         let actual = evaluator.call_indexed_direct(direct, CallableKind::Pure, &[prepared.clone(), numbers.clone()], Span::at(source_id, 0)).unwrap().unwrap();

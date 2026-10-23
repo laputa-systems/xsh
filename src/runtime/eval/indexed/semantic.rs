@@ -136,6 +136,7 @@ pub(super) enum TypeTag {
     // then the high 32 bits of the lower bound, then of the upper bound.
     Bounded,
     FsLock,
+    SchemeCallable,
 }
 
 impl TypeTag {
@@ -180,6 +181,8 @@ impl TypeTag {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct SemanticPools {
+    scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner,
+    scheme_callable_count: u32,
     type_tags: Vec<TypeTag>,
     type_data: Vec<IrData>,
     type_extra: Vec<u32>,
@@ -190,6 +193,24 @@ pub(super) struct SemanticPools {
 }
 
 impl SemanticPools {
+    pub(super) fn register_scheme_callable(&mut self) -> Result<crate::sema::types::SchemeCallableId, IrBuildError> {
+        let index = self.scheme_callable_count;
+        self.scheme_callable_count = index.checked_add(1).ok_or_else(|| IrBuildError::format("scheme_callable_overflow", None, 0, 0))?;
+        Ok(self.scheme_callable_owner.id(index))
+    }
+
+    pub(super) fn scheme_callable_index(&self, id: crate::sema::types::SchemeCallableId) -> Result<u32, IrVerifyError> {
+        let index = id.index_in(self.scheme_callable_owner).map_err(|_| IrVerifyError::new("semantic scheme callable belongs to another owner"))?;
+        if index >= self.scheme_callable_count { return Err(IrVerifyError::new("semantic scheme callable index is out of bounds")); }
+        Ok(index)
+    }
+
+    pub(super) fn scheme_callable_count(&self) -> usize { self.scheme_callable_count as usize }
+
+    pub(super) fn scheme_callable_id(&self, index: u32) -> Result<crate::sema::types::SchemeCallableId, IrVerifyError> {
+        if index >= self.scheme_callable_count { return Err(IrVerifyError::new("semantic scheme callable index is out of bounds")); }
+        Ok(self.scheme_callable_owner.id(index))
+    }
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.type_tags.capacity() * size_of::<TypeTag>()
@@ -766,6 +787,10 @@ impl SemanticPools {
             TypeTag::ProcessError => Type::ProcessError,
             TypeTag::Function => Type::Function(crate::sema::types::CallableKind::from_encoded(data.lhs)
                 .ok_or_else(|| IrVerifyError::new("function kind is invalid"))?),
+            TypeTag::SchemeCallable => {
+                if data.rhs != 0 { return Err(IrVerifyError::new("semantic scheme callable has invalid reserved data")); }
+                Type::SchemeCallable(self.scheme_callable_id(data.lhs)?)
+            }
             TypeTag::Callable => {
                 Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
                     kind: self.typed_callable_kind(id)?,
@@ -986,7 +1011,7 @@ impl SemanticPools {
                 }
                 Ok(format!("Union[{}]", members.join(", ")))
             }
-            TypeTag::Function | TypeTag::Callable => {
+            TypeTag::Function | TypeTag::Callable | TypeTag::SchemeCallable => {
                 Ok(self
                     .to_type_inner(id, depth, &mut TypeMaterializationBudget::default())?
                     .to_string())
@@ -1239,6 +1264,10 @@ impl SemanticPools {
                         return Err(IrVerifyError::new("function marker kind is invalid"));
                     }
                 }
+                TypeTag::SchemeCallable => {
+                    if data.rhs != 0 { return Err(IrVerifyError::new("semantic scheme callable has invalid reserved data")); }
+                    self.scheme_callable_id(data.lhs)?;
+                }
                 TypeTag::Callable => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
@@ -1324,6 +1353,7 @@ enum TypeKey {
     /// Member type ids in the order the union lists them.
     Union(Box<[u32]>),
     Callable(crate::sema::types::CallableKind, SignatureId),
+    SchemeCallable(u32),
     Function(crate::sema::types::CallableKind),
     /// A validation code and the base type it narrows.
     Validated(u32, TypeId),
@@ -1357,6 +1387,7 @@ struct SignatureKey {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct SemanticCheckpoint {
+    scheme_callables: u32,
     types: usize,
     type_extra: usize,
     signatures: usize,
@@ -1375,6 +1406,7 @@ pub(super) struct SemanticPoolBuilder {
 impl SemanticPoolBuilder {
     pub(super) fn checkpoint(&self, pools: &SemanticPools) -> SemanticCheckpoint {
         SemanticCheckpoint {
+            scheme_callables: pools.scheme_callable_count,
             types: pools.type_tags.len(),
             type_extra: pools.type_extra.len(),
             signatures: pools.signature_data.len(),
@@ -1385,6 +1417,7 @@ impl SemanticPoolBuilder {
     }
 
     pub(super) fn rewind(&mut self, pools: &mut SemanticPools, checkpoint: SemanticCheckpoint) {
+        pools.scheme_callable_count = checkpoint.scheme_callables;
         pools.type_tags.truncate(checkpoint.types);
         pools.type_data.truncate(checkpoint.types);
         pools.type_extra.truncate(checkpoint.type_extra);
@@ -1559,6 +1592,11 @@ impl SemanticPoolBuilder {
                     Vec::new(),
                 )
             }
+            Type::SchemeCallable(id) => {
+                let index = id.index_in(pools.scheme_callable_owner).map_err(|_| IrBuildError::format("foreign_scheme_callable_owner", None, 0, 0))?;
+                if index >= pools.scheme_callable_count { return Err(IrBuildError::format("unknown_scheme_callable", None, 0, 0)); }
+                (TypeKey::SchemeCallable(index), IrData::new(index, 0), Vec::new())
+            }
         };
         if let Some(id) = self.types.get(&key) {
             return Ok(*id);
@@ -1573,6 +1611,7 @@ impl SemanticPoolBuilder {
             | TypeKey::Aggregate(tag, _, _) => *tag,
             TypeKey::Union(_) => TypeTag::Union,
             TypeKey::Callable(_, _) => TypeTag::Callable,
+            TypeKey::SchemeCallable(_) => TypeTag::SchemeCallable,
             TypeKey::Function(_) => TypeTag::Function,
             TypeKey::Validated(_, _) => TypeTag::Validated,
             TypeKey::Nominal(_, _) => TypeTag::Nominal,

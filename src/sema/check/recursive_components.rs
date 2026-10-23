@@ -57,7 +57,7 @@ impl Checker {
                 }
             }
         }
-        let mut recursive_calls = BTreeMap::<Span, super::PendingCallInstantiation>::new();
+        let mut recursive_calls = BTreeMap::<crate::sema::schemes::InstantiationSite<Span>, super::PendingCallInstantiation>::new();
         let mut substitutions = BTreeMap::new();
         let calls = self.provisional_function_calls.iter().map(|(&span, &edge)| (span, edge)).collect::<Vec<_>>();
         for (span, (owner, callee)) in calls {
@@ -81,11 +81,11 @@ impl Checker {
                 }
             };
             substitutions.insert((owner, span), substitution);
-            recursive_calls.insert(span, (Arc::clone(&callee.callable), instance.clone()));
+            recursive_calls.insert(crate::sema::schemes::InstantiationSite::call(span), (Arc::clone(&callee.callable), instance.clone()));
         }
         for ((owner, span), substitution) in substitutions {
-            if self.call_instantiations.contains_key(&span)
-                || prepared.get_mut(&owner).expect("the recursive caller was prepared").calls.insert(span, substitution).is_some()
+            if self.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(span))
+                || prepared.get_mut(&owner).expect("the recursive caller was prepared").calls.insert(crate::sema::schemes::InstantiationSite::call(span), substitution).is_some()
             {
                 self.error(span, "recursive call already has a published substitution", DiagnosticCode::CheckLocalInference);
                 self.reject_recursive_component(program, definitions);
@@ -133,12 +133,12 @@ impl Checker {
         }
         let rejected_calls = self.selected_function_calls.iter().filter_map(|(&span, target)| {
             definitions.contains(&target.definition).then_some(span)
-        }).chain(self.call_instantiations.keys().copied().filter(|&span| {
+        }).chain(self.call_instantiations.keys().map(|site| site.source).filter(|&span| {
             definitions.iter().any(|&definition| function_contains_span(program, definition, span))
         })).collect::<BTreeSet<_>>();
         self.latent_stream_error_spans.retain(|span| !rejected_calls.contains(span));
-        self.call_instantiations.retain(|span, _| !rejected_calls.contains(span));
-        self.pending_call_instantiations.retain(|span, _| !rejected_calls.contains(span));
+        self.call_instantiations.retain(|site, _| !rejected_calls.contains(&site.source));
+        self.pending_call_instantiations.retain(|site, _| !rejected_calls.contains(&site.source));
     }
 }
 
@@ -723,7 +723,7 @@ mod tests {
                 }));
             }
             assert_eq!(peer_calls.len(), 2);
-            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(span)
+            assert!(peer_calls.iter().all(|span| checked.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(*span))
                 && checked.checked_control_flow.latent_stream_error_spans.contains(span)));
         });
     }

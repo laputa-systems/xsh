@@ -772,7 +772,7 @@ mod tests {
     fn assert_no_inference_in_scheme_type(ty: &SchemeType) {
         match ty {
             SchemeType::Ground(ty) => assert!(!ty.contains_inference(), "{ty:?}"),
-            SchemeType::Parameter(_) => {}
+            SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) => {}
             SchemeType::Callable { monotype, .. } => {
                 for parameter in monotype.params() {
                     assert_no_inference_in_scheme_type(&parameter.ty);
@@ -1289,11 +1289,11 @@ mod tests {
         let second_call = "shared.name_of({name: 42, enabled: true})";
         let first_instantiation = first_output
             .call_instantiations
-            .get(&call_span(first_source, first_text, first_call))
+            .get(&crate::sema::schemes::InstantiationSite::call(call_span(first_source, first_text, first_call)))
             .expect("first root has a checked call instantiation");
         let second_instantiation = second_output
             .call_instantiations
-            .get(&call_span(second_source, second_text, second_call))
+            .get(&crate::sema::schemes::InstantiationSite::call(call_span(second_source, second_text, second_call)))
             .expect("second root has a checked call instantiation");
         assert_eq!(
             first_instantiation.type_arguments().values().collect::<Vec<_>>(),

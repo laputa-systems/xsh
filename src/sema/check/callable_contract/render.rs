@@ -43,7 +43,7 @@ impl BinderNames {
 
     fn visit_scheme_type(&mut self, ty: &SchemeType) {
         match ty {
-            SchemeType::Ground(_) => {}
+            SchemeType::Ground(_) | SchemeType::SchemeCallable(_) => {}
             SchemeType::Parameter(id) => {
                 let next = self.types.len();
                 self.types.entry(*id).or_insert(next);
@@ -217,6 +217,7 @@ fn render_parameter(parameter: &SchemeParameter, names: &BinderNames, identities
 fn render_scheme_type(ty: &SchemeType, names: &BinderNames, identities: &BTreeMap<TypeDefId, SchemaIdentity>) -> String {
     match ty {
         SchemeType::Ground(ty) => render_type(ty),
+        SchemeType::SchemeCallable(_) => "callable".to_string(),
         SchemeType::Parameter(id) => names.type_name(*id),
         SchemeType::Callable {
             kind,

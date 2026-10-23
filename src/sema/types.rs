@@ -10,6 +10,7 @@ use xsh_registry::types::BuiltinTypeName;
 mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
 pub use super::effects::CallableEffects;
+pub use super::scheme_callable::SchemeCallableId;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
@@ -139,6 +140,7 @@ pub enum Type {
     /// checked fact about every value that reaches the type, never a runtime
     /// test, so no dynamic value converts to it.
     Callable(Arc<TypedCallable>),
+    SchemeCallable(SchemeCallableId),
     /// A base type narrowed by a validation, such as `NonEmpty[T]` over
     /// `List[T]`. At run time it is a value of the base; the validation is a
     /// checked fact about every value that reaches the type. It fits its base
@@ -453,7 +455,7 @@ pub fn union_member_error(members: &[Type]) -> Option<String> {
             Type::Stream(_) => {
                 "a member cannot be a stream: a type test cannot inspect the items of a stream"
             }
-            Type::Callable(_) => {
+            Type::Callable(_) | Type::SchemeCallable(_) => {
                 "a member cannot be a callable type: a type test cannot inspect a callable's signature"
             }
             _ => continue,
@@ -806,7 +808,7 @@ impl Type {
             | Self::Null | Self::Bool | Self::Int | Self::UInt | Self::Float | Self::Duration
             | Self::Str | Self::Bytes | Self::Digest | Self::Regex | Self::Path | Self::ErasedRecord
             | Self::DynamicModule | Self::Status | Self::EnvPathList | Self::Error | Self::ErrorFamily(_)
-            | Self::ErrorVariant { .. } | Self::ErrorFacet(_) | Self::ProcessError | Self::Function(_)
+            | Self::ErrorVariant { .. } | Self::ErrorFacet(_) | Self::ProcessError | Self::Function(_) | Self::SchemeCallable(_)
             | Self::Command | Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::Unit | Self::Tag(_) => {}
         }
     }
@@ -1112,6 +1114,7 @@ impl Type {
             | Self::Optional(_)
             | Self::Union(_)
             | Self::Callable(_)
+            | Self::SchemeCallable(_)
             | Self::Validated(_) => None,
         }
     }
@@ -1218,7 +1221,7 @@ impl Type {
     /// Whether a callable type appears anywhere a value of this type holds one.
     pub fn contains_typed_callable(&self) -> bool {
         match self {
-            Self::Callable(_) => true,
+            Self::Callable(_) | Self::SchemeCallable(_) => true,
             Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
                 inner.contains_typed_callable()
             }
@@ -1230,6 +1233,19 @@ impl Type {
             Self::Validated(validated) => validated.base().contains_typed_callable(),
             _ => false,
         }
+    }
+
+    pub(crate) fn contains_scheme_callable(&self) -> bool {
+        if matches!(self, Self::SchemeCallable(_)) { return true; }
+        let mut pending = Vec::new();
+        self.for_each_child(|child| pending.push(child));
+        let mut visited = rustc_hash::FxHashSet::default();
+        while let Some(ty) = pending.pop() {
+            if !visited.insert(std::ptr::from_ref(ty)) { continue; }
+            if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            ty.for_each_child(|child| pending.push(child));
+        }
+        false
     }
 
     pub fn contains_any(&self) -> bool {
@@ -1732,6 +1748,7 @@ impl Type {
                     callable.sig.return_ty.annotation_source()?
                 ))
             }
+            Self::SchemeCallable(_) => None,
             Self::Validated(validated) => validated.annotation_source(),
         }
     }
@@ -1778,6 +1795,7 @@ impl fmt::Display for Type {
             Self::ErrorFacet(name) => write!(f, "{name}"),
             Self::ProcessError => write!(f, "ProcessError"),
             Self::Function(CallableKind::Pure) => write!(f, "Pure"),
+            Self::SchemeCallable(_) => write!(f, "callable"),
             Self::Function(CallableKind::Proc) => write!(f, "Proc"),
             Self::Function(CallableKind::Stream) => write!(f, "stream producer"),
             Self::Command => write!(f, "Command"),

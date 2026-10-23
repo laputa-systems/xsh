@@ -830,7 +830,8 @@ pub(super) fn materialize_indexed_callable(
     value: LoweredValue,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
-    if !execution.program().has_invocation(instruction) { return Ok(value); }
+    let relationship = execution.program().scheme_callable_expression(instruction).map_err(|error| indexed_error(error, span))?;
+    if !execution.program().has_invocation(instruction) && relationship.is_none() { return Ok(value); }
     let (function, kind) = indexed_callable_identity(&value, span)?;
     let callable = match &value {
         LoweredValue::Callable(callable) => callable,
@@ -848,12 +849,38 @@ pub(super) fn materialize_indexed_callable(
         return Err(RuntimeError::new("indexed-ir", "prepared callable kind disagrees with its actual target").with_span(span));
     }
     let target = view.index();
-    let applications = program.invocation_applications(instruction, target, invocation)
-        .map_err(|error| indexed_error(error, span))?;
+    let state = if let Some(relationship) = relationship {
+        program.validate_scheme_callable_target(relationship, target, actual_kind).map_err(|error| indexed_error(error, span))?;
+        crate::runtime::eval::PreparedCallableState::SchemeValue(relationship)
+    } else {
+        crate::runtime::eval::PreparedCallableState::Instance(program.invocation_applications(instruction, target, invocation)
+            .map_err(|error| indexed_error(error, span))?)
+    };
     let callable = crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
-        program, function, kind: actual_kind, applications,
+        program, function, kind: actual_kind, state,
     }));
     Ok(LoweredValue::Callable(callable))
+}
+
+pub(super) fn materialize_indexed_scheme_value(
+    execution: &FullExecution<'_>, invocation: &crate::runtime::eval::indexed::full::PreparedInvocationBindings,
+    instruction: u32, value: LoweredValue, span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let program = execution.program();
+    let Some(relationship) = program.scheme_callable_site(instruction) else { return Ok(value); };
+    let LoweredValue::Callable(callable) = value else { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization source is not callable").with_span(span)); };
+    let prepared = callable.instance().ok_or_else(|| RuntimeError::new("indexed-ir", "scheme callable materialization has no checked program").with_span(span))?;
+    if !std::ptr::eq(prepared.program.as_ref(), program) { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization belongs to another program").with_span(span)); }
+    let crate::runtime::eval::PreparedCallableState::SchemeValue(source) = &prepared.state else { return Err(RuntimeError::new("indexed-ir", "scheme callable materialization source is already instantiated").with_span(span)); };
+    let target = program.function_view(prepared.function, prepared.kind).map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| RuntimeError::new("indexed-ir", "scheme callable materialization target is absent").with_span(span))?.index();
+    program.validate_scheme_callable_target(*source, target, prepared.kind).map_err(|error| indexed_error(error, span))?;
+    program.validate_scheme_callable_target(relationship, target, prepared.kind).map_err(|error| indexed_error(error, span))?;
+    let applications = program.invocation_applications(instruction, target, invocation).map_err(|error| indexed_error(error, span))?;
+    Ok(LoweredValue::Callable(crate::runtime::value::CallableValue::prepared(callable.identity(), Arc::new(crate::runtime::eval::PreparedCallable {
+        program: Arc::clone(&prepared.program), function: prepared.function, kind: prepared.kind,
+        state: crate::runtime::eval::PreparedCallableState::Instance(applications),
+    }))))
 }
 
 pub(super) fn indexed_path_from_value(
@@ -1778,6 +1805,7 @@ impl Evaluator {
                 let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
+                        let value = materialize_indexed_scheme_value(execution, &crate::runtime::eval::indexed::full::PreparedInvocationBindings::default(), instruction, value, span)?;
                         super::checked_storage_value(self, &value, &check, span)?;
                         ControlFlow::Continue(value.materialize_validated_list(&check.ty))
                     }

@@ -305,6 +305,12 @@ impl Checker {
         if self.check_removed_record_require_arena(arena, source, callee, args, span) {
             return Type::Invalid;
         }
+        if let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_expr(arena, callee)
+            && let Ok(Type::SchemeCallable(id)) = self.type_constraints.resolve(&binding.ty)
+        {
+            self.check_expr_arena(arena, source, callee, None);
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument);
+        }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
             return self.check_typed_callable_call_with_checked_argument(
                 arena,
@@ -844,6 +850,9 @@ impl Checker {
 
         let diagnostics_before = self.diagnostics.len();
         let callee_type = self.check_expr_arena(arena, source, callee, None);
+        if let Type::SchemeCallable(id) = callee_type {
+            return self.check_scheme_callable_application(arena, source, callee, id, args, span, checked_argument);
+        }
         if let Type::Callable(callable) = &callee_type {
             return self.check_typed_callable_call(arena, source, callee, args, callable, span);
         }
@@ -877,6 +886,11 @@ impl Checker {
         expected: Option<&Type>,
         checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
+        if let Type::Record(fields) = &base_ty
+            && let Some(Type::SchemeCallable(id)) = fields.get(&name)
+        {
+            return self.check_scheme_callable_application(arena, source, callee, *id, args, span, checked_argument);
+        }
         // A record field of a callable type is called like a method. The
         // field wins over a record method of the same name, because the
         // schema names it.
@@ -1355,7 +1369,7 @@ impl Checker {
                         _ => DiagnosticCode::CheckLocalInference,
                     };
                     let message = call_instantiation_error_message(error);
-                    self.error(span, &message, code);
+                    self.error(span.source, &message, code);
                 }
             }
         }
@@ -1366,8 +1380,17 @@ impl Checker {
         span: Span,
         instantiation: super::PendingCallInstantiation,
     ) {
-        let previous = self.pending_call_instantiations.insert(span, instantiation);
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::call(span), instantiation);
         assert!(previous.is_none(), "a call instantiation is recorded once");
+    }
+
+    pub(super) fn record_pending_value_instantiation(
+        &mut self,
+        span: Span,
+        instantiation: super::PendingCallInstantiation,
+    ) {
+        let previous = self.pending_call_instantiations.insert(crate::sema::schemes::InstantiationSite::value(span), instantiation);
+        assert!(previous.is_none(), "a value instantiation is recorded once");
     }
 
     pub(super) fn without_pending_call_instantiations<T>(
@@ -1375,8 +1398,10 @@ impl Checker {
         check: impl FnOnce(&mut Self) -> T,
     ) -> T {
         let pending = std::mem::take(&mut self.pending_call_instantiations);
+        let scheme_calls = std::mem::take(&mut self.scheme_callable_calls);
         let result = check(self);
         self.pending_call_instantiations = pending;
+        self.scheme_callable_calls = scheme_calls;
         result
     }
 
@@ -1451,10 +1476,29 @@ impl Checker {
         signature: &super::FunctionSig,
         span: Span,
     ) -> super::FunctionCallContract {
+        self.scheme_call_contract(signature.scheme(), signature.effect_declaration(), signature.definition_target(), span)
+    }
+
+    pub(super) fn scheme_call_contract(
+        &mut self,
+        scheme: &Arc<crate::sema::schemes::TypeScheme>,
+        effect_declaration: Option<super::EffectDeclarationId>,
+        definition_target: Option<super::CheckedFunctionTarget>,
+        span: Span,
+    ) -> super::FunctionCallContract {
         if let Some(contract) = self.prepared_function_call_contracts.remove(&span) {
             return contract;
         }
-        let scheme = signature.scheme();
+        self.fresh_scheme_call_contract(scheme, effect_declaration, definition_target, span)
+    }
+
+    pub(super) fn fresh_scheme_call_contract(
+        &mut self,
+        scheme: &Arc<crate::sema::schemes::TypeScheme>,
+        effect_declaration: Option<super::EffectDeclarationId>,
+        definition_target: Option<super::CheckedFunctionTarget>,
+        span: Span,
+    ) -> super::FunctionCallContract {
         let callable = Arc::clone(scheme.callable());
         let instantiated = self
             .type_constraints
@@ -1462,7 +1506,7 @@ impl Checker {
             .expect("a checked function scheme instantiates");
         let call_instantiation = callable.is_quantified()
             .then(|| (callable, instantiated.clone()));
-        let effects = self.instantiate_invocation_effects(scheme.kind(), signature.effect_declaration(),
+        let effects = self.instantiate_invocation_effects(scheme.kind(), effect_declaration,
             || super::DeclarationEffects::Checked(scheme.effects().clone()), Some(&instantiated))
             .expect("a checked function scheme retains its invocation effect scope");
         let params = scheme
@@ -1481,8 +1525,8 @@ impl Checker {
             params,
             return_ty: instantiated.return_type,
             effects,
-            effect_declaration: signature.effect_declaration(),
-            definition_target: signature.definition_target(),
+            effect_declaration,
+            definition_target,
             instantiation: call_instantiation,
         }
     }

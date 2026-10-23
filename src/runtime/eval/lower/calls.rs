@@ -38,11 +38,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             span,
             current_function,
         )?;
-        if let Some(instantiation) = self.bodies.call_instantiations.get(&id)
+        if let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(id))
             && (!instantiation.type_arguments().is_empty()
                 || !instantiation.row_arguments().is_empty())
         {
-            let Some(ty) = self.bodies.expr_types.get(&id).cloned().filter(|ty| {
+            let Some(ty) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned()).filter(|ty| {
                 !ty.contains_inference() && !ty.contains_recovery()
             }) else {
                 self.last_blocker_detail = Some((
@@ -89,7 +89,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .and_then(|params| params.iter().position(|param| param.rest))
             });
         if args.iter().any(|argument| argument.splice)
-            && (scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()) || self.bodies.call_instantiations.contains_key(&id))
+            && (scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()) || self.bodies.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::call(id)))
         {
             let Some(rest_slot) = rest_slot else {
                 let splice_span = args
@@ -599,6 +599,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(arguments) => std::borrow::Cow::Borrowed(arguments),
             None => std::borrow::Cow::Owned(self.source_call_arguments(source_args)?),
         };
+        if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(id)) {
+            let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+            let args = self.lower_function_call_args(&args_vec,
+                Some(CheckedCallParameters::Scheme(contract.canonical().scheme().params())),
+                self.call_argument_slots(id), None, slots, current_function, item_slot)?;
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span });
+            let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(id))?.clone();
+            let mut scratch = self.scratch.borrow_mut();
+            let result_type = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)).copied().map(Type::SchemeCallable).or_else(|| self.bodies.expr_types.get(&id).cloned())?;
+            if !scratch.record_call_instantiation(lowered, instantiation) || !scratch.record_checked_call_result_type(lowered, result_type) || scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_some() { return None; }
+            return Some(lowered);
+        }
         if let Some(target) = self.bodies.selected_function_calls.get(&id).copied() {
             return self.lower_checked_function_call(
                 id,

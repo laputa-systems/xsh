@@ -439,7 +439,10 @@ pub(super) fn is_body_expression(
         }
         match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(_) | ArenaExprKind::Item => {
-                if !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
+                let named_scheme = matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(_))
+                    && checked_operations.contains(&program.arena.expr(expression).span)
+                    && matches!(types.get(&expression).and_then(crate::sema::schemes::SchemeType::closed_ground_type), Some(crate::sema::types::Type::SchemeCallable(_)));
+                if !named_scheme && !bindings.expressions.get(&expression).is_some_and(|binding| read_binding_is_available(bindings, available, captures, binding, types.get(&expression))) { return false; }
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {

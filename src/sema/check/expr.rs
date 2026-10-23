@@ -2375,7 +2375,7 @@ impl Checker {
                     {
                         merge_list_literal_item_ty(previous, &actual)
                     } else {
-                        super::types::merge_checked_branches(branch_expectation, previous, &actual)
+                        self.merge_checked_branches(branch_expectation, previous, &actual)
                     }
                 })
             } else {
@@ -2440,7 +2440,7 @@ impl Checker {
                 {
                     merge_list_literal_item_ty(previous, &else_ty)
                 } else {
-                    super::types::merge_checked_branches(else_expectation, previous, &else_ty)
+                    self.merge_checked_branches(else_expectation, previous, &else_ty)
                 }
             })
         } else {
@@ -2976,7 +2976,7 @@ impl Checker {
                     {
                         merge_list_literal_item_ty(previous, &actual)
                     } else {
-                        super::types::merge_checked_branches(arm_expectation, previous, &actual)
+                        self.merge_checked_branches(arm_expectation, previous, &actual)
                     }
                 })
             } else { None };

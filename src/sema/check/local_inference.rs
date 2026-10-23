@@ -403,6 +403,7 @@ impl Checker {
         let selected_function_calls = std::mem::take(&mut self.selected_function_calls);
         let selected_function_value_references = std::mem::take(&mut self.selected_function_value_references);
         let pending_call_instantiations = std::mem::take(&mut self.pending_call_instantiations);
+        let scheme_callable_calls = std::mem::take(&mut self.scheme_callable_calls);
         let call_instantiations = std::mem::take(&mut self.call_instantiations);
         let prepared_function_call_contracts =
             std::mem::take(&mut self.prepared_function_call_contracts);
@@ -448,6 +449,7 @@ impl Checker {
         self.selected_function_calls = selected_function_calls;
         self.selected_function_value_references = selected_function_value_references;
         self.pending_call_instantiations = pending_call_instantiations;
+        self.scheme_callable_calls = scheme_callable_calls;
         self.call_instantiations = call_instantiations;
         self.prepared_function_call_contracts = prepared_function_call_contracts;
         self.diagnostics = diagnostics;

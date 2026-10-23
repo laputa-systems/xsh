@@ -506,6 +506,7 @@ fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
     match ty {
         SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any || matches!(ty, Type::Optional(_))),
         SchemeType::Callable { kind, .. } => Some(LoweredType::Function(*kind)),
+        SchemeType::SchemeCallable(_) => Some(LoweredType::SchemeCallable),
         SchemeType::List(_) => Some(LoweredType::List),
         SchemeType::Map(_, _) => Some(LoweredType::Map),
         SchemeType::Stream(_) => Some(LoweredType::Stream),
@@ -534,7 +535,7 @@ fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
                 .map(LoweredReturnKind::Plain),
         },
         SchemeType::Parameter(_) => Some(LoweredReturnKind::Erased),
-        SchemeType::Callable { .. } => lowered_scheme_physical_type(ty).map(LoweredReturnKind::Plain),
+        SchemeType::Callable { .. } | SchemeType::SchemeCallable(_) => lowered_scheme_physical_type(ty).map(LoweredReturnKind::Plain),
         SchemeType::Result(ok, _) => {
             Some(lowered_scheme_physical_type(ok).map_or(LoweredReturnKind::QuantifiedResult, LoweredReturnKind::Result))
         }
@@ -4227,7 +4228,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
                 self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
             }
-            ArenaExprKind::Ident(name) => self.lower_bare_ident(expression, name, slots)?,
+            ArenaExprKind::Ident(name) => {
+                if let Some(Type::SchemeCallable(relationship)) = ty.closed_ground_type()
+                    && self.expression_binding(expression).is_none()
+                {
+                    let target = *self.bodies.selected_function_calls.get(&expression)?;
+                    let value = self.lower_selected_function_ref(target, name, &Type::SchemeCallable(relationship), None)?;
+                    if !self.scratch.borrow_mut().record_checked_expr_type(value, Type::SchemeCallable(relationship), false) { return None; }
+                    value
+                } else { self.lower_bare_ident(expression, name, slots)? }
+            },
             ArenaExprKind::Item => self.lower_bare_ident(expression, crate::sema::check::item_binding(), slots)?,
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => self.lower_expr(expression, slots, Some(current_function), None)?,
             ArenaExprKind::EnvString(name) => {
@@ -4649,13 +4659,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if let Some(start) = implicit_start { lowered_types.insert(start, SchemeType::Ground(Type::Int)); }
                     return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
                 }
+                if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(expression)) {
+                    let callee = self.lower_scheme_expression(callee, slots, current_function, facts, visited, lowered_types, body)?;
+                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                    let contract = self.declarations.scheme_callables.relationship(relationship).ok()?;
+                    let parameters = contract.canonical().scheme().params();
+                    let arguments = self.lower_function_call_args(&arguments, Some(CheckedCallParameters::Scheme(parameters)), self.call_argument_slots(expression), None, slots, Some(current_function), None)?;
+                    let lowered = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args: arguments, span });
+                    let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(expression))?.clone();
+                    let recorded = {
+                        let mut scratch = self.scratch.borrow_mut();
+                        scratch.record_call_instantiation(lowered, instantiation) && scratch.scheme_callable_calls.insert(lowered.index(), relationship).is_none()
+                    };
+                    if !recorded { return self.block_scheme_lowering_expr(expression); }
+                    return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                }
                 if let Some(target) = self.bodies.selected_function_calls.get(&expression).copied() {
                     if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
                     let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
                     let function = self.function_index().checked_target_key(target)?;
                     let arguments = self.lower_checked_function_arguments(expression, &arguments, function, slots, Some(current_function), None)?;
                     let lowered = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
-                    if let Some(instantiation) = self.bodies.call_instantiations.get(&expression).cloned()
+                    if let Some(instantiation) = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(expression)).cloned()
                         && !self.scratch.borrow_mut().record_call_instantiation(lowered, instantiation)
                     { return self.block_scheme_lowering_expr(expression); }
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
@@ -7116,6 +7141,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let lowered_result = self.lower_expr_untyped(id, slots, current_function, item_slot);
         let lowered = lowered_result?;
         self.record_lowered_producer_inputs(id, lowered, slots)?;
+        if let Some(&relationship) = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::value(id)) {
+            let ty = self.canonicalize_checked_type(self.bodies.expr_types.get(&id)?.clone());
+            let instantiation = self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(id))?.clone();
+            let check = LoweredTypeCheck { name: Arc::from(ty.to_string()), ty: ty.clone(), schema: None };
+            let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: lowered, check, span: self.program.arena.expr(id).span });
+            let mut scratch = self.scratch.borrow_mut();
+            if !scratch.record_checked_expr_type(lowered, Type::SchemeCallable(relationship), false)
+                || !scratch.record_checked_expr_type(checked, ty, false)
+                || !scratch.record_call_instantiation(checked, instantiation)
+                || scratch.scheme_callable_calls.insert(checked.index(), relationship).is_some()
+            { return None; }
+            return Some(checked);
+        }
         let with_error_source = self.with_error_source_exprs.contains_key(&id);
         let checked_uint_literal = self.bodies.expr_types.get(&id).is_some_and(|ty| {
             ty == &Type::UInt
@@ -7175,7 +7213,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             producer
         } else { lowered };
-        let materialized_callable = self.bodies.call_instantiations.contains_key(&id)
+        let materialized_callable = self.bodies.call_instantiations.contains_key(&crate::sema::schemes::InstantiationSite::value(id))
             && matches!(self.program.arena.expr(id).kind, ArenaExprKind::Ident(_));
         if ty.contains_typed_callable() && !materialized_callable {
             let parameter_slot = {
@@ -9685,7 +9723,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             .declarations
             .bodies
             .call_instantiations
-            .contains_key(&call));
+            .contains_key(&crate::sema::schemes::InstantiationSite::call(call)));
         assert_eq!(
             checked.declarations.bodies.expr_types.get(&call),
             Some(&Type::Bool)

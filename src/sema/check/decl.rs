@@ -159,7 +159,7 @@ pub(super) struct PreparedFunctionGeneralization {
     pub(super) body_types: BTreeMap<ExprId, crate::sema::schemes::SchemeType>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) tail_types: BTreeMap<StmtId, crate::sema::schemes::SchemeType>,
-    pub(super) calls: BTreeMap<Span, crate::sema::schemes::CallInstantiation>,
+    pub(super) calls: BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::schemes::CallInstantiation>,
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<super::BindingId>,
     local_statements: std::collections::BTreeSet<StmtId>,
@@ -301,10 +301,8 @@ impl Checker {
                 }
             }
         }
-        let calls = expression_spans.iter().filter_map(|&span| {
-            self.pending_call_instantiations.get(&span).map(|(callable, instantiated)| {
-                (span, (Arc::clone(callable), instantiated.clone()))
-            })
+        let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, (callable, instantiated))| {
+            (site, (Arc::clone(callable), instantiated.clone()))
         }).collect::<BTreeMap<_, _>>();
         let generalized = if component.len() == 1 {
             self.type_constraints.generalize_callable_body_with_calls(
@@ -420,6 +418,13 @@ impl Checker {
                     && (self.collecting_effects || self.declaration_effects(Some(id.effect_declaration())).into_checked().is_some_and(|effects| effects.is_known()));
                 (pure || checked_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
+            checked_operations.extend(generalized_body_types.iter().filter_map(|(&expression, ty)| {
+                let Type::SchemeCallable(relationship) = ty.closed_ground_type()? else { return None; };
+                let span = program.arena.expr(expression).span;
+                let target = self.selected_function_calls.get(&span)?;
+                let relationship = self.scheme_callable_relationship(relationship).ok()?;
+                (relationship.targets().len() == 1 && relationship.targets()[0].target() == *target).then_some(span)
+            }));
             checked_operations.extend(generalized.requirements.applications.iter()
                 .map(|application| application.span));
             checked_operations.extend(generalized_body_types.keys().filter_map(|&expression| {

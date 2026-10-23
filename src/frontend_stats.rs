@@ -168,7 +168,7 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) 
             })
             .sum::<usize>();
     let call_instantiation_bytes = checked.call_instantiations.len()
-        * size_of::<(Span, crate::sema::schemes::CallInstantiation)>()
+        * size_of::<(crate::sema::schemes::InstantiationSite<Span>, crate::sema::schemes::CallInstantiation)>()
         + checked
             .call_instantiations
             .values()
@@ -585,7 +585,7 @@ fn measure_compact_body_types(
             + facts.expr_types.values().map(type_owned_bytes).sum::<usize>()
             + facts.call_instantiations.capacity()
                 * size_of::<(
-                    crate::syntax::arena::ExprId,
+                    crate::sema::schemes::InstantiationSite<crate::syntax::arena::ExprId>,
                     crate::sema::schemes::CallInstantiation,
                 )>()
             + call_evidence_bytes,
@@ -703,7 +703,7 @@ impl OutputTypeNodes {
                     self.add_scheme_type(member);
                 }
             }
-            SchemeType::Parameter(_) | SchemeType::Callable { .. } => {}
+            SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) | SchemeType::Callable { .. } => {}
         }
     }
 

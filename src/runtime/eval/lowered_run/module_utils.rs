@@ -83,7 +83,7 @@ impl Evaluator {
             if instance.kind != kind || instance.function != function {
                 return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
             }
-            (instance.program.as_ref(), Some(&instance.applications))
+            (instance.program.as_ref(), instance.applications())
         } else {
             let mut program = context;
             let present = match program {
@@ -125,6 +125,15 @@ impl Evaluator {
         target.program.function_has_quantified_contract(target.function).map_err(|error| super::indexed_run::indexed_error(error, span))
     }
 
+    fn prepared_scheme_callable_matches(&self, program: &FullProgram, value: super::ValueView<'_>, id: crate::sema::types::SchemeCallableId, span: Span) -> Result<bool, RuntimeError> {
+        let callable = match value { super::ValueView::Runtime(Value::Callable(callable)) | super::ValueView::Lowered(LoweredValue::Callable(callable)) => callable, _ => return Ok(false) };
+        let Some(instance) = callable.instance() else { return Ok(false); };
+        if !std::ptr::eq(program, instance.program.as_ref()) { return Ok(false); }
+        let super::super::PreparedCallableState::SchemeValue(actual) = instance.state else { return Ok(false); };
+        let Some(target) = self.actual_callable_target(Some(program), value, span)? else { return Ok(false); };
+        program.scheme_callable_value_accepts(id, actual, target.function, callable.kind()).map_err(|error| super::indexed_run::indexed_error(error, span))
+    }
+
     fn prepared_callable_matches(
         &self, context: &FullProgram, value: super::ValueView<'_>,
         expected: crate::runtime::eval::type_view::CallableContractView<'_>, span: Span,
@@ -148,6 +157,7 @@ impl Evaluator {
             let matches = crate::runtime::eval::type_view::value_matches_type_with_contracts(super::ValueView::Runtime(&item.value), expected, &mut |value, contract| {
                 let result = match contract {
                     crate::runtime::eval::type_view::RetainedValueContract::Callable(callable) => self.prepared_callable_matches(program, value, callable, span),
+                    crate::runtime::eval::type_view::RetainedValueContract::SchemeCallable(id) => self.prepared_scheme_callable_matches(program, value, id, span),
                     crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                     crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
                     crate::runtime::eval::type_view::RetainedValueContract::EnvironmentPathList => Ok(value.environment_path_snapshot().is_some()),
@@ -157,6 +167,37 @@ impl Evaluator {
             if !matches { return proof_error.map_or(Ok(false), Err); }
         }
         Ok(true)
+    }
+
+    pub(super) fn validate_scheme_callable_value(&self, program: &FullProgram, value: super::ValueView<'_>, ty: &Type, span: Span) -> Result<(), RuntimeError> {
+        if !ty.contains_scheme_callable() { return Ok(()); }
+        let mut proof_error = None;
+        let accepted = crate::runtime::eval::type_view::value_matches_type_with_contracts(value, ty, &mut |value, contract| {
+            let result = match contract {
+                crate::runtime::eval::type_view::RetainedValueContract::SchemeCallable(id) => self.prepared_scheme_callable_matches(program, value, id, span),
+                crate::runtime::eval::type_view::RetainedValueContract::Callable(callable) => self.prepared_callable_matches(program, value, callable, span),
+                crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
+                crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
+                crate::runtime::eval::type_view::RetainedValueContract::EnvironmentPathList => Ok(value.environment_path_snapshot().is_some()),
+            };
+            match result { Ok(accepted) => accepted, Err(error) => { proof_error = Some(error); false } }
+        });
+        if accepted { Ok(()) } else { Err(proof_error.unwrap_or_else(|| RuntimeError::new("type-error", "value violates its retained scheme callable relationship").with_span(span))) }
+    }
+
+    pub(super) fn validate_scheme_callable_slots(&self, program: &FullProgram, target: usize, invocation: &PreparedInvocationBindings, slots: &[LoweredValue], span: Span) -> Result<(), RuntimeError> {
+        if !program.has_scheme_callable_values() { return Ok(()); }
+        let Some(types) = program.invocation_parameter_types(target, invocation).map_err(|error| super::indexed_run::indexed_error(error, span))? else { return Ok(()); };
+        for (ty, value) in types.iter().zip(slots) {
+            if !matches!(value, LoweredValue::OmittedArgument) { self.validate_scheme_callable_value(program, super::ValueView::Lowered(value), ty, span)?; }
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_scheme_callable_return(&self, program: &FullProgram, target: usize, invocation: &PreparedInvocationBindings, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        if !program.has_scheme_callable_values() { return Ok(()); }
+        let ty = program.invocation_return_type(target, invocation).map_err(|error| super::indexed_run::indexed_error(error, span))?;
+        self.validate_scheme_callable_value(program, super::ValueView::Lowered(value), &ty, span)
     }
 
     pub(super) fn validate_prepared_arguments(
@@ -174,7 +215,8 @@ impl Evaluator {
                 || crate::runtime::eval::type_view::value_matches_type_with_contracts(super::ValueView::Lowered(value), ty, &mut |value, expected| {
                     let result = match expected {
                         crate::runtime::eval::type_view::RetainedValueContract::Callable(expected) => self.prepared_callable_matches(program, value, expected, span),
-                        crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
+                        crate::runtime::eval::type_view::RetainedValueContract::SchemeCallable(id) => self.prepared_scheme_callable_matches(program, value, id, span),
+                    crate::runtime::eval::type_view::RetainedValueContract::GenericCallable(kind) => self.retained_generic_callable_matches(Some(program), value, kind, span),
                         crate::runtime::eval::type_view::RetainedValueContract::Stream(item) => self.prepared_stream_matches(program, value, item, span),
                     crate::runtime::eval::type_view::RetainedValueContract::EnvironmentPathList => Ok(value.environment_path_snapshot().is_some()),
                     };
@@ -200,7 +242,7 @@ impl Evaluator {
             if instance.kind != kind || instance.function != function {
                 return Err(RuntimeError::new("indexed-ir", "prepared callable identity disagrees with its owner").with_span(span));
             }
-            (Arc::clone(&instance.program), instance.applications.clone())
+            (Arc::clone(&instance.program), instance.applications().cloned().ok_or_else(|| RuntimeError::new("type-error", "quantified callable requires a checked value-call site").with_span(span))?)
         } else {
             let mut program = self.indexed_program.clone().ok_or_else(|| RuntimeError::new("indexed-ir", "callable target has no executable program").with_span(span))?;
             if program.function_view(function, kind).map_err(|error| super::indexed_run::indexed_error(error, span))?.is_none()

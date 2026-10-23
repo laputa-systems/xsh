@@ -767,6 +767,7 @@ impl Checker {
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
+        if let Some(merged) = self.merge_scheme_callable_values(&left, &right) { return merged; }
         match unify_return_shapes(&left, &right) {
             Some(ty) => ty,
             None if matches!(left, Type::Invalid) || matches!(right, Type::Invalid) => {

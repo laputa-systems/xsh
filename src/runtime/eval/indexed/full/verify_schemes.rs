@@ -34,10 +34,12 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod scalar_predicate_tests;
+mod scheme_values;
 
 const SCHEME_TYPE_WORK_PER_NODE: usize = 8;
 const SCHEME_TYPE_WORK_BASE: usize = 128;
 
+#[derive(Clone)]
 pub(super) struct SchemeScope {
     operations: IrRange,
     methods: IrRange,
@@ -116,7 +118,7 @@ impl SchemeInstantiationBudget {
         Ok(())
     }
 
-    fn charge_clone(&mut self, ty: &Type) -> Result<(), IrVerifyError> {
+    pub(super) fn charge_clone(&mut self, ty: &Type) -> Result<(), IrVerifyError> {
         Self::charge_clone_with(ty, &mut |amount| self.charge(amount))
     }
 
@@ -147,7 +149,7 @@ impl SchemeInstantiationBudget {
             self.charge(1)?;
             match ty {
                 SchemeType::Ground(ty) => self.charge_clone(ty)?,
-                SchemeType::Parameter(_) => {}
+                SchemeType::SchemeCallable(_) | SchemeType::Parameter(_) => {}
                 SchemeType::Callable { monotype, effects, .. } => {
                     if let crate::sema::effects::EffectContract::Known(expression) = effects { self.charge(expression.variables().count())?; }
                     pending.push(monotype.return_type());
@@ -241,6 +243,7 @@ pub(super) fn prepare_tables(store: &FullStore) -> Result<VerifiedSchemeScopes, 
 
 pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, contexts: producers::ProducerContexts<'_>, function_signatures: &Arc<super::FunctionSignatureIndex>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     let scopes = &producer_index.scheme_scopes(store)?.scopes;
+    scheme_values::verify_relationships(store, scopes)?;
     let mut requests = verify_scheme_body_facts(store, scopes, producer_index, function_signatures)?;
     verify_call_instantiations(store, scopes, &mut requests, function_signatures)?;
     producers::verify(store, producer_index, contexts, requests)
@@ -836,6 +839,10 @@ fn visit_scheme_type(
         return Err(IrVerifyError::new("scheme type node has reserved bits set"));
     }
     match node.tag {
+        FullSchemeTypeTag::SchemeCallable => {
+            require_empty_children(node.children)?;
+            if node.second != 0 || node.first as usize >= store.scheme_callable_values.len() { return Err(IrVerifyError::new("scheme callable relationship leaf is invalid")); }
+        }
         FullSchemeTypeTag::Callable => {
             require_empty_children(node.children)?;
             if node.second != 0 { return Err(IrVerifyError::new("scheme callable type has payload bits set")); }
@@ -1605,11 +1612,21 @@ fn verify_body_expression(
         schema::ExprView::Duration(_) => SchemeType::Ground(Type::Duration),
         schema::ExprView::PreparedRegex(_) => SchemeType::Ground(Type::Regex),
         schema::ExprView::FunctionRef { function, kind } => {
-            let (target, _, target_kind) = decoder.function_reference_target(function)?;
+            let (target, contract, target_kind) = decoder.function_reference_contract(function)?;
             let metadata_kind = store.function_metadata[target.index()].callable_kind;
             match ty {
                 SchemeType::Ground(Type::Function(expected_kind))
-                    if *expected_kind == kind && target_kind == kind && metadata_kind == kind => ty.clone(),
+                    if *expected_kind == kind && target_kind == kind && metadata_kind == kind && matches!(contract, FullCallableContract::Ground(_)) => ty.clone(),
+                SchemeType::SchemeCallable(relationship) | SchemeType::Ground(Type::SchemeCallable(relationship)) => {
+                    let relationship = store.semantic.scheme_callable_index(*relationship)?;
+                    let relationship = store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("generic function value relationship is out of bounds"))?;
+                    let targets = bounded(relationship.targets, &store.scheme_callable_targets, "generic function value targets are invalid")?;
+                    budget.charge(targets.len())?;
+                    if targets.len() != 1 || targets[0].function != target || target_kind != kind || metadata_kind != kind {
+                        return Err(IrVerifyError::new("generic function value disagrees with its owned relationship"));
+                    }
+                    ty.clone()
+                }
                 _ => return Err(IrVerifyError::new("generic function value disagrees with its ground executable target")),
             }
         }
@@ -1881,7 +1898,11 @@ fn verify_body_expression(
         schema::ExprView::CheckedValue { value, check, .. } => {
             let actual = child(value, budget)?;
             let expected = store.semantic.to_type_with_budget(check.ty.id, &mut budget.semantic_types)?;
-            if check.schema.is_some() || !body_type_matches_ground(&actual, &expected) || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
+            let materialized = store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok();
+            let source_matches = if materialized {
+                matches!(actual, SchemeType::SchemeCallable(_) | SchemeType::Ground(Type::SchemeCallable(_))) && matches!(expected, Type::Callable(_))
+            } else { body_type_matches_ground(&actual, &expected) };
+            if check.schema.is_some() || !source_matches || !runtime_complete_value_check_type(&expected, budget, 0)? { return Err(IrVerifyError::new("generic checked value is not a complete storage contract")); }
             SchemeType::Ground(expected)
         }
         schema::ExprView::Require { value, check, .. } => {
@@ -2001,6 +2022,24 @@ fn verify_call_instantiations(
             return Err(IrVerifyError::new("checked call targets are duplicated"));
         }
     }
+    let mut value_targets = BTreeMap::new();
+    let mut previous_value_call = None;
+    for call in &store.scheme_callable_calls {
+        if previous_value_call.is_some_and(|previous| previous >= call.instruction) || target_by_instruction.contains_key(&call.instruction) { return Err(IrVerifyError::new("scheme callable call authority is duplicated")); }
+        previous_value_call = Some(call.instruction);
+        let decoder = decoder_for_instruction(store, call.instruction as usize, function_signatures)?;
+        let callee = match decoder.expression_view(call.instruction as usize)? {
+            schema::ExprView::DynamicCall { callee, .. } => callee,
+            schema::ExprView::CheckedValue { value, check, .. } if check.schema.is_none() => value,
+            _ => return Err(IrVerifyError::new("scheme callable invocation has no physical value callee")),
+        };
+        let id = checked_expression_type_id(store, callee.raw()).ok_or_else(|| IrVerifyError::new("scheme callable callee has no checked relationship"))?;
+        let Type::SchemeCallable(id) = store.semantic.to_type(id)? else { return Err(IrVerifyError::new("scheme callable callee is not quantified")); };
+        if store.semantic.scheme_callable_index(id)? != call.relationship { return Err(IrVerifyError::new("scheme callable call relationship disagrees with its callee")); }
+        let relationship = store.scheme_callable_values.get(call.relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable call relationship is out of bounds"))?;
+        value_targets.insert(call.instruction, relationship.canonical);
+        if store.call_instantiations.binary_search_by_key(&call.instruction, |instance| instance.instruction).is_err() { return Err(IrVerifyError::new("scheme callable call has no fresh instantiation")); }
+    }
     let mut instantiation_coverage = vec![false; store.call_instantiations.len()];
     let mut type_argument_coverage = vec![false; store.call_type_arguments.len()];
     let mut row_argument_coverage = vec![false; store.call_row_arguments.len()];
@@ -2021,13 +2060,12 @@ fn verify_call_instantiations(
         if instruction >= store.tags.len()
             || !matches!(
                 store.tags[instruction],
-                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam
+                FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprDynamicCall | FullTag::ExprCheckedValue
             )
         {
             return Err(IrVerifyError::new("generic call instantiation has no direct call"));
         }
-        let target = *target_by_instruction
-            .get(&instantiation.instruction)
+        let target = *target_by_instruction.get(&instantiation.instruction).or_else(|| value_targets.get(&instantiation.instruction))
             .ok_or_else(|| IrVerifyError::new("generic call has no checked target"))?;
         let target_function = store
             .functions
@@ -2041,7 +2079,7 @@ fn verify_call_instantiations(
             .and_then(Option::as_ref)
             .ok_or_else(|| IrVerifyError::new("generic call target has no binder scope"))?;
         let scheme = store.scheme(scheme_id)?;
-        let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam);
+        let reference = matches!(store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue);
         if instantiation.operation_bindings.len != scheme.operations.len { return Err(IrVerifyError::new("generic call operation binding is incomplete")); }
         if instantiation.method_bindings.len != scheme.methods.len { return Err(IrVerifyError::new("generic call method binding is incomplete")); }
         if instantiation.application_bindings.len != scheme.applications.len {
@@ -2665,6 +2703,7 @@ fn decode_scheme_type(
         decode_scheme_type(store, scope, id, budget, depth + 1)
     };
     let ty = match node.tag {
+        FullSchemeTypeTag::SchemeCallable => SchemeType::SchemeCallable(store.semantic.scheme_callable_id(node.first)?),
         FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotype(node.first)?;
             let params = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?
@@ -2852,6 +2891,7 @@ fn validate_symbolic_argument_type(
             }
             validate_symbolic_argument_type(monotype.return_type(), caller_scope, depth + 1, ground)
         }
+        SchemeType::SchemeCallable(id) => ground(&Type::SchemeCallable(*id)),
         SchemeType::Ground(ty) => ground(ty),
         SchemeType::Parameter(id) => caller_scope
             .type_binders
@@ -2929,6 +2969,7 @@ fn substitute_scheme_type(
                 effects: effects::substitute_contract(effects, callee_scope, &substitution.effects, budget)?,
             }
         }
+        SchemeType::SchemeCallable(id) => SchemeType::SchemeCallable(*id),
         SchemeType::Ground(ty) => {
             budget.charge_clone(ty)?;
             SchemeType::Ground(ty.clone())
@@ -3010,7 +3051,8 @@ fn verify_symbolic_call_arguments(
     let args = match decoder.expression_view(instruction)? {
         schema::ExprView::Call { args, .. }
         | schema::ExprView::DirectPureCall { args, .. }
-        | schema::ExprView::SelfCall { args, .. } => args,
+        | schema::ExprView::SelfCall { args, .. }
+        | schema::ExprView::DynamicCall { args, .. } => args,
         _ => return Err(IrVerifyError::new("generic call instruction has an invalid view")),
     };
     let arguments = args.collect::<Result<Vec<_>, _>>()?;
@@ -3234,7 +3276,8 @@ fn verify_instantiated_call_arguments(
     let args = match view {
         schema::ExprView::Call { args, .. }
         | schema::ExprView::DirectPureCall { args, .. }
-        | schema::ExprView::SelfCall { args, .. } => args,
+        | schema::ExprView::SelfCall { args, .. }
+        | schema::ExprView::DynamicCall { args, .. } => args,
         _ => return Err(IrVerifyError::new("generic call instruction has an invalid view")),
     };
     let mut arguments = Vec::new();
@@ -4205,16 +4248,12 @@ fn checked_argument_type_inner(
 
 fn verify_driver_annotation_runtime_type(
     store: &FullStore,
-    runtime_type: Option<TypeId>,
+    runtime_type: Option<super::LoweredType>,
     validation_type: Option<TypeId>,
     annotation: &Type,
     checked: &Type,
     materialization: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
-    let runtime_type = runtime_type.map(|id| {
-        let ty = store.semantic.to_type_with_budget(id, &mut materialization.semantic_types)?;
-        super::lowered_type_from_type(&ty)
-    }).transpose()?;
     let validation_type = validation_type.map(|id| {
         store.semantic.to_type_with_budget(id, &mut materialization.semantic_types)
     }).transpose()?;
@@ -4546,6 +4585,7 @@ fn runtime_complete_check_type(
         | Type::Error
         | Type::ProcessError
         | Type::Function(_)
+        | Type::SchemeCallable(_)
         | Type::Command
         | Type::ProcessHandle
         | Type::NetJob
@@ -4703,7 +4743,7 @@ fn scheme_type_binders(
                 }
             }
             FullSchemeTypeTag::Validated => pending.push(SchemeTypeId::from_raw(node.first)?),
-            FullSchemeTypeTag::Ground => {}
+            FullSchemeTypeTag::SchemeCallable | FullSchemeTypeTag::Ground => {}
         }
     }
     Ok((types, rows))
@@ -4956,6 +4996,10 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(store.scheme_effect_predicates.len())
         .saturating_add(store.scheme_applications.len())
         .saturating_add(store.scheme_operations.len())
+        .saturating_add(store.scheme_callable_values.len())
+        .saturating_add(store.scheme_callable_targets.len())
+        .saturating_add(store.scheme_callable_binders.len())
+        .saturating_add(store.scheme_callable_calls.len())
         .saturating_add(store.scheme_methods.len())
         .saturating_add(store.scheme_method_slots.len())
         .saturating_add(store.scheme_method_arguments.len())
@@ -5154,6 +5198,7 @@ fn instantiate_scheme_type_inner(
     budget.charge(1)?;
     let node = store.scheme_type(id)?;
     let ty = match node.tag {
+        FullSchemeTypeTag::SchemeCallable => Type::SchemeCallable(store.semantic.scheme_callable_id(node.first)?),
         FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotype(node.first)?;
             let kind = callable.kind;

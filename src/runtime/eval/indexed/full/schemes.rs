@@ -1117,6 +1117,7 @@ impl FullBuilder {
         effect_parameters: &BTreeMap<SchemeEffectParameterId, u32>,
     ) -> Result<SchemeTypeId, IrBuildError> {
         let node = match ty {
+            SchemeType::SchemeCallable(source) => FullSchemeTypeNode { first: self.intern_scheme_callable_value(*source)?.0, second: 0, children: IrRange::default(), tag: FullSchemeTypeTag::SchemeCallable, reserved: [0; 3] },
             SchemeType::Callable { kind, monotype, effects } => {
                 let mut parameters = Vec::with_capacity(monotype.params().len());
                 for parameter in monotype.params() {
@@ -1325,8 +1326,7 @@ impl FullBuilder {
                 self.store.tags.len(),
             ));
         }
-        self.semantic
-            .intern_type(&mut self.store.semantic, &super::executable_type(ty))
+        self.intern_checked_type(&super::executable_type(ty))
     }
 
     fn intern_scheme_validation(&mut self, validation: Validation) -> Result<u32, IrBuildError> {

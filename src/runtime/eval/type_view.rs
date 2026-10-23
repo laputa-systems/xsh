@@ -352,6 +352,7 @@ impl<'a> ValueView<'a> {
 
 #[derive(Clone, Copy)]
 pub(super) enum RetainedValueContract<'a> {
+    SchemeCallable(crate::sema::types::SchemeCallableId),
     Callable(CallableContractView<'a>),
     GenericCallable(crate::sema::types::CallableKind),
     Stream(&'a Type),
@@ -392,7 +393,7 @@ pub(super) fn value_matches_runtime_type(value: ValueView<'_>, ty: &Type) -> boo
 fn runtime_contract_matches(value: ValueView<'_>, contract: RetainedValueContract<'_>) -> bool {
     match contract {
         RetainedValueContract::Callable(callable) => callable.kind() != crate::sema::types::CallableKind::Stream && value.scalar_type() == Some(Type::Function(callable.kind())),
-        RetainedValueContract::GenericCallable(_) | RetainedValueContract::EnvironmentPathList => false,
+        RetainedValueContract::SchemeCallable(_) | RetainedValueContract::GenericCallable(_) | RetainedValueContract::EnvironmentPathList => false,
         RetainedValueContract::Stream(_) => value.stream().is_some(),
     }
 }
@@ -449,6 +450,7 @@ pub(super) fn value_matches_type_with_contracts(
         Type::ErrorFamily(family) => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family)),
         Type::ErrorVariant { family, variant } => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family) && error.variant_name() == *variant),
         Type::ErrorFacet(facet) => value.error().is_some_and(|error| facet.with_str(|facet| error.facets.iter().any(|value| value == facet))),
+        Type::SchemeCallable(id) => accepts_contract(value, RetainedValueContract::SchemeCallable(*id)),
         Type::Callable(callable) => accepts_contract(value, RetainedValueContract::Callable(CallableContractView::Value(callable))),
         Type::Optional(inner) => value.scalar_type() == Some(Type::Null) || value_matches_type_with_contracts(value, inner, accepts_contract),
         Type::Union(members) => crate::sema::types::first_accepting_union_member(members, |ty| value_matches_type_with_contracts(value, ty, accepts_contract)).is_some(),

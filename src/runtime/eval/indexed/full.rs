@@ -4,6 +4,7 @@ pub(in crate::runtime::eval) mod schema;
 mod verify_schemes;
 mod verify_effects;
 mod schemes;
+mod scheme_values;
 use schemes::{
     FullCallableContract, FullSchemeId, FullSchemeTypeNode, SchemeTypeId,
 };
@@ -734,6 +735,11 @@ struct FullStore {
     schemes: Vec<schemes::FullScheme>,
     scheme_types: Vec<FullSchemeTypeNode>,
     scheme_callable_monotypes: Vec<schemes::FullSchemeCallableMonotype>,
+    scheme_callable_values: Vec<scheme_values::FullSchemeCallableValue>,
+    scheme_callable_targets: Vec<scheme_values::FullSchemeCallableTarget>,
+    scheme_callable_binders: Vec<u32>,
+    scheme_callable_calls: Vec<scheme_values::FullSchemeCallableCall>,
+
     scheme_callable_parameters: Vec<schemes::FullSchemeCallableParameter>,
     scheme_fields: Vec<schemes::FullSchemeField>,
     scheme_children: Vec<SchemeTypeId>,
@@ -836,6 +842,11 @@ impl Default for FullStore {
             schemes: Vec::new(),
             scheme_types: Vec::new(),
             scheme_callable_monotypes: Vec::new(),
+            scheme_callable_values: Vec::new(),
+            scheme_callable_targets: Vec::new(),
+            scheme_callable_binders: Vec::new(),
+            scheme_callable_calls: Vec::new(),
+
             scheme_callable_parameters: Vec::new(),
             scheme_fields: Vec::new(),
             scheme_children: Vec::new(),
@@ -1079,6 +1090,11 @@ impl FullStore {
             + self.schemes.capacity() * size_of::<schemes::FullScheme>()
             + self.scheme_types.capacity() * size_of::<FullSchemeTypeNode>()
             + self.scheme_callable_monotypes.capacity() * size_of::<schemes::FullSchemeCallableMonotype>()
+            + self.scheme_callable_values.capacity() * size_of::<scheme_values::FullSchemeCallableValue>()
+            + self.scheme_callable_targets.capacity() * size_of::<scheme_values::FullSchemeCallableTarget>()
+            + self.scheme_callable_binders.capacity() * size_of::<u32>()
+            + self.scheme_callable_calls.capacity() * size_of::<scheme_values::FullSchemeCallableCall>()
+
             + self.scheme_callable_parameters.capacity() * size_of::<schemes::FullSchemeCallableParameter>()
             + self.scheme_fields.capacity() * size_of::<schemes::FullSchemeField>()
             + self.scheme_children.capacity() * size_of::<SchemeTypeId>()
@@ -1201,6 +1217,11 @@ impl FullStore {
         self.schemes.shrink_to_fit();
         self.scheme_types.shrink_to_fit();
         self.scheme_callable_monotypes.shrink_to_fit();
+        self.scheme_callable_values.shrink_to_fit();
+        self.scheme_callable_targets.shrink_to_fit();
+        self.scheme_callable_binders.shrink_to_fit();
+        self.scheme_callable_calls.shrink_to_fit();
+
         self.scheme_callable_parameters.shrink_to_fit();
         self.scheme_fields.shrink_to_fit();
         self.scheme_children.shrink_to_fit();
@@ -1358,13 +1379,27 @@ impl FullProgram {
             return Ok(PreparedInvocationBindings::default());
         };
         let instance = self.store.call_instantiations[index];
-        let FullCallableContract::Scheme(id) = self.store.functions.get(target)
+        let relationship = self.store.scheme_callable_calls.binary_search_by_key(&instruction, |call| call.instruction).ok()
+            .map(|index| self.store.scheme_callable_calls[index].relationship);
+        let (contract_target, selected) = if let Some(relationship) = relationship {
+            let value = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("value-call relationship is out of bounds"))?;
+            let range = value.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("value-call target range is invalid"))?;
+            let selected = self.store.scheme_callable_targets[range].iter().find(|row| row.function.index() == target).copied()
+                .ok_or_else(|| IrVerifyError::new("value-call actual target is not a member"))?;
+            (value.canonical.index(), Some(selected))
+        } else { (target, None) };
+        let FullCallableContract::Scheme(id) = self.store.functions.get(contract_target)
             .ok_or_else(|| IrVerifyError::new("invocation target is out of bounds"))?.contract
         else { return Err(IrVerifyError::new("generic invocation target has no scheme")); };
         let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
-        let substitution = verify_schemes::instantiate_invocation(
+        let mut substitution = verify_schemes::instantiate_invocation(
             &self.store, self.store.scheme(id)?, &instance, &caller.substitution, &mut budget,
         )?;
+        if let Some(selected) = selected {
+            substitution.types = scheme_values::reorder_binders(&self.store, selected.types, substitution.types, &mut budget)?;
+            substitution.rows = scheme_values::reorder_binders(&self.store, selected.rows, substitution.rows, &mut budget)?;
+            substitution.effects = scheme_values::reorder_binders(&self.store, selected.effects, substitution.effects, &mut budget)?;
+        }
         let range = instance.application_bindings.bounds(self.store.call_application_bindings.len())
             .ok_or_else(|| IrVerifyError::new("invocation application range is invalid"))?;
         budget.charge(range.len())?;
@@ -1428,7 +1463,7 @@ impl FullProgram {
         }
     }
 
-    fn invocation_return_type(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<Type, IrVerifyError> {
+    pub(in crate::runtime::eval) fn invocation_return_type(&self, function: usize, invocation: &PreparedInvocationBindings) -> Result<Type, IrVerifyError> {
         let function = self.store.functions.get(function).ok_or_else(|| IrVerifyError::new("stream return owner is out of bounds"))?;
         match function.contract {
             FullCallableContract::Ground(signature) => self.store.semantic.to_type(self.store.semantic.signature_return_type(signature)?),
@@ -3346,6 +3381,12 @@ struct FullCheckpoint {
     checked_call_targets: usize,
     scheme_types: usize,
     scheme_callable_monotypes: usize,
+    scheme_callable_values: usize,
+    scheme_callable_targets: usize,
+    scheme_callable_binders: usize,
+    scheme_callable_calls: usize,
+    pending_scheme_callable_values: usize,
+
     scheme_callable_parameters: usize,
     scheme_effects: usize,
     scheme_effect_parameters: usize,
@@ -3408,6 +3449,11 @@ struct FullCheckpoint {
 pub(in crate::runtime::eval) struct FullBuilder {
     store: FullStore,
     semantic: SemanticPoolBuilder,
+    source_scheme_callables: Option<Arc<crate::sema::scheme_callable::SchemeCallableTable>>,
+    scheme_callable_ids: BTreeMap<crate::sema::types::SchemeCallableId, u32>,
+    pending_scheme_callable_values: Vec<Arc<crate::sema::scheme_callable::SchemeCallableRelationship>>,
+    source_function_bodies: Vec<Span>,
+    lowered_function_bodies: Vec<Span>,
     strings: BTreeMap<String, IrStringId>,
     bytes: BTreeMap<Vec<u8>, super::IrBytesId>,
     locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
@@ -3537,23 +3583,18 @@ impl FullBuilder {
                 ));
             }
 
-            for (target, fields) in [
-                (&mut self.store.checked_pattern_variants, fields),
-                (&mut self.store.declared_pattern_variants, &canonical_fields),
-            ] {
+            for (is_checked, fields) in [(true, fields), (false, &canonical_fields)] {
                 let mut full_fields = Vec::with_capacity(fields.len());
                 for field in fields {
                     full_fields.push(FullPatternFieldType {
                         name: field.name,
-                        type_id: self.semantic.intern_type(
-                            &mut self.store.semantic,
-                            &executable_type(&field.ty),
-                        )?,
+                        type_id: self.intern_checked_type(&executable_type(&field.ty))?,
                     });
                 }
                 let schema = FullPatternVariantSchema {
                     fields: full_fields,
                 };
+                let target = if is_checked { &mut self.store.checked_pattern_variants } else { &mut self.store.declared_pattern_variants };
                 match target.get(key) {
                     Some(existing) if existing == &schema => {}
                     Some(_) => {
@@ -3633,6 +3674,7 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
+        self.finish_scheme_callable_values()?;
         self.store.shrink_to_fit();
         let headers = (0..self.store.functions.len())
             .map(|_| std::sync::OnceLock::new())
@@ -3802,6 +3844,8 @@ impl FullBuilder {
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
+        builder.source_scheme_callables = Some(Arc::clone(&declarations.scheme_callables));
+        builder.source_function_bodies = program.arena.function_defs.iter().map(|definition| program.arena.span(program.arena.block(definition.body).span)).collect();
         let selection = super::super::lower::compact_function_selection(program, declarations, scope);
         builder.producer_demand = selection.producer_demand;
         builder.reserve_function_keys(selection.keys)?;
@@ -4087,9 +4131,7 @@ impl FullBuilder {
                     .transpose()?
                     .unwrap_or(IR_NONE);
                 let type_id = match &capture.checked_type {
-                    Some(ty) => self
-                        .semantic
-                        .intern_type(&mut self.store.semantic, &executable_type(ty))?,
+                    Some(ty) => self.intern_checked_type(&executable_type(ty))?,
                     None => self.intern_lowered_type(capture.kind)?,
                 };
                 self.store.captures.push(FullCapture {
@@ -4106,8 +4148,7 @@ impl FullBuilder {
                 body.checked_return_type
                     .as_ref()
                     .map(|ty| {
-                        self.semantic
-                            .intern_type(&mut self.store.semantic, &executable_type(ty))
+                        self.intern_checked_type(&executable_type(ty))
                     })
                     .transpose()?
                     .map_or(IR_NONE, TypeId::raw)
@@ -4146,8 +4187,7 @@ impl FullBuilder {
                 FullCallableContract::Scheme(scheme)
             } else {
                 let return_type = if let Some(check) = &body.return_check {
-                    self.semantic
-                        .intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+                    self.intern_checked_type(&executable_type(&check.ty))?
                 } else if body
                     .checked_return_type
                     .as_ref()
@@ -4186,9 +4226,7 @@ impl FullBuilder {
             for ty in &body.slot_type_facts {
                 let raw = match ty {
                     None => IR_NONE,
-                    Some(ty) => self
-                        .semantic
-                        .intern_type(&mut self.store.semantic, &executable_type(ty))?
+                    Some(ty) => self.intern_checked_type(&executable_type(ty))?
                         .raw(),
                 };
                 self.store.slot_type_facts.push(raw);
@@ -4219,6 +4257,7 @@ impl FullBuilder {
                 reserved: [0; 2],
             });
             self.function_definition_spans.push(unit.definition_span());
+            self.lowered_function_bodies.push(unit.source_span());
         }
         Ok(())
     }
@@ -4616,8 +4655,7 @@ impl FullBuilder {
                     .and_then(Option::as_ref)
                     .or(slot.checked_type.as_ref())
                     .map(|ty| {
-                        self.semantic
-                            .intern_type(&mut self.store.semantic, &executable_type(ty))
+                        self.intern_checked_type(&executable_type(ty))
                     })
                     .transpose()?
                     .map_or_else(|| self.intern_lowered_type(slot.kind), Ok)?;
@@ -4666,9 +4704,7 @@ impl FullBuilder {
                 else {
                     continue;
                 };
-                let type_id = self
-                    .semantic
-                    .intern_type(&mut self.store.semantic, &executable_type(ty))?;
+                let type_id = self.intern_checked_type(&executable_type(ty))?;
                 self.store.driver_slots.push(FullDriverSlot {
                     name: IR_NONE,
                     type_id,
@@ -4692,9 +4728,7 @@ impl FullBuilder {
                 key, alias, path, namespace, exports, checked_type, span, ..
             }) => {
                 registered_module_type = match checked_type {
-                    Some(ty @ Type::Module(_)) => self
-                        .semantic
-                        .intern_type(&mut self.store.semantic, &executable_type(ty))?
+                    Some(ty @ Type::Module(_)) => self.intern_checked_type(&executable_type(ty))?
                         .raw(),
                     Some(_) => {
                         return Err(IrBuildError::format(
@@ -5068,9 +5102,7 @@ impl FullBuilder {
     fn encode_validation(&mut self, check: &LoweredTypeCheck) -> Result<u32, IrBuildError> {
         let id = u32::try_from(self.store.validations.len())
             .map_err(|_| IrBuildError::format("validation_overflow", None, 0, 0))?;
-        let type_id = self
-            .semantic
-            .intern_type(&mut self.store.semantic, &executable_type(&check.ty))?;
+        let type_id = self.intern_checked_type(&executable_type(&check.ty))?;
         let name = self.intern_string(&check.name)?.raw();
         self.store
             .validations
@@ -5079,29 +5111,23 @@ impl FullBuilder {
     }
 
     fn intern_lowered_type(&mut self, ty: LoweredType) -> Result<TypeId, IrBuildError> {
-        let ty = lowered_type_to_type(ty);
-        self.semantic.intern_type(&mut self.store.semantic, &ty)
+        let ty = lowered_type_to_type(ty).ok_or_else(|| IrBuildError::format("scheme_callable_requires_checked_context", None, 0, 0))?;
+        self.intern_checked_type(&ty)
     }
 
     fn intern_return_type(&mut self, kind: LoweredReturnKind) -> Result<TypeId, IrBuildError> {
         match kind {
             LoweredReturnKind::Plain(ty) => self.intern_lowered_type(ty),
             LoweredReturnKind::Result(ty) => {
-                let ok = lowered_type_to_type(ty);
-                self.semantic.intern_type(
-                    &mut self.store.semantic,
-                    &Type::Result(Box::new(ok), Box::new(Type::Error)),
-                )
+                let ok = lowered_type_to_type(ty).ok_or_else(|| IrBuildError::format("scheme_callable_requires_checked_context", None, 0, 0))?;
+                self.intern_checked_type(&Type::Result(Box::new(ok), Box::new(Type::Error)))
             }
             // The signature keeps only the shape that selects the kind again
             // when the function header is read back.
-            LoweredReturnKind::OptionalResult => self.semantic.intern_type(
-                &mut self.store.semantic,
-                &Type::Optional(Box::new(Type::Result(
+            LoweredReturnKind::OptionalResult => self.intern_checked_type(&Type::Optional(Box::new(Type::Result(
                     Box::new(Type::Any),
                     Box::new(Type::Error),
-                ))),
-            ),
+                )))),
             LoweredReturnKind::Erased | LoweredReturnKind::QuantifiedResult => Err(IrBuildError::format(
                 "erased_return_without_scheme",
                 None,
@@ -5154,6 +5180,12 @@ impl FullBuilder {
             checked_call_targets: self.store.checked_call_targets.len(),
             scheme_types: self.store.scheme_types.len(),
             scheme_callable_monotypes: self.store.scheme_callable_monotypes.len(),
+            scheme_callable_values: self.store.scheme_callable_values.len(),
+            scheme_callable_targets: self.store.scheme_callable_targets.len(),
+            scheme_callable_binders: self.store.scheme_callable_binders.len(),
+            scheme_callable_calls: self.store.scheme_callable_calls.len(),
+            pending_scheme_callable_values: self.pending_scheme_callable_values.len(),
+
             scheme_callable_parameters: self.store.scheme_callable_parameters.len(),
             scheme_effects: self.store.scheme_effects.len(),
             scheme_effect_parameters: self.store.scheme_effect_parameters.len(),
@@ -5254,6 +5286,13 @@ impl FullBuilder {
             .truncate(checkpoint.checked_call_targets);
         self.store.scheme_types.truncate(checkpoint.scheme_types);
         self.store.scheme_callable_monotypes.truncate(checkpoint.scheme_callable_monotypes);
+        self.store.scheme_callable_values.truncate(checkpoint.scheme_callable_values);
+        self.store.scheme_callable_targets.truncate(checkpoint.scheme_callable_targets);
+        self.store.scheme_callable_binders.truncate(checkpoint.scheme_callable_binders);
+        self.store.scheme_callable_calls.truncate(checkpoint.scheme_callable_calls);
+        self.pending_scheme_callable_values.truncate(checkpoint.pending_scheme_callable_values);
+        self.scheme_callable_ids.retain(|_, index| (*index as usize) < checkpoint.pending_scheme_callable_values);
+
         self.store.scheme_callable_parameters.truncate(checkpoint.scheme_callable_parameters);
         self.store.scheme_effects.truncate(checkpoint.scheme_effects);
         self.store.scheme_effect_parameters.truncate(checkpoint.scheme_effect_parameters);
@@ -5388,8 +5427,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
     tags.iter().fold(0, |effects, tag| effects | tag.effects())
 }
 
-pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
-    match ty {
+pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Option<Type> {
+    Some(match ty {
         LoweredType::Any => Type::Any,
         LoweredType::Unit => Type::Unit,
         LoweredType::Int => Type::Int,
@@ -5409,6 +5448,7 @@ pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
         LoweredType::FsLock => Type::FsLock,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Function(kind) => Type::Function(kind),
+        LoweredType::SchemeCallable => return None,
         LoweredType::Error => Type::Error,
         LoweredType::Record => Type::ErasedRecord,
         LoweredType::Module => Type::DynamicModule,
@@ -5417,7 +5457,7 @@ pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
         LoweredType::Set => Type::Set(Box::new(Type::Any)),
-    }
+    })
 }
 
 fn executable_type(ty: &Type) -> Type {
@@ -5519,6 +5559,7 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::Set(_) => LoweredType::Set,
         Type::Function(kind) => LoweredType::Function(*kind),
         Type::Callable(callable) => LoweredType::Function(callable.kind),
+        Type::SchemeCallable(_) => LoweredType::SchemeCallable,
         Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
@@ -5626,6 +5667,7 @@ fn scheme_type_physical_kind(
                 &store.semantic.to_type(type_id)?,
             )?)
         }
+        schema::FullSchemeTypeTag::SchemeCallable => Some(LoweredType::SchemeCallable),
         schema::FullSchemeTypeTag::Parameter => None,
         schema::FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotypes.get(node.first as usize)
@@ -6482,7 +6524,7 @@ struct DriverLocalLetSource {
     checked_type: TypeId,
     initializer: usize,
     annotation: Option<TypeId>,
-    runtime_type: Option<TypeId>,
+    runtime_type: Option<LoweredType>,
     validation_type: Option<TypeId>,
 }
 
@@ -7178,7 +7220,7 @@ impl<'a> FullDecoder<'a> {
                 if lowered_type_from_type(&actual_type)?
                     != lowered_type_from_type(&capture_type)?
                     || (capture_type != actual_type
-                        && capture_type != lowered_type_to_type(
+                        && Some(capture_type.clone()) != lowered_type_to_type(
                             lowered_type_from_type(&capture_type)?,
                         )
                         && capture_type != Type::Any)
@@ -7744,7 +7786,7 @@ impl<'a> FullDecoder<'a> {
                     let target = Name::decode(&decoder, &mut payload)?;
                     let context = DecodeContext::from_decoder(&decoder);
                     let runtime_type =
-                        Option::<LoweredType>::borrow(context, &mut payload)?.map(|ty| ty.id);
+                        Option::<LoweredType>::borrow(context, &mut payload)?.map(|ty| ty.materialize_lowered()).transpose()?;
                     let validation_type = Option::<LoweredTypeCheck>::borrow(context, &mut payload)?
                         .map(|check| check.ty.id);
                     let annotation = Option::<Type>::borrow(context, &mut payload)?
@@ -11386,6 +11428,7 @@ impl<'a> FullDecoder<'a> {
         fact: FullCheckedExprType,
         constant_budget: &mut Option<verify_schemes::SchemeInstantiationBudget>,
     ) -> Result<(), IrVerifyError> {
+        let constant_budget = RefCell::new(constant_budget);
         let ty = self.store.semantic.to_type(fact.type_id)?;
         let view = self.expression_view(instruction)?;
         let generic_call_result = match &view {
@@ -11402,6 +11445,7 @@ impl<'a> FullDecoder<'a> {
                 .is_some_and(|function| {
                     matches!(function.contract, FullCallableContract::Scheme(_))
                 }),
+            schema::ExprView::DynamicCall { .. } => self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok(),
             _ => false,
         };
         let checked_unsigned_integer_literal =
@@ -11439,6 +11483,12 @@ impl<'a> FullDecoder<'a> {
             }
         };
         let require_child = |child: usize, expected: &Type| {
+            if expected.contains_scheme_callable() && let Some(actual) = self.expression_checked_type_id(child)? {
+                let actual = self.store.semantic.to_type(actual)?;
+                let mut budget = constant_budget.borrow_mut();
+                let budget = budget.get_or_insert_with(|| verify_schemes::SchemeInstantiationBudget::for_prepared_constants(self.store, self.prepared_constant_work.get()));
+                if scheme_values::relationship_type_fits(self.store, &actual, expected, budget, 0)? { return Ok(()); }
+            }
             self.require_checked_child_type(child, expected)
         };
         let require_registered_return = |expected: Type, message| {
@@ -11466,8 +11516,16 @@ impl<'a> FullDecoder<'a> {
                 if fact.function_ref().is_some() || fact.with_error_source()
                     || check.schema.is_some() || checked != ty
                 { return Err(IrVerifyError::new("checked optional payload carries unrelated contract evidence")); }
-                let source = self.checked_value_optional_source(instruction, value.raw() as usize, check.ty.id, &checked)?;
-                require_child(value.raw() as usize, source.as_ref().unwrap_or(&checked))?;
+                if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
+                    let source = self.checked_expression_type_id(value.raw() as usize)?
+                        .ok_or_else(|| IrVerifyError::new("scheme callable value materialization has no source contract"))?;
+                    let source = self.store.semantic.to_type(source)?;
+                    if !matches!(ty, Type::Callable(_)) || !matches!(source, Type::SchemeCallable(_)) { return Err(IrVerifyError::new("scheme callable value materialization has invalid source or storage kind")); }
+                    require_child(value.raw() as usize, &source)?;
+                } else {
+                    let source = self.checked_value_optional_source(instruction, value.raw() as usize, check.ty.id, &checked)?;
+                    require_child(value.raw() as usize, source.as_ref().unwrap_or(&checked))?;
+                }
             }
 
             schema::ExprView::PreparedConstant(value) => {
@@ -11475,7 +11533,8 @@ impl<'a> FullDecoder<'a> {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
                 }
                 verify_schemes::ensure_substitution_type(&ty)?;
-                let budget = constant_budget.get_or_insert_with(|| verify_schemes::SchemeInstantiationBudget::for_prepared_constants(self.store, self.prepared_constant_work.get()));
+                let mut budget = constant_budget.borrow_mut();
+                let budget = budget.get_or_insert_with(|| verify_schemes::SchemeInstantiationBudget::for_prepared_constants(self.store, self.prepared_constant_work.get()));
                 self.verify_prepared_constant_type(value, &ty, &mut |amount| budget.charge(amount))?;
             }
             schema::ExprView::Int(_) if ty == Type::Int => {}
@@ -11503,7 +11562,17 @@ impl<'a> FullDecoder<'a> {
                         _ => false,
                     }
                 });
-                let (_, contract, target_kind) = self.function_reference_contract(function)?;
+                let (target, contract, target_kind) = self.function_reference_contract(function)?;
+                if let Type::SchemeCallable(id) = &ty {
+                    let id = self.store.semantic.scheme_callable_index(*id)?;
+                    let relationship = self.store.scheme_callable_values.get(id as usize).ok_or_else(|| IrVerifyError::new("checked scheme callable reference relationship is out of bounds"))?;
+                    let range = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("checked scheme callable reference target range is invalid"))?;
+                    if !function_matches || target_kind != kind || range.len() != 1 || self.store.scheme_callable_targets[range.start].function != target || !matches!(contract, FullCallableContract::Scheme(_)) {
+                        return Err(IrVerifyError::new("checked scheme callable reference disagrees with its actual singleton producer"));
+                    }
+                    if self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() { return Err(IrVerifyError::new("quantified callable reference carries a monotype instance")); }
+                    return Ok(());
+                }
                 let Type::Callable(checked_callable) = &ty else {
                     return Err(IrVerifyError::new(
                         "checked function reference has a non-callable fact",
@@ -11661,6 +11730,9 @@ impl<'a> FullDecoder<'a> {
                 let function = IrFunctionId::from_raw(self.owner)
                     .ok_or_else(|| IrVerifyError::new("self call has no function owner"))?;
                 exact_type(self.function_return_type_at(instruction, function.index())?)?;
+            }
+            schema::ExprView::DynamicCall { .. } if generic_call_result => {
+                if fact.function_ref().is_some() || fact.with_error_source() || !self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() { return Err(IrVerifyError::new("scheme callable result fact has no actual instantiation")); }
             }
             schema::ExprView::TypedCall { signature, .. } => {
                 let Type::Callable(callable) = signature.materialize()? else {
@@ -18363,7 +18435,7 @@ impl FullVerifier {
                 })
                 .is_some_and(|function| {
                     matches!(function.contract, FullCallableContract::Scheme(_))
-                });
+                }) || store.scheme_callable_calls.binary_search_by_key(&fact.instruction, |call| call.instruction).is_ok();
             let checked_unsigned_integer_literal =
                 store.tags[instruction] == FullTag::ExprUInt && ty == Type::UInt;
             let checked_prepared_constant = store.tags[instruction] == FullTag::ExprPreparedConstant;
@@ -19737,7 +19809,7 @@ impl FullCodec for PreparedConstantValue {
         });
         let origin = self.1.as_ref().map(|origin| map_prepared_constant_origin(origin, 0, &mut |ty: &Arc<Type>| {
             verify_schemes::ensure_substitution_type(ty).map_err(|error| IrBuildError::format("prepared_constructor_type", None, 0, 0).with_detail(Some(error.message)))?;
-            builder.semantic.intern_type(&mut builder.store.semantic, ty)
+            builder.intern_checked_type(ty)
         }, &|| IrBuildError::format("prepared_constructor_origin_depth", None, 0, 0))).transpose()?;
         builder.store.prepared_constants.push(PreparedConstantValue(self.0.clone(), origin));
         output.push(index);
@@ -20084,9 +20156,7 @@ impl FullCodec for FormatSpec {
 impl FullCodec for Type {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(
-            builder
-                .semantic
-                .intern_type(&mut builder.store.semantic, &executable_type(self))?
+            builder.intern_checked_type(&executable_type(self))?
                 .raw(),
         );
         Ok(())
@@ -20104,14 +20174,18 @@ impl FullCodec for Type {
 
 impl FullCodec for LoweredType {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        lowered_type_to_type(*self).encode(builder, output)
+        if *self == LoweredType::SchemeCallable { output.push(IR_NONE); return Ok(()); }
+        lowered_type_to_type(*self).ok_or_else(|| IrBuildError::format("lowered_type_kind", None, 0, 0))?.encode(builder, output)
     }
 
     fn decode(
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
-        lowered_type_from_type(&Type::decode(decoder, input)?)
+        let raw = input.raw()?;
+        if raw == IR_NONE { return Ok(LoweredType::SchemeCallable); }
+        let id = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("lowered type id is invalid"))?;
+        lowered_type_from_type(&decoder.store.semantic.to_type(id)?)
     }
 }
 
@@ -20646,6 +20720,7 @@ macro_rules! impl_build_id_codec {
                 let registered_call = if $checked_expr_type {
                     scratch.registered_calls.get(self.index()).cloned().flatten()
                 } else { None };
+                let scheme_callable_call = if $checked_expr_type { scratch.scheme_callable_calls.get(&self.index()).copied() } else { None };
                 let operation = if $checked_expr_type { scratch.scheme_operations.get(&self.index()).copied() } else { None };
                 let method = if $checked_expr_type { scratch.scheme_methods.get(&self.index()).copied() } else { None };
                 let wrapper = if $checked_expr_type { scratch.scheme_wrappers.get(&self.index()).copied() } else { None };
@@ -20698,6 +20773,7 @@ macro_rules! impl_build_id_codec {
                     || transfers_resource
                     || application_return.is_some()
                     || method.is_some()
+                    || scheme_callable_call.is_some()
                     || checked_call_target.is_some()
                     || call_instantiation.is_some()
                     || checked_call_result.is_some()
@@ -20752,7 +20828,7 @@ macro_rules! impl_build_id_codec {
                         }
                     };
                     if let Some(purpose) = purpose {
-                    let type_id = builder.semantic.intern_type(&mut builder.store.semantic, &executable_type(&ty.ty))?;
+                    let type_id = builder.intern_checked_type(&executable_type(&ty.ty))?;
                     builder.store.checked_expr_types.push(FullCheckedExprType {
                         instruction: u32::try_from(instruction).map_err(|_| {
                             IrBuildError::format(
@@ -20785,6 +20861,12 @@ macro_rules! impl_build_id_codec {
                         ));
                     }
                     builder.store.resource_transfers[instruction] = true;
+                }
+                if let Some(source) = scheme_callable_call {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_callable_call_instruction", None, 0, self.index()))?;
+                    if checked_call_target.is_some() { return Err(IrBuildError::format("scheme_callable_call_target_conflict", None, 0, instruction)); }
+                    let relationship = builder.intern_scheme_callable_value(source)?.0;
+                    builder.store.scheme_callable_calls.push(scheme_values::FullSchemeCallableCall { instruction: instruction as u32, relationship });
                 }
                 if let Some(target) = checked_call_target {
                     let instruction = instruction.ok_or_else(|| {
@@ -20856,7 +20938,7 @@ macro_rules! impl_build_id_codec {
                         builder.record_call_instantiation(instruction, &instantiation)?;
                         builder.record_checked_call_result(instruction, &result_type)?;
                     }
-                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam)) => {
+                    (Some(instantiation), None) if scheme_body_type.is_some() || instruction.is_some_and(|instruction| matches!(builder.store.tags[instruction], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue)) => {
                         let instruction = instruction.ok_or_else(|| {
                             IrBuildError::format(
                                 "indexed_build_instruction",
@@ -41749,6 +41831,117 @@ assert stored_name(failed) == name(failed)
     }
 
     #[test]
+    fn scheme_callable_values_instantiate_once_at_monomorphic_boundaries_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-monomorphic-boundaries.xsh", r#"
+type CopyInt = pure(value: Int) -> Int
+pure identity(value) { value }
+pure use_callback(action, value) { action(value) }
+let operations = {copy: identity}
+let fixed: CopyInt = operations.copy
+assert fixed(41) == 41
+assert use_callback(operations.copy, 42) == 42
+assert use_callback(operations.copy, "demo") == "demo"
+var current = identity
+assert current(43) == 43
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_factory_results_keep_call_and_value_instantiations_distinct() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-factory-materialization.xsh", r#"
+type CopyInt = pure(value: Int) -> Int
+pure identity(value) { value }
+pure factory(marker) { let _ = marker; let candidate = identity; candidate }
+let fixed: CopyInt = factory(true)
+assert fixed(44) == 44
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let materialization = program.store.scheme_callable_calls.iter().find(|site| program.store.tags[site.instruction as usize] == FullTag::ExprCheckedValue).unwrap();
+            let decoder = stage_view_decoder(&program.store);
+            let schema::ExprView::CheckedValue { value, .. } = decoder.expression_view(materialization.instruction as usize).unwrap() else { unreachable!() };
+            let call = value.raw();
+            assert!(program.store.checked_call_targets.iter().any(|target| target.instruction == call));
+            assert!(program.store.call_instantiations.iter().any(|instance| instance.instruction == call));
+            assert!(program.store.call_instantiations.iter().any(|instance| instance.instruction == materialization.instruction));
+            let mut forged = (*program).clone();
+            forged.store.scheme_callable_calls.iter_mut().find(|site| site.instruction == materialization.instruction).unwrap().instruction = call;
+            forged.store.scheme_callable_calls.sort_by_key(|site| site.instruction);
+            FullVerifier::verify(&forged).expect_err("a value instance cannot use its source call's authority");
+            let mut forged = (*program).clone();
+            for instance in &mut forged.store.call_instantiations {
+                if instance.instruction == call { instance.instruction = materialization.instruction; }
+                else if instance.instruction == materialization.instruction { instance.instruction = call; }
+            }
+            forged.store.call_instantiations.sort_by_key(|instance| instance.instruction);
+            FullVerifier::verify(&forged).expect_err("call and value substitutions retain their physical roles");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_record_values_instantiate_independently_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-record-values.xsh", r#"
+pure identity(value) { value }
+let operations = {copy: identity}
+let integer = operations.copy(42)
+let text = operations.copy("demo")
+assert integer == 42
+assert text == "demo"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
+    fn scheme_callable_conditional_values_instantiate_each_actual_target_on_both_routes() {
+        run_with_large_stack(|| {
+            for left in [true, false] {
+                let source = format!(r#"
+pure first(value) {{ {{source: "first", value: value}} }}
+pure second(value) {{ {{source: "second", value: value}} }}
+let selected = if {left} {{ let candidate = first; candidate }} else {{ let candidate = second; candidate }}
+let integer = selected(42)
+let text = selected("demo")
+assert integer.source == "{expected}"
+assert integer.value == 42
+assert text.source == "{expected}"
+assert text.value == "demo"
+"#, expected = if left { "first" } else { "second" });
+                let program = Arc::new(fixture("scheme-callable-conditional-values.xsh", &source));
+                FullVerifier::verify(&program).unwrap();
+                for force_frames in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.force_frames = force_frames;
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                }
+            }
+        });
+    }
+
+    #[test]
     fn checked_result_constructor_unsigned_context_requires_runtime_validation() {
         run_with_large_stack(|| {
             let program = fixture("checked-result-unsigned-context.xsh", "pure retained(marker, value: Result[UInt, Str]) -> Result[UInt, Str] { let _ = marker; value }\nlet wrapped: Result[UInt, Str] = Ok(1)\nlet selected = retained(true, wrapped)\n");
@@ -49893,7 +50086,7 @@ proc local() [env, error] -> Int {
         ];
 
         for (kind, ty) in kinds {
-            assert_eq!(lowered_type_to_type(kind), ty, "{kind:?}");
+            assert_eq!(lowered_type_to_type(kind), Some(ty.clone()), "{kind:?}");
             assert_eq!(lowered_type_for_type(&ty), Some(kind), "{kind:?}");
         }
 

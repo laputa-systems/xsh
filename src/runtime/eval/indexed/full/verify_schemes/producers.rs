@@ -320,7 +320,7 @@ impl ProducerPrefixContext<'_> {
     fn exact_runtime_kind(ty: &Type, work: &mut SchemeInstantiationBudget) -> Result<Option<super::super::LoweredType>, IrVerifyError> {
         if !super::runtime_complete_value_check_type(ty, work, 0)? { return Ok(None); }
         let Some(kind) = super::super::lowered_type_for_type(ty) else { return Ok(None) };
-        Ok((super::super::lowered_type_to_type(kind) == *ty).then_some(kind))
+        Ok((super::super::lowered_type_to_type(kind).as_ref() == Some(ty)).then_some(kind))
     }
 
     fn union_member_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize, declared: &Type) -> Result<Option<Type>, IrVerifyError> {
@@ -336,7 +336,7 @@ impl ProducerPrefixContext<'_> {
         if &stored != declared { return Ok(None); }
         self.evidence.work.borrow_mut().charge(1)?;
         if let Some(&kind) = self.evidence.completed_union_reads.borrow().get(&(instruction, stored_id)) {
-            let ty = super::super::lowered_type_to_type(kind);
+            let ty = super::super::lowered_type_to_type(kind).ok_or_else(|| IrVerifyError::new("runtime kind has no unique semantic type"))?;
             self.evidence.work.borrow_mut().charge_clone(&ty)?;
             return Ok(Some(ty));
         }
@@ -1055,6 +1055,7 @@ impl GroundProducerIndex {
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
             let Some(&tag) = store.tags.get(fact.instruction as usize) else { continue };
+            if store.semantic.to_type(fact.type_id)?.contains_scheme_callable() { checked_producers.push(index); continue; }
             if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue | FullTag::ExprRange | FullTag::ExprCapture | FullTag::ExprErrorContext) { continue; }
             let ty = store.semantic.to_type(fact.type_id)?;
             if (tag == FullTag::ExprCheckedValue && ty.contains_typed_callable())
@@ -1996,14 +1997,14 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         let owner = index.instruction_owner(instantiation.instruction as usize)?;
         if super::super::driver_owner_index(owner).is_none() && matches!(store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_)) { continue; }
         let decoder = proof.owner(owner)?;
-        if matches!(store.tags[instantiation.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam) {
+        if matches!(store.tags[instantiation.instruction as usize], FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue) {
             let type_id = super::checked_expression_type_id(store, instantiation.instruction)
                 .ok_or_else(|| IrVerifyError::new("materialized callable has no checked producer type"))?;
             let ty = proof.contract_type(type_id)?;
             proof.expression(owner, instantiation.instruction as usize, ty, false);
             continue;
         }
-        let (_, arguments) = call_parts(&decoder, instantiation.instruction as usize)?;
+        let arguments = call_values(&decoder, instantiation.instruction as usize)?;
         for argument in arguments {
             let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
             let ty = if let Some(expected) = ground_arguments.remove(&(owner, instantiation.instruction as usize, argument)) {
@@ -4093,6 +4094,16 @@ impl<'a> ProducerProof<'a> {
             if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.ground_function(target.index())?; }
             return Ok(());
         }
+        if let Type::SchemeCallable(id) = expected.as_ref() {
+            let relationship = self.store.semantic.scheme_callable_index(*id)?;
+            let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable producer relationship is out of bounds"))?;
+            let range = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("scheme callable producer target range is invalid"))?;
+            self.budget.charge(range.len())?;
+            let expected = self.store.scheme_callable_targets[range].iter().map(|target| target.function.index()).collect::<BTreeSet<_>>();
+            let actual = self.producer_targets(owner, instruction, ProducerTargetPurpose::Callable, Vec::new())?;
+            if actual.opaque || !actual.parameters.is_empty() || actual.functions != expected { return Err(IrVerifyError::new("scheme callable relationship disagrees with its exact physical producers")); }
+            return Ok(());
+        }
         let actual = match declared {
             Some(actual) => Some(actual),
             None => self.declared_type(&decoder, instruction)?,
@@ -4356,6 +4367,14 @@ impl<'a> ProducerProof<'a> {
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, predicate.method_name(), &[needle.raw() as usize], &expected)
             }
             schema::ExprView::DynamicCall { callee, .. } => {
+                if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok() {
+                    let result = self.declared_type(&decoder, instruction)?.ok_or_else(|| IrVerifyError::new("scheme callable invocation has no checked result"))?;
+                    if !result.matches_expected(&expected) { return Err(IrVerifyError::new("scheme callable invocation result disagrees with its producer contract")); }
+                    let callee_type = self.need_context(&decoder, callee.raw() as usize)?.ok_or_else(|| IrVerifyError::new("scheme callable invocation has no callee producer contract"))?;
+                    if !matches!(callee_type.as_ref(), Type::SchemeCallable(_)) { return Err(IrVerifyError::new("scheme callable invocation has a monomorphic callee producer")); }
+                    self.expression(owner, callee.raw() as usize, callee_type, false);
+                    return Ok(());
+                }
                 if let Some((base, receiver, callable)) = self.module_callable(&decoder, callee.raw() as usize)? {
                     let effects = callable.sig.effects.concrete()
                         .map_err(|_| IrVerifyError::new("callable effect contract is unresolved"))?;
@@ -4712,6 +4731,16 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::CheckedValue { check, value, .. } => {
                 let checked = self.contract_type(check.ty.id)?;
                 if !checked.matches_expected(&expected) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
+                if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
+                    let source = super::checked_expression_type_id(self.store, value.raw())
+                        .ok_or_else(|| IrVerifyError::new("scheme callable value materialization has no source contract"))?;
+                    let source = self.contract_type(source)?;
+                    if check.schema.is_some() || !matches!(checked.as_ref(), Type::Callable(_)) || !matches!(source.as_ref(), Type::SchemeCallable(_)) {
+                        return Err(IrVerifyError::new("scheme callable value materialization has an invalid storage contract"));
+                    }
+                    self.expression(owner, value.raw() as usize, source, false);
+                    return Ok(());
+                }
                 let runtime_complete = check.schema.is_none() && super::runtime_complete_storage_check_type(&checked, &mut self.budget)?;
                 let mut checked_record = false;
                 if check.schema.is_none() {

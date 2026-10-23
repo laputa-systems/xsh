@@ -798,6 +798,7 @@ struct BuildScratch {
     /// expressions until instruction encoding.
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
     call_instantiations: Vec<Option<CallInstantiation>>,
+    scheme_callable_calls: BTreeMap<usize, crate::sema::types::SchemeCallableId>,
     scheme_application_calls: Vec<Option<u32>>,
     scheme_application_returns: BTreeMap<usize, crate::sema::schemes::SchemeProcReturnSite>,
     scheme_constructors: BTreeMap<usize, crate::sema::schemes::NonmaterialConstructor>,
@@ -950,8 +951,9 @@ impl ProducerDemand {
         program: &'a crate::syntax::arena::ArenaProgram,
         declarations: &'a crate::sema::check::CompactDeclOutput,
     ) -> impl Iterator<Item = Span> + 'a {
-        declarations.bodies.call_instantiations.keys().filter_map(move |expression| {
-            let expression = program.arena.expr(*expression);
+        declarations.bodies.call_instantiations.keys().filter_map(move |site| {
+            if site.role != crate::sema::schemes::InstantiationRole::Call { return None; }
+            let expression = program.arena.expr(site.source);
             matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Call { .. }).then_some(expression.span)
         })
     }
@@ -1641,6 +1643,7 @@ enum LoweredType {
     FsLock,
     Stream,
     Function(CallableKind),
+    SchemeCallable,
     Error,
     Record,
     Module,
@@ -2135,11 +2138,14 @@ pub(super) struct PreparedCallable {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
     kind: CallableKind,
-    applications: indexed::full::PreparedInvocationBindings,
+    state: PreparedCallableState,
 }
+
+enum PreparedCallableState { Instance(indexed::full::PreparedInvocationBindings), SchemeValue(u32) }
 
 impl PreparedCallable {
     pub(in crate::runtime) fn kind(&self) -> CallableKind { self.kind }
+    fn applications(&self) -> Option<&indexed::full::PreparedInvocationBindings> { match &self.state { PreparedCallableState::Instance(bindings) => Some(bindings), PreparedCallableState::SchemeValue(_) => None } }
 }
 
 #[derive(Clone, Debug)]

@@ -378,7 +378,7 @@ pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
     match kind {
         // Set elements and tag identities are not part of the kind.
         LoweredType::Set | LoweredType::Tag => None,
-        kind => Some(crate::runtime::eval::indexed::full::lowered_type_to_type(kind)),
+        kind => crate::runtime::eval::indexed::full::lowered_type_to_type(kind),
     }
 }
 
