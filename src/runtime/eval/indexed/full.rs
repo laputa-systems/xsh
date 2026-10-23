@@ -23307,6 +23307,156 @@ assert observed_words == [Ok("row")]
     }
 
     #[test]
+    fn generic_pattern_guards_preserve_symbolic_operands_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-pattern-guard-producer.xsh", concat!(
+                "pure choose(outcome, fallback) {\n",
+                " var selected = fallback\n",
+                " match outcome {\n",
+                "  Ok(value) if value != fallback => selected = value\n",
+                "  Ok(_) => selected = fallback\n",
+                "  Err(_) => selected = fallback\n",
+                " }\n selected\n}\n",
+                "assert choose(Ok(9), 4) == 9\n",
+                "assert choose(Ok(4), 4) == 4\n",
+                "assert choose(Ok(\"ready\"), \"waiting\") == \"ready\"\n",
+            )));
+            let choose = scheme_fixture_root_function(&program, "choose");
+            let decoder = function_view_decoder(&program.store, choose);
+            let range = program.store.function_instruction_range(choose).unwrap();
+            let fallback = range.clone().find_map(|instruction| match decoder.expression_view(instruction).ok()? {
+                schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Ne, right, .. } => Some(right.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let outcome = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.data[fallback] = program.store.data[outcome];
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_loop_conditions_preserve_symbolic_receivers_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-loop-condition-producer.xsh", concat!(
+                "pure count(items) {\n var index = 0\n",
+                " while index < items.len() { index += 1 }\n index\n}\n",
+                "assert count([1, 2, 3]) == 3\n",
+                "assert count([\"one\", \"two\"]) == 2\n",
+            )));
+            let count = scheme_fixture_root_function(&program, "count");
+            let decoder = function_view_decoder(&program.store, count);
+            let range = program.store.function_instruction_range(count).unwrap();
+            let receiver = range.clone().find_map(|instruction| match decoder.expression_view(instruction).ok()? {
+                schema::ExprView::Method { receiver, name: "len", .. } => Some(receiver.raw() as usize),
+                _ => None,
+            }).unwrap();
+            let index = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = (*program).clone();
+            forged.store.data[receiver] = program.store.data[index];
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(failure.message, "generic body expression disagrees with its checked type");
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn generic_operand_dependent_methods_keep_their_effect_obligations() {
+        run_with_large_stack(|| {
+            let mut program = fixture("generic-method-effect-obligation.xsh", concat!(
+                "proc cancel(value, handle: ProcessHandle, stopped: Result[Unit, ProcessError], text: Str) [error] {\n",
+                " let _ = handle\n let _ = text.parse_int()\n value\n}\n",
+            ));
+            let owner = scheme_fixture_root_function(&program, "cancel");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("generic cancel") };
+            let decoder = function_view_decoder(&program.store, owner);
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let handle = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let (method, receiver) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::Method { receiver, name: "parse_int", .. }) => Some((instruction, receiver.raw() as usize)),
+                _ => None,
+            }).unwrap();
+            let (declaration, slot) = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
+                Ok(schema::StmtView::Let { slot, value, .. }) if value.raw() as usize == method => Some((instruction, slot)),
+                _ => None,
+            }).unwrap();
+            let read = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+            let parameters = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+            let handle_type = program.store.scheme_params[parameters.start + 1].ty;
+            let stopped = program.store.scheme_params[parameters.start + 2].ty;
+            program.store.registered_calls.remove(&(method as u32));
+            FullVerifier::verify(&program).unwrap();
+            let mut forged = program.clone();
+            let payload = forged.store.data[method].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[payload.start + 1] = program.store.functions[owner].name;
+            forged.store.data[receiver] = program.store.data[handle];
+            fn replace_type(store: &mut FullStore, destination: SchemeTypeId, source: SchemeTypeId) {
+                let actual = store.scheme_types[destination.index()];
+                let expected = store.scheme_types[source.index()];
+                if actual.tag == schema::FullSchemeTypeTag::Result && expected.tag == schema::FullSchemeTypeTag::Result {
+                    replace_type(store, SchemeTypeId::from_raw(actual.first).unwrap(), SchemeTypeId::from_raw(expected.first).unwrap());
+                    replace_type(store, SchemeTypeId::from_raw(actual.second).unwrap(), SchemeTypeId::from_raw(expected.second).unwrap());
+                } else {
+                    assert_eq!(actual.tag, schema::FullSchemeTypeTag::Ground);
+                    store.scheme_types[destination.index()] = expected;
+                }
+            }
+            for fact in &program.store.scheme_body_facts {
+                if [method, declaration, read].contains(&(fact.instruction as usize)) {
+                    replace_type(&mut forged.store, fact.ty().unwrap(), stopped);
+                } else if fact.instruction as usize == receiver {
+                    replace_type(&mut forged.store, fact.ty().unwrap(), handle_type);
+                }
+            }
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert!(failure.message.contains("effect process outside its owner contract"), "{failure:?}");
+        });
+    }
+
+    #[test]
+    fn imported_generic_function_aliases_reject_foreign_owned_targets() {
+        run_with_large_stack(|| {
+            let program = imported_scheme_fixture_after_frontend_drop_with_entry(
+                "use model\nproc main() [error] -> Result[Unit] {\n let identity = model.identity\n let forwarded = identity\n let spare = model.unused\n let spare_forwarded = spare\n assert forwarded(42) == 42\n assert spare_forwarded(\"spare\") == \"spare\"\n return Ok()\n}\n",
+            );
+            let _symbols = program.symbol_owner().enter();
+            let main = scheme_fixture_root_function(&program, "main");
+            let range = program.store.function_instruction_range(main).unwrap();
+            let imported_fact = |name: &str| {
+                program.store.checked_expr_types.iter().find(|fact| {
+                    if !range.contains(&(fact.instruction as usize)) || program.store.tags[fact.instruction as usize] != FullTag::ExprParam { return false; }
+                    let Type::SchemeCallable(id) = program.store.semantic.to_type(fact.type_id).unwrap() else { return false; };
+                    let relationship = program.store.semantic.scheme_callable_index(id).unwrap();
+                    let target = program.store.scheme_callable_values[relationship as usize].canonical.index();
+                    program.store.string(program.store.functions[target].name).unwrap() == name
+                }).unwrap()
+            };
+            let identity = imported_fact("identity");
+            let unused = imported_fact("unused");
+            let mut forged = program.clone();
+            forged.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == identity.instruction).unwrap().type_id = unused.type_id;
+            let failure = FullVerifier::verify(&forged).unwrap_err();
+            assert_eq!(failure.message, "checked expression fact disagrees with its structural producer");
+        });
+    }
+
+    #[test]
     fn imported_generic_aliases_execute_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(

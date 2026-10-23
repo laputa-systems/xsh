@@ -189,21 +189,27 @@ impl ProducerPrefixContext<'_> {
                         }
                         break;
                     }
-                    let ProducerBinding::DriverBinding(_) = binding else { return Ok(None); };
+                    if !matches!(binding, ProducerBinding::DriverBinding(_) | ProducerBinding::HeaderCapture(_)) { return Ok(None); }
                     let Some(storage) = evidence.storage_bindings.get(&binding) else { return Ok(None); };
                     if storage.mutable || storage.identity == IR_NONE { return Ok(None); }
                     let identity = decoder.store.binding_identities.get(storage.identity as usize).ok_or_else(|| IrVerifyError::new("callable module binding identity is invalid"))?;
                     if identity.flags != 0 { return Ok(None); }
                     let Some((_, step, program_owner)) = self.index.binding_writers.get(storage.identity as usize).copied().flatten() else { return Ok(None); };
                     if program_owner != identity.owner { return Err(IrVerifyError::new("callable source binding owner disagrees with its writer")); }
-                    let Some(current) = super::super::driver_owner_index(owner) else { return Ok(None); };
-                    if step >= current { return Err(IrVerifyError::new("callable source binding is used before its import")); }
+                    let current = super::super::driver_owner_index(owner);
+                    if let Some(current) = current {
+                        if step >= current { return Err(IrVerifyError::new("callable source binding is used before its import")); }
+                    } else {
+                        let function = function_index(owner)?;
+                        let metadata = decoder.store.function_metadata.get(function).ok_or_else(|| IrVerifyError::new("callable source function metadata is missing"))?;
+                        if metadata.owner != identity.owner { return Err(IrVerifyError::new("callable module binding belongs to another function namespace")); }
+                    }
                     let mut same_program = false;
                     for program in &decoder.store.driver_programs {
                         self.evidence.work.borrow_mut().charge(1)?;
                         let steps = program.steps.bounds(decoder.store.driver_steps.len()).ok_or_else(|| IrVerifyError::new("callable source program range is invalid"))?;
-                        if steps.contains(&current) {
-                            same_program = program.owner == identity.owner && steps.contains(&step);
+                        if program.owner == identity.owner && steps.contains(&step) && current.is_none_or(|current| steps.contains(&current)) {
+                            same_program = true;
                             break;
                         }
                     }
@@ -2412,22 +2418,9 @@ impl<'a> ProducerProof<'a> {
 
     fn scoped_expression_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
         if !self.index.scheme_owners.contains_key(&decoder.owner) { return Ok(None); }
-        let function = function_index(decoder.owner)?;
-        let FullCallableContract::Scheme(id) = self.store.functions[function].contract else {
-            return Err(IrVerifyError::new("scoped expression proof has no scheme owner"));
-        };
-        let scheme = self.store.scheme(id)?;
-        let facts = bounded(scheme.body_facts, &self.store.scheme_body_facts, "scoped expression fact range is invalid")?;
-        self.budget.charge(2 + 2 * facts.len().max(1).ilog2() as usize)?;
         let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped expression instruction is invalid"))?;
-        let key = (instruction, super::FullSchemeBodyFactKind::Expression as u8);
-        let position = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8))
-            .map_err(|_| IrVerifyError::new("scoped expression has no mandatory expression fact"))?;
-        let fact = facts[position];
-        if fact.function.raw() != decoder.owner { return Err(IrVerifyError::new("scoped expression fact belongs to another owner")); }
-        let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped expression fact has no semantic type"))?;
-        let scope = self.index.scheme_scopes(self.store)?.get(id)?;
-        super::decode_scheme_type(self.store, scope, ty, &mut self.budget, 0).map(Some)
+        let scopes = self.index.scheme_scopes(self.store)?;
+        super::scoped_expression_type(self.store, decoder, instruction, &scopes.scopes, &mut self.budget)
     }
 
     fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
@@ -4471,6 +4464,12 @@ impl<'a> ProducerProof<'a> {
                 Ok(())
             }
             schema::ExprView::Method { receiver, name, args, .. } => {
+                if matches!(crate::modules::signature::native_method_effect_rule(name), Some(crate::modules::signature::NativeEffectRule::Uniform { .. }))
+                    && let Some(actual) = self.scoped_expression_type(&decoder, instruction)?.and_then(|ty| ty.closed_ground_type())
+                    && actual == *expected
+                {
+                    return Ok(());
+                }
                 let arguments = args.collect::<Result<Vec<_>, _>>()?.into_iter().map(|argument| argument.raw() as usize).collect::<Vec<_>>();
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, name, &arguments, &expected)
             }
@@ -4499,6 +4498,17 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
                 let left_type = self.need_context(&decoder, left.raw() as usize)?;
                 let right_type = self.need_context(&decoder, right.raw() as usize)?;
+                if left_type.is_none() && right_type.is_none()
+                    && let (Some(left), Some(right)) = (
+                        self.scoped_expression_type(&decoder, left.raw() as usize)?,
+                        self.scoped_expression_type(&decoder, right.raw() as usize)?,
+                    )
+                {
+                    if *expected != Type::Bool || !super::body_equality_matches(&left, &right, &mut self.budget)? {
+                        return Err(IrVerifyError::new("scoped equality operands disagree with their Boolean producer"));
+                    }
+                    return Ok(());
+                }
                 let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
                 self.budget.charge_clone(&left_type)?;
@@ -5522,7 +5532,16 @@ impl<'a> ProducerProof<'a> {
                 if read != ty { ProducerOperandContext::Contextual(Some(read)) }
                 else { ProducerOperandContext::Declared(DeclaredProducerFact { owner: decoder.owner, instruction, ty, binding }) }
             }
-            None => ProducerOperandContext::Contextual(self.contextual_producer_type(decoder, instruction)?),
+            None => {
+                let context = match self.contextual_producer_type(decoder, instruction)? {
+                    Some(context) => Some(context),
+                    None if matches!(self.store.tags[instruction], FullTag::ExprParam | FullTag::ExprMethod) => {
+                        self.scoped_expression_type(decoder, instruction)?.and_then(|ty| ty.closed_ground_type()).map(Arc::new)
+                    }
+                    None => None,
+                };
+                ProducerOperandContext::Contextual(context)
+            }
         })
     }
 
