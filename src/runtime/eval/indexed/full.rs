@@ -22798,6 +22798,17 @@ assert nested({end: 7}, {end: -1}) == 7
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-regex-cursor-argument.xsh", r#"
 pure between(text, start, end) { text.byte_slice(start, end - start) }
+pure checked_between(text: Str, start: Int, end: Int) -> Str { text.byte_slice(start, end - start) }
+pure trimmed(text: Str) -> Str {
+    let _ = "wrong"
+    for hidden in [1] { let _ = hidden }
+    let parts = collect {
+        for found in rx"`[^`]+`".find(text) {
+            yield between(found.text, 1, found.text.byte_len() - 1)
+        }
+    }
+    parts.join("")
+}
 pure inline(text: Str) -> Str {
     var cursor = 0
     let parts = collect {
@@ -22811,6 +22822,8 @@ pure inline(text: Str) -> Str {
 }
 assert inline("axbx") == "ab"
 assert inline("plain") == "plain"
+assert trimmed("`x` and `yz`") == "xyz"
+assert checked_between("`x`", 1, "`x`".byte_len() - 1) == "x"
 "#));
             FullVerifier::verify(&program).unwrap();
             for force_frames in [false, true] {
@@ -22831,6 +22844,33 @@ assert inline("plain") == "plain"
             wrong_field.store.extra[words.start + 1] = scheme_fixture_string(&program, "text");
             let error = FullVerifier::verify(&wrong_field).unwrap_err();
             assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+            let owner = scheme_fixture_root_function(&program, "trimmed");
+            let decoder = function_view_decoder(&program.store, owner);
+            let arithmetic = function_instruction_indices(&program, "trimmed", FullTag::ExprBinary);
+            assert_eq!(arithmetic.len(), 1);
+            let arithmetic = arithmetic[0];
+            let schema::ExprView::Binary { op: BinaryOp::Sub, right, .. } = decoder.expression_view(arithmetic).unwrap() else { unreachable!() };
+            let right = right.raw() as usize;
+            let text = function_instruction_indices(&program, "trimmed", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_operand = (*program).clone();
+            wrong_operand.store.tags[right] = program.store.tags[text];
+            wrong_operand.store.data[right] = program.store.data[text];
+            assert!(FullVerifier::verify(&wrong_operand).is_err());
+            let hidden = function_instruction_indices(&program, "trimmed", FullTag::ExprParam).into_iter().find(|&instruction| {
+                instruction < arithmetic && matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Param(slot) if slot > 0)
+            }).unwrap();
+            let mut escaped_operand = (*program).clone();
+            escaped_operand.store.tags[right] = program.store.tags[hidden];
+            escaped_operand.store.data[right] = program.store.data[hidden];
+            assert!(FullVerifier::verify(&escaped_operand).is_err());
+            let words = program.store.data[arithmetic].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = (*program).clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Eq);
+            wrong_operation.store.extra[words.start] = operation;
+            assert!(FullVerifier::verify(&wrong_operation).is_err());
             let program = fixture("generic-loop-source-argument.xsh", r#"
 pure forward(value) { value }
 pure read() -> Int {

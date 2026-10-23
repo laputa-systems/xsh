@@ -2332,24 +2332,28 @@ impl<'a> ProducerProof<'a> {
         proof
     }
 
-    pub(super) fn binding_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+    pub(super) fn derived_argument_type(&mut self, owner: u32, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         if self.index.demand == crate::runtime::eval::ProducerDemand::Absent {
-            return Err(IrVerifyError::new("binding argument proof has no mandatory producer demand"));
+            return Err(IrVerifyError::new("derived argument proof has no mandatory producer demand"));
         }
         let decoder = self.owner(owner)?;
-        let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
-        let binding = self.binding(owner, instruction, slot)?;
-        self.budget.charge(1)?;
-        match binding {
-            ProducerBinding::ScopedDeclaration(declaration, _) => {
-                if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
-                    && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. })
-                { return Ok(None); }
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
+            op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
+        }) {
+            let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
+            let binding = self.binding(owner, instruction, slot)?;
+            self.budget.charge(1)?;
+            match binding {
+                ProducerBinding::ScopedDeclaration(declaration, _) => {
+                    if !self.index.owners[&owner].pattern_sources.contains_key(&binding)
+                        && !matches!(decoder.statement_view(declaration)?, schema::StmtView::Let { .. } | schema::StmtView::LetInt { .. } | schema::StmtView::LetBool { .. } | schema::StmtView::For { .. })
+                    { return Ok(None); }
+                }
+                ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
             }
-            ProducerBinding::HeaderParameter(_) | ProducerBinding::HeaderCapture(_) | ProducerBinding::DriverBinding(_) => return Ok(None),
+            let Some(source) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)? else { return Ok(None) };
+            self.binding_slot(owner, binding, slot, source)?;
         }
-        let Some(source) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)? else { return Ok(None) };
-        self.binding_slot(owner, binding, slot, source)?;
         let Some(actual) = self.derive_unannotated_type(&decoder, instruction)? else { return Ok(None) };
         super::closed_type_contains_any(&actual, &mut |amount| self.budget.charge(amount))?;
         self.expression(owner, instruction, Arc::clone(&actual), false);
