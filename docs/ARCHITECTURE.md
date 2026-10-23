@@ -499,6 +499,12 @@ Invocation and value materialization retain distinct checked evidence, including
 when a factory expression needs both at the same source span. Both execution
 routes use the same checked materialization operation. Dynamic value calls have
 their own effect authority; direct calls retain their physical target checks.
+Imported signatures retain their immutable relationship snapshot. Each checker
+rebases imported handles into its own table, and final module publication maps
+all checked outputs into one fresh owner. Type, scheme, schema and invocation
+evidence move together. Cached source snapshots keep their original identities.
+Retained-byte accounting includes the relationship pool and counts shared
+allocations once within that pool.
 
 Prepared applications retain their actual callee, ordered argument domains,
 result, kind, effects, argument layout, and Proc return relationships. A selected

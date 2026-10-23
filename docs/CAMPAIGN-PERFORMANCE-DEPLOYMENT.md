@@ -24,6 +24,25 @@ mutable record replacement needs reproduction, and generic composition and the
 remaining storage families still require coverage. No full-library or native
 qualification is claimed for these checkpoints.
 
+Module ownership repair `5b5fb951f`, integrated as `25cba55dc`, passes its
+module-execution and retained-table controls. Four additional controls at
+`17bdcb3a7`, integrated as `14c099c3b`, cover foreign semantic handles, checker
+probe snapshots, shared allocation accounting, and nested cached imports into
+independent entry roots. Source review is clear. Imported signatures and outputs
+rebase into one fresh final relationship owner before publication. Cached
+sources stay unchanged, and the new relationship pool participates in retained
+accounting. Nested mutable aggregate materialization remains open.
+
+Path execution repairs `9525dbc69` and `dd253674b`, integrated as `cc26cd72a`
+and `af9e56aae`, pass three focused controls. Checked generic Path and RelPath
+reads, queries and writes use existing canonical host operations. Byte reads
+share the existing reader. Both execution routes preserve binary data,
+diagnostics, explicit file modes and receiver/argument evaluation order;
+operation, operand and injected-plan corruptions reject. Source review is
+clear. These focused results do not qualify every registered Path operation or
+the combined compiler. The TempDir lane consumes these repairs before its
+complete runtime check.
+
 Source `d54631649` builds matching verification binaries and completes the
 138-selector native inference boundary in normal and forced-frame modes.
 Each mode reports 123 passes, fifteen failures and no skips; every selector
