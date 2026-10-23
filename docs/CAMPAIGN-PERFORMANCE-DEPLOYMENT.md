@@ -19,6 +19,18 @@ failures remain mandatory work; callable storage, open-row rebuilding and
 ordinary-body inference are not qualified. No new practical-corpus or full
 library result is claimed from this run.
 
+Capture/Retry repair `6c8150dff`, integrated as `487ea1476`, passes four focused
+regressions and five existing controls with independent review clear. Required
+checked contracts survive publication for ground and driver boundaries,
+including explicit Any payloads; scheme boundaries retain their owned facts.
+Actual mixed error contributions join before comparison and normalize through
+the checked Error boundary. Empty captures preserve declared phantom error
+types. The added verifier traversal is charged against the existing budget.
+Combined library and native qualification remain open. The next wave combines
+this repair with the optional-record argument boundary; callable-value storage
+and ordinary-body inference remain active, while open-row rebuilding waits for
+the scheme representation to settle.
+
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
 named mode/data arguments reproduce a cold-verifier failure before the repair;
@@ -63,8 +75,8 @@ prepared invocation substitution, including callback-result parameters. Both
 routes preserve nested Result data, authored custom errors, cleanup and original
 traceback locations. Its flag reuses existing metadata storage. Combined-source
 qualification remains required.
-The grounded mixed Str/Error capture join and bare inferred `value?` input shape
-remain separate mandatory repairs. Callable-value storage and record remainder
+The bare inferred `value?` input shape remains a separate mandatory repair.
+Callable-value storage and record remainder
 implementation follow these representation changes. Provisional focused results
 do not advance full campaign acceptance.
 

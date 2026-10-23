@@ -3892,6 +3892,10 @@ the mode from its checked inputs. An Optional containing an `Err` keeps that
 value as data; Result mode propagates or handles the outer error. Fallbacks
 and handler bodies remain lazy, and each capture joins the errors contributed
 by its actual operations. A generic relay preserves these relationships.
+When that join has type `Error`, `try` and `retry` convert propagated payloads
+to ordinary `Error` values. Existing errors retain their identity; a nested
+Result returned as success data is preserved. A capture with no propagated
+errors imposes no constraint on its declared error type.
 
 Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with

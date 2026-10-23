@@ -498,6 +498,12 @@ from that proof. The existing producer verifier checks the exact physical call
 operand, literal family, aliases, and writers before accepting the program.
 Capture bodies use ordinary lazy block lowering and independently verify actual
 success and error producers after frontend disposal.
+Ground and driver Capture/Retry instructions retain required checked Result
+contracts, including explicit Any payloads. Scheme instructions use their owned
+body facts and prepared substitution. Cold verification joins the actual error
+contributions; an empty contribution set does not constrain a declared phantom
+error type. Execution normalizes propagated payloads only when the checked outer
+error type is Error, preserving nested Result data and existing error identity.
 
 Finite wrapper requirements retain guarded fields, fallbacks, handlers and
 captures. Calls select a checked Optional or Result mode, or forward the exact
