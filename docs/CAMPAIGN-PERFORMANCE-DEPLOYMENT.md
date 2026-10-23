@@ -69,8 +69,13 @@ routes after frontend disposal. Cold ownership, target, substitution, cycle,
 Null, Any and phantom-binder mutations reject. Independent review is clear.
 The corrected forwarding proof also closes the provenance failure without a
 new stream-origin mechanism. This later integration needs a combined replay.
-A pristine system-report fixture now exposes a separate record-field proof
-failure before execution. Its new orchestration test has no behavior credit.
+The pristine system-report fixture exposed a separate record-field proof
+failure before execution. Repair `e385c1fb7`, integrated as `464ad3c27`, reuses
+the existing structural initializer proof beneath an actual complete storage
+check and proves each conditional record branch. Both new regressions and
+seven existing controls pass; independent review is clear. The original test
+module passes static preparation. Its new orchestration test still needs
+runtime qualification with matching repaired products.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
