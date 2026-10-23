@@ -1031,6 +1031,16 @@ pub(super) fn verify_body(
                                     if matches!(BodyTypeRef::Scheme(&item).unvalidated(), BodyTypeRef::Ground(Type::Unit)) { return Err(IrVerifyError::new("generic map callback has no value result")); }
                                     pending.push(Obligation::Expression(value.raw() as usize, inner));
                                 }
+                                super::super::StageView::Fold { acc_slot, item_slot, initial, body, value } => {
+                                    let accumulator = expression_type(types, initial.raw() as usize, budget)?;
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, acc_slot, &accumulator, slot_count, &mut writers, budget)?;
+                                    let inner = pipeline_callback_scope(&inner, &mut scopes, item_slot, &item, slot_count, &mut writers, budget)?;
+                                    if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &accumulator, budget)? { return Err(IrVerifyError::new("generic fold callback disagrees with its accumulator")); }
+                                    pending.push(Obligation::Expression(initial.raw() as usize, scope));
+                                    if body.len() != 0 { return Err(IrVerifyError::new("generic fold callback has detached statements")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                    terminal = Some(accumulator);
+                                }
                                 super::super::StageView::FlatMap { slot, value } => {
                                     let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
                                     let source = expression_type(types, value.raw() as usize, budget)?;
@@ -4374,6 +4384,53 @@ mod structured_pipeline_tests {
             assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
             assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
             assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_folds_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-folds.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-folds.xsh", crate::loader::entry_source_from_text("generic-pipeline-folds.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_folds", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
+    }
+
+    #[test]
+    fn generic_pipeline_folds_authenticate_accumulators_and_lexical_owners() {
+        for source in [
+            "pure folded(value) { [value] |> fold(0) { |acc, item| acc } }\n",
+            "pure folded(value) { let first = [value] |> fold(value) { |acc, item| item }; [first] |> fold(first) { |acc, item| item } }\n",
+        ] {
+            let program = prepare(source);
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "folded").unwrap();
+            let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let slots = range.clone().filter_map(|instruction| match decoder.expression_view(instruction) {
+                Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() {
+                    super::super::super::StageView::Fold { acc_slot, item_slot, .. } => Some((acc_slot, item_slot)),
+                    _ => None,
+                },
+                _ => None,
+            }).collect::<Vec<_>>();
+            let (original, replacement) = match slots.as_slice() {
+                [(acc, item)] => (*acc, *item),
+                [(_, first), (_, second)] => (*second, *first),
+                _ => panic!("one or two fold stages"),
+            };
+            let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == original)).unwrap();
+            let mut escaped = program.clone();
+            escaped.store.extra[program.store.data[read].range().start as usize] = replacement as u32;
+            assert!(FullVerifier::verify(&escaped).is_err());
         }
     }
 

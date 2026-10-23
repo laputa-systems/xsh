@@ -4898,18 +4898,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         lowered_stages.push(lowered);
                         continue;
                     }
-                    if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
+                    let fold = matches!(stage.kind, StreamStageKind::Fold | StreamStageKind::Reduce);
+                    if stage.block.is_some() && !fold { return self.block_scheme_lowering_expr(expression); }
                     let mut configuration = Vec::new();
                     let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
                     let lowered = match stage.kind {
-                        StreamStageKind::Drop | StreamStageKind::Take => {
+                        StreamStageKind::Drop | StreamStageKind::Take | StreamStageKind::Fold | StreamStageKind::Reduce => {
                             if arguments.len() != 1 || self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.argument_slots.as_slice() != [0] { return self.block_scheme_lowering_expr(expression); }
                             let value = arguments[0].lowered?;
                             let ty = lowered_types.get(&value)?.clone();
                             configuration.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
                             let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: configuration, span: self.program.arena.span(stage.span) });
                             lowered_types.insert(value, ty);
-                            if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
+                            match stage.kind {
+                                StreamStageKind::Drop => LoweredPipelineStage::Drop(value),
+                                StreamStageKind::Take => LoweredPipelineStage::Take(value),
+                                _ => self.lower_scheme_pipeline_fold(&stage, &item_type, value, slots, current_function, facts, visited, lowered_types)?,
+                            }
                         }
                         StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
                             StreamStageKind::Enumerate => {

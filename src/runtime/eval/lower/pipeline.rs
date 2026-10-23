@@ -91,6 +91,32 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         callback
     }
 
+    pub(super) fn lower_scheme_pipeline_fold(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, initial: BuildExprId,
+        slots: &mut SlotScope, current_function: Name, facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<LoweredPipelineStage> {
+        let accumulator = lowered_types.get(&initial)?.clone();
+        let block = stage.block?;
+        let params = self.program.arena.block_params(self.program.arena.block(block).params);
+        if params.len() > 2 { return None; }
+        let saved = slots.enter();
+        let stage = (|| {
+            let acc_slot = match params.first() {
+                Some(parameter) => slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, accumulator),
+                None => slots.reserve("pipeline.acc"),
+            };
+            let item_slot = match params.get(1) {
+                Some(parameter) => slots.declare_scheme_source(self.declaration_binding(self.program.arena.span(parameter.span), parameter.name)?, parameter.name, item_type.clone()),
+                None => slots.reserve("pipeline.item"),
+            };
+            let value = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+            Some(LoweredPipelineStage::Fold { acc_slot, item_slot, initial, body: Vec::new(), value })
+        })();
+        slots.exit(saved);
+        stage
+    }
+
     pub(super) fn fuse_par_map_flat_map_reduce_by(&self, stages: &mut Vec<LoweredPipelineStage>) {
         let mut fused = Vec::with_capacity(stages.len());
         let mut index = 0;
