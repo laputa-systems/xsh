@@ -243,8 +243,8 @@ assert word.length == 2
 assert word.token == "kept"
 assert ! number.directory.exists()?
 assert ! word.directory.exists()?
-print number.length
-print word.length
+print $number.length
+print $word.length
 """,
     status: 0,
     stdout: ["5\n2\n"],

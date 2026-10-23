@@ -52,6 +52,11 @@ fail before execution because successful assertions do not establish non-null
 authority in the ground producer proof. Both gaps require repair. These results
 do not qualify the combined compiler. Test-only import and helper scoping at
 `27aed9509` follows the product freeze and awaits a production rebuild.
+The TempDir native fixture itself used invalid bare field syntax in its two
+print statements. Adding the required `$` preserves every assertion and the
+expected output. Its extracted program passes with the same `96a932e04`
+verification binary in the pinned offline container, printing exactly `5` and
+`2`. A complete newer native boundary has not yet run.
 
 The provisional Proc completion and effect repair executes ten focused
 selectors: six pass and four fail. Remaining failures concern authored Err
