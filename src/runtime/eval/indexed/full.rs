@@ -42526,6 +42526,66 @@ assert text.marker == "kept"
     }
 
     #[test]
+    fn scheme_callable_materialization_preserves_unchanged_shared_containers() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("scheme-callable-storage-sharing.xsh", r#"
+pure first(value) { value }
+let mapping: Map[Str, Int] = {}
+let original = {copy: first, items: [1], mapping: mapping, nested: {number: 2}}
+var held = original
+assert held.copy(7) == 7
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let header = program.store.value_materializations[0];
+            let relationship = program.store.materialization_leaves[0].relationship;
+            let _symbols = program.symbol_owner().enter();
+            let name = crate::runtime::value::FunctionName::name(Name::intern("first"));
+            let callable = crate::runtime::value::CallableValue::prepared(name, Arc::new(crate::runtime::eval::PreparedCallable {
+                program: Arc::clone(&program), function: crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("first")), kind: CallableKind::Pure,
+                state: crate::runtime::eval::PreparedCallableState::SchemeValue(relationship),
+            }));
+            let items = Arc::new(vec![LoweredValue::Int(1)]);
+            let mapping = Arc::new(BTreeMap::new());
+            let nested = Arc::new(vec![(Name::intern("number"), LoweredValue::Int(2))]);
+            fn field<'a>(value: &'a LoweredValue, name: &str) -> &'a LoweredValue {
+                match value {
+                    LoweredValue::Record(fields) => fields.get(name).unwrap(),
+                    LoweredValue::RecordVec(fields) => &fields.iter().find(|(field, _)| *field == name).unwrap().1,
+                    _ => panic!("materialized root is a record"),
+                }
+            }
+            for vector_record in [false, true] {
+                let fields = vec![
+                    (Name::intern("copy"), LoweredValue::Callable(callable.clone())),
+                    (Name::intern("items"), LoweredValue::SharedList(Arc::clone(&items))),
+                    (Name::intern("mapping"), LoweredValue::Map(Arc::clone(&mapping))),
+                    (Name::intern("nested"), LoweredValue::RecordVec(Arc::clone(&nested))),
+                ];
+                let source = if vector_record { LoweredValue::RecordVec(Arc::new(fields)) }
+                    else { LoweredValue::Record(Arc::new(fields.into_iter().map(|(name, value)| (Arc::from(name.as_str().as_str()), value)).collect())) };
+                let (value, _) = program.materialize_checked_value(0, header.instruction, &PreparedInvocationBindings::default(), source).unwrap();
+                let LoweredValue::SharedList(actual) = field(&value, "items") else { panic!("unchanged list stays shared") };
+                assert!(Arc::ptr_eq(actual, &items));
+                let LoweredValue::Map(actual) = field(&value, "mapping") else { panic!("unchanged map stays shared") };
+                assert!(Arc::ptr_eq(actual, &mapping));
+                let LoweredValue::RecordVec(actual) = field(&value, "nested") else { panic!("unchanged record stays shared") };
+                assert!(Arc::ptr_eq(actual, &nested));
+                let LoweredValue::Callable(actual) = field(&value, "copy") else { panic!("affected callable is retained") };
+                let prepared = actual.instance().unwrap();
+                let crate::runtime::eval::PreparedCallableState::Instance(bindings) = &prepared.state else { panic!("affected callable is instantiated") };
+                assert!(Arc::ptr_eq(&prepared.program, &program));
+                assert!(bindings.substitution.types.contains(&Type::Int));
+            }
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+            }
+        });
+    }
+
+    #[test]
     fn scheme_callable_materialization_rejects_foreign_paths_and_shared_evidence() {
         run_with_large_stack(|| {
             let program = fixture("scheme-callable-materialization-proof.xsh", r#"

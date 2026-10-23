@@ -33,13 +33,6 @@ pub(crate) enum MaterializationMapError<E> {
 }
 
 impl<T, I> ValueMaterialization<T, I> {
-    pub(crate) fn instances(&self) -> impl Iterator<Item = &I> {
-        MaterializationNodes { pending: vec![self] }.filter_map(|node| match &node.shape {
-            Materialization::Callable { instance, .. } => Some(instance.as_ref()),
-            _ => None,
-        })
-    }
-
     pub(crate) fn try_map<C, U, J, E>(
         &self,
         context: &mut C,

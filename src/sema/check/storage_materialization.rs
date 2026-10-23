@@ -45,7 +45,7 @@ impl Checker {
                 return Type::Invalid;
             }
         };
-        if plan.instances().next().is_none() { return actual; }
+        if matches!(plan.shape, Materialization::Keep) { return actual; }
         let destination = plan.destination.clone();
         let previous = self.pending_call_instantiations.insert(
             crate::sema::schemes::InstantiationSite::value(span),
@@ -89,7 +89,7 @@ impl Checker {
         }
         if let Type::Validated(validated) = &source {
             let mut plan = self.storage_materialization_plan(validated.base(), context, span, depth + 1)?;
-            if plan.instances().next().is_none() { return Ok(keep()); }
+            if matches!(plan.shape, Materialization::Keep) { return Ok(keep()); }
             let destination = crate::sema::validated::ValidatedType::new(validated.validation(), plan.destination)
                 .map_err(|error| format!("stored callable materialization changes its validated container: {error}"))?;
             plan.source = source;
@@ -140,6 +140,14 @@ impl Checker {
             }
             _ => return Ok(keep()),
         };
+        let changes = match &shape {
+            Materialization::Keep => false,
+            Materialization::Callable { .. } => true,
+            Materialization::Record(fields) => fields.values().any(|plan| !matches!(plan.shape, Materialization::Keep)),
+            Materialization::List(plan) | Materialization::MapValues(plan) | Materialization::Optional(plan) => !matches!(plan.shape, Materialization::Keep),
+            Materialization::Result { ok, error } => !matches!(ok.shape, Materialization::Keep) || !matches!(error.shape, Materialization::Keep),
+        };
+        if !changes { return Ok(keep()); }
         Ok(ValueMaterialization { source, destination, shape })
     }
 }
