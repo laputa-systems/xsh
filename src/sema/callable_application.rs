@@ -48,7 +48,14 @@ pub(crate) fn inferred_proc_return_envelope(value: Type, propagated: &[Type]) ->
             Box::new(Type::Unit),
             Box::new(join_propagated_error_types(propagated)),
         ),
-        value => Type::Result(Box::new(value), Box::new(Type::Error)),
+        value => Type::Result(
+            Box::new(value),
+            Box::new(if propagated.is_empty() {
+                Type::Error
+            } else {
+                join_propagated_error_types(propagated)
+            }),
+        ),
     }
 }
 

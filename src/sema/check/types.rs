@@ -54,7 +54,7 @@ impl Checker {
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
         let resolved;
         let ty = if ty.contains_inference() {
-            resolved = match self.type_constraints.resolve(ty) {
+            let resolved_type = match self.type_constraints.resolve(ty) {
                 Ok(resolved) => resolved,
                 Err(error) => {
                     let message = match error {
@@ -66,6 +66,21 @@ impl Checker {
                     self.error(span, message, DiagnosticCode::CheckLocalInference);
                     return Type::Invalid;
                 }
+            };
+            resolved = if matches!(&resolved_type, Type::Inference(_)) {
+                match self.type_constraints.constrain_result_pattern_subject(&resolved_type, span) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        self.error(
+                            span,
+                            &format!("propagated type constraint failed: {error:?}"),
+                            DiagnosticCode::CheckLocalInference,
+                        );
+                        return Type::Invalid;
+                    }
+                }
+            } else {
+                resolved_type
             };
             &resolved
         } else { ty };

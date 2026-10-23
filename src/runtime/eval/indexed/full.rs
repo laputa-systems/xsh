@@ -22298,6 +22298,89 @@ assert observed_words == [Ok("row")]
         });
     }
 
+    #[test]
+    fn generic_result_propagation_infers_input_and_return_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-result-propagation.xsh", concat!(
+                "error Failure = Lost(message: Str)\n",
+                "proc unwrap(value) { value? }\n",
+                "pure capture(value) { try { value? } }\n",
+                "pure retry_value(value) { retry [] { value? } }\n",
+                "let integer_success: Result[Int, Str] = Ok(17)\n",
+                "let integer_failure: Result[Int, Str] = Err(\"kept\")\n",
+                "let text_success: Result[Str, Failure] = Ok(\"word\")\n",
+                "let text_failure: Result[Str, Failure] = Err(Failure.Lost(\"specific\"))\n",
+                "let integer_result: Result[Int, Str] = unwrap(integer_success)\n",
+                "let integer_error: Result[Int, Str] = unwrap(integer_failure)\n",
+                "let text_result: Result[Str, Failure] = unwrap(text_success)\n",
+                "let text_error: Result[Str, Failure] = unwrap(text_failure)\n",
+                "let captured_integer: Result[Int, Str] = capture(integer_failure)\n",
+                "let captured_text: Result[Str, Failure] = capture(text_failure)\n",
+                "let retried_integer: Result[Int, Str] = retry_value(integer_success)\n",
+                "let retried_text: Result[Str, Failure] = retry_value(text_success)\n",
+                "let retried_integer_error: Result[Int, Str] = retry_value(integer_failure)\n",
+                "let retried_text_error: Result[Str, Failure] = retry_value(text_failure)\n",
+                "assert integer_result == integer_success\n",
+                "assert integer_error == Err(\"kept\")\n",
+                "assert text_result == Ok(\"word\")\n",
+                "assert match text_error { Err(error) => error.message == \"specific\"; else => false }\n",
+                "assert captured_integer == Err(\"kept\")\n",
+                "assert match captured_text { Err(error) => error.message == \"specific\"; else => false }\n",
+                "assert retried_integer == integer_success\n",
+                "assert retried_text == Ok(\"word\")\n",
+                "assert retried_integer_error == Err(\"kept\")\n",
+                "assert match retried_text_error { Err(error) => error.message == \"specific\"; else => false }\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            let unwrap = scheme_fixture_root_function(&program, "unwrap");
+            let FullCallableContract::Scheme(scheme_id) = program.store.functions[unwrap].contract else { panic!("unwrap has a quantified contract") };
+            let scheme = program.store.schemes[scheme_id.index()];
+            let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            assert_eq!(parameters.len(), 1);
+            let input = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+            let returned = program.store.scheme_types[scheme.return_type.index()];
+            assert_eq!(input.tag, schema::FullSchemeTypeTag::Result);
+            assert_eq!(returned.tag, schema::FullSchemeTypeTag::Result);
+            for (input_child, return_child, ordinal) in [(input.first, returned.first, 0u32), (input.second, returned.second, 1u32)] {
+                let input_parameter = program.store.scheme_types[input_child as usize];
+                let return_parameter = program.store.scheme_types[return_child as usize];
+                assert_eq!(input_parameter.tag, schema::FullSchemeTypeTag::Parameter);
+                assert_eq!(return_parameter.tag, schema::FullSchemeTypeTag::Parameter);
+                assert_eq!(input_parameter.first, ordinal);
+                assert_eq!(return_parameter.first, ordinal);
+            }
+            let effects = scheme.effects.direct.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[effects.clone()], &[Effect::Error]);
+            let call = program.store.call_instantiations.iter().find(|instance| {
+                program.store.checked_call_targets.iter().any(|target| {
+                    target.instruction == instance.instruction && target.function.index() == unwrap
+                })
+            }).expect("generic propagation call retains its selected input instance");
+            let arguments = call.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            assert_eq!(arguments.len(), 2);
+            let mut wrong_input = (*program).clone();
+            let payload = wrong_input.store.call_type_arguments[arguments.start].ty;
+            assert_eq!(wrong_input.store.scheme_types[payload.index()].tag, schema::FullSchemeTypeTag::Ground);
+            let mut semantic = SemanticPoolBuilder::default();
+            let boolean = semantic.intern_type(&mut wrong_input.store.semantic, &Type::Bool).unwrap();
+            wrong_input.store.scheme_types[payload.index()].first = boolean.raw();
+            let error = FullVerifier::verify(&wrong_input).unwrap_err();
+            assert!(error.message.contains("argument") || error.message.contains("callable contract"), "{}", error.message);
+            let mut missing_error_effect = (*program).clone();
+            missing_error_effect.store.scheme_effects[effects.start] = Effect::Io;
+            let error = FullVerifier::verify(&missing_error_effect).unwrap_err();
+            assert!(error.message.contains("effect error"), "{}", error.message);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
     fn same_named_binding_capture_fixture() -> FullProgram {
         let entry_source = "let flag: Bool = false\n\
                            use model\n\

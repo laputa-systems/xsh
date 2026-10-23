@@ -259,6 +259,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn inferred_propagation_inputs_retain_result_and_effect_contracts() {
+        let cases = [
+            (
+                "proc unwrap(value) [] { value? }\n",
+                DiagnosticCode::CheckEffectViolation,
+            ),
+            (
+                "proc unwrap(value) { value? }\nlet invalid: Result[Int, Str] = unwrap(7)\n",
+                DiagnosticCode::CheckTypeMismatch,
+            ),
+        ];
+        for (source, expected) in cases {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(
+                &parsed.arena,
+                source,
+                CheckOptions::for_execution(),
+            );
+            assert!(
+                checked
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(expected)),
+                "{source}\n{:?}",
+                checked.diagnostics,
+            );
+        }
+    }
+
     fn assert_authored_result_branch_preserves_the_original_context(completion: &str) {
         let source = format!("proc read_chunk(source: Path, offset: Int, count = 4) [fs, error, io] -> Result[Bytes, Error] {{ return {completion} }}\n");
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
