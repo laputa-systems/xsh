@@ -4430,7 +4430,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_folds_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-folds.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-folds.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-folds.xsh", crate::loader::entry_source_from_text("generic-pipeline-folds.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
@@ -4477,7 +4477,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_parallel_callbacks_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-parallel.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-parallel.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-parallel.xsh", crate::loader::entry_source_from_text("generic-pipeline-parallel.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
@@ -4495,7 +4495,7 @@ mod structured_pipeline_tests {
     #[cfg(feature = "native-tests")]
     #[test]
     fn generic_pipeline_keys_execute_after_disposal_on_both_routes() {
-        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-keys.xsh")).unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-pipeline-keys.xsh")).unwrap();
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-keys.xsh", crate::loader::entry_source_from_text("generic-pipeline-keys.xsh", source), Vec::new());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.source_text_source_id().unwrap();
