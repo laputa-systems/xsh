@@ -44048,6 +44048,57 @@ let selected = read(values, -1)
     }
 
     #[test]
+    fn ground_result_index_guard_accepts_an_authenticated_list_receiver() {
+        run_with_large_stack(|| {
+            let mut program = fixture("ground-list-index-result-str.xsh", r#"
+pure first(text: Str) -> Result[Str, Str] {
+  for term in text.split(",") {
+    let bounds = term.split("-")
+    return Ok(bounds[0])
+  }
+  Err("empty")
+}
+pure choose(value: Any) -> Result[Str, Str] {
+  if value is List[Str] {
+    return Ok(value[0])
+  }
+  Err("not-list")
+}
+"#);
+            program.store.checked_expr_types.retain(|fact| fact.is_contract());
+            let program = Arc::new(program);
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "first")),
+                    CallableKind::Pure,
+                    &[Value::Str("alpha-beta".into())],
+                    Span::at(program.store.source_id, 0),
+                ).expect("ground List-index function exists").unwrap();
+                assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Str("alpha".into())))));
+
+                let chosen_list = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "choose")),
+                    CallableKind::Pure,
+                    &[Value::List(vec![Value::Str("narrowed".into())])],
+                    Span::at(program.store.source_id, 0),
+                ).expect("ground Any-narrowed index function exists").unwrap();
+                assert_eq!(chosen_list, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Str("narrowed".into())))));
+                let chosen_other = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "choose")),
+                    CallableKind::Pure,
+                    &[Value::Str("other".into())],
+                    Span::at(program.store.source_id, 0),
+                ).expect("ground Any-narrowed index function exists").unwrap();
+                assert_eq!(chosen_other, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("not-list".into())))));
+            }
+        });
+    }
+
+    #[test]
     fn generic_index_operation_errors_forward_into_capture() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-index-call-capture.xsh", r#"

@@ -291,6 +291,7 @@ fn verify_uint_index_return_contract(decoder: &FullDecoder<'_>, index: usize) ->
     let returned_id = decoder.function_return_type(index)?;
     let returned = decoder.store.semantic.to_type_with_budget(returned_id, &mut materialization)?;
     let Some(error) = crate::sema::sealed_operation::result_error_contract(&returned) else { return Ok(()); };
+    if Type::Error.matches_expected(error) { return Ok(()); }
     let mut captures = BTreeMap::new();
     for instruction in decoder.instruction_range.clone() {
         if decoder.store.tags[instruction] != FullTag::ExprIndex || captures_error(decoder, instruction, &mut captures, |at| decoder.instruction_parent_of(at))? { continue; }
@@ -304,9 +305,7 @@ fn verify_uint_index_return_contract(decoder: &FullDecoder<'_>, index: usize) ->
             }
             crate::runtime::eval::IndexOperand::NegativeLiteral(_) => Type::Int,
         };
-        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key)
-            && !Type::Error.matches_expected(error)
-        {
+        if crate::sema::sealed_operation::index_requires_uint_key_validation(&receiver, &key) {
             return Err(IrVerifyError::new("ground UInt map index can produce Error outside its Result return contract"));
         }
     }
