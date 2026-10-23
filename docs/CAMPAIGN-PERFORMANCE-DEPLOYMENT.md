@@ -12,14 +12,15 @@ The owner's 2026-10-23 closeout order is: complete full inference, merge all
 qualified work to local `master`, clean `.work/`, then finish the pyramid
 campaign. Pyramid execution waits for inference qualification and cleanup.
 
-Current combined source `e80adaf31` passes 130 of 131 focused Rust controls.
-The original optional-record, empty-list, index and slice composition now passes.
-The same source completes the full Rust library run: 2,172 pass, four fail,
-and three remain ignored. Its log is
-`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-e80-full-library.log`.
-These results do not qualify the compiler.
+Current combined source `2da01f69b` completes the full Rust library run:
+2,183 pass, one fails, and three remain ignored. Its log is
+`.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
+The sole failure is the known UInt-map error-contract control. The earlier
+`e80adaf31` run has four failures. All three other failures now pass on the
+combined source. These results do not qualify the compiler. Matching verification
+products are building for native capability and API replay.
 
-The four failures are the UInt-map error-contract control, two cross-output
+The earlier failures are the UInt-map error-contract control, two cross-output
 scheme pointer assertions, and a lost callback argument relationship in a
 generic Proc call. Constructor error defaults close correctly. The application
 solver failed to revisit the callback relationship after that closure.
@@ -33,7 +34,7 @@ with complete contract comparisons and passes five publication controls.
 Cached-source identity checks remain unchanged. The UInt repair must preserve
 callee capture boundaries through direct and materialized calls. A caller's
 outer `try` must not permit a callee to publish a Schema error under `Str`.
-The full library has not been rerun on these repairs.
+The combined library run includes both repairs.
 
 Contextual-list repair `6c021dfcb`, integrated as `4832662a5`, and producer
 repair `e80adaf31` have clear independent source reviews. Producer proof reuses
