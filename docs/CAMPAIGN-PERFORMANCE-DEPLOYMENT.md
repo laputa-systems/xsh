@@ -42,6 +42,18 @@ operation, operand and injected-plan corruptions reject. Source review is
 clear. These focused results do not qualify every registered Path operation or
 the combined compiler.
 
+The complete native Path host class at `2cf3a8f0c` and correction `799b67c21`,
+integrated as `b5db0ddc6` and `617d8cda1`, passes four focused controls.
+Canonical checked methods use the existing receiver-first native ABI. Ordinary
+method rows forward only when all registered overloads share one host operation;
+there is no runtime overload selection. Ordinary/generic comparisons cover
+relative cwd, defaults, mutations, lazy reads, stream cleanup and error behavior;
+cold operation forgeries reject. Independent review is clear. A scheduling
+overlap exceeded the two-Cargo bound during the first corrective run; its
+replacement passed all four selectors within the bound. Combined qualification
+remains open. The separate implicit Result-valued Unit tail rejection is under
+repair in generic-body eligibility.
+
 TempDir repair `5b214e7ed` and its controls, integrated through `5c650d1ab`,
 pass seven distinct focused selectors. Generic fresh and at-path scopes share
 ordinary lowering, reconstruct entry errors from their payloads, and retain
