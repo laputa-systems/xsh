@@ -200,6 +200,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
     def command(
         self, *, mode="pass", interface_mode="pass", retained=None, views=None,
         xsh_hash=None, xsh_revision=None, mutate_source=None, mutate_product=None, mutate_view=None,
+        umask=-1,
     ):
         self.calls.unlink(missing_ok=True)
         environment = {**os.environ, "XSHT_CALLS": str(self.calls), "XSHT_MODE": mode}
@@ -210,6 +211,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
             environment["XSHT_MUTATE_PRODUCT"] = str(mutate_product)
         if mutate_view is not None:
             environment["XSHT_MUTATE_VIEW"] = str(mutate_view)
+
         return subprocess.run(
             [
                 "bash", str(ADAPTER), "--frozen",
@@ -228,6 +230,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
             timeout=120,
+            umask=umask,
         )
 
     def write_retained_variant(self, path, *, omit=None, change_reason=None):
@@ -246,7 +249,7 @@ class FrozenViewAdapterTests(unittest.TestCase):
             writer.writerows(rows)
 
     def test_reconstructs_the_accepted_1040_pair_and_requires_one_exact_pass(self):
-        result = self.command()
+        result = self.command(umask=0o077)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.calls.read_text().splitlines()
         self.assertEqual(sum(" check " in call and " --compare-with " not in call for call in calls), 4)

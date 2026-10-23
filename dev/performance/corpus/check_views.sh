@@ -98,6 +98,7 @@ frozen_main() {
     printf 'usage: %s --frozen COMPILER_SOURCE COMPILER_REV XSH_SOURCE XSH_REV LAPUTA_SOURCE LAPUTA_REV XSH XSHT XSH_SHA256 XSHT_SHA256 RETAINED VIEWS [--selector PROJECT SELECTOR]...\n' "$0" >&2
     return 2
   fi
+  umask 022
   compiler_source=$(cd "$1" && pwd)
   compiler_revision=$2
   xsh_source=$(cd "$3" && pwd)
@@ -229,8 +230,8 @@ frozen_main() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   mkdir -p "$scratch/archive/original/xsh" "$scratch/archive/original/laputa"
-  git -C "$xsh_source" archive "$xsh_revision" | tar -x -C "$scratch/archive/original/xsh"
-  git -C "$laputa_source" archive "$laputa_revision" | tar -x -C "$scratch/archive/original/laputa"
+  git -C "$xsh_source" archive "$xsh_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/xsh"
+  git -C "$laputa_source" archive "$laputa_revision" | tar --no-same-permissions -x -C "$scratch/archive/original/laputa"
   local frozen_retained=$scratch/retained-1040.tsv
   git -C "$repo" show 15243e97f6fd751016ab28690ada2cadb6fc973a:dev/consolidation/typing-corpus/retained.tsv >"$frozen_retained"
   if ! python3 "$repo/dev/consolidation/typing-corpus/cohort.py" \
