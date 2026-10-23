@@ -8,6 +8,10 @@ The owner's 2026-10-21 direction authorizes incremental merges to `master`
 and removal of completed, integrated worktrees. Unfinished compiler work stays
 on `campaign/full-inference-integration`. Pushing remains forbidden.
 
+The owner's 2026-10-23 closeout order is: complete full inference, merge all
+qualified work to local `master`, clean `.work/`, then finish the pyramid
+campaign. Pyramid execution waits for inference qualification and cleanup.
+
 Callable-value checkpoints `06f79b98c` and `06af00b5a`, integrated as
 `ec62fe981` and `85e99b3fb`, pass nine focused controls on the combined base.
 Record and conditional values instantiate independently; mutable bindings
@@ -106,6 +110,21 @@ diagnostics; a stream owner-boundary mutation unexpectedly accepts. Two wrapper
 fixtures disagree with the inferred error types. These seven cases require
 diagnosis and focused repair before another full replay. Matching native
 qualification remains open.
+
+Matching verification products for `b5989a1e7` complete the 138-selector native
+boundary in both modes: each has 125 passes, thirteen failures and no skips.
+The dynamic-return cleanup and optional-record-field selectors now pass; every
+previous pass remains passing. Each mode includes all eight legacy selectors,
+all passing. The other thirteen failures remain unchanged. These products
+precede the provisional callable-value checkpoints and do not qualify them.
+Test repair `06caa3779`, integrated as `3b07df9ea`, passes five focused controls
+and one separately checked field-corruption control. Mutations retain rejection
+under the earlier call-target checks. Concrete and generic Procs returning
+Stream fail eagerly under Error permission, while genuine stream bodies fail
+on iteration. Removing Error permission still rejects. Two remaining wrapper
+failures expose a real generic Proc completion gap: retained guarded projection
+still defaults its return error to Error instead of joining actual conditional
+error contributions. That relationship is active work, not a fixture waiver.
 
 Method-family repair `824bf0de8`, integrated as `f730f31f7`, passes four focused
 XSH controls and its registry control with independent review clear. Reversed
