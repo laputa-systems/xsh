@@ -15597,11 +15597,23 @@ impl<'a> FullDecoder<'a> {
         Self::checked_pipeline_stage_output_type(stage, item, &mut |value| self.derive_checked_expression_type(value))
     }
 
-    fn verify_pipeline_stage_slots(
+    fn verify_pipeline_callable_slots(
         &self,
         input: usize,
         mut stages: ListView<'a, LoweredPipelineStage>,
     ) -> Result<(), IrVerifyError> {
+        let position = ListView::position(&stages);
+        let mut callable_writer = false;
+        for stage in &mut stages {
+            for (slot, _) in Self::pipeline_stage_slots(&stage?) {
+                if let Some(ty) = self.checked_slot_type(slot)?
+                    && self.store.semantic.to_type(ty)?.contains_typed_callable()
+                { callable_writer = true; break; }
+            }
+            if callable_writer { break; }
+        }
+        if !callable_writer { return Ok(()); }
+        stages.resume(position)?;
         let mut item = self
             .checked_expression_type(input)?
             .and_then(|input| input.iteration_item_type());
@@ -15666,7 +15678,7 @@ impl<'a> FullDecoder<'a> {
                         }
                     }
                     schema::ExprView::ListPipeline { input, stages, .. } => {
-                        self.verify_pipeline_stage_slots(input.raw() as usize, stages)?;
+                        self.verify_pipeline_callable_slots(input.raw() as usize, stages)?;
                     }
                     schema::ExprView::ListComp { mut qualifiers, .. }
                     | schema::ExprView::MapComp { mut qualifiers, .. } => {

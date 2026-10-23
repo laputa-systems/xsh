@@ -636,6 +636,18 @@ fn comprehension_scope(
     Ok((current, mapped_validation))
 }
 
+fn pipeline_callback_scope(
+    scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, item: &SchemeType,
+    slot_count: usize, writers: &mut BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget,
+) -> Result<LexicalScope, IrVerifyError> {
+    budget.charge_scheme_clone(item)?;
+    if slot >= slot_count || writers.insert(slot, item.clone()).is_some() { return Err(IrVerifyError::new("generic pipeline item slot is duplicated or out of bounds")); }
+    let inner = branch_scope(scope, scopes, budget)?;
+    budget.charge_scheme_clone(item)?;
+    declare(&inner, scopes, slot, item.clone(), false, None, budget)?;
+    Ok(inner)
+}
+
 fn assignment_replacement(
     actual: &SchemeType, expected: &SchemeType, op: crate::syntax::node::AssignOp,
     check: Option<super::super::decode::TypeCheckView<'_>>, budget: &mut SchemeInstantiationBudget,
@@ -1003,6 +1015,31 @@ pub(super) fn verify_body(
                             let stage = stage?;
                             stage_ids.push(stage.id.raw());
                             match stage.view {
+                                super::super::StageView::Map { slot, value } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    item = expression_type(types, value.raw() as usize, budget)?;
+                                    if matches!(BodyTypeRef::Scheme(&item).unvalidated(), BodyTypeRef::Ground(Type::Unit)) { return Err(IrVerifyError::new("generic map callback has no value result")); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::FlatMap { slot, value } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    let source = expression_type(types, value.raw() as usize, budget)?;
+                                    if !matches!(BodyTypeRef::Scheme(&source).unvalidated(), BodyTypeRef::Scheme(SchemeType::List(_) | SchemeType::Stream(_)) | BodyTypeRef::Ground(Type::List(_) | Type::Stream(_))) {
+                                        return Err(IrVerifyError::new("generic flat-map callback has no list or stream contract"));
+                                    }
+                                    let (mapped, stream) = direct_iteration_item(&source, super::producers::StreamProducer::Value(value.raw() as usize), budget)?;
+                                    item = mapped;
+                                    if let Some(stream) = stream { stream_iterations.push((stream, propagation_boundary(&inner, &scopes).clone())); }
+                                    pending.push(Obligation::Expression(value.raw() as usize, inner));
+                                }
+                                super::super::StageView::Where { slot, predicate }
+                                | super::super::StageView::Any { slot, predicate }
+                                | super::super::StageView::All { slot, predicate } => {
+                                    let inner = pipeline_callback_scope(&scope, &mut scopes, slot, &item, slot_count, &mut writers, budget)?;
+                                    condition(types, predicate.raw() as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
+                                    if !matches!(stage.view, super::super::StageView::Where { .. }) { terminal = Some(SchemeType::Ground(Type::Bool)); }
+                                    pending.push(Obligation::Expression(predicate.raw() as usize, inner));
+                                }
                                 super::super::StageView::Enumerate => {
                                     budget.charge(3)?;
                                     item = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
@@ -4259,6 +4296,53 @@ mod structured_pipeline_tests {
         let program = FullBuilder::build_compact(&parsed.arena, &checked, source, Arc::new(sources), source_id).unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn generic_pipeline_callbacks_keep_stage_items_lexically_owned() {
+        let program = prepare("pure mapped(value) { [value] |> map { |item| item } |> map { |item| item } }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "mapped").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let slots = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => Some(stages.by_ref().map(|stage| match stage.unwrap() { super::super::super::StageView::Map { slot, .. } => slot, _ => panic!("map callback") }).collect::<Vec<_>>()),
+            _ => None,
+        }).unwrap();
+        assert_eq!(slots.len(), 2);
+        let read = range.clone().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Param(slot)) if slot == slots[1])).unwrap();
+        let mut escaped = program.clone();
+        escaped.store.extra[program.store.data[read].range().start as usize] = slots[0] as u32;
+        assert!(FullVerifier::verify(&escaped).is_err());
+        let program = prepare("pure mapped(value) { [value] |> map { |item| var local = item; local = item; local } }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "mapped").unwrap();
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let item_slot = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() { super::super::super::StageView::Map { slot, .. } => Some(slot), _ => panic!("map callback") },
+            _ => None,
+        }).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let mut mutated_item = program.clone();
+        mutated_item.store.extra[program.store.data[assignment].range().start as usize] = item_slot as u32;
+        assert!(FullVerifier::verify(&mutated_item).is_err());
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn generic_pipeline_callbacks_execute_after_disposal_on_both_routes() {
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/xsh/generic-pipeline-callbacks.xsh")).unwrap();
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("generic-pipeline-callbacks.xsh", crate::loader::entry_source_from_text("generic-pipeline-callbacks.xsh", source), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = crate::sema::check::Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources).prepare_test_program(Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("generic_callbacks", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+            assert!(result.output.diagnostics.is_empty(), "{:?}", result.output.diagnostics);
+            assert!(result.output.traceback.is_none(), "{:?}", result.output.traceback);
+        }
     }
 
     #[test]

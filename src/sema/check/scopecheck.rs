@@ -22,6 +22,7 @@ enum BindingOrigin {
     With(SpanId),
     Import(UseStmtId),
     Item(BlockId),
+    StageItem(ExprId, u32),
     Args,
 }
 
@@ -705,6 +706,13 @@ impl ScopeChecker<'_> {
     }
 
     fn expr_children(&mut self, expression: ExprId) {
+        if let ArenaExprKind::StructuredPipeline { stages, .. } = self.program.arena.expr(expression).kind {
+            for (position, stage) in self.program.arena.stream_stages(stages).iter().enumerate() {
+                if let Ok(Some((_, callee))) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |_| Some(crate::sema::types::Type::Unknown)) {
+                    self.declare(BindingOrigin::StageItem(expression, u32::try_from(position).expect("a stage position fits its arena range")), super::item_binding(), self.program.arena.expr(callee).span, BindingKind::Runtime, false, false);
+                }
+            }
+        }
         let mut children = Vec::new();
         self.program.arena.for_each_expr_child(expression, |child| children.push(child));
         let callback = matches!(self.program.arena.expr(expression).kind,
@@ -743,6 +751,25 @@ impl ScopeChecker<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn generic_pipeline_named_callback_items_have_distinct_stage_owners() {
+        let source = "pure identity(value) { value }\npure nested(value) { [value] |> map { |item| [item] |> map(identity) |> map(identity) } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let bindings = ResolvedBindings::collect(&parsed.arena);
+            let items = (0..parsed.arena.arena.expr_tags.len()).filter_map(|index| {
+                let expression = parsed.arena.arena.expr(ExprId::from_index(index));
+                if !matches!(expression.kind, ArenaExprKind::Ident(name) if name == "identity") { return None; }
+                Some(*bindings.declaration_sites.get(&(expression.span, super::super::item_binding())).expect("a named callback retains its implicit item declaration"))
+            }).collect::<Vec<_>>();
+            assert_eq!(items.len(), 2);
+            assert_ne!(items[0], items[1]);
+            let outer = bindings.declarations.iter().find_map(|(&binding, declaration)| (declaration.name == "item").then_some(binding)).unwrap();
+            assert!(!items.contains(&outer));
+        });
+    }
+
     use super::*;
     use crate::sema::check::Checker;
     use crate::source::SourceId;

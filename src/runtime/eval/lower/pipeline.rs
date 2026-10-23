@@ -2,10 +2,95 @@ use super::{
     ArenaCallArgKind, ArenaExprKind, ArenaStreamStage, BuildExprId, BuildExprRow, BuildStmtId, BuildStmtRow,
     CompactLowerConstructProbe, LoweredPipelineStage, LoweredRecordEntry, Name, ReduceByOp,
     SlotScope, StreamStageKind, Type, cleanup_pipeline_stage_item_slot,
+    SchemeBodyFacts, SchemeType, ExprId, FxHashSet, BTreeMap, CallArgument,
     compact_call_arg_expr,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    pub(super) fn scheme_pipeline_item(ty: &SchemeType, facts: &SchemeBodyFacts) -> Option<SchemeType> {
+        match ty {
+            SchemeType::List(item) | SchemeType::Stream(item) | SchemeType::Set(item) => Some((**item).clone()),
+            SchemeType::Ground(ty) => match ty.unvalidated() {
+                Type::List(item) | Type::Stream(item) | Type::Set(item) => Some(SchemeType::Ground((**item).clone())),
+                Type::Result(ok, _) => Self::scheme_pipeline_item(&SchemeType::Ground((**ok).clone()), facts),
+                _ => None,
+            },
+            SchemeType::Validated(_, ty) | SchemeType::Result(ty, _) => Self::scheme_pipeline_item(ty, facts),
+            SchemeType::Parameter(parameter) => facts.scheme().callable().requirements().iteration_parameters.get(parameter).map(|requirement| requirement.item.clone()),
+            _ => None,
+        }
+    }
+
+    pub(super) fn lower_scheme_pipeline_callback(
+        &mut self, stage: &ArenaStreamStage, item_type: &SchemeType, slots: &mut SlotScope,
+        current_function: super::Name, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+    ) -> Option<(usize, BuildExprId)> {
+        let saved = slots.enter();
+        let callback = (|| {
+            if let Some(block) = stage.block {
+                let definition = self.program.arena.block(block);
+                let (span, name) = match self.program.arena.block_params(definition.params) {
+                    [] => (self.program.arena.span(definition.span), crate::sema::check::item_binding()),
+                    [parameter] => (self.program.arena.span(parameter.span), parameter.name),
+                    _ => return None,
+                };
+                let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+                let value = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+                return Some((slot, value));
+            }
+            let entry = self.bodies.argument_bindings.get(&self.program.arena.span(stage.span))?.callable_entry?;
+            let callee = super::compact_call_arg_expr(self.program.arena.call_args(stage.args).get(entry)?)?;
+            if !visited.insert(callee) { return None; }
+            let name = crate::sema::check::item_binding();
+            let span = self.program.arena.expr(callee).span;
+            let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
+            let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            lowered_types.insert(item, item_type.clone());
+            let result = facts.expression_types().get(&callee)?.clone();
+            if self.declarations.static_callable_aliases.contains_key(&span)
+                || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
+            { return None; }
+            let value = if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
+                let function = self.function_index().checked_target_key(target)?;
+                let arguments = [CallArgument { name: None, splice: false, source: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: item_type.clone(), span, lowered: Some(item) }];
+                let arguments = self.lower_checked_function_arguments(callee, &arguments, function, slots, Some(current_function), None, SchemeType::closed_ground_type)?;
+                self.record_scheme_call_argument_checks(&arguments, lowered_types);
+                let value = self.lower_checked_function_call_values(function, arguments, span, Some(current_function))?;
+                if let Some(instantiation) = self.checked_invocation(&crate::sema::schemes::InstantiationSite::call(callee)).cloned() {
+                    let result_type = result.closed_ground_type().map(|ty| self.canonicalize_checked_type(ty));
+                    let mut scratch = self.scratch.borrow_mut();
+                    if !scratch.record_call_instantiation(value, instantiation)
+                        || result_type.is_some_and(|ty| !scratch.record_checked_call_result_type(value, ty))
+                    { return None; }
+                }
+                value
+            } else if let Some(plan) = facts.registered_calls().get(&callee).cloned() {
+                if plan.receiver.is_some() { return None; }
+                let [argument_slot] = plan.argument_slots.as_ref() else { return None; };
+                let mut body = Vec::new();
+                let item = match plan.argument_checks.get(*argument_slot).and_then(Option::as_ref) {
+                    Some(check) => self.lower_scheme_registered_argument(item, check, span, slots, lowered_types, &mut body),
+                    None => item,
+                };
+                let mut args = vec![None; plan.signature.params.len()];
+                *args.get_mut(*argument_slot)? = Some(item);
+                while args.last() == Some(&None) { args.pop(); }
+                let value = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.signature.op, args, span });
+                self.scratch.borrow_mut().registered_calls[value.index()] = Some(plan);
+                lowered_types.insert(value, result.clone());
+                if body.is_empty() { value } else {
+                    body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                    push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span })
+                }
+            } else { return None; };
+            lowered_types.insert(value, result);
+            Some((slot, value))
+        })();
+        slots.exit(saved);
+        callback
+    }
+
     pub(super) fn fuse_par_map_flat_map_reduce_by(&self, stages: &mut Vec<LoweredPipelineStage>) {
         let mut fused = Vec::with_capacity(stages.len());
         let mut index = 0;

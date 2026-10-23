@@ -445,10 +445,24 @@ impl Checker {
             }
         };
         let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() || !generalized.requirements.effect_parameters.is_empty();
+        let named_stage_callbacks = body_types.keys().filter_map(|&expression| match program.arena.expr(expression).kind {
+            crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => Some(stages),
+            _ => None,
+        }).flat_map(|stages| program.arena.stream_stages(stages)).filter_map(|stage| {
+            let entry = self.argument_bindings.get(&program.arena.span(stage.span))?.callable_entry?;
+            match program.arena.call_args(stage.args).get(entry)?.kind {
+                crate::syntax::arena::ArenaCallArgKind::Positional(callee) | crate::syntax::arena::ArenaCallArgKind::Named { value: callee, .. } => Some(callee),
+                _ => None,
+            }
+        }).collect::<std::collections::BTreeSet<_>>();
         let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
             let span = program.arena.expr(expression).span;
             let call = self.api_calls.get(&span)?;
-            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None };
+            let callee = match program.arena.expr(expression).kind {
+                crate::syntax::arena::ArenaExprKind::Call { callee, .. } => callee,
+                _ if named_stage_callbacks.contains(&expression) => expression,
+                _ => return None,
+            };
             let name = match program.arena.expr(callee).kind {
                 crate::syntax::arena::ArenaExprKind::Field { name, .. }
                 | crate::syntax::arena::ArenaExprKind::NullSafeField { name, .. }
@@ -484,7 +498,7 @@ impl Checker {
                 })
                 .collect::<super::FxHashSet<_>>();
             let mut checked_operations = generalized_body_types.keys().filter_map(|&expression| {
-                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) { return None; }
+                if !matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) && !named_stage_callbacks.contains(&expression) { return None; }
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);

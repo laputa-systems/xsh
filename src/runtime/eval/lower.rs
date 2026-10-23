@@ -4819,9 +4819,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else { list }
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
+                let mut item_type = Self::scheme_pipeline_item(facts.expression_types().get(&input)?, facts)?;
                 let input = self.lower_scheme_lazy_expression(input, slots, current_function, facts, visited, lowered_types)?;
                 let mut lowered_stages = Vec::new();
                 for stage in self.program.arena.stream_stages(stages).to_vec() {
+                    if matches!(stage.kind, StreamStageKind::Map | StreamStageKind::Where | StreamStageKind::FlatMap | StreamStageKind::Any | StreamStageKind::All) {
+                        let (slot, value) = self.lower_scheme_pipeline_callback(&stage, &item_type, slots, current_function, facts, visited, lowered_types)?;
+                        let result = lowered_types.get(&value)?.clone();
+                        let lowered = match stage.kind {
+                            StreamStageKind::Map => { item_type = result; LoweredPipelineStage::Map { slot, value } }
+                            StreamStageKind::FlatMap => { item_type = Self::scheme_pipeline_item(&result, facts)?; LoweredPipelineStage::FlatMap { slot, value } }
+                            StreamStageKind::Where => LoweredPipelineStage::Where { slot, predicate: value },
+                            StreamStageKind::Any => LoweredPipelineStage::Any { slot, predicate: value },
+                            StreamStageKind::All => LoweredPipelineStage::All { slot, predicate: value },
+                            _ => unreachable!(),
+                        };
+                        lowered_stages.push(lowered);
+                        continue;
+                    }
                     if stage.block.is_some() { return self.block_scheme_lowering_expr(expression); }
                     let mut configuration = Vec::new();
                     let arguments = self.lower_scheme_call_arguments(expression, stage.args, None, slots, current_function, facts, visited, lowered_types, &mut configuration)?;
@@ -4836,7 +4851,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             if stage.kind == StreamStageKind::Drop { LoweredPipelineStage::Drop(value) } else { LoweredPipelineStage::Take(value) }
                         }
                         StreamStageKind::Enumerate | StreamStageKind::Collect | StreamStageKind::Count | StreamStageKind::First | StreamStageKind::Last if arguments.is_empty() => match stage.kind {
-                            StreamStageKind::Enumerate => LoweredPipelineStage::Enumerate,
+                            StreamStageKind::Enumerate => {
+                                item_type = SchemeType::Record { fields: BTreeMap::from([(Name::intern("index"), SchemeType::Ground(Type::Int)), (Name::intern("value"), item_type)]), tail: crate::sema::schemes::SchemeRowTail::Closed };
+                                LoweredPipelineStage::Enumerate
+                            }
                             StreamStageKind::Collect => LoweredPipelineStage::Collect,
                             StreamStageKind::Count => LoweredPipelineStage::Count,
                             StreamStageKind::First => LoweredPipelineStage::First,
