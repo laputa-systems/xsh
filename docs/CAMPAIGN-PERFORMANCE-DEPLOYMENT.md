@@ -15,7 +15,7 @@ campaign. Pyramid execution waits for inference qualification and cleanup.
 The latest combined replay uses source `2da01f69b` and completes the full Rust library run:
 2,183 pass, one fails, and three remain ignored. Its log is
 `.work/wt/full-inference-producer-obligation-close/.work/tmp/joint-2da-full-library.log`.
-The sole failure is the known UInt-map error-contract control. The earlier
+The sole failure is the UInt-map error-contract control. The earlier
 `e80adaf31` run has four failures. All three other failures now pass on the
 combined source. These results do not qualify the compiler.
 
@@ -29,6 +29,16 @@ The `xsh` product is 42,098,456 bytes with SHA-256
 The `xsht` product is 50,484,864 bytes with SHA-256
 `a5b5c22a919a62a519470b37e1a38092a82e2949af6e88ba6530460d76923f48`.
 These are capability and API results, not full canonical or performance acceptance.
+
+UInt repair `8b4cfd5be` and follow-up `a433792b3` are integrated as `5e6778bce`
+and `c9f5abbc2`. The final focused group passes all fifteen controls, including
+the former library failure, stored-call captures, conditional Proc completion,
+and original completion-source mutations. Independent review is clear.
+Callee boundaries remain authoritative: caller capture cannot permit a Schema
+error under a Str contract. Local completion evidence retains actual producers
+and conditional operation references. The function-owned verifier rejects a
+TopLevel boundary; its source invariant is reviewed, without mutation coverage
+credit. Combined library and matching-product qualification remain open.
 
 The earlier failures are the UInt-map error-contract control, two cross-output
 scheme pointer assertions, and a lost callback argument relationship in a
@@ -76,6 +86,8 @@ check and proves each conditional record branch. Both new regressions and
 seven existing controls pass; independent review is clear. The original test
 module passes static preparation. Its new orchestration test still needs
 runtime qualification with matching repaired products.
+The orchestration test is now included as provisional test-only integration
+`f6642254c`; it has not yet executed with repaired products.
 
 Generic defer/assert and `error.fail` repair `17210eae3`, integrated as
 `facda4a85`, passes one focused regression with both execution routes.
