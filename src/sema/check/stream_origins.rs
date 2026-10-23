@@ -827,6 +827,66 @@ mod tests {
     }
 
     #[test]
+    fn selected_rest_callbacks_preserve_item_and_splice_projections() {
+        use crate::sema::check::Checker;
+        use crate::source::SourceId;
+        use crate::syntax::parser::Parser;
+
+        let source = r#"type Pair = {left: Stream[Int], right: Stream[Int]}
+pure rest_left(head: Pair, ...rows: List[Pair]) -> Stream[Int] { rows[0].left }
+pure rest_right(head: Pair, ...rows: List[Pair]) -> Stream[Int] { rows[0].right }
+pure select_items(first, second, head: Pair, left_row: Pair, right_row: Pair) {
+  second(head, left_row, right_row)
+}
+pure select_splice(first, second, head: Pair, rows: List[Pair]) {
+  second(head, @rows)
+}
+pure relay_items_left(head: Pair, left_row: Pair, right_row: Pair) -> Stream[Int] {
+  select_items(rest_right, rest_left, head, left_row, right_row)
+}
+pure relay_items_right(head: Pair, left_row: Pair, right_row: Pair) -> Stream[Int] {
+  select_items(rest_left, rest_right, head, left_row, right_row)
+}
+pure relay_splice_left(head: Pair, rows: List[Pair]) -> Stream[Int] {
+  select_splice(rest_right, rest_left, head, rows)
+}
+pure relay_splice_right(head: Pair, rows: List[Pair]) -> Stream[Int] {
+  select_splice(rest_left, rest_right, head, rows)
+}
+"#;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let checked = Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        for (relay, parameters, field, list_projection) in [
+            ("relay_items_left", vec![1, 2], "left", false),
+            ("relay_items_right", vec![1, 2], "right", false),
+            ("relay_splice_left", vec![1], "left", true),
+            ("relay_splice_right", vec![1], "right", true),
+        ] {
+            let declaration = checked.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str().as_str() == relay)
+                .expect("the forwarding declaration is checked");
+            let owner = super::EffectDeclarationId { namespace: None, body: declaration.body };
+            let mut projection = Vec::new();
+            if list_projection { projection.push(StreamProjection::Element); }
+            projection.push(StreamProjection::Field(crate::symbol::Name::intern(field)));
+            let expected = parameters.into_iter().map(|parameter| (
+                super::ProjectionPath::default(),
+                super::StreamOrigin::Formal {
+                    owner,
+                    parameter,
+                    projection: super::ProjectionPath(projection.clone()),
+                },
+            )).collect::<std::collections::BTreeSet<_>>();
+            let summary = &checked.stream_origin_summaries.declarations[&owner];
+            assert_eq!(summary.returned.0, expected, "{relay} preserves only its selected rest-item origins");
+        }
+    }
+
+    #[test]
     fn imported_typed_callback_arguments_keep_their_formal_stream_projection() {
         use crate::sema::check::module_driver::CheckSession;
         use crate::sema::check::CheckOptions;
@@ -1346,10 +1406,22 @@ impl Checker {
         if !cache.contains_key(&source.body.source_id) {
             let mut bindings = BTreeMap::new();
             for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
-                if !matches!(&arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
-                let span = arena.arena.expr(expression).span;
-                let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
-                bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
+                match &arena.arena.expr(expression).kind {
+                    crate::syntax::arena::ArenaExprKind::Ident(_) => {
+                        let span = arena.arena.expr(expression).span;
+                        let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
+                        bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
+                    }
+                    crate::syntax::arena::ArenaExprKind::Call { args, .. } => {
+                        for argument in arena.arena.call_args(*args) {
+                            let crate::syntax::arena::ArenaCallArgKind::Splice { value, span } = &argument.kind else { continue; };
+                            if !matches!(&arena.arena.expr(*value).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
+                            let Some(binding) = resolved_bindings.expressions.get(value).copied() else { continue; };
+                            bindings.entry(arena.arena.span(*span)).and_modify(|previous| *previous = None).or_insert(Some(binding));
+                        }
+                    }
+                    _ => {}
+                }
             }
             cache.insert(source.body.source_id, (resolved_bindings, std::sync::Arc::new(bindings)));
         }
@@ -1448,7 +1520,6 @@ impl Checker {
                 let parameters = arena.arena.params(definition.params);
                 if callback_summary.parameters.len() != parameters.len()
                     || layout.argument_slots.iter().any(|slot| *slot >= parameters.len())
-                    || parameters.iter().any(|parameter| parameter.rest)
                 { complete = false; break; }
                 let mut callback_actuals = BTreeMap::<usize, StreamOrigins>::new();
                 for (argument, &slot) in requirement.arguments.iter().zip(&layout.argument_slots) {
@@ -1459,7 +1530,12 @@ impl Checker {
                             source, argument.span, actuals, source_formal_bindings.as_ref(), &source_argument_bindings,
                         )
                     };
-                    let Some(origin) = origin else { complete = false; break; };
+                    let Some(mut origin) = origin else { complete = false; break; };
+                    if parameters[slot].rest
+                        && !matches!(argument.kind, crate::sema::arguments::StaticArgumentKind::Splice)
+                    {
+                        origin = origin.prefix(StreamProjection::Element)?;
+                    }
                     callback_actuals.entry(slot).or_default().join(&origin);
                 }
                 if !complete { break; }
