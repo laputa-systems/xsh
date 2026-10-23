@@ -11948,6 +11948,7 @@ impl<'a> FullDecoder<'a> {
                         &actual_type,
                         &ty,
                     )?
+                    || self.checked_imported_scheme_callable(instruction, &actual_type, &ty)?
                 {
                     return Ok(());
                 } else if let Type::Optional(payload) = &actual_type
@@ -23336,10 +23337,25 @@ assert observed_words == [Ok("row")]
     fn imported_generic_aliases_authenticate_typed_callable_sources() {
         run_with_large_stack(|| {
             let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(
-                "use model as models\ntype StringIdentity = pure(value: Str) -> Str\npure apply(callback: StringIdentity, value: Str) -> Str { callback(value) }\nlet generic = models.identity\nlet forwarded = generic\nlet stored: StringIdentity = forwarded\nassert stored(\"demo\") == \"demo\"\nassert apply(stored, \"callback\") == \"callback\"\n",
+                "use model as models\ntype StringIdentity = pure(value: Str) -> Str\npure apply(callback: StringIdentity, value: Str) -> Str { callback(value) }\nlet generic = models.identity\nlet forwarded = generic\nlet stored: StringIdentity = forwarded\nassert stored(\"demo\") == \"demo\"\nassert apply(stored, \"callback\") == \"callback\"\nlet spare = models.unused\nlet spare_forwarded = spare\nassert spare_forwarded(\"spare\") == \"spare\"\n",
             ));
             let _symbols = program.symbol_owner().enter();
             FullVerifier::verify(&program).unwrap();
+            let imported_fact = |name: &str| {
+                program.store.checked_expr_types.iter().find(|fact| {
+                    if program.store.tags[fact.instruction as usize] != FullTag::ExprParam { return false; }
+                    let Type::SchemeCallable(id) = program.store.semantic.to_type(fact.type_id).unwrap() else { return false; };
+                    let relationship = program.store.semantic.scheme_callable_index(id).unwrap();
+                    let target = program.store.scheme_callable_values[relationship as usize].canonical.index();
+                    program.store.string(program.store.functions[target].name).unwrap() == name
+                }).unwrap()
+            };
+            let identity = imported_fact("identity");
+            let unused = imported_fact("unused");
+            let mut wrong_export = (*program).clone();
+            wrong_export.store.checked_expr_types.iter_mut().find(|fact| fact.instruction == identity.instruction).unwrap().type_id = unused.type_id;
+            let failure = FullVerifier::verify(&wrong_export).unwrap_err();
+            assert!(failure.message.contains("checked expression fact disagrees with its structural producer"), "{failure:?}");
             for force_frames in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
