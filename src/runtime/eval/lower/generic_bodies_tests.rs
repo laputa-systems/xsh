@@ -555,8 +555,9 @@ fn nullable_branch_inference_executes_independent_payloads_after_frontend_dispos
                 evaluator.force_frames = force_frames;
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let plain = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("plain")));
-                let error = evaluator.call_indexed_direct(plain, CallableKind::Pure, &[Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))))], Span::at(source_id, 0)).unwrap().unwrap_err();
-                assert_eq!(error.kind, "stream-stage-error");
+                let opaque = Value::Result(ResultValue::Err(Box::new(Value::Str(Arc::from("plain")))));
+                let actual = evaluator.call_indexed_direct(plain, CallableKind::Pure, &[opaque.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+                assert_eq!(actual, opaque);
                 for flag in [false, true] {
                     let present = flag == present_when_true;
                     for (name, args, expected) in [

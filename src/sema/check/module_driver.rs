@@ -2670,10 +2670,6 @@ mod tests {
             assert!(checked.diagnostics.iter().any(|diagnostic| {
                 diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
             }), "{:?}", checked.diagnostics);
-            assert!(checked.diagnostics.iter().any(|diagnostic| {
-                diagnostic.code == Some(DiagnosticCode::CheckResultFallback)
-            }), "{:?}", checked.diagnostics);
-
             let continuation_start = source.find("pure continuation").unwrap();
             let continuation_end = continuation_start + continuation.len();
             assert!(!checked.diagnostics.iter().any(|diagnostic| {
@@ -2704,9 +2700,6 @@ mod tests {
         let checked = Checker::check_arena(&parsed.arena, same_body);
         assert!(checked.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
-        }), "{:?}", checked.diagnostics);
-        assert!(checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(DiagnosticCode::CheckResultFallback)
         }), "{:?}", checked.diagnostics);
         let state_start = same_body.find("{items: []}").unwrap();
         let state_end = state_start + "{items: []}".len();

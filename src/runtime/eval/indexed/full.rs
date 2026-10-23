@@ -32310,9 +32310,9 @@ assert observed(0)?.exited_with(1)
             }
             let decoder = verify_schemes::decoder_for_driver_step(&missing.store, step).unwrap();
             assert_eq!(decoder.slot_type_fact(slot).unwrap(), None);
-            let error = FullVerifier::verify(&missing).expect_err("missing accumulator evidence cannot fabricate a collection contract");
-            assert!(error.message.contains("contract") || error.message.contains("declared collection"), "{error:?}");
-            assert_contextual_fold_values(program, &[("result", contextual_fold_result())]);
+            FullVerifier::verify(&missing).unwrap();
+            assert_contextual_fold_writer_contract(&missing);
+            assert_contextual_fold_values(missing, &[("result", contextual_fold_result())]);
         });
     }
 

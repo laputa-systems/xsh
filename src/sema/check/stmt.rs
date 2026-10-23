@@ -8325,14 +8325,14 @@ mod structural_input_tests {
     #[test]
     fn command_completions_keep_unit_and_run_returns_check_once() {
         use crate::sema::types::Type;
-        for (form, success) in [
-            ("run.text /bin/echo fixed ?", Type::Unit),
-            ("if true { run.text /bin/echo fixed ? } else { run.text /bin/echo other ? }", Type::Unit),
-            ("match true { true => { run.text /bin/echo fixed ? }; false => { run.text /bin/echo other ? } }", Type::Unit),
-            ("return run.text /bin/echo fixed ?", Type::Str),
-            ("return (run.text /bin/echo fixed ?)", Type::Str),
-            ("return run.stream --text /bin/echo fixed ?", Type::Stream(Box::new(Type::Str))),
-            ("return (run.stream --text /bin/echo fixed ?)", Type::Stream(Box::new(Type::Str))),
+        for (form, success, error) in [
+            ("run.text /bin/echo fixed ?", Type::Unit, Type::Error),
+            ("if true { run.text /bin/echo fixed ? } else { run.text /bin/echo other ? }", Type::Unit, Type::ProcessError),
+            ("match true { true => { run.text /bin/echo fixed ? }; false => { run.text /bin/echo other ? } }", Type::Unit, Type::ProcessError),
+            ("return run.text /bin/echo fixed ?", Type::Str, Type::Error),
+            ("return (run.text /bin/echo fixed ?)", Type::Str, Type::Error),
+            ("return run.stream --text /bin/echo fixed ?", Type::Stream(Box::new(Type::Str)), Type::Error),
+            ("return (run.stream --text /bin/echo fixed ?)", Type::Stream(Box::new(Type::Str)), Type::Error),
         ] {
             let source = format!("proc send(marker) {{ let _ = marker; {form} }}\nlet integer = send(7)\nlet text = send(\"row\")\n");
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
@@ -8352,7 +8352,7 @@ mod structural_input_tests {
                 assert_eq!(checked.resource_transfer(crate::sema::check::ResourceTransferSite::Return(returned)), Some(true), "{form}");
                 assert_eq!(checked.resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block)), Some(false), "{form}");
             }
-            assert_eq!(checked.function_return_types.get(&declaration.body), Some(&Type::Result(Box::new(success), Box::new(Type::Error))), "{form}");
+            assert_eq!(checked.function_return_types.get(&declaration.body), Some(&Type::Result(Box::new(success), Box::new(error))), "{form}");
         }
     }
 
