@@ -11,7 +11,12 @@ on `campaign/full-inference-integration`. Pushing remains forbidden.
 The owner's 2026-10-23 closeout order retains inference qualification, local
 `master` integration and cleanup before Pyramid closes. The subsequent request
 expands independent Pyramid implementation now, alongside inference, using five
-expert lanes and one shared two-build limit. Pyramid qualification still waits
+expert lanes initially. The repeated acceleration request now widens this to
+seven expert lanes plus the coordinator, retaining the shared two-build and
+single-native limits. Independent checker repairs proceed while lowering owns
+their earlier prerequisites; ready reviews run alongside implementation.
+Approvals and next assignments use the follow-up operation that resumes idle
+lanes. Pyramid qualification still waits
 for the accepted inference source. Its isolated integration branch is
 `campaign/pyramid-integration`; no pushes are authorized.
 
