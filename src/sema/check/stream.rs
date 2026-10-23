@@ -90,7 +90,8 @@ impl Checker {
                 return Err(Type::Invalid);
             }
         };
-        if !ty.contains_inference() { return stream_type_from_input(ty); }
+        let source = match ty.unvalidated() { Type::Result(ok, _) => ok.unvalidated(), source => source };
+        if !matches!(source, Type::Inference(_)) { return stream_type_from_input(ty); }
         let item = self.type_constraints.fresh_at_level(span, self.wrapper_solver_level());
         let required = crate::sema::schemes::IterationRequirement {
             item: item.clone(),
@@ -1489,6 +1490,32 @@ mod pipeline_input_inference_tests {
     #[test]
     fn inferred_pipeline_input_preserves_collected_items() {
         accepts_collect("pure collect_values(values) { values |> collect }", "[1, 2]");
+    }
+
+    #[test]
+    fn known_typed_list_pipeline_source_preserves_record_items() {
+        let source = r#"pure shorthand(value: Int) -> List[Int] { [{payload: value}] |> map .payload }
+let integers: List[Int] = shorthand(7)
+assert integers == [7]
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
+    }
+
+    #[test]
+    fn known_list_pipeline_source_preserves_record_item_binders() {
+        let source = r#"pure shorthand(value) { [{payload: value}] |> map .payload }
+let integers: List[Int] = shorthand(7)
+let words: List[Str] = shorthand("kept")
+"#;
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_options(&parsed.arena, source, crate::sema::check::CheckOptions::for_execution());
+        let errors = checked.diagnostics.iter().filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{source}\n{errors:?}");
     }
 
     #[test]
