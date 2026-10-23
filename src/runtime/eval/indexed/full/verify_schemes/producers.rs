@@ -4194,7 +4194,22 @@ impl<'a> ProducerProof<'a> {
         }
         if let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
             && let Type::Callable(callable) = expected.as_ref()
-            && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+            && (self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
+                || {
+                    let source = match &decoder.producer_prefix {
+                        Some(prefix) => prefix.immutable_function_reference_source(&decoder, instruction)?,
+                        None => None,
+                    };
+                    match source {
+                        Some(super::super::ImmutableCallableSource::Instruction(source)) => {
+                            let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(source)? else {
+                                return Err(IrVerifyError::new("immutable callable source is not a function reference"));
+                            };
+                            matches!(decoder.function_reference_contract(function)?.1, super::super::FullCallableContract::Ground(_))
+                        }
+                        Some(super::super::ImmutableCallableSource::ImportedFunction(_)) | None => false,
+                    }
+                })
         {
             decoder.function_reference_matches_callable(instruction, &expected)?;
             self.slot(owner, instruction, slot, Arc::new(Type::Function(callable.kind)))?;

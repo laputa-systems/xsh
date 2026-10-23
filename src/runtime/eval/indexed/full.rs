@@ -43202,6 +43202,57 @@ assert text.value == "demo"
     }
 
     #[test]
+    fn grounded_callable_branch_values_keep_target_proofs_on_both_routes() {
+        run_with_large_stack(|| {
+            for flag in [true, false] {
+                for (first, second) in [("increment", "decrement"), ("decrement", "increment")] {
+                    let expected = if (if flag { first } else { second }) == "increment" { 4 } else { 2 };
+                    let source = format!(r#"
+type Text = pure(value: Str) -> Str
+pure increment(value: Int) -> Int {{ value + 1 }}
+pure decrement(value: Int) -> Int {{ value - 1 }}
+pure text(value: Str) -> Str {{ value }}
+let unrelated: Text = text
+let selected = if {flag} {{ let candidate = {first}; var spare: Pure = {first}; spare = {second}; candidate }} else {{ let candidate = {second}; candidate }}
+assert selected(value: 3) == {expected}
+assert unrelated("kept") == "kept"
+"#);
+                    let program = Arc::new(fixture("grounded-callable-branch-values.xsh", &source));
+                    FullVerifier::verify(&program).unwrap();
+                    let _symbols = program.symbol_owner().enter();
+                    let decoder = stage_view_decoder(&program.store);
+                    let references = program.store.tags.iter().enumerate().filter_map(|(instruction, tag)| {
+                        if *tag != FullTag::ExprFunctionRef { return None; }
+                        let schema::ExprView::FunctionRef { function, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+                        matches!(function, decode::FunctionNameView::Name(name) if name == Name::intern("increment")).then_some(instruction)
+                    }).collect::<Vec<_>>();
+                    let unrelated = program.store.checked_expr_types.iter().find(|fact| fact.function_ref().is_some_and(|(function, _)| function.as_name() == Some(Name::intern("text")))).copied().unwrap();
+                    let function = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "increment").unwrap();
+                    let text = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "text").unwrap();
+                    let mut wrong_signature = (*program).clone();
+                    wrong_signature.store.functions[function].contract = program.store.functions[text].contract;
+                    assert!(FullVerifier::verify(&wrong_signature).is_err());
+                    let mut wrong_target = (*program).clone();
+                    for reference in references { wrong_target.store.data[reference] = program.store.data[unrelated.instruction as usize]; }
+                    assert!(FullVerifier::verify(&wrong_target).is_err());
+                    let candidate = program.store.tags.iter().position(|tag| *tag == FullTag::StmtLet).unwrap();
+                    let slot = program.store.extra[program.store.data[candidate].range().start as usize];
+                    let assignment = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssign).unwrap();
+                    let mut mutable_source = (*program).clone();
+                    mutable_source.store.extra[program.store.data[assignment].range().start as usize] = slot;
+                    assert!(FullVerifier::verify(&mutable_source).is_err());
+                    for force_frames in [false, true] {
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                        evaluator.force_frames = force_frames;
+                        evaluator.indexed_program = Some(Arc::clone(&program));
+                        for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap(); }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
     fn checked_result_constructor_unsigned_context_requires_runtime_validation() {
         run_with_large_stack(|| {
             let program = fixture("checked-result-unsigned-context.xsh", "pure retained(marker, value: Result[UInt, Str]) -> Result[UInt, Str] { let _ = marker; value }\nlet wrapped: Result[UInt, Str] = Ok(1)\nlet selected = retained(true, wrapped)\n");

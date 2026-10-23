@@ -238,7 +238,8 @@ impl Checker {
         span: Span,
         expected: Option<&Type>,
     ) -> Option<Type> {
-        let target = expected_typed_callable(expected)?;
+        let target = expected_typed_callable(expected);
+        if target.is_none() && expected.is_some() { return None; }
         let binding = match self.lookup_value_binding_for_tail(name, statement) {
             super::ValueBindingLookup::Found(binding) => Some(binding),
             super::ValueBindingLookup::Missing => return None,
@@ -274,6 +275,11 @@ impl Checker {
                 Type::Function(kind),
                 Some(signature),
             )
+        };
+        let Some(target) = target else {
+            let named = named?;
+            if named.signature.scheme().callable().is_quantified() { return None; }
+            return Some(self.materialize_named_callable(named, span));
         };
         let fitted = self.fit_named_callable(named, &actual, target, span);
         if matches!(fitted, Type::Callable(_))
@@ -507,6 +513,45 @@ mod inferred_callable_tests {
     #[test]
     fn inferred_callable_positional_uses_preserve_independent_types_and_labels() {
         accepts("pure apply(action, value) { action(value) }\npure number(payload: Int) -> Int { payload }\npure text(input: Str) -> Str { input }\nlet number_result: Int = apply(number, 7)\nlet text_result: Str = apply(text, \"value\")\n");
+    }
+
+    #[test]
+    fn grounded_callable_branch_tails_preserve_the_selected_contract() {
+        for flag in [true, false] {
+            for (first, second) in [("increment", "decrement"), ("decrement", "increment")] {
+                accepts(&format!("pure increment(value: Int) -> Int {{ value + 1 }}\npure decrement(value: Int) -> Int {{ value - 1 }}\nlet selected = if {flag} {{ let candidate = {first}; candidate }} else {{ let candidate = {second}; candidate }}\nlet result: Int = selected(value: 3)\n"));
+            }
+        }
+    }
+
+    #[test]
+    fn grounded_callable_branch_tails_reject_incompatible_contracts() {
+        for (left, right, reversible) in [
+            ("pure left(value: Int) -> Int { value }", "pure right(value: Str) -> Str { value }", true),
+            ("pure left(value: Int) -> Int { value }", "pure right(other: Int) -> Int { other }", true),
+            ("pure left(value: Int = 1) -> Int { value }", "pure right(value: Int) -> Int { value }", false),
+            ("pure left(...value: List[Int]) -> Int { 1 }", "pure right(value: Int) -> Int { value }", true),
+            ("proc left(value: Int) [] -> Int { value }", "proc right(value: Int) [env] -> Int { let _ = env.get(\"XSH_CALLABLE_BRANCH\"); value }", false),
+        ] {
+            for reverse in [false, true].into_iter().filter(|reverse| !reverse || reversible) {
+                let (first, second) = if reverse { ("right", "left") } else { ("left", "right") };
+                let source = format!("{left}\n{right}\nlet selected = if true {{ let candidate = {first}; candidate }} else {{ let candidate = {second}; candidate }}\nlet invalid = selected(42)\n");
+                let output = checked(&source);
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCallableMismatch)), "{source}\n{:?}", output.diagnostics);
+                assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckUnresolvedCall)), "{source}\n{:?}", output.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn grounded_callable_branch_tails_do_not_authenticate_dynamic_values() {
+        for ty in ["Pure", "Any"] {
+            for declaration in ["let", "var"] {
+                let source = format!("pure increment(value: Int) -> Int {{ value + 1 }}\n{declaration} unchecked: {ty} = increment\nlet selected = if true {{ let candidate = increment; candidate }} else {{ let candidate = unchecked; candidate }}\nlet invalid = selected(3)\n");
+                let output = checked(&source);
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && matches!(diagnostic.code, Some(DiagnosticCode::CheckCallableMismatch | DiagnosticCode::CheckDynamicBoundary))), "{source}\n{:?}", output.diagnostics);
+            }
+        }
     }
 
     #[test]
